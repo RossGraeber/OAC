@@ -415,6 +415,14 @@ back on. The as-built description is the binding document in `transports/zenoh/s
 The "Scouting exposure beyond loopback in local mode" row of §9 is now closed by design
 rather than a residual.
 
+*Dated note, 2026-10-09 (refs #7): that test is now opt-in.* Its probe listens on the
+host's LAN address and scouts by multicast, which on Windows raises a firewall prompt for
+every rebuilt test executable. It runs with `OAC_TEST_LAN=1`, which
+`node scripts/local-ci.mjs --tier lan` sets, and prints SKIPPED in the default tier, whose
+listeners are now loopback only (`scripts/check-test-listeners.mjs`). This is a deliberate
+opt-in, not lost coverage: on Linux the default tier ran it inside the loopback-only
+sandbox, where it always skipped. Opted in, a host with no LAN address fails it.
+
 *Dated note, 2026-10-09 (#62; the lead's ruling on PR #364): the local-mode design above
 is ratified. That design is the fixed loopback rendezvous on port `17447`, scouting and
 gossip off, with the first transport as the in-process `router` and later transports as

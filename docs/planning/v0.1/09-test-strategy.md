@@ -143,7 +143,7 @@ side needs to go". Every workflow on a GitHub-hosted runner was deleted (`ci.yml
 above is its default run: before a PR is opened or merged it runs on Windows and in WSL,
 and each run's summary (git HEAD SHA, every step's result) is pasted into the PR; on Linux
 the test steps run inside `scripts/loopback-only.sh`, as on the old ubuntu image. The
-opt-in tiers run locally on demand (`--tier keystore|scale|mutation|g3-macos`). PR #330's
+opt-in tiers run locally on demand (`--tier keystore|scale|mutation|g3-macos|lan`). PR #330's
 candidate required-checks list no longer applies: no GitHub check exists to require.
 The port is frozen as data in `scripts/local-ci.ported.json`, which `--self-test` compares
 with the live plan; any diff to that file must be justified in its PR against the deleted
@@ -151,6 +151,23 @@ workflow YAML at `c8497d6` (`git show c8497d6:.github/workflows/<name>`) or a ne
 check. What
 the local run cannot reproduce is listed as lost coverage in this note's PR (the macOS legs
 without a Mac, and a hosted runner's clean image).
+
+*Dated note, 2026-10-09 (refs #7): every listener in the default tier binds loopback.*
+The Windows firewall does not filter `127.0.0.1` or `::1`, but it prompts for any program
+that listens on another address, and each cargo rebuild makes new test executables, so
+each rebuild prompted again. A test that listens beyond loopback on purpose is opt-in: it
+reads an `OAC_TEST_*` switch before it binds anything and prints SKIPPED without it, and a
+local-ci tier of the runner's own sets the switch for its child only (local-ci refuses an
+inherited one). The one such test is the Zenoh LAN probe
+(`transports/zenoh/tests/peer_transport.rs` `local_mode_reaches_nothing_beyond_loopback`,
+the evidence for C7 §5's local mode), run by `node scripts/local-ci.mjs --tier lan` with
+`OAC_TEST_LAN=1`. That is a **deliberate opt-in, not lost coverage**: on Linux the default
+tier ran it inside the loopback-only sandbox, where it always skipped; opted in, a host with
+no LAN address fails it. The `lan` tier has no row in `scripts/local-ci.ported.json`: no
+deleted workflow ran it as a tier of its own. The default-tier step `test-listeners`
+(`scripts/check-test-listeners.mjs`, with planted self-test cases) fails any non-loopback
+bind, unspecified address, non-loopback Zenoh locator, raw default Zenoh configuration or
+multicast in product or test code outside its stale-checked allowlists.
 
 ---
 

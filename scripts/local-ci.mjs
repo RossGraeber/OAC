@@ -17,6 +17,9 @@
 //        scale       full-scale bound tests, release build (#328; was scale-optin.yml)
 //        mutation    security-suite mutation check (#329; was security-mutation-optin.yml)
 //        g3-macos    the G3 Zenoh peer Mac leg (#219; was g3-macos-hosted.yml), macOS only
+//        lan         tests that listen beyond loopback on purpose (OAC_TEST_LAN=1); not in
+//                    any deleted workflow: they ran in the default tier until the default
+//                    became loopback-only (Windows firewall prompts; refs #7)
 //   node scripts/local-ci.mjs --list [--tier <name>]   # print the steps, run nothing
 //   node scripts/local-ci.mjs --only <id>[,<id>...]    # run only these steps (the summary
 //                                                      # says PARTIAL; not for a PR)
@@ -108,7 +111,10 @@ const repoRoot = resolve(dirname(scriptPath), '..');
 const BASH_BODIES = '.github/local-ci.sh';
 const PORTED_FILE = 'scripts/local-ci.ported.json';
 // Steps of this runner's own, with no counterpart in a deleted workflow.
-const LOCAL_ONLY = new Set(['local-ci-self-test', 'cargo-config', 'environment']);
+const LOCAL_ONLY = new Set(['local-ci-self-test', 'cargo-config', 'environment', 'test-listeners-self-test', 'test-listeners']);
+// Tiers of this runner's own, with no counterpart in a deleted workflow: none of their steps
+// has a row in the frozen port contract, and no ported row may name one (--self-test).
+export const LOCAL_TIERS = new Set(['lan']);
 const GUARDS = new Set(['cargo-config', 'environment']);
 const TOOLCHAIN = '1.98.1'; // rust-toolchain.toml; docs/planning/PINS.md
 
@@ -165,6 +171,9 @@ export const TIERS = {
     { id: 'herdr-containment-self-test', name: 'checks 9-10 self-test', cmd: ['node', 'scripts/check-herdr-containment.mjs', '--self-test'] },
     { id: 'herdr-containment', name: 'checks 9-10 herdr containment', cmd: ['node', 'scripts/check-herdr-containment.mjs'] },
     // boundary-lint.yml job `agents-skills-sync`
+    // this runner's own (refs #7): nothing the default tier runs listens beyond loopback
+    { id: 'test-listeners-self-test', name: 'loopback-only listeners self-test', cmd: ['node', 'scripts/check-test-listeners.mjs', '--self-test'] },
+    { id: 'test-listeners', name: 'loopback-only listeners (opt-in LAN tests excepted)', cmd: ['node', 'scripts/check-test-listeners.mjs'] },
     { id: 'skills', name: 'skill budgets', cmd: ['node', 'scripts/check-skills.mjs'] },
     { id: 'agents-skills-sync-self-test', name: 'Codex skills copy self-test', cmd: ['node', 'scripts/sync-agents-skills.mjs', '--self-test'] },
     { id: 'agents-skills-sync', name: 'Codex skills copy matches its source', cmd: ['node', 'scripts/sync-agents-skills.mjs', '--check'] },
@@ -244,6 +253,23 @@ export const TIERS = {
   ],
   // g3-macos-hosted.yml (#219)
   'g3-macos': [{ id: 'g3-macos', name: 'G3 Zenoh peer Mac leg (6 scenarios x 3, extras); results in <work>/g3-out', bash: 'g3-macos', os: ['darwin'], osReason: 'macOS only: sw_vers, lo0, sysctl; no Mac here (lost coverage)', notRunElsewhere: true, needs: ['python3', 'openssl'] }],
+  // Tests that listen beyond loopback on purpose (scripts/check-test-listeners.mjs OPT_IN).
+  // The default tier binds loopback only, so its runs raise no Windows firewall prompt; these
+  // run here, with OAC_TEST_LAN=1 set for this child only. Not sandboxed: they need a LAN
+  // interface. In the default tier the same tests print SKIPPED and pass.
+  lan: [
+    toolchain,
+    cargoConfig,
+    environment,
+    fetch,
+    {
+      id: 'lan-zenoh-local-mode',
+      name: 'Zenoh local mode reaches nothing beyond loopback (a LAN probe listens and scouts; PR #364 finding 1)',
+      cmd: ['cargo', 'test', '-p', 'oac-transport-zenoh', '--locked', '--test', 'peer_transport', 'local_mode_reaches_nothing_beyond_loopback', '--', '--exact', '--nocapture'],
+      env: { OAC_TEST_LAN: '1' },
+      offline: true,
+    },
+  ],
 };
 
 // The repository paths each step depends on, by step id: a change under none of them cannot
@@ -278,6 +304,8 @@ export const PATHS = {
   workflows: ['.github/', 'scripts/check-workflows.mjs'],
   'herdr-containment-self-test': ['scripts/check-herdr-containment.mjs'],
   'herdr-containment': [...PRODUCT, 'tools/herdr/', 'tests/integration/', '.github/workflows/', '.gitmodules', '**/Cargo.toml', '**/Cargo.lock', '**/package.json', '**/package-lock.json', 'scripts/check-herdr-containment.mjs'],
+  'test-listeners-self-test': ['scripts/check-test-listeners.mjs'],
+  'test-listeners': ['core/', 'cli/', 'adapters/', 'transports/', 'tests/', 'tools/', 'scripts/'],
   skills: ['.claude/skills/', 'CLAUDE.md', 'scripts/check-skills.mjs'],
   'agents-skills-sync-self-test': ['scripts/sync-agents-skills.mjs'],
   'agents-skills-sync': ['.claude/skills/', 'CLAUDE.md', '.agents/', 'AGENTS.md', 'scripts/sync-agents-skills.mjs'],
@@ -299,6 +327,7 @@ export const PATHS = {
   'scale-full': ['core/', 'Cargo.toml', 'Cargo.lock'],
   'mutation-check': ['core/', 'tests/security/', 'Cargo.toml', 'Cargo.lock'],
   'g3-macos': ['docs/planning/gates/fixtures/g3-zenoh-peer/', '.github/local-ci.sh'],
+  'lan-zenoh-local-mode': ['transports/zenoh/', 'core/', 'Cargo.toml', 'Cargo.lock'],
 };
 for (const steps of Object.values(TIERS)) for (const s of steps) s.paths = PATHS[s.id];
 
@@ -325,7 +354,7 @@ export function loadPorted(text = readFileSync(join(repoRoot, PORTED_FILE), 'utf
   return JSON.parse(text);
 }
 // Violations of the frozen contract by `tiers`, both ways, plus the table's own count and hash.
-export function portViolations(tiers, ported) {
+export function portViolations(tiers, ported, localTiers = LOCAL_TIERS) {
   const v = [];
   const rows = Array.isArray(ported?.rows) ? ported.rows : [];
   if (ported?.count !== rows.length) v.push(`${PORTED_FILE}: count ${ported?.count} but ${rows.length} rows`);
@@ -334,6 +363,7 @@ export function portViolations(tiers, ported) {
   for (const r of rows) {
     const key = `${r.tier}/${r.id}`;
     if (seen.has(key)) v.push(`${key}: two rows`);
+    if (localTiers.has(r.tier)) v.push(`${key}: a row for a tier of this runner's own (LOCAL_TIERS), which no deleted workflow had`);
     seen.add(key);
     const step = tiers[r.tier]?.find((s) => s.id === r.id);
     if (!step) {
@@ -345,8 +375,11 @@ export function portViolations(tiers, ported) {
     for (const k of Object.keys(want)) if (canon(want[k]) !== canon(got[k])) v.push(`${key} (${r.from}): ${k} is ${canon(got[k])}, the contract says ${canon(want[k])}`);
   }
   for (const [tier, steps] of Object.entries(tiers)) {
+    if (localTiers.has(tier)) continue;
     for (const s of steps) if (!LOCAL_ONLY.has(s.id) && !seen.has(`${tier}/${s.id}`)) v.push(`${tier}/${s.id}: a step with no row in ${PORTED_FILE}`);
   }
+  // A tier of this runner's own is never the default (a ported tier is caught by its rows).
+  if (localTiers.has('default')) v.push('default: LOCAL_TIERS names the default tier');
   return v;
 }
 
@@ -813,6 +846,16 @@ function selfTest() {
       t.default = t.default.filter((s) => s.id !== 'crate-deps-adapters-alone');
       return portViolations(t, ported).some((x) => x.includes('crate-deps-adapters-alone') && x.includes('dropped'));
     })());
+    // Tiers of this runner's own (LOCAL_TIERS) carry no rows; a ported tier can't become one.
+    check(`contract: the runner's own tiers (${[...LOCAL_TIERS].join(', ')}) have no ported rows and are not the default`, !LOCAL_TIERS.has('default') && !(ported.rows ?? []).some((r) => LOCAL_TIERS.has(r.tier)) && [...LOCAL_TIERS].every((t) => TIERS[t]));
+    check('contract: planted "mark a ported tier (keystore) as the runner\'s own" is caught', portViolations(TIERS, ported, new Set([...LOCAL_TIERS, 'keystore'])).some((x) => x.startsWith('keystore/')));
+    check('contract: planted "mark the default tier as the runner\'s own" is caught', portViolations(TIERS, ported, new Set([...LOCAL_TIERS, 'default'])).length > 0);
+    check('contract: planted "move cargo test from the default tier to the lan tier" is caught', (() => {
+      const t = structuredClone(TIERS);
+      t.lan.push(t.default.find((s) => s.id === 'cargo-test'));
+      t.default = t.default.filter((s) => s.id !== 'cargo-test');
+      return portViolations(t, ported).some((x) => x.startsWith('default/cargo-test') && x.includes('dropped'));
+    })());
   }
   for (const [tier, steps] of Object.entries(TIERS)) {
     const ids = steps.map((s) => s.id);
@@ -889,6 +932,8 @@ function selfTest() {
   check('policy: CARGO_PATCH* in a step env is caught (W6)', plant({ id: 'x', cmd: ['node', 'x.mjs'], env: { cargo_patch_crates_io_tokio_path: 'x' } }));
   check('policy: --configure is not a cargo --config (control)', policy([...TIERS.default, { id: 'x', cmd: ['node', 'x.mjs', '--configure-only'] }]).length === 0);
   check('policy: it is held to the default tier only (the keystore tier, an opt-in, would fail it)', policy(TIERS.keystore).some((x) => x.includes('D2')));
+  check('policy: the lan tier is an opt-in (its OAC_TEST_LAN would fail the default-tier policy)', policy(TIERS.lan).some((x) => x.includes('D2')));
+  check('policy: an OAC_TEST_LAN step planted in the default tier is caught', plant({ ...TIERS.lan.at(-1), id: 'x' }));
 
   // 5. planted boundary-lint checks in throwaway git trees
   const bash = findBash();
@@ -1062,7 +1107,7 @@ function selfTest() {
   {
     const base = { PATH: '/bin', HOME: '/h' };
     check('environment: a clean environment passes', envVerdict(base, false).status === 'PASS');
-    for (const k of ['OAC_HERDR_SELFTEST_UNIT_ONLY', 'OAC_HERDR_SELFTEST_ONLY', 'OAC_TEST_REAL_KEYRING', 'oac_test_x']) {
+    for (const k of ['OAC_HERDR_SELFTEST_UNIT_ONLY', 'OAC_HERDR_SELFTEST_ONLY', 'OAC_TEST_REAL_KEYRING', 'OAC_TEST_LAN', 'oac_test_x']) {
       check(`environment: inherited ${k} fails, --allow-env or not`, envVerdict({ ...base, [k]: '1' }, false).status === 'FAIL' && envVerdict({ ...base, [k]: '1' }, true).status === 'FAIL');
     }
     for (const k of ['NODE_OPTIONS', 'RUSTFLAGS', 'CARGO_ENCODED_RUSTFLAGS', 'RUSTDOCFLAGS', 'RUSTC_WRAPPER', 'RUSTC_WORKSPACE_WRAPPER', 'CARGO_BUILD_TARGET', 'CARGO_TARGET_DIR', 'CARGO_PROFILE_DEV_OPT_LEVEL', 'CARGO_SOURCE_CRATES_IO_REPLACE_WITH', 'CARGO_PATCH_X']) {
@@ -1090,7 +1135,13 @@ function selfTest() {
     check('environment: --quick sets its herdr switch for that child only', childEnv(base, quick.env).OAC_HERDR_SELFTEST_UNIT_ONLY === '1' && !('OAC_HERDR_SELFTEST_UNIT_ONLY' in childEnv(base, plan('default', { platform: 'linux', quick: true, work: '/w' }).find((a) => a.step.id === 'cargo-test').env)));
     const ks = plan('keystore', { platform: 'win32', work: '/w' }).find((a) => a.step.id === 'keystore-os-store');
     check("environment: the keystore tier's own OAC_TEST_REAL_KEYRING reaches its child", childEnv({ ...base, OAC_TEST_REAL_KEYRING: '0' }, ks.env).OAC_TEST_REAL_KEYRING === '1');
-    check('environment: every tier that builds runs the environment and cargo-config steps first', ['default', 'keystore', 'scale', 'mutation'].every((t) => JSON.stringify(TIERS[t].slice(0, 3).map((s) => s.id)) === '["toolchain","cargo-config","environment"]'));
+    for (const platform of ['linux', 'win32', 'darwin']) {
+      const lan = plan('lan', { platform, work: '/w' });
+      const step = lan.find((a) => a.step.id === 'lan-zenoh-local-mode');
+      check(`environment: the lan tier on ${platform} sets OAC_TEST_LAN=1 for its test child only, outside the loopback wrapper`, childEnv({ ...base, OAC_TEST_LAN: '0' }, step.env).OAC_TEST_LAN === '1' && step.argv[0] === 'cargo' && lan.filter((a) => a !== step).every((a) => !('OAC_TEST_LAN' in (a.env ?? {}))));
+    }
+    check('environment: no default-tier step sets OAC_TEST_LAN, full or --quick', [false, true].every((quick) => plan('default', { platform: 'win32', quick, work: '/w' }).every((a) => !('OAC_TEST_LAN' in (a.env ?? {})))));
+    check('environment: every tier that builds runs the environment and cargo-config steps first', ['default', 'keystore', 'scale', 'mutation', 'lan'].every((t) => JSON.stringify(TIERS[t].slice(0, 3).map((s) => s.id)) === '["toolchain","cargo-config","environment"]'));
   }
 
   console.log(`\nlocal-ci self-test: ${failed ? `${failed} FAILED` : 'all passed'}`);
@@ -1101,7 +1152,7 @@ function selfTest() {
 
 function usage(msg) {
   if (msg) console.error(`local-ci: ${msg}`);
-  console.error('usage: node scripts/local-ci.mjs [--quick] [--allow-cargo-config] [--allow-env] [--tier default|keystore|scale|mutation|g3-macos] [--only id,...] [--list] | --self-test');
+  console.error('usage: node scripts/local-ci.mjs [--quick] [--allow-cargo-config] [--allow-env] [--tier default|keystore|scale|mutation|g3-macos|lan] [--only id,...] [--list] | --self-test');
   process.exit(2);
 }
 
