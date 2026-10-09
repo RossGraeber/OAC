@@ -45,6 +45,11 @@
 //       included, and so is any index (`x[..]`): a value reaches a script through `env:`
 //       and a shell variable (`"$X"`), never pasted in. Step outputs are refused rather
 //       than tracked for taint.
+//   W6  no cargo source override (PR #352 third review finding 3): no `--config` flag, no
+//       `CARGO_HOME`, and no `CARGO_SOURCE_*` or `CARGO_PATCH*` variable, outside a comment.
+//       The dependency checks (scripts/check-crate-deps.mjs, the adapter contract suite)
+//       trust CI's cargo command lines and environment; any of these can swap a crate's
+//       source behind them, so adding one is a reviewed change to this rule.
 // Default-tier workflows (any trigger other than workflow_dispatch: a `schedule` runs
 // unattended, with no opt-in, so it is the default tier too, oac-testing section 2; the
 // herdr opt-in workflow is the exception, with its own stricter rules in
@@ -64,7 +69,7 @@
 //       NODE_OPTIONS or LOOPBACK_ONLY to $GITHUB_ENV (ci.yml itself sets LOOPBACK_ONLY so);
 //   D3  no harness CLI install (the Claude Code or Codex npm packages, `codex`/`claude`
 //       installers).
-// Opt-in workflows (workflow_dispatch only) may use D1-D3; W0-W5 still hold.
+// Opt-in workflows (workflow_dispatch only) may use D1-D3; W0-W6 still hold.
 //
 // Two readers, both failing closed. The structural one parses the YAML into mappings,
 // sequences and scalars for W0-W3, the `if:` part of W4 and W5; a workflow whose `on:` or
@@ -94,6 +99,14 @@ const OPT_IN_TRIGGERS = new Set(['workflow_dispatch']);
 
 const SHA_PIN = /^[\w.-]+\/[\w.-]+(?:\/[\w./-]+)?@[0-9a-f]{40}$/;
 const CREDENTIAL = /ANTHROPIC_API_KEY|ANTHROPIC_AUTH_TOKEN|CLAUDE_CODE_OAUTH_TOKEN|OPENAI_API_KEY|CODEX_API_KEY|OPENAI_ORG|\bGITHUB_TOKEN\b|\bauth\.json\b|\.credentials\.json/i;
+// W6 (PR #352 third review finding 3): what the dependency checks trust. A cargo `--config`
+// flag, a redirected CARGO_HOME, or a CARGO_SOURCE_* / CARGO_PATCH* variable can swap a
+// crate's source outside every manifest and tracked cargo configuration file.
+const CARGO_OVERRIDE = [
+  { re: /(?:^|[^\w-])--config\b/, msg: 'cargo --config flag' },
+  { re: /\bCARGO_HOME\b/i, msg: 'CARGO_HOME set or read' },
+  { re: /\bCARGO_(?:SOURCE|PATCH)\w*/i, msg: 'CARGO_SOURCE_* or CARGO_PATCH* variable' },
+];
 const EXPRESSION_RULES = [
   { re: /\bsecrets\b/i, msg: 'secrets context in an expression' },
   { re: /\bgithub\s*\.\s*token\b/i, msg: 'github.token in an expression' },
@@ -697,6 +710,8 @@ function commonRules(text, defaultTier, hit) {
   scan.forEach((l, i) => {
     if (SECRETS_INHERIT.test(l)) hit('W4', i + 1, 'secrets: inherit');
     if (CREDENTIAL.test(l)) hit('W4', i + 1, 'provider or harness credential name');
+    const w6 = CARGO_OVERRIDE.find((r) => r.re.test(l));
+    if (w6) hit('W6', i + 1, `${w6.msg}: the dependency checks trust CI's cargo command lines and environment (G-7 section 5); this needs a reviewed rule change, not a workflow edit`);
   });
 
   if (defaultTier) {
@@ -1002,6 +1017,15 @@ const CASES = [
   ['W5 event text in a step shell: (N-c)', 'x.yml', withStep('      - shell: bash -c "${{ github.event.issue.title }} {0}"\n        run: true'), ['W5']],
   ['W5 event text in defaults.run.shell (N-c)', 'x.yml', GOOD.replace('jobs:\n  test:\n', 'defaults:\n  run:\n    shell: "${{ github.head_ref }} {0}"\njobs:\n  test:\n'), ['W5']],
   ['control: allowlisted expressions in run:', 'x.yml', withStep("      - run: |\n          echo \"${{ runner.os }} ${{ runner.temp }} ${{ github.sha }} ${{ github.run_id }}\"\n          echo \"${{ steps.s.outcome == 'success' && 'yes' || 'no' }} ${{ format('{0}-x', runner.os) }}\"\n          echo \"${{ hashFiles('Cargo.lock') }} ${{ 3 }} ${{ true }} ${{ 'it''s env.X, a string' }}\""), []],
+  // PR #352 third review finding 3: W6, cargo source overrides in CI.
+  ['W6 cargo --config source replacement in run:', 'x.yml', GOOD.replace('cargo test --workspace #', "cargo --config 'source.crates-io.replace-with=\"v\"' test --workspace #"), ['W6']],
+  ['W6 --config= form in a run: block', 'x.yml', GOOD.replace('          echo done', '          cargo test --config=patch.crates-io.tokio.path=\\"x\\"'), ['W6']],
+  ['W6 CARGO_HOME in a job env:', 'x.yml', withJob('    env:\n      CARGO_HOME: ${{ github.workspace }}/h'), ['W6']],
+  ['W6 CARGO_HOME exported in a script', 'x.yml', GOOD.replace('          echo done', '          export CARGO_HOME="$PWD/h"'), ['W6']],
+  ['W6 CARGO_SOURCE_* in a step env:', 'x.yml', withStep('      - env:\n          CARGO_SOURCE_CRATES_IO_REPLACE_WITH: v\n        run: true'), ['W6']],
+  ['W6 CARGO_PATCH* in a step env: (lower case)', 'x.yml', withStep('      - env:\n          cargo_patch_crates_io_tokio_path: x\n        run: true'), ['W6']],
+  ['W6 CARGO_HOME inside a local action', 'x.yml', withStep('      - uses: ./.github/actions/setup'), ['W6'], { './.github/actions/setup': `${ACTION_GOOD}    - shell: bash\n      run: echo "CARGO_HOME=/tmp/h" >> "$GITHUB_ENV"\n` }],
+  ['control: --configure and a comment naming CARGO_HOME are not W6', 'x.yml', GOOD.replace('          echo done', '          ./x --configure-only').replace('# Default tier.', '# Default tier; CARGO_HOME is never set.'), []],
   ['control: matrix.* through env: and a plain shell:', 'x.yml', withStep('      - shell: bash\n        env:\n          OS: ${{ matrix.os }}\n        run: echo "$OS"'), []],
   ['W0 an anchor after a tag', 'x.yml', withStep('      - env:\n          T: !!str &t echo hi\n        run: true'), ['W0']],
   // PR #336 review B4: anchors, aliases and merge keys are refused (W0).

@@ -71,6 +71,53 @@ pin, dependency, static-scan rule or ADR text changes.
 - **Gate S4 criterion 1.** The suite is strengthened before any real adapter runs it, as
   #347 was. Baseline candidate for `tests/protocol/contract/`: commit `7dce5ea`.)
 
+**Last updated:** 2026-10-08 (**Issue #7: the Stage 4 dependency decisions, recorded before
+any adapter code** (Refs #7, #59, #69). The lead's decisions in chat of 2026-10-08 are in
+`docs/planning/decisions/G-7-stage4-dependencies.md`, in force from the lead's merge of this
+PR, which is the approval. No `spec/` file, gate verdict or ADR text changes. Four pin rows
+are added (`tokio`, `rcgen`, `windows-sys`, `libc`; gates affected: none); no pin moves.
+
+- **Pins and licences.** `zenoh =1.10.1` (default features off; `transport_tcp`,
+  `transport_tls`; no `unstable`, no shared memory), `tokio =1.53.2`, `rcgen =0.14.10` (ring
+  backend), `rmcp =3.4.0` (`server`, `transport-async-rw`; no `macros`), `windows-sys
+  =0.61.2`, `libc =0.2.190`. Recorded, not yet in any manifest (G1 #62 onward adds them).
+  Their resolved graph is 311 third-party packages, all accepted (record §3.3 and appendix).
+  `rmcp` stays at its pin `3.4.0`, not `3.5.1`: moving that row would revert G1 and G4 under
+  the PINS.md pin-move checklist (record §3.1).
+- **Licence policy** (lead clarification, 2026-10-08). Permissive: the list plus Zlib, ISC,
+  BSD-2-Clause, CDLA-Permissive-2.0 (ring's `Apache-2.0 AND ISC` passes). Weak, file-level
+  copyleft as an unmodified dependency: MPL-2.0, LGPL, EPL-2.0 (`option-ext` 0.2.0 under
+  zenoh is MPL-2.0); LGPL relink obligations go to I3 (#79). Strong copyleft (GPL, AGPL,
+  SSPL, OSL) is refused. `scripts/check-licenses.mjs` and 07 §5.
+- **No Codex crate.** At `rust-v0.161.0` every `codex-app-server-*` crate reaches a model
+  API client (`codex-api`), a keyring store (`codex-keyring-store`) or the rollouts
+  (`codex-rollout`), so ADR-001 refuses them, and "adapters may use upstream libraries"
+  applies to `rmcp` only. `scripts/check-crate-deps.mjs` rule 6 refuses the whole `codex-`
+  family, and `rmcp-macros`, anywhere in the graph, transitively, `core/` and `cli/`
+  included; the adapter scan refuses them under every dependency kind, in its own
+  `[features]` and in its resolved graph; planted breaches in both (PR #352 review finding
+  4). D5 is live: the app-server
+  JSON schema at `rust-v0.161.0` is vendored at `docs/planning/vendor/codex-app-server-protocol/`
+  (Apache-2.0, upstream tree hash matched).
+- **Contract suite, pre-adapter** (record §5, §6). `VETTED_DEPENDENCIES` is now `oac-core`,
+  `oac-mcp-tools`, `rmcp` and `tokio`, each vetted by identity, pin and features, on the
+  dependency line, in the adapter's own `[features]` table and in the resolved package (a
+  `[patch]` of a vetted crate is refused); CI's `crate-deps` job runs
+  `check-crate-deps.mjs --adapters-alone`, so no feature another member turns on reaches an
+  adapter's build (PR #352 review findings 1-3). **The head of this PR is a Gate S4
+  criterion 1 baseline candidate for `tests/protocol/contract/`:** it contains #347's
+  parallel pre-adapter change (PR #348, merged as `d28237a`, candidate `ba9cf83` in the entry
+  below). #351 (PR #355) is another open pre-adapter suite change; whichever of the two
+  merges last sets the baseline (record §6, review finding 9).
+- **Shared crate.** `adapters/mcp-tools/` (`oac-mcp-tools`), the tool surface both adapters
+  share ([MCPB-TOOL-003]); its own module kind; skeleton only.
+- **Containment check 12** no longer scans `Cargo.lock` (lead decision); rule 4 of
+  `check-crate-deps.mjs` keeps the zenoh crates in `transports/zenoh/`, for G1 (#62).
+- **D3 / D8** (recommendations, for G9 #70 and G6 #67 to confirm): `tokio`'s named pipes and
+  Unix sockets with peer PID from `peer_cred()` and `GetNamedPipeClientProcessId`; `cli/`
+  opens the Codex control-socket stream and the adapter does the upgrade and the
+  hand-written RFC 6455 framing. Decision 4 (the G8 reply pairing) is PR #350 (merged).)
+
 **Last updated:** 2026-10-08 (**Issue #69: a Codex reply pairing, proposed as a minor
 revision of the frozen specifications for the lead's approval** (Refs #7, #73). The lead
 decided on 2026-10-08 to design a pairing so that Codex can send. Nothing is in force until
@@ -2299,6 +2346,13 @@ Confirmed. Detailed record, sources, and constraint floors: `docs/planning/PINS.
     `references/scripted-runs.md`.
   - The Claude results of 2026-09-27 stand.
   - Full record: `docs/planning/decisions/C13-codex-provenance-framing.md`.
+- **G-7 — Stage 4 dependency decisions** (issue #7, Epic G): **decided by the lead**
+  (chat, 2026-10-08; in force from the lead's merge of its PR). Pins for `zenoh`, `tokio`,
+  `rcgen`, `rmcp`, `windows-sys`, `libc`; the licence policy (permissive plus weak
+  file-level copyleft; strong copyleft refused); no Codex crate (ADR-001); `rmcp` and
+  `tokio` vetted for adapters; the shared `adapters/mcp-tools/` crate; check 12 without
+  `Cargo.lock`; D3, D5, D8. Full record:
+  `docs/planning/decisions/G-7-stage4-dependencies.md`.
 
 ## Open conflicts (oac-evidence §6)
 

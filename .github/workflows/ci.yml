@@ -14,7 +14,11 @@
 #                      the fake Codex app-server self-test (tests/fakes/codex-app-server/,
 #                        F9 #58), including its stdio and loopback WebSocket transports.
 #   crate-deps (<os>)  scripts/check-crate-deps.mjs: dependency direction and provider/
-#                        transport crate ownership over `cargo metadata` (07 section 3).
+#                        transport crate ownership over `cargo metadata` (07 section 3),
+#                        and `--adapters-alone`: the adapters and adapters/mcp-tools build
+#                        with only their own dependency features, not ones another member
+#                        turns on, with default features and with --all-features, each in
+#                        dev and release profiles (#7, G-7 section 5).
 #   licenses (<os>)    scripts/check-licenses.mjs: SPDX headers and the dependency license
 #                        inventory; an unapproved license fails the job (07 section 5).
 #   herdr-selftest (<os>)  the herdr driver's offline self-test against its test doubles
@@ -247,6 +251,13 @@ jobs:
         env:
           CARGO_NET_OFFLINE: "true"
         run: node scripts/check-crate-deps.mjs --mutation-test
+
+      # The vetted dependency features hold per adapter, not just per manifest: a workspace
+      # build unifies features across members (PR #352 review finding 2).
+      - name: Adapters build alone (no feature borrowed from another member)
+        env:
+          CARGO_NET_OFFLINE: "true"
+        run: node scripts/check-crate-deps.mjs --adapters-alone
 
   licenses:
     name: licenses (${{ matrix.os }})

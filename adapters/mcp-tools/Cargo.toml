@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# adapters/mcp-tools/: the OAC MCP tool surface both adapters share (#7; decision record
+# docs/planning/decisions/G-7-stage4-dependencies.md section 4). Not an adapter: it has its
+# own module kind in scripts/check-crate-deps.mjs. It depends on core/ only; adapters/* and
+# cli/ may depend on it; it never depends on an adapter, a transport or cli/ (07 section 3).
+
+[package]
+name = "oac-mcp-tools"
+description = "The OAC MCP tool surface (send, reply, list_sessions, whoami) shared by both adapters"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+oac-core.workspace = true
