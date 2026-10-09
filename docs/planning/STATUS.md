@@ -35,11 +35,13 @@ or dependency changes.
   push-to-main runs are gone; runs no longer start on a clean hosted image, so cargo config
   outside the repository (`$CARGO_HOME/config.toml`, an ancestor's `.cargo/config.toml`) can
   swap a crate's source behind the dependency checks: step `cargo-config` fails on any such
-  file, or untracked repository-local `.cargo/config(.toml)`, unless `--allow-cargo-config`
-  (PR #365 review B2, B4), and step `environment` fails on an inherited
+  file, or untracked repository-local `.cargo/config(.toml)` (a linked `.cargo` followed,
+  a dangling one failing closed), unless `--allow-cargo-config` (PR #365 review B2, B4, B5), and step `environment` fails on an inherited
   `OAC_HERDR_SELFTEST_*`/`OAC_TEST_*` switch and, unless `--allow-env`, on any `CARGO_*`
   outside a short allowlist (a `CARGO_ALIAS_CLIPPY` can replace clippy), `NODE_OPTIONS`,
-  `RUSTFLAGS`, `RUSTC_WRAPPER`, `RUSTC_BOOTSTRAP` and the like (B3, B4). The port is frozen as data in `scripts/local-ci.ported.json` (50
+  `RUSTFLAGS`, `RUSTC_WRAPPER`, `RUSTC_BOOTSTRAP` and the like (B3, B4). Still local trust,
+  unchecked: PATH shims for cargo, rustc, node, bash, git or rg; a toolchain linked under
+  rustup that reports 1.98.1; `RUSTUP_HOME` (only `rustc --version` is checked). The port is frozen as data in `scripts/local-ci.ported.json` (50
   rows, count and sha256) and `--self-test` compares the live plan with it (review B1). PR
   #330's candidate required-checks list no longer applies.
 - **Docs.** `oac-testing` §2, `oac-implementation`, `oac-boundaries` and its

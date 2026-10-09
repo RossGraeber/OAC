@@ -45,7 +45,16 @@
 // CARGO_* form, CARGO_ALIAS_CLIPPY included), `CARGO`, NODE_OPTIONS, RUSTFLAGS, RUSTDOCFLAGS,
 // RUSTC, RUSTDOC, RUSTC_WRAPPER, RUSTC_WORKSPACE_WRAPPER, RUSTC_BOOTSTRAP, and a
 // RUSTUP_TOOLCHAIN other than rust-toolchain.toml's channel. The summary lists them, and
-// CARGO_HOME. The summary's work-tree line counts untracked files too.
+// CARGO_HOME. The summary's work-tree line counts untracked files too. A repository `.cargo`
+// that is a symlink or junction is followed, as cargo follows it; a dangling one fails
+// closed (PR #365 re-review B5).
+//
+// What remains local trust (accepted, not checked; PR #365 final re-review): the runner
+// trusts PATH and rustup's toolchain resolution, and checks only `rustc --version`. So a
+// PATH shim for cargo, rustc, node, bash, git or rg (a `cargo` shim could no-op clippy), a
+// custom toolchain linked under rustup that reports 1.98.1, and a RUSTUP_HOME pointing at
+// another rustup are not detected. Hosted runners started from a known image; a developer
+// machine is trusted as it is.
 //
 // The default tier keeps the old rules (oac-testing section 2; PLANNING-PROMPT sections 6 and
 // 9.10): no live provider, no API key, no network beyond loopback. The one networked step is
@@ -89,7 +98,7 @@
 
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir, release as osRelease } from 'node:os';
 import { dirname, join, parse as parsePath, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -435,18 +444,47 @@ export function repoLocalUntrackedConfigs(root = repoRoot) {
       return;
     }
     for (const e of entries) {
-      if (!e.isDirectory() || ['target', '.git', 'node_modules'].includes(e.name)) continue;
+      if (['target', '.git', 'node_modules'].includes(e.name)) continue;
       const sub = join(dir, e.name);
       if (e.name === '.cargo') {
-        for (const f of ['config', 'config.toml']) if (existsSync(join(sub, f))) found.push(join(sub, f));
-      } else if (depth < 12) walk(sub, depth + 1);
+        // PR #365 re-review B5: a `.cargo` that is a symbolic link or a junction (a Dirent
+        // reports isSymbolicLink() for both) is followed, as cargo follows it. One that is
+        // dangling or cannot be resolved fails closed.
+        let isDir = e.isDirectory();
+        if (e.isSymbolicLink()) {
+          try {
+            isDir = statSync(sub).isDirectory();
+          } catch {
+            broken.push(sub);
+            continue;
+          }
+        }
+        if (!isDir) continue;
+        for (const f of ['config', 'config.toml']) {
+          const p = join(sub, f);
+          let linkOrFile = false;
+          try {
+            lstatSync(p);
+            linkOrFile = true;
+          } catch {}
+          if (!linkOrFile) continue;
+          try {
+            statSync(p);
+            found.push(p);
+          } catch {
+            broken.push(p); // a dangling config link fails closed too
+          }
+        }
+      } else if (e.isDirectory() && depth < 12) walk(sub, depth + 1); // other links are not entered
     }
   };
+  const broken = [];
   walk(root, 0);
-  if (!found.length) return [];
+  const brokenEntries = broken.map((p) => ({ path: p, flagged: ['link that cannot be resolved (fails closed)'], local: true }));
+  if (!found.length) return brokenEntries;
   const rel = found.map((p) => p.slice(resolve(root).length + 1).split('\\').join('/'));
   const tracked = new Set((spawnSync('git', ['ls-files', '-z', '--', ...rel], { cwd: root, encoding: 'utf8' }).stdout ?? '').split('\0').filter(Boolean));
-  return found.filter((_p, i) => !tracked.has(rel[i])).map((p) => ({ ...(describeConfig(p) ?? { path: p, flagged: [] }), local: true }));
+  return [...found.filter((_p, i) => !tracked.has(rel[i])).map((p) => ({ ...(describeConfig(p) ?? { path: p, flagged: [] }), local: true })), ...brokenEntries];
 }
 export function cargoConfigFiles({ root = repoRoot, cargoHome = process.env.CARGO_HOME || join(homedir(), '.cargo') } = {}) {
   const candidates = [];
@@ -966,6 +1004,57 @@ function selfTest() {
       check("repo cargo config: the review's untracked root .cargo/config.toml with [alias] is found and fails without --allow-cargo-config", root?.local === true && cargoConfigVerdict([root], false).status === 'FAIL' && cargoConfigVerdict([root], true).status === 'PASS');
     } finally {
       rmSync(r, { recursive: true, force: true });
+    }
+  }
+
+  // 6c. a repository `.cargo` that is a link (PR #365 re-review B5): a junction (Windows; a
+  //     plain directory symlink elsewhere, where Node ignores the junction type) and a
+  //     directory symlink are followed, and a dangling one fails closed. A link type the OS
+  //     will not let this user create (a Windows symlink without Developer Mode) is skipped
+  //     and says so.
+  {
+    const base = mkdtempSync(join(tmpdir(), 'oac-cargo-link-'));
+    try {
+      const shared = join(base, 'shared-dot-cargo');
+      mkdirSync(shared, { recursive: true });
+      writeFileSync(join(shared, 'config.toml'), '[alias]\nclippy = "test --no-run"\n');
+      const linked = (name, type, target = shared, at = '.cargo') => {
+        const r = join(base, name);
+        mkdirSync(join(r, 'adapters', 'x'), { recursive: true });
+        spawnSync('git', ['init', '-q'], { cwd: r });
+        try {
+          symlinkSync(target, join(r, at), type);
+        } catch (e) {
+          return { r, skip: e.code ?? String(e) };
+        }
+        return { r };
+      };
+      const cases = [
+        ['junction', process.platform === 'win32' ? 'junction' : 'dir', 'a root .cargo junction (directory symlink off Windows)'],
+        ['symlink', 'dir', 'a root .cargo directory symlink'],
+      ];
+      for (const [name, type, what] of cases) {
+        const { r, skip } = linked(name, type);
+        if (skip) {
+          console.log(`skip repo cargo config: ${what}: this OS refused to create it (${skip})`);
+          continue;
+        }
+        const f = repoLocalUntrackedConfigs(r);
+        check(`repo cargo config: ${what} to a [alias] clippy config is followed, found and fails`, f.some((x) => x.flagged.includes('[alias]')) && cargoConfigVerdict(f, false).status === 'FAIL');
+      }
+      const member = linked('member', process.platform === 'win32' ? 'junction' : 'dir', shared, join('adapters', 'x', '.cargo'));
+      if (!member.skip) {
+        const f = repoLocalUntrackedConfigs(member.r);
+        check('repo cargo config: a member .cargo link is followed too', f.some((x) => x.flagged.includes('[alias]')));
+      }
+      const dangling = linked('dangling', process.platform === 'win32' ? 'junction' : 'dir', join(base, 'no-such-dir'));
+      if (dangling.skip) console.log(`skip repo cargo config: a dangling .cargo link: this OS refused to create it (${dangling.skip})`);
+      else {
+        const f = repoLocalUntrackedConfigs(dangling.r);
+        check('repo cargo config: a dangling .cargo link fails closed', f.length === 1 && f[0].flagged[0].includes('cannot be resolved') && cargoConfigVerdict(f, false).status === 'FAIL');
+      }
+    } finally {
+      rmSync(base, { recursive: true, force: true });
     }
   }
 
