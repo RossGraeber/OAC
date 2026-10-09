@@ -281,6 +281,12 @@ Per `oac-evidence` §4/§5:
   "Floating-version policy"). (Note, 2026-10-01, issue #186: previously "pinned
   `v2.1.274`"; that row went floating 2026-09-27. Dated note, 2026-10-01, #216: the row now records minimum `v2.1.282` and last
   tested `v2.1.285` ("Version policy"); a version change warns, never gates.)
+  (Dated note, 2026-10-09, #65: the boundary is named in code. Within `adapters/claude/`,
+  the module `src/channel.rs` (`oac_adapter_claude::channel`) is the only file that names
+  the research-preview surface: the `claude/channel` capability key, the
+  `notifications/claude/channel` method, the legacy-only era and C6's five `meta` keys. The
+  rest of the crate implements `ProviderAdapter` and the MCP server through it. 11-risks
+  row 7.)
 - `adapters/codex/` isolates the Codex app-server (UNVERIFIED — same ledger entry C11;
   not yet fixed in `DESIGN.md`), labelled **experimental, per-method gating**, CLI /
   app-server version **floating** per `docs/planning/PINS.md` (Codex CLI / app-server

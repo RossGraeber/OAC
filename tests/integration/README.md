@@ -41,6 +41,37 @@ smoke, not provider integration. These tests follow the herdr reuse contract
 (`tools/herdr/README.md`, "Reuse contract"): they live here, drive the harness through the
 driver as a separate process, and run only from the opt-in workflow.
 
+### G4's live leg: planned, deferred to wave 4
+
+The Claude adapter (#65) passes the adapter contract suite against the fake Claude Code
+endpoint (`adapters/claude/tests/contract.rs`, CI-default). Its live leg, the same contract
+against real Claude Code, waits for the daemon and the `oac mcp-shim` stdio relay (G9,
+#70): without them nothing can start the adapter's channel server as a process Claude Code
+spawns. It is wave 4 work, planned here so that it is not designed twice:
+
+- **Where and how.** A herdr scenario under `tools/herdr/scenarios/` (Claude Code started
+  with `--dangerously-load-development-channels server:oac`, the shim as the stdio server),
+  with its assertions here, run only from the opt-in workflow or by hand. The driver
+  handles the three Claude Code dialogs exactly as
+  `docs/planning/decisions/K-196-driver-accepts-dialogs.md` decides; this plan changes none
+  of that, and no run pre-answers or suppresses the development-channels confirmation by
+  any other route.
+- **What it asserts**, each against the pane text or the shim's wire log of that run:
+  1. the channel registers on the legacy era with the adapter's own `initialize` result,
+     which carries `capabilities.extensions` (binding hook H13, [MCPB-ERA-008]); if Claude
+     Code refuses or ignores the channel with `extensions` present, that is a finding for
+     the lead under the reversal condition of `spec/bindings/mcp.md` §4.3, not a spec edit;
+  2. an idle session wakes on one hand-off, and the `<channel>` tag carries `source` and
+     C6's five `oac_*` attributes with the verified values, no others;
+  3. two hand-offs into a running turn are taken in order, whatever the grouping
+     (11-risks row 49);
+  4. `send` and `list_sessions` from the model reach the core and return its results;
+  5. no `claude/channel/permission` is declared, and no permission prompt is relayed;
+  6. a sender-written `<\/channel>` is captured, closing the `RenderGap` the security
+     suite's 06 row 16 keeps gated on #65.
+- **Recorded**: the Claude Code version (a warning, never a stop, when it differs from
+  PINS.md, #216) and the `rmcp` pin, which answers 11-risks row 16.
+
 What `node scripts/local-ci.mjs` enforces so they stay opt-in:
 
 - Its `--self-test` fails a default-tier step that runs an `--ignored` test, sets an
