@@ -69,7 +69,8 @@ const TOOLCHAIN = '1.98.1'; // rust-toolchain.toml; docs/planning/PINS.md
 // A step: { id, name, cmd: [program, ...args] | bash: <section of .github/local-ci.sh> |
 // check: <built-in check name>, env, sandbox (wrap in loopback-only.sh on Linux), offline
 // (CARGO_NET_OFFLINE=true), os (only on these platforms; elsewhere SKIP with osReason),
-// needs (programs that must be on PATH, else NOT RUN), quickEnv (env added under --quick) }.
+// needs (programs that must be on PATH, else NOT RUN), quickEnv (env added under --quick),
+// paths (set from PATHS below: what the step depends on) }.
 // `node` means this Node; `bash` means Git Bash on Windows.
 
 const OFFLINE = { CARGO_NET_OFFLINE: 'true' };
@@ -184,6 +185,59 @@ export const TIERS = {
   // g3-macos-hosted.yml (#219)
   'g3-macos': [{ id: 'g3-macos', name: 'G3 Zenoh peer Mac leg (6 scenarios x 3, extras); results in <work>/g3-out', bash: 'g3-macos', os: ['darwin'], osReason: 'macOS only: sw_vers, lo0, sysctl; no Mac here (lost coverage)', notRunElsewhere: true, needs: ['python3', 'openssl'] }],
 };
+
+// The repository paths each step depends on, by step id: a change under none of them cannot
+// change the step's result. Not used to skip anything yet; issue #362 (change-scoped runs,
+// with a `--full` flag) reads it. Entries are repo-relative: `dir/` is a directory prefix,
+// a plain path is one file, `**` is any path. --self-test requires an entry for every step.
+const RUST = ['Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', '.cargo/', 'core/', 'cli/', 'adapters/', 'transports/', 'tests/'];
+const PRODUCT = ['adapters/', 'core/', 'cli/', 'transports/', 'spec/'];
+export const PATHS = {
+  toolchain: ['rust-toolchain.toml'],
+  fmt: [...RUST, 'rustfmt.toml', '.rustfmt.toml'],
+  'cargo-fetch': ['Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml'],
+  build: RUST,
+  clippy: [...RUST, 'clippy.toml', '.clippy.toml'],
+  'loopback-select': ['scripts/loopback-only.sh'],
+  'loopback-probe': ['scripts/loopback-only.sh'],
+  'cargo-test': [...RUST, 'spec/', 'docs/planning/gates/fixtures/'],
+  'crate-deps-self-test': ['scripts/check-crate-deps.mjs'],
+  'crate-deps': [...RUST, 'scripts/check-crate-deps.mjs'],
+  'crate-deps-mutation': [...RUST, 'scripts/check-crate-deps.mjs'],
+  'licenses-self-test': ['scripts/check-licenses.mjs', 'scripts/check-crate-deps.mjs'],
+  'licenses-mutation': [...RUST, 'scripts/check-licenses.mjs', 'scripts/check-crate-deps.mjs'],
+  licenses: [...RUST, 'scripts/', 'tools/', 'scripts/check-licenses.mjs'],
+  'containment-self-test': ['scripts/check-containment.mjs'],
+  containment: [...PRODUCT, 'tests/fakes/', 'tests/protocol/', 'Cargo.toml', 'Cargo.lock', 'scripts/check-containment.mjs'],
+  'fixture-manifest-self-test': ['scripts/check-fixture-manifest.mjs'],
+  'fixture-manifest': ['docs/planning/gates/', 'docs/planning/PINS.md', 'scripts/check-fixture-manifest.mjs'],
+  'workflows-self-test': ['scripts/check-workflows.mjs'],
+  workflows: ['.github/', 'scripts/check-workflows.mjs'],
+  'herdr-containment-self-test': ['scripts/check-herdr-containment.mjs'],
+  'herdr-containment': [...PRODUCT, 'tools/herdr/', 'tests/integration/', '.github/workflows/', '.gitmodules', '**/Cargo.toml', '**/Cargo.lock', '**/package.json', '**/package-lock.json', 'scripts/check-herdr-containment.mjs'],
+  skills: ['.claude/skills/', 'CLAUDE.md', 'scripts/check-skills.mjs'],
+  'agents-skills-sync-self-test': ['scripts/sync-agents-skills.mjs'],
+  'agents-skills-sync': ['.claude/skills/', 'CLAUDE.md', '.agents/', 'AGENTS.md', 'scripts/sync-agents-skills.mjs'],
+  'herdr-self-test': ['tools/herdr/', 'docs/planning/PINS.md'],
+  'conformance-self-test': ['tests/protocol/runner/'],
+  conformance: ['tests/protocol/', 'spec/'],
+  'fake-codex-self-test': ['tests/fakes/codex-app-server/'],
+  'compiled-tests': [...RUST, 'tests/security/'],
+  'compiled-tests-self-test': [...RUST, 'tests/security/'],
+  'boundary-check-3': ['**', '.github/local-ci.sh'],
+  'boundary-check-8': ['**', '.github/local-ci.sh'],
+  'boundary-checks-1-2': ['spec/', 'core/', '.github/local-ci.sh'],
+  'boundary-check-11': [...PRODUCT, 'Cargo.toml', 'Cargo.lock', '.github/local-ci.sh'],
+  'local-ci-self-test': ['scripts/', '.github/local-ci.sh', 'tools/herdr/test/selftest.mjs'],
+  'keystore-os-store': ['cli/', 'core/', 'Cargo.toml', 'Cargo.lock'],
+  'keystore-build': ['cli/', 'core/', 'Cargo.toml', 'Cargo.lock'],
+  'keystore-secret-service': ['cli/', 'core/', 'Cargo.toml', 'Cargo.lock'],
+  'keystore-headless': ['cli/', 'core/', 'Cargo.toml', 'Cargo.lock'],
+  'scale-full': ['core/', 'Cargo.toml', 'Cargo.lock'],
+  'mutation-check': ['core/', 'tests/security/', 'Cargo.toml', 'Cargo.lock'],
+  'g3-macos': ['docs/planning/gates/fixtures/g3-zenoh-peer/', '.github/local-ci.sh'],
+};
+for (const steps of Object.values(TIERS)) for (const s of steps) s.paths = PATHS[s.id];
 
 // Every step of every deleted workflow -> the step here that runs it. Setup-only steps
 // (checkout, cache, artifact upload, ripgrep install) have no counterpart; they are named so
@@ -438,7 +492,10 @@ function selfTest() {
     const ids = steps.map((s) => s.id);
     check(`coverage: ${tier} step ids are unique`, new Set(ids).size === ids.length, ids.join(','));
     for (const s of steps) if (s.id !== 'local-ci-self-test') check(`coverage: ${tier}/${s.id} traces to a deleted workflow step`, ported.has(`${tier}/${s.id}`));
+    for (const s of steps) check(`paths: ${tier}/${s.id} names the paths it depends on (#362)`, Array.isArray(s.paths) && s.paths.length > 0 && s.paths.every((p) => typeof p === 'string' && p && !p.startsWith('/')));
   }
+  const allIds = new Set(Object.values(TIERS).flat().map((s) => s.id));
+  for (const id of Object.keys(PATHS)) check(`paths: entry ${id} belongs to a step`, allIds.has(id));
 
   // 2. plan, against a recording stub
   for (const platform of ['linux', 'win32', 'darwin']) {
