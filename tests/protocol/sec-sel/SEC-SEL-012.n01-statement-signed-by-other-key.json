@@ -8,6 +8,7 @@
   "description": "A statement that names Bob's key id but is signed by Mallory's key is refused.",
   "stage": "agreement",
   "context": {
+    "consumer_time": "2026-10-09T13:00:00Z",
     "trusted_keys": [
       {
         "principal": "principal-a",

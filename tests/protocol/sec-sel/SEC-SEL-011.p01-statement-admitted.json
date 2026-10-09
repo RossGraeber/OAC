@@ -7,6 +7,7 @@
   "description": "Bob's agreement statement, signed by Bob's device key under oac-agreement-v1, is admitted by a consumer that trusts Bob's key.",
   "stage": "agreement",
   "context": {
+    "consumer_time": "2026-10-09T13:00:00Z",
     "trusted_keys": [
       {
         "principal": "principal-a",

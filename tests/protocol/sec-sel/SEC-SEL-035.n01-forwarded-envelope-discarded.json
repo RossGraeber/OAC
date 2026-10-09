@@ -1,0 +1,24 @@
+{
+  "fixture_format": "oac-sealing-fixture/1",
+  "requirement": "SEC-SEL-035",
+  "spec": "spec/security.md",
+  "spec_revision": "0.3",
+  "kind": "negative",
+  "failure_mode": "opened envelope addressed to a session bound to another key",
+  "description": "Bob seals Alice's envelope, whose to Carol's binding table binds to Bob's key, to Carol. The frame opens, but Carol is not its recipient, so she discards it silently and sends no receipt.",
+  "stage": "open",
+  "context": {
+    "own_agreement_private_key": "ie0LKCQcSat-0_Mnql5O8XhTnObeWYkbeTxx-j8byaA",
+    "own_key_id": "86761fb8ff6100cec63ae093b79ecf2f1b1aed21d9ea860db031ffb5bf4768e9",
+    "bindings": {
+      "7gq3m8z2c5k9t1w4x6b0n2r8vd": "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a"
+    }
+  },
+  "input": {
+    "frame": "AX9SAhmmVkKnkTaoPsZ6h6PbifZhlZ9TqhzG6nH6hoMD3ANe9p2mtia9sfvLjheqnEs6n8lBsDNe1txemS4TWaph4EYDnAM_aKFAzN-DVvun7jh9mKhe5Za3nqVr3EPwmEazuN5G1tLxh9lfbKwLycORaWr-ee-jGYVDcNcI1xp8cGA8J3A66L0fL5CeiVo8Tqw8rpjhir66SEq07IusGQDp87sgHBknjOccr4-z6pTDb9nC2v4wDvInwWrv8QGLm5Ddkh_BQUsUKCg9lgDyQA4rzqh6EyF6Z0QfTKbrgHVA3jidCCbs3aw4Dc_5tcwo_C5VW4doUdiXDqqujfRiLWb3FT5rYsQawn0AdK0KFs5VKbnT68yQEOfDYBCM6lwFHEIKDnWPiRM7GVkVWeFzLmKVqa31GeoQfeLpPfxvcyN242w9dCsvq7l3A-FwwdhhFw87Wo7dWiZ4n2C1ylQiawb8-jzDHC0mi3-qog_TEU1OHq9P9KPoLoLc-XBrXjHHyOfGf9RyIKjpsLc7qylM45lwVLz7VTal2_e0mhz7JaHfprv58OhUySxyyLwQOQfDFy_I3byrrhQzza-a_CwAA1170BMdRPwGUkOeqoEXZd4rjRWrSKLSCoV_Ab97GKZ9-woOl7l8yaqNZU5DyyrNbXaykWQSSraPz4x7jGwbx6-WxlAfqOPT2tmxivNwgeIsI2lnKx-ULPaEPF2Xv7Xny2v_0qcQwqzjU4s_XuSj9OFrIe3NMTv1t0mbH7b8y6SAPd605oDaqNT0VdQ"
+  },
+  "expected": {
+    "result": "discarded",
+    "record": "none"
+  }
+}

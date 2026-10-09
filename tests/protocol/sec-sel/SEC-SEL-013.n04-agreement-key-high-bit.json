@@ -8,6 +8,7 @@
   "description": "Bob's own agreement key with its most significant bit set is refused, although RFC 7748 decoding would mask the bit.",
   "stage": "agreement",
   "context": {
+    "consumer_time": "2026-10-09T13:00:00Z",
     "trusted_keys": [
       {
         "principal": "principal-a",

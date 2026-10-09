@@ -408,11 +408,11 @@ Defer group rooms/broadcast, attachments, durable offline mailboxes, federation,
 **New text:**
 
 ```
-Security layers: authenticated/encrypted transport; default-deny ACL/policy; cryptographic message authenticity; replay protection; per-recipient payload sealing on transports that deliver to every peer (v0.1); optional later E2E encryption beyond it. Model-generated text claiming an identity never establishes identity.
+Security layers: authenticated/encrypted transport; default-deny ACL/policy; cryptographic message authenticity; replay protection; per-recipient payload sealing on every transport that declares it (v0.1); optional later E2E encryption beyond it. Model-generated text claiming an identity never establishes identity.
 ```
 
 ```
-Defer group rooms/broadcast, attachments, durable offline mailboxes, federation, E2E encryption beyond per-recipient payload sealing (forward secrecy, metadata confidentiality, confidentiality toward the recipient device's own harnesses), GUI, production Gemini/ChatGPT/Cursor adapters, and alternative transports.
+Defer group rooms/broadcast, attachments, durable offline mailboxes, federation, E2E encryption beyond per-recipient payload sealing (forward secrecy, confidentiality of traffic metadata such as size, timing and link, confidentiality toward the recipient device's own harnesses), GUI, production Gemini/ChatGPT/Cursor adapters, and alternative transports.
 ```
 
 **Rationale.** Per-recipient sealing is the smallest confidentiality layer that lets a

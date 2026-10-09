@@ -4,8 +4,8 @@
 import { isObj, isStr, toPlain } from './json.mjs';
 import { signingInput } from './jcs.mjs';
 import { verify } from './ed25519.mjs';
-import { isToken, isKeyId, isSignatureForm, b64urlDecode, parseTimestamp } from './core.mjs';
-import { seal as sealFrame, open as openFrame, acceptableAgreementKey, KINDS, OVERHEAD } from './hpke.mjs';
+import { isToken, isKeyId, isSignatureForm, b64urlDecode, parseTimestamp, REPLAY_WINDOW_NS } from './core.mjs';
+import { seal as sealFrame, open as openFrame, acceptableAgreementKey, KINDS } from './hpke.mjs';
 
 const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 const b64url = (b) => Buffer.from(b).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -21,8 +21,9 @@ function resolve(trusted, sec) {
   return trusted.find((k) => k.principal === sec.principal && k.key_id === sec.key_id) || null;
 }
 
-// Whether a consumer admits `st`, given its trusted keys and the statements it holds (§14.3).
-export function admits(trusted, held, st) {
+// Whether a consumer whose clock reads `now` (nanoseconds) admits `st`, given its trusted
+// keys and the statements it holds (§14.3).
+export function admits(trusted, held, st, now) {
   if (!isObj(st) || Object.keys(st).length !== STATEMENT_MEMBERS.length || !STATEMENT_MEMBERS.every((m) => has(st, m))) return false; // [SEC-SEL-010]
   const sec = st.security;
   if (!isObj(sec) || Object.keys(sec).sort().join() !== 'key_id,principal,signature') return false; // [SEC-SEL-010]
@@ -32,6 +33,7 @@ export function admits(trusted, held, st) {
   if (!isKey32Form(st.agreement_key) || !acceptableAgreementKey(b64urlDecode(st.agreement_key))) return false; // [SEC-SEL-013]
   const t = parseTimestamp(st.issued_at);
   if (t === null) return false; // [SEC-SEL-010]
+  if (t >= now + REPLAY_WINDOW_NS) return false; // [SEC-SEL-042]
   const prior = held[sec.key_id];
   if (prior && t <= parseTimestamp(prior.issued_at)) return false; // [SEC-SEL-014]
   return true;
@@ -39,7 +41,9 @@ export function admits(trusted, held, st) {
 
 export function agreement(fx) {
   const c = toPlain(fx.context);
-  return { result: admits(c.trusted_keys || [], c.admitted || {}, toPlain(fx.input).statement) ? 'admitted' : 'refused' };
+  const now = parseTimestamp(c.consumer_time);
+  if (now === null) throw new Error('context.consumer_time is not a timestamp');
+  return { result: admits(c.trusted_keys || [], c.admitted || {}, toPlain(fx.input).statement, now) ? 'admitted' : 'refused' };
 }
 
 export function seal(fx) {
@@ -56,12 +60,33 @@ export function seal(fx) {
   return { result: 'sealed', frame: b64url(frame) };
 }
 
+// [SEC-SEL-035]: is the opened payload addressed to a device other than `own`? Only a
+// recipient the payload names, as §14.4 defines it, counts; an unparsable payload, or an
+// envelope whose `to` is unbound or under conflict, goes on to its own checks.
+function forAnotherDevice(kind, payload, c) {
+  let v;
+  try {
+    v = JSON.parse(payload.toString('utf8'));
+  } catch {
+    return false;
+  }
+  if (!isObj(v)) return false;
+  if (kind === 'envelope') {
+    const b = (c.bindings || {})[v.to];
+    return isStr(b) && b !== c.own_key_id;
+  }
+  if (kind === 'presence') return isStr(v.audience) && v.audience !== c.own_key_id;
+  if (kind === 'receipt' && Array.isArray(c.sent) && isObj(v.receipt)) {
+    return !c.sent.some((s) => s.id === v.receipt.envelope_id && s.from === v.receipt.envelope_from && s.to === v.envelope_to && s.nonce === v.envelope_nonce);
+  }
+  return false;
+}
+
 export function open(fx) {
   const c = toPlain(fx.context);
   const frame = b64urlDecode(toPlain(fx.input).frame);
   const r = openFrame(frame, b64urlDecode(c.own_agreement_private_key)); // [SEC-SEL-030]
   if (!r.kind) return { result: 'discarded', record: 'none' }; // [SEC-SEL-031]
+  if (has(c, 'own_key_id') && forAnotherDevice(r.kind, r.payload, c)) return { result: 'discarded', record: 'none' }; // [SEC-SEL-035]
   return { result: 'opened', kind: r.kind, payload: b64url(r.payload) }; // [SEC-SEL-032]
 }
-
-export { OVERHEAD };

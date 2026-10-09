@@ -598,10 +598,11 @@ revision of the same major version handles correctly without being updated:
 7. Adding a fixture for an existing requirement, or replacing a `TODO(fixture)` with one.
 8. Editorial changes that leave every requirement's normative meaning unchanged.
 9. Adding a `MUST` or `MUST NOT` that binds only an implementation that takes up something no
-   earlier minor revision of the same major version defined: a new declared value, or a new
-   wire form used only between implementations that both declare it. An implementation
-   conformant to an earlier minor revision never takes it up, so it stays conformant, and it
-   never receives the new wire form.
+   earlier minor revision of the same major version defined: a new declared value, which may
+   be declared once for a whole binding rather than by each peer, or a new wire form used only
+   between implementations that both take that value up. An implementation conformant to an
+   earlier minor revision never takes it up, so it stays conformant, and it never receives the
+   new wire form.
 
 *Dated note, 2026-10-09 (revision 0.2): item 9 records the classification that
 `spec/interfaces.md` 0.2 (PR #350) already applied to its pairing requirements, and that

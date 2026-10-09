@@ -71,6 +71,15 @@ C5-envelope-auth.md`) is validated end-to-end and a threat is named that
 transport-level security does not already mitigate
 (`docs/planning/v0.1/06-security.md` §14's threat table).
 
+*Dated note, 2026-10-09 (the lead's ruling on PR #364; `ADR-001-A4`, proposed in
+`docs/planning/ADR-001-AMENDMENTS.md`, in force from the lead's merge of the payload-sealing
+pull request):* that threat was named. On a transport that delivers every payload to every
+peer, another installation could read every payload. Per-recipient payload sealing
+(`spec/security.md` §14, `spec/interfaces.md` §6.10) is therefore v0.1 work on every
+transport that declares `sealing`. What stays deferred is the rest of E2E encryption:
+forward secrecy, confidentiality of traffic metadata (size, timing, link), and
+confidentiality toward the recipient device's own harnesses.
+
 ### GUI
 
 **Not in v0.1.** Reason: `docs/planning/DESIGN.md` line 11 scopes v0.1 to "one-

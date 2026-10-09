@@ -7,6 +7,7 @@
   "description": "A statement for Bob issued after the one the consumer holds is admitted, replacing it.",
   "stage": "agreement",
   "context": {
+    "consumer_time": "2026-10-09T13:00:00Z",
     "trusted_keys": [
       {
         "principal": "principal-a",

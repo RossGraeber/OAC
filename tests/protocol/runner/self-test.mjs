@@ -300,7 +300,10 @@ export function selfTest() {
   })());
   // Agreement-key admission (§14.3, [SEC-SEL-013]) and a frame round trip (§14.4, §14.5).
   expect('agreement key u = 0 is not acceptable', !acceptableAgreementKey(Buffer.alloc(32)));
-  expect('agreement key u = p is not acceptable', !acceptableAgreementKey(hex('edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f')));
+  // u = p + 9 reduces to the base point, of large order: only the canonical-value check can
+  // refuse it (u = p itself reduces to 0, which the small-order check would also refuse).
+  expect('agreement key u = 9 (the base point) is acceptable', acceptableAgreementKey(hex('09' + '00'.repeat(31))));
+  expect('agreement key u = p + 9 is not acceptable', !acceptableAgreementKey(hex('f6ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f')));
   expect('agreement key with the top bit set is not acceptable', !acceptableAgreementKey(hex('de9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882bcf')));
   expect('RFC 7748 public key is acceptable', acceptableAgreementKey(hex('de9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882b4f')));
   {

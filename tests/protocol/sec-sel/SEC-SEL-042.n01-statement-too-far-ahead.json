@@ -1,11 +1,11 @@
 {
   "fixture_format": "oac-sealing-fixture/1",
-  "requirement": "SEC-SEL-012",
+  "requirement": "SEC-SEL-042",
   "spec": "spec/security.md",
   "spec_revision": "0.3",
   "kind": "negative",
-  "failure_mode": "statement from a key not in the trusted key set",
-  "description": "Carol's correctly signed statement is refused by a consumer that has not paired Carol's key.",
+  "failure_mode": "issued_at too far ahead",
+  "description": "Bob's statement issued 300 seconds ahead of the consumer's clock is refused: a statement from the future cannot block every later one.",
   "stage": "agreement",
   "context": {
     "consumer_time": "2026-10-09T13:00:00Z",
@@ -24,12 +24,12 @@
   },
   "input": {
     "statement": {
-      "agreement_key": "23CAsLfguWcZ_lB_LEDtITT6oqdmdlTBsKn5lCafOSg",
-      "issued_at": "2026-10-09T12:00:00Z",
+      "agreement_key": "wcSSzJLhvIMKmwB60NLYtLZcibdrU5_XcugIsJugBG8",
+      "issued_at": "2026-10-09T13:05:00Z",
       "security": {
-        "principal": "principal-c",
-        "key_id": "86761fb8ff6100cec63ae093b79ecf2f1b1aed21d9ea860db031ffb5bf4768e9",
-        "signature": "-58zcx3SVi6o-1uFGycFGSyCqAddD5Thzusgn4nkW2FosXDGFw-mJ27UR0ETRa9wCp7sQpyPBly5pkLkLKHaCg"
+        "principal": "principal-b",
+        "key_id": "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a",
+        "signature": "cR4L1VhXr-hymgfglp1JisgkfpLp_JaoDi8TA4MPKp5jE5jCVz29__bv5WJzAR5WmDfiNOL28pN7TZmzODOfAg"
       }
     }
   },

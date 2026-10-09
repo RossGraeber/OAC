@@ -8,6 +8,7 @@
   "description": "An agreement key of u = 0, a point of small order, is refused.",
   "stage": "agreement",
   "context": {
+    "consumer_time": "2026-10-09T13:00:00Z",
     "trusted_keys": [
       {
         "principal": "principal-a",

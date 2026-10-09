@@ -7,8 +7,8 @@ verdict, or when a pin moves.
 **Last updated:** 2026-10-09 (**Payload sealing: per-recipient encryption of every payload
 on a shared transport, proposed as a minor revision of the frozen specifications for the
 lead's approval** (Refs #62, #64, #7). On 2026-10-09 the lead ruled on PR #364 (G1, review
-finding 2): keep the partition-wide subscriber, so that whether a session listens stays
-hidden ([IFC-TRN-043]), and encrypt each frame for its recipient; #364 carries no real
+finding 2): keep a transport that delivers every payload to every peer, so that whether a
+session listens stays hidden ([IFC-TRN-043]), and encrypt each frame for its recipient; #364 carries no real
 traffic until this lands. Nothing here is in force until the lead approves and merges the
 pull request (`docs/planning/decisions/E7-interface-freeze.md` §7). No gate verdict, pin,
 manifest or code under `core/`, `transports/` or `adapters/` changes.
@@ -18,12 +18,16 @@ manifest or code under `core/`, `transports/` or `adapters/` changes.
   new domain string `oac-agreement-v1` and admitted only under a trusted key, never older
   than the one held. Every payload passed to a sealing transport is signed, then sealed with
   HPKE (RFC 9180) base mode, DHKEM(X25519, HKDF-SHA256), HKDF-SHA256, ChaCha20Poly1305, to
-  the recipient device's agreement key; kind, signer and recipient travel inside the frame.
-  With no admitted statement for the recipient, nothing is sent (`transport-failure`), never
-  in the clear. Frames that do not open are discarded silently. SEC-SEL-001 to SEC-SEL-034,
-  three §13 rows. `spec/interfaces.md` 0.3 §6.10: payload kind `sealed`, declaration member
-  `sealing`, IFC-TRN-100 to IFC-TRN-112; [IFC-TRN-081] admits a sealing transport as a second
-  way across implementations. `spec/session-channels.md` 0.2: §5.2 item 9, a §3.3 sentence
+  the recipient device's agreement key; kind, signer, recipient and deadline travel inside
+  the frame, and the receiving core enforces the deadline. With no admitted statement for the
+  recipient, nothing is sent (`transport-failure`), never in the clear. Frames that do not
+  open, and opened payloads for another device, are discarded silently. Statements are
+  issued in strictly increasing order, kept as durably as the trusted key set, and refused
+  from more than `W` in the future. SEC-SEL-001 to SEC-SEL-042, three §13 rows.
+  `spec/interfaces.md` 0.3 §6.10: payload kind `sealed`, declaration member `sealing`,
+  IFC-TRN-100 to IFC-TRN-113 (no value beside a frame, no device key id on the wire, other
+  kinds refused); [IFC-TRN-034] binds a sealing transport's sending end; [IFC-TRN-081] admits
+  a sealing transport as a second way across implementations. `spec/session-channels.md` 0.2: §5.2 item 9, a §3.3 sentence
   and a §7.3.2 dated note; no requirement changes.
 - **Classification: minor, not breaking.** Every new `MUST` binds only an implementation that
   uses a transport declaring `sealing`, which no earlier revision defined (§5.2 item 9, the
@@ -32,7 +36,7 @@ manifest or code under `core/`, `transports/` or `adapters/` changes.
 - **ADR-001-A4 (proposed).** ADR-001 "v0.1 scope" defers full E2E encryption, so the ruling
   is recorded as a boundary-11 conflict and A4 narrows the deferral
   (`docs/planning/ADR-001-AMENDMENTS.md`).
-- **Fixtures and runner.** 26 fixtures under `tests/protocol/sec-sel/`, format
+- **Fixtures and runner.** 32 fixtures under `tests/protocol/sec-sel/`, format
   `oac-sealing-fixture/1` (stages `agreement`, `seal`, `open`); agreement test keys in
   `tests/protocol/sec-test-keys.json`. The runner gains `hpke.mjs` and `stages-sel.mjs`; its
   self-test checks RFC 9180 Appendix A.2.1 and RFC 7748 §6.1. Every frame was also opened by
@@ -43,14 +47,20 @@ manifest or code under `core/`, `transports/` or `adapters/` changes.
 - **Work items.** Core (under G1, #62; no issue of its own yet): agreement key and statement,
   pairing carrying statements, seal and open, and running `oac-sealing-fixture/1` in
   `core/tests/conformance.rs`. G1 (#62): the reference transport declares `sealing`, uses
-  one destination-free key for all frames, hands every frame to the device subscription, and
-  carries nothing beside a frame but a deadline rounded down to the second. G3 (#64): the
-  same across hosts; access control on subscriptions is no longer needed for
-  confidentiality. **New crate for the core, needing the lead's approval:** `hpke` `=0.12.0`
+  one destination-free key for all frames, hands every frame to the device subscription,
+  carries nothing beside a frame (no kind tag, digest or deadline), refuses other payload
+  kinds, and replaces its per-sender handle with one that no device key id derives (#364
+  review finding 6); its dispatch queue, now shared by every frame of the partition, needs
+  sizing against a flood. Once G1 seals, #364's Appendix A evidence for [IFC-TRN-043] and
+  [IFC-TRN-050] (`presence-whole-to-named-device`, `frames_reach_only_their_own_local_consumer`)
+  must be replaced. G2 (#63): liveliness tokens and carrier-loss signals name no device or
+  session ([IFC-TRN-108]). G3 (#64): the same across hosts; access control on subscriptions is
+  no longer needed for confidentiality. **New crate for the core, needing the lead's approval:** `hpke` `=0.12.0`
   (MIT/Apache-2.0), features `alloc` and `x25519`. It is already in `Cargo.lock` under `age`
   (Unix only), and so are `x25519-dalek` 2.0.1, `chacha20poly1305` 0.10.1 and `hkdf` 0.12.4,
   so no download is needed; nothing is added to any manifest here.
-- **Ledger.** New "Open UNVERIFIED items" entry; `11-risks.md` rows 76 to 78.)
+- **Ledger.** New "Open UNVERIFIED items" entry; `11-risks.md` rows 78 to 80 (rows 76 and
+  77 are #364's).)
 
 **Last updated:** 2026-10-08 (**Issue #7: the Stage 4 dependency decisions, recorded before
 any adapter code** (Refs #7, #59, #69). The lead's decisions in chat of 2026-10-08 are in
@@ -2516,7 +2526,7 @@ CLOSED. No pin row changes. Record: `docs/planning/decisions/F-6-stage3-exit.md`
   proposed for the core, has had an independent audit at that version is not established
   from a first-party source. Its fit is verified: built offline from the local registry
   cache, it opened every `sec-sel` frame with the fixtures' results (2026-10-09). Owner: the
-  core sealing work item, under G1 (#62). `11-risks.md` rows 76 to 78.
+  core sealing work item, under G1 (#62). `11-risks.md` rows 78 to 80.
 *(Removed 2026-10-08, #343 / PR #344 review nit 6: the E3 (#43) entry on whether Codex's
 `thread/queue/add` keeps the order of several inputs queued during a running turn. Two adds
 during one running turn on Codex `0.161.0` ran as two turns, one per idle, in the order added

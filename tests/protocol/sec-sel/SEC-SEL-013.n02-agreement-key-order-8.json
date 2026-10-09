@@ -8,6 +8,7 @@
   "description": "An agreement key of small order (order 8 on the curve) is refused.",
   "stage": "agreement",
   "context": {
+    "consumer_time": "2026-10-09T13:00:00Z",
     "trusted_keys": [
       {
         "principal": "principal-a",

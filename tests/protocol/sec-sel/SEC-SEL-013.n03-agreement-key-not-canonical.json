@@ -5,9 +5,10 @@
   "spec_revision": "0.3",
   "kind": "negative",
   "failure_mode": "non-canonical u-coordinate",
-  "description": "An agreement key encoding u = 2^255 - 19, not less than the field prime, is refused.",
+  "description": "An agreement key encoding u = 2^255 - 19 + 9, not less than the field prime, is refused. Read modulo the prime it is the base point, of large order, so only the canonical-value check refuses it.",
   "stage": "agreement",
   "context": {
+    "consumer_time": "2026-10-09T13:00:00Z",
     "trusted_keys": [
       {
         "principal": "principal-a",
@@ -23,12 +24,12 @@
   },
   "input": {
     "statement": {
-      "agreement_key": "7f_______________________________________38",
+      "agreement_key": "9v_______________________________________38",
       "issued_at": "2026-10-09T12:00:00Z",
       "security": {
         "principal": "principal-b",
         "key_id": "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a",
-        "signature": "IskdClMC6ZRi0LacuBqrOjlBPIQgxmVb3Gr9a-lNKfXuEcfcoYv1xOXmO3-nL1QLLxOZ3Dum8IRwLHcxFEY3Cg"
+        "signature": "GlUUY-Nl1OIi0fS1BGJzybaUZ4r2zwNYq2J-gAF8dDAkhnZHUWAi0nGgwGtdQV6wOsi5cVTcESpXnFVpsIQaBA"
       }
     }
   },

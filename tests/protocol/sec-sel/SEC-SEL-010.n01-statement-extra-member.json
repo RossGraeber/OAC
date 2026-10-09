@@ -8,6 +8,7 @@
   "description": "A statement with a member beyond agreement_key, issued_at and security is refused, although its signature covers that member.",
   "stage": "agreement",
   "context": {
+    "consumer_time": "2026-10-09T13:00:00Z",
     "trusted_keys": [
       {
         "principal": "principal-a",

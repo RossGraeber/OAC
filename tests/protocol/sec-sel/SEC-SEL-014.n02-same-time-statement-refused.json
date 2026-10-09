@@ -8,6 +8,7 @@
   "description": "A second statement for Bob with the same issued_at as the held one is refused.",
   "stage": "agreement",
   "context": {
+    "consumer_time": "2026-10-09T13:00:00Z",
     "trusted_keys": [
       {
         "principal": "principal-a",

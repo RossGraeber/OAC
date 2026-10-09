@@ -8,6 +8,7 @@
   "description": "Bob's statement signed under oac-presence-v1 instead of oac-agreement-v1 is refused.",
   "stage": "agreement",
   "context": {
+    "consumer_time": "2026-10-09T13:00:00Z",
     "trusted_keys": [
       {
         "principal": "principal-a",

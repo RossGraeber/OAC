@@ -8,6 +8,7 @@
   "description": "A statement for Bob issued before the one the consumer holds is refused: a replayed old statement cannot bring back a replaced agreement key.",
   "stage": "agreement",
   "context": {
+    "consumer_time": "2026-10-09T13:00:00Z",
     "trusted_keys": [
       {
         "principal": "principal-a",
