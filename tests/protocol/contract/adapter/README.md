@@ -2,7 +2,8 @@
 
 The adapter contract suite (#59, F10). It is one suite, written against
 `dyn oac_core::adapter::ProviderAdapter`, that every adapter runs unchanged against the fake
-harnesses. It is test-only: an adapter takes it as a dev-dependency.
+harnesses. It is test-only: an adapter takes it as a dev-dependency, and runs it from its own
+`tests/contract.rs` (see "Where a harness lives").
 
 - `src/lib.rs` holds the suite and its report.
 - `src/claude.rs` and `src/codex.rs` hold the harnesses over the fake Claude Code endpoint
@@ -11,12 +12,97 @@ harnesses. It is test-only: an adapter takes it as a dev-dependency.
 - `src/plant.rs` holds the planted breaches that `tests/stand_in.rs` uses. Adapter code
   never reaches them: a path into `plant` is a finding of its own row, `TEST-PLANT`.
 - `tests/stand_in.rs` runs the suite against well-behaved stand-in adapters and against
-  each planted breach.
+  each planted breach, an adapter's or a harness's.
 - `tests/real_adapters.rs` runs the static scan against every workspace member under
   `adapters/`, found through `cargo metadata` rather than a fixed list (today
   `adapters/claude`, `adapters/codex` and `adapters/mcp-tools`). A planted case shows a new
   `adapters/acp` member is found and refused.
 - `tests/path_modules.rs` runs the scan on scratch crates on disk.
+- `tests/harness_location.rs` checks where a harness may live.
+
+## What a harness may not change
+
+A harness is written by the adapter's task, so the suite does not take its word for the
+binding (#351). It identifies the binding from the hand-off calls the fake recorded, and
+runs every check under its own profile for that binding (`BINDINGS`). The following all
+fail:
+
+- a harness profile that differs;
+- a `Gap` from a step that the binding's profile makes mandatory;
+- a `start_turn` after which a busy message becomes input before the drain;
+- an empty list of source files or of native ids.
+
+The module doc of `src/lib.rs` has the table of which steps are mandatory for which
+binding, and why the rest are honestly not applicable.
+
+## Where a harness lives
+
+The dependency direction is the documented one (07 §3, `scripts/check-crate-deps.mjs` rule 5,
+this crate's `Cargo.toml`): an adapter takes this suite as a dev-dependency, and the suite
+never depends on an adapter. So the harness a real adapter runs under lives in that adapter,
+at exactly one fixed path: **`adapters/<name>/tests/contract.rs`**. It may use what this
+crate gives it (`claude::ClaudeHarness`, `codex::CodexFake`).
+
+The suite's own checks bound what a harness can do. What they cannot see is a harness that
+fabricates or filters what the fake observed. That residual is covered by reviewing the one
+fixed file, and Gate S4 evidence for an adapter must cite it at the commit that ran.
+That review covers everything `contract.rs` calls outside this suite, including the
+adapter's own `src/` helpers. A helper that filters what the fake observed is part of the
+harness. A hostile edit to an allowed dependency (`oac-core` or `oac-fake-claude`) that
+re-exports an `include` macro, such as `pub use std::include as load`, is covered by review
+like any other hostile edit to reviewed code. Plain `include_str!` in `oac-fake-claude`
+stays allowed.
+
+`tests/harness_location.rs` keeps this mechanical:
+
+- **Who may depend on the suite.** Only an adapter, `adapters/mcp-tools` (#352 lets it
+  dev-depend on a suite), and the packages in `ALLOWED_DEPENDENTS` may depend on
+  `oac-contract-adapter`. Today that list names only `oac-transport-memory`, whose pipeline
+  test drives the fakes. An adapter or the tool crate depends on the suite as a
+  dev-dependency only. No dependent renames it (`package = ..`).
+- **Which files may touch the harness.** In an adapter, only `tests/contract.rs` names
+  `AdapterHarness` or `oac_contract_adapter`, or reaches `run`. No other file outside this
+  crate and the listed packages names either.
+- **Shapes that could hide a harness.** The harness file and an adapter's other test files
+  hold no `self as` import, `macro_rules!`, `include!` (any form) or `#[path]`. They also
+  hold no identifier `include`, `include_str` or `include_bytes` as a whole word, which
+  refuses an aliased include (`use std::include as x;`), as `source.rs`'s word rule does
+  for adapter `src/`. This applies to adapter `src/` files and to listed packages too. The harness
+  file also holds no file module (`mod x;`) and no glob or renamed import, so it reads as
+  one file.
+- **What a listed package may do.** It may name `AdapterHarness` to drive the fakes'
+  harnesses. It may not implement or rename it, rename the suite, glob the suite's items,
+  reach `run`, or hold those shapes.
+- **What an adapter may take as a dev-dependency.** Only the suite, `oac-core` and
+  `oac-fake-claude` (`ADAPTER_DEV_DEPENDENCIES`). An identifier-pasting proc macro such as
+  `paste` could spell the trait and `run` in pieces that no text rule sees.
+- **Which files are read.** The file set comes from git: every tracked file, and every
+  untracked file that is not ignored (`git ls-files -co --exclude-standard`), minus
+  untracked files under `target/`. These fail: any `CACHEDIR.TAG` in that set (a committed
+  tag would hide its directory), a symlink, and a tracked file under `target/`.
+- **Where cargo's target directory may be.** It must be `<root>/target` or outside the
+  repository. A committed `.cargo/config.toml` `target-dir`, or `CARGO_TARGET_DIR`,
+  pointing anywhere else inside the repository fails, since it would take that directory
+  out of the file set.
+- **What cargo compiles for an adapter.** Git's file set misses a file that a committed
+  `.gitignore` hides, so three further rules cover it:
+  - no workspace member has a build script (no custom-build target, no `build.rs` file),
+    since any member's could write into `adapters/`;
+  - an adapter's lib target has `doctest = false`. Its `src/` files are also held to the
+    hiding shapes, read from raw text, so a doctest in a doc comment is covered. Every
+    file of an adapter, whatever its extension, is held to the name rule, since `include!`
+    can load any file;
+  - each test, example and bench target `cargo metadata` reports for it is
+    `tests/contract.rs`, or a file the name rules pass;
+  - no `.rs` file under `adapters/` is ignored by git.
+- **What an adapter may depend on.** Its normal and build dependencies are the static
+  scan's vetted list (`source::VETTED_DEPENDENCIES`), checked by `cargo metadata` for every
+  adapter directory. This is a second check beside the one `tests/real_adapters.rs` makes,
+  by identity, pin and features, over every member under `adapters/`.
+
+These are text rules. What really bounds a listed transport is
+`scripts/check-crate-deps.mjs`: a transport can never reach an adapter, so a harness hidden
+there could only drive a stand-in.
 
 ## What an adapter's sources may not hold
 

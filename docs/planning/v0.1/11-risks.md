@@ -204,6 +204,20 @@ list.
   is PASS at gate level** and no platform needed the fallback. The risk stays open,
   narrower: for physical Mac hardware (the leg ran in a VM), bare-metal Linux, and the
   Rust crate (`docs/planning/gates/G3-result.md`).
+- **Status (2026-10-08, #62).** The Rust crate half is narrowed. OAC's own transport, on
+  the Rust `zenoh` crate `1.10.1` built with `1.98.1`, passes the transport contract suite
+  over loopback on Windows 11 on the multicast path and on the fixed rendezvous path
+  (`transports/zenoh/tests/contract.rs`). Linux and macOS were not run: GitHub Actions
+  are off under the lead's 2026-10-08 policy, and the G1 session's worktree guard refused
+  WSL.
+- **Status (2026-10-09, #62; PR #364 review).** Local mode no longer uses multicast
+  scouting. With scouting on, a local-mode peer connected out to a LAN peer, and
+  confinement to loopback cannot be guaranteed. Local mode is now the fixed loopback
+  rendezvous with scouting and gossip off, on every platform (C7 §5 dated note). This risk
+  therefore no longer bears on OAC's local mode, whose discovery no longer depends on
+  multicast. It stays open as a fact about Zenoh for any future multicast use, which would
+  need a new decision. The contract suite has one leg, the rendezvous, and it runs on every
+  host, the Linux loopback-only namespace included.
 
 ### RISK-G5 — Provenance fails
 
@@ -642,6 +656,14 @@ list.
   (`docs/planning/STATUS.md`, C5 decision: "ACL subjects are certificate common
   name or username only, never `zid`"), so this drift cannot silently weaken
   authorization.
+- **Status (2026-10-08, #62).** The TLS-stack half is closed. Zenoh's published
+  manifests at `1.10.1` (crates.io sources, retrieved 2026-10-08) show the `zenoh` feature
+  `transport_tls` enabling `zenoh-link-tls`, which requires `rustls` `0.23.31` or a later
+  `0.23` with features `logging`, `ring` and `tls12` (`zenoh-link-commons` feature `tls`
+  names the same `rustls`); there is no OpenSSL. With the Stage 4 form it resolves to
+  `rustls` 0.23.45 and `ring` 0.17.14 (PINS.md "Zenoh", G-7). G1 builds `zenoh` with `default-features = false` and
+  `transport_tcp` only, so no TLS crate is in the graph; G3 (#64) brings `rustls` and
+  `ring` in. The `auth.pubkey` half stays open.
 
 ### RISK-SEC-SPEC — Security mitigations specified but not yet proven
 
@@ -912,6 +934,13 @@ list.
 - **Response.** Re-confirm on crates.io when reachable
   (`docs/planning/STATUS.md`); no design change unless the re-confirmation
   contradicts the pin.
+- **Status: CLOSED** (2026-10-08, #62). crates.io answered:
+  https://crates.io/api/v1/crates/zenoh/1.10.1, retrieved 2026-10-08, gives version
+  `1.10.1`, published 2026-09-07T11:54:58Z, license `EPL-2.0 OR Apache-2.0`,
+  `rust_version` `1.75.0`, not yanked, checksum
+  `453ba5d28a1197653aae4bb024fd74a9d5c7051d5a19a77f3a43d83f40c22584`; the crate's newest
+  and highest stable version is `1.10.1`. This matches `docs/planning/PINS.md`, so the pin
+  does not move.
 
 ### RISK-CODEX-MCP-DATES — `codex mcp-server` deprecation/deletion dates unconfirmed
 
@@ -993,6 +1022,14 @@ list.
 - **Response.** Replace the estimate with the value measured on the first Rust
   release artifact (task I3). No design change either way
   (`docs/planning/STATUS.md`).
+- **Status (2026-10-08, #62).** First measurement. On Windows 11 x86_64
+  (`x86_64-pc-windows-msvc`, toolchain `1.98.1`, the default release profile), the
+  release build of `transports/zenoh/examples/loopback.rs`, which starts two transports
+  and carries one envelope, is 10,401,792 octets (9.9 MiB), inside the 5-15 MB estimate.
+  Zenoh `1.10.1` with `default-features = false` and `transport_tcp` only. The `oac`
+  binary itself does not start the transport yet, so its size (123,904 octets) says
+  nothing about Zenoh. Linux and macOS are not measured; I3 still records the release
+  artifact.
 
 ### RISK-NATS — NATS capability claims unverified
 
@@ -1217,16 +1254,16 @@ note, 2026-10-08, #69: rows 71-75 come from the Codex issued-value pairing,
 | 3 | Implicit Codex daemon attach default at runtime: closed on Windows by G2, on `0.154.0` and again on the currently observed `0.157.1` (re-run 2026-09-26, `docs/planning/gates/G2-result.md`); still open on macOS/Linux | RISK-CODEX-EXPERIMENTAL |
 | 4 | Codex Desktop control-socket exposure | RISK-CODEX-EXPERIMENTAL |
 | 5 | Zenoh `auth.pubkey` semantics | RISK-ZENOH-AUTH |
-| 6 | 5-15 MB Zenoh binary size estimate | RISK-BIN-SIZE |
+| 6 | 5-15 MB Zenoh binary size estimate | RISK-BIN-SIZE. Narrowed 2026-10-08 (#62): measured on Windows x86_64 MSVC, 10,401,792 octets for a release binary that runs the transport (`transports/zenoh/examples/loopback.rs`), inside the estimate; Linux and macOS not measured, and the `oac` release binary is still I3's |
 | 7 | Claude Channels compatibility-shim boundary unnamed (C11) | RISK-CLAUDE-PREVIEW |
 | 8 | Codex live-inject compatibility-shim boundary unnamed (C11) | RISK-CODEX-EXPERIMENTAL |
 | 9 | ACP schema v2 "alpha" status | RISK-ACP — closed as verified 2026-10-06 (#49), no drift: prerelease `schema-v2.0.0-alpha.7`; v2 protocol docs in Draft. RISK-ACP now carries the ACP v1 `session/prompt`-during-a-turn item |
-| 10 | Zenoh crate version/date read from GitHub, not crates.io | RISK-ZENOH-SOURCE |
+| 10 | Zenoh crate version/date read from GitHub, not crates.io | **CLOSED** (2026-10-08, #62). crates.io API, https://crates.io/api/v1/crates/zenoh/1.10.1, retrieved 2026-10-08: `1.10.1` published 2026-09-07T11:54:58Z, license `EPL-2.0 OR Apache-2.0`, `rust_version` `1.75.0`, not yanked, the newest version; matches PINS.md. RISK-ZENOH-SOURCE closed |
 | 11 | `codex mcp-server` deprecation/deletion dates | RISK-CODEX-MCP-DATES |
 | 12 | No SEP for agent-to-agent messaging | RISK-SEP |
 | 13 | "Research preview on Claude Code v2.1.232+" floor | **CLOSED as drift** (2026-10-02, #122). The first-party changelog dates "Added `--channels` (research preview)" to `2.1.80`, so `2.1.232` is not a channels version. It is instead where `mcp.md` L324 starts the v2 MCP client runtime, the runtime the channel-negotiation constraint applies to, for sessions that fetch feature flags. The operative floor is the minimum `v2.1.282` (#216). See `docs/planning/REVERIFICATION-B2.md` Drift register D6; RISK-FLOOR keeps its history |
 | 14 | MCP `experimental` capabilities at current era `2026-07-28` | RISK-MCP-EXPERIMENTAL |
-| 15 | Zenoh default TLS stack `rustls` | RISK-ZENOH-AUTH |
+| 15 | Zenoh default TLS stack `rustls` | **CLOSED** (2026-10-08, #62), from Zenoh's own published manifests at `1.10.1` (crates.io sources, retrieved 2026-10-08): `zenoh` feature `transport_tls` enables `zenoh-link-tls`, which requires `rustls` `^0.23.31` with features `logging`, `ring`, `tls12` (resolved: `rustls` 0.23.45, `ring` 0.17.14, PINS.md "Zenoh"); no OpenSSL. With the pinned features (`default-features = false`, `transport_tcp` only, #62) no TLS crate is in the graph at all (`cargo tree -i rustls`: no match). G3 (#64) brings `rustls` and `ring` in when it adds the TLS listener. `auth.pubkey` (row 5) stays open under RISK-ZENOH-AUTH |
 | 16 | `rmcp`-based server registering as a legacy-era live channel. Dated note, 2026-10-08 (#7, `docs/planning/decisions/G-7-stage4-dependencies.md` §2, §5): `rmcp` `3.4.0` (`server`, `transport-async-rw`; no `macros`) is now the MCP server side of both adapters, through `adapters/mcp-tools/`, not of `cli/` (`mcp-shim`, a byte relay). The item is unchanged and is answered by the Claude adapter's opt-in integration test (G4 #65), on the pinned `rmcp` | RISK-G4 |
 | 17 | Codex reproducing `oac_message_id` in `in_reply_to` | RISK-CODEX-EXPERIMENTAL |
 | 18 | Windows `windows-native-keyring-store` runtime | RISK-KEYRING |
@@ -1247,7 +1284,7 @@ note, 2026-10-08, #69: rows 71-75 come from the Codex issued-value pairing,
 | 33 | G3 on physical Mac hardware (from G3). Was "G3 criteria 1-4 on macOS"; those closed PASS on a GitHub-hosted VM 2026-10-02 (#219), leaving physical hardware open | RISK-G3 |
 | 34 | G3 on bare-metal Linux (from G3; the Linux leg ran on WSL2) | RISK-G3 |
 | 35 | `#iface=` on macOS and on Windows with a valid interface name (from G3). Note 2026-10-02 (#219): on the macOS hosted VM a nonexistent name was accepted without exception, so `#iface=` is not enforced there; log warnings untested | RISK-G3 |
-| 36 | G3 via the Rust `zenoh` crate built with `1.98.1` and embedded in OAC (from G3) | RISK-G3 |
+| 36 | G3 via the Rust `zenoh` crate built with `1.98.1` and embedded in OAC (from G3) | RISK-G3. Narrowed 2026-10-08 (#62): the Rust crate `1.10.1`, built with `1.98.1` and embedded in `transports/zenoh`, passes the transport contract suite over loopback on Windows 11 (`transports/zenoh/tests/contract.rs`). Since the PR #364 review (2026-10-09) local mode uses the fixed loopback rendezvous only, with scouting and gossip off (C7 §5 dated note), so the multicast path is no longer OAC's and G3's multicast verdict no longer bears on local mode. Linux and macOS: not run. No GitHub Actions run under the lead's 2026-10-08 policy, and the G1 session's worktree guard refused a local WSL run. TLS stays G3's (#64) |
 | 37 | Unidentified second thread loaded in the Codex daemon (from G2) | RISK-CODEX-EXPERIMENTAL |
 | 38 | Codex daemon `originator`/`source` do not reliably identify the creating client (from G2). At the `0.157.1` re-run the same TUI thread's `originator` matched the TUI itself (`codex-tui`), unlike at `0.154.0` (`oac_g2_spike`) — consistent with a first-initializing-client mechanism, not a fix | RISK-CODEX-EXPERIMENTAL |
 | 39 | Cross-process resume does not attach (openai/codex #21743), not re-tested at `0.154.0` or `0.157.1` (from G2) | RISK-CODEX-EXPERIMENTAL |
@@ -1272,7 +1309,7 @@ note, 2026-10-08, #69: rows 71-75 come from the Codex issued-value pairing,
 | 58 | Hook-to-shim pairing by OS-reported peer PID and process ancestry: whether a Claude Code hook subprocess and its stdio MCP server subprocess share an OS-observable common ancestor on every OS, and which calls yield the peer PID (macOS) and parent PID (#236, 2026-10-02; `docs/planning/decisions/C4-session-identity.md` §3 "Pairing requirement") | RISK-LOCAL-IPC |
 | 59 | The old C6 §5 frame's G5 X2 failure did not reproduce across runs. It was f on 2026-09-27 (Codex `0.157.1`) and in E1 arm 0 (`0.160.0`, fresh thread), and x in K8 (`0.160.0`, X1-then-X2 thread). Cause UNVERIFIED: model variance, or the Codex version combined with the shared-thread history (#220, 2026-10-03; C13 §9 dated note; `docs/planning/gates/herdr-runs/G5-c13-2026-10-02.md` findings) | RISK-G5 |
 | 60 | Whether a herdr run writes a harness config file and reverts it to the same bytes. The driver hashes `~/.codex/config.toml` and the other files only at run start and teardown (#220, 2026-10-03; `docs/planning/gates/herdr-runs/G5-c13-2026-10-02.md` findings) | RISK-HERDR |
-| 61 | Whether the v0.1 transport carries presence records (announcement, withdrawal, staleness, carrier loss) as `spec/session-channels.md` §7.2 requires, and how it meets SC-DLV-066 once records cross installs. G3 verified only peer discovery; presence records were not exercised. C7 §7 local mode has no transport-layer authorization, so v0.1 presence and discovery are same-install only (operator decision on #43) (#43, 2026-10-03; `docs/planning/gates/G3-result.md`) | RISK-G3 |
+| 61 | Whether the v0.1 transport carries presence records (announcement, withdrawal, staleness, carrier loss) as `spec/session-channels.md` §7.2 requires, and how it meets SC-DLV-066 once records cross installs. G3 verified only peer discovery; presence records were not exercised. C7 §7 local mode has no transport-layer authorization, so v0.1 presence and discovery are same-install only (operator decision on #43) (#43, 2026-10-03; `docs/planning/gates/G3-result.md`) | RISK-G3. Narrowed 2026-10-08 (#62): the Zenoh transport carries a presence record whole to the named device, and to no other device's handlers ([IFC-TRN-050] and [IFC-TRN-060] pass in `transports/zenoh/tests/contract.rs`). Carrier loss and staleness stay G2 (#63); SC-DLV-066 across installs stays G3 (#64) |
 | 62 | Whether Codex's `thread/queue/add` keeps the order of several inputs queued during a running turn. G2's `busyqueue` step queued one input only; no first-party statement of order is cited. Spec §7.4 makes in-order hand-off a SHOULD (SC-DLV-080) (#43, 2026-10-03; `docs/planning/gates/G2-result.md`) | **CLOSED** — CONFIRMED by run (#343, 2026-10-07, Codex `0.161.0`): two `thread/queue/add` sent during one running turn ran as two turns, one per idle, in the order added (`docs/planning/gates/fixtures/s3-codex-capture/transcript-2026-10-07-0.161.0-herdr.jsonl` L135-L139, L826-L865; `docs/planning/gates/herdr-runs/S3-codex-2026-10-07.md` row 8). One observation, not a first-party guarantee. RISK-CODEX-EXPERIMENTAL stays open for its other items |
 | 63 | Whether `ed25519-dalek` `3.0.0`'s `VerifyingKey::verify_strict` gives the verdicts of `spec/security.md` [SEC-SIG-021] to [SEC-SIG-024] (S below L, no small-order or non-canonical `R` or `A`, cofactorless equation) on every `sec-sig` fixture. *Narrowed 2026-10-03 (PR #265 review):* its source checks small-order `R` and `A` and the cofactorless equation by octet comparison of the recomputed `R` (https://docs.rs/ed25519-dalek/3.0.0/src/ed25519_dalek/verifying.rs.html); `VerifyingKey::from_bytes` keeps a non-canonical key encoding, so SEC-KEY-034 must reject one at admission. What stays open is running the fixtures. Its documentation says it performs scalar and point malleability checks and denies weak keys (https://docs.rs/ed25519-dalek/3.0.0/ed25519_dalek/struct.VerifyingKey.html, retrieved 2026-10-03); no Rust build has run the `sec-sig` fixtures. Node.js 25.2.1 / OpenSSL 3.5.4 accepted the small-order-`R` fixture in the E5 vector check (#45, 2026-10-03) | **CLOSED** — CONFIRMED by F3 (#52, 2026-10-06): `core/tests/conformance.rs` test `verify_strict_alone_gives_the_sec_sig_verdicts` runs 21 of the 24 `sec-sig` fixtures (all but the three nonce/signature form fixtures, which are refused before any arithmetic) through `ed25519-dalek` `3.0.0` `VerifyingKey::verify_strict` alone, over `oac-core`'s signing input, and its verdict is the fixture's on every one: it rejects `SEC-SIG-021.n01`/`.n02` (S not below L), `SEC-SIG-022.n01` to `.n03` (small-order and non-canonical `R`) and `SEC-SIG-024.n04`/`.n05` (mixed-order `R` and `A`), and accepts every positive. Key admission refuses non-canonical and small-order public keys (`core/src/keys.rs` `PublicKey::from_octets`, unit test `admission_refuses_non_canonical_and_small_order_keys`; [SEC-KEY-034]). Run on Windows (`x86_64-pc-windows-msvc`) and Linux (WSL, `x86_64-unknown-linux-gnu`) with Rust 1.98.1, and in CI |
 | 64 | Whether `serde_jcs` `0.2.0` produces RFC 8785 output identical to the `expected.canonical` values of the `sec-*` fixtures (member order by UTF-16 code units, string escapes, non-ASCII text, unknown members). The fixtures were checked by two independent JavaScript serializers only (#45, 2026-10-03) | **CLOSED** — CONFIRMED by run (#6, 2026-10-07): `core/tests/conformance.rs` `conformance_fixtures` runs `run_canonical` (L854-L876, called at L930-L935) on every fixture that has an `expected.canonical`. There are 10, all `sec-*`: `SEC-SIG-010.p01`-`p04`, `SEC-SIG-011.p01`, `SEC-SIG-013.p01`-`p02`, `SEC-KEY-041.p01`, `SEC-PRS-001.p01` and `SEC-RCT-001.p01`. They go through `core::canonical::signed_text`, which writes every member name, string and number with `serde_jcs` `0.2.0` and sorts members itself by UTF-16 code units (`core/src/canonical.rs` L1-L14, L83-L130). `cargo test -p oac-core --test conformance` at `5877b39` reports `"canonical": 10` and passes; CI runs it on all three OSes. RISK-SEC-SPEC stays open for its other items |
@@ -1287,10 +1324,12 @@ note, 2026-10-08, #69: rows 71-75 come from the Codex issued-value pairing,
 | 73 | Whether the app-server applies `thread/resume` setting overrides to a thread that is already loaded (`spec/bindings/mcp.md` [MCPB-CDX-006], which forbids sending them either way). Owner G7 (#68) | RISK-CODEX-EXPERIMENTAL |
 | 74 | The F9 fake app-server (`tests/fakes/codex-app-server/`) emits no `mcpToolCall` items, so none of the `TODO(fixture)` items of `spec/bindings/mcp.md` §4.5 (MCPB-ATT-007 to MCPB-ATT-023) can be written yet. Owners G8 (#69) and F9 (#58) | RISK-SEC-SPEC |
 | 75 | A Codex call with no arguments is reported as `arguments: null` and sent without an `arguments` member, which §4.5.2 treats as matching (source only at `rust-v0.161.0`: `codex-rs/core/src/mcp_tool_call.rs` L145-L150, L1041, L1087; `codex-rs/rmcp-client/src/rmcp_client.rs` L847-L855, L868). Availability only. Owner G8 (#69) | RISK-G4 |
-| 76-77 | Reserved for PR #364 (the reference transport), which adds and cites rows 76 and 77 | — |
-| 78 | No implementation seals payloads yet (`spec/security.md` 0.3 §14, `spec/interfaces.md` 0.3 §6.10, proposed 2026-10-09 on the lead's ruling on PR #364). The `sec-sel` fixtures are checked by the reference runner only, and `core/tests/conformance.rs` does not run their fixture format `oac-sealing-fixture/1`. Until the core seals and the reference transport declares `sealing`, every implementation in a partition of the reference transport can read every payload, and #364 must carry no real traffic. Rows 76 and 77 are left to #364, which cites them; if #364 merges first, these rows follow it unchanged. Owner: the core sealing work item, under G1 (#62); G3 (#64) across hosts | RISK-SEC-SPEC |
+| 76 | The Zenoh transport's carrier handle is the 16 octets the *sending* peer writes into the frame header. Nothing checks them, so any peer of the partition can claim another's. The handle groups what one sender sent, and must not attribute carrier loss or anything else (binding document, `transports/zenoh/src/lib.rs` "Carrier handles"; PR #364 review finding 6). G2 must derive carrier loss from what the receiving transport itself observes (its own link or liveliness events), never from a handle a frame carried. Owner G2 (#63) | RISK-G3 |
+| 77 | The Zenoh frame carries a payload's deadline as a wall-clock expiry. It is exact on one host; between hosts a receiver whose clock runs behind can deliver after the deadline ([IFC-TRN-034]). G3 must bound clock skew, or carry the time left with a stated transit allowance, before LAN mode carries a frame between hosts, and must record the bound in the binding document (C7 §6 dated note; PR #364 review finding 7). Owner G3 (#64) | RISK-G3 |
+| 78 | No implementation seals payloads yet (`spec/security.md` 0.3 §14, `spec/interfaces.md` 0.3 §6.10, proposed 2026-10-09 on the lead's ruling on PR #364). The `sec-sel` fixtures are checked by the reference runner only, and `core/tests/conformance.rs` does not run their fixture format `oac-sealing-fixture/1`. Until the core seals and the reference transport declares `sealing`, every implementation in a partition of the reference transport can read every payload, and #364 must carry no real traffic. Rows 76, 77 and 81 are #364's. Owner: the core sealing work item, under G1 (#62); G3 (#64) across hosts | RISK-SEC-SPEC |
 | 79 | The cost of trying to open every frame on a shared transport: each device performs one X25519 agreement and one AEAD tag check per frame, for frames that are mostly other devices'. Not measured; a peer that floods the transport raises it for everyone (`spec/security.md` §13, "Reading payloads on a shared transport", residual). `spec/security.md` [SEC-SEL-038] lets a receiver count discarded frames, and G1's dispatch queue, shared by every frame of a partition, needs sizing against a flood. Owner G1 (#62), G3 (#64) | RISK-SEC-SPEC |
 | 80 | Whether the `hpke` crate `0.12.0` (MIT/Apache-2.0, features `alloc` and `x25519`), proposed for the core's sealing, has had an independent audit at that version: no first-party source checked states it. Its fit is verified: built offline from the local registry cache, it opened every `sec-sel` frame with the fixtures' results (2026-10-09). Adding it to `core/` needs the lead's approval (07 §5 row, `scripts/check-crate-deps.mjs` vetting). Owner: the core sealing work item, under G1 (#62) | RISK-SEC-SPEC |
+| 81 | Rendezvous port squatting in local mode (PR #364 re-review, 2026-10-09). Nothing authenticates the holder of the loopback rendezvous port. **(a)** Any local program that binds it first, or first after the holder exits, is the relay every OAC transport on the host uses: it reads every frame until per-recipient encryption, and can drop, delay or withhold any of them. **(b)** Any program on the port that is not a Zenoh session stops OAC from starting (denial of service; `start` names the port). **(c)** One process, possibly another OS user's, relays the whole host. **(d)** Transports are cut off between holders. **(e)** `17447` is fixed and unregistered. Envelope signatures and replay protection still hold. The lead's condition, ratifying the design on 2026-10-09: **G3 authenticates the relay with a per-user pinned TLS certificate before OAC carries real traffic.** C7 §5 dated note and §9 row. Owner G3 (#64) | RISK-G3 |
 
 ## Self-check (`oac-evidence` §8, `oac-planning-package` §6)
 

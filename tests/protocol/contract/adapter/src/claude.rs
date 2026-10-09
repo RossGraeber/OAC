@@ -63,12 +63,17 @@ pub const ESTABLISHMENT_METHODS: [&str; 3] = ["server/discover", "initialize", "
 /// it has no holding hand-off and no steering operation (`spec/bindings/mcp.md` §8.1).
 pub const PROFILE: Profile = Profile {
     name: "claude-channel",
+    surface_operations: &[CHANNEL_NOTIFICATION],
     holding_hand_off: None,
     steering_operations: &[],
     rules: &[],
     // Claude Code gives no answer to a channel notification, so it has no refusal to
     // classify.
     turned_away_code: None,
+    // The fake runs turns of its own user, and releases channel notifications mid-turn.
+    runs_own_turns: true,
+    // Requests are the binding's MCP tool calls, which the fake makes (`tools/call`).
+    makes_requests: true,
 };
 
 /// Turns a request into a `tools/call`: the tool name and the arguments as JSON object

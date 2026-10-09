@@ -452,7 +452,10 @@ own pass criterion; LAN mode defaults to TLS (QUIC named as the alternative) usi
 fingerprint, default-deny ACL; ACL subjects are certificate common name or username only,
 never `zid`; only the stable `zenoh`/`zenoh-ext` API surface is used, no `unstable`
 feature; every Zenoh type stays inside `transports/zenoh/`. Source: `docs/planning/
-decisions/C7-zenoh-transport.md` §1.
+decisions/C7-zenoh-transport.md` §1. *(Dated note, 2026-10-09, #62: multicast scouting is
+now off in local mode. Local mode takes C7 §5's named reversal path, the fixed loopback
+rendezvous, because a scouting peer connected out to the LAN (PR #364 review); see the C7
+§5 dated note.)*
 
 **Decisive evidence.** The `oac-boundaries` containment grep (`references/
 mechanical-checks.md` check 1) is the mechanical enforcement of the module boundary,

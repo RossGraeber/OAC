@@ -747,6 +747,10 @@ semver, and are recorded verbatim — never reformatted.
   CDLA-Permissive-2.0, `Apache-2.0 AND ISC`, and MPL-2.0 for `option-ext` 0.2.0), accepted
   by the lead's licence decisions of 2026-10-08 (07 §5 "Accepted licenses"). Its TLS link
   resolves to `rustls` 0.23.45 with `ring` 0.17.14.
+- **Dated note, 2026-10-08 (#62, G1).** The crates.io cross-check is closed (11-risks.md row
+  10): the API response above is the confirmation the first bullet lacked, and the pin does
+  not move. G1 enables `transport_tcp` only, a subset of the Stage 4 form; `transport_tls`
+  arrives with G3 (#64), so no TLS crate is in G1's graph.
 
 ### `tokio` (async runtime)
 
@@ -1135,3 +1139,5 @@ occur; everything else above this line is unchanged from B1.
   first-party for the same project and is not expected to disagree).
   **CARRIED — risk item 8, see REVERIFICATION-B2.md "Carried to 11-risks.md".** Not
   re-attempted in B2; GitHub Releases remains the source of record.
+  *(Dated note, 2026-10-08, #62: closed as verified, no drift. crates.io's API confirms
+  `1.10.1`, published 2026-09-07; see the "Zenoh" section's dated notes.)*
