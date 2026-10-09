@@ -1574,8 +1574,8 @@ proving test does not exist yet is an open risk, carried as `RISK-SEC-SPEC` in
 | Prompt injection through a memory reference or resolved memory (06 row 21) | A trusted, granted peer writes a memory reference into content, or the receiving harness looks one up through its own memory service and gets adversarial text back | Doctrine §1.2 and §12.5: the reference is a sender claim rendered as content [SEC-PRV-012], [SEC-PRV-015]; no implementation looks a reference up, validates it or adds what a service returns [SEC-PRV-016], [SEC-PRV-017], so a verified signature never extends to resolved memory | L10 (opt-in scenario: a memory reference travels between the two v0.1 harness surfaces and is resolved by the receiver's own memory service; asserts that the reference and the resolved text appear only in the untrusted body): not yet built, open risk; F11: not yet built, open risk; gate G5 PASS (gate client only, provenance framing) | Once the receiving harness has looked the reference up in its own turn, the returned text never crosses this protocol. Whether the model obeys it is the harness's and the memory service's concern: the doctrine limit of the authenticated-peer row above |
 | False authority through a cited memory reference (06 row 22) | A trusted, granted peer cites a stored record ("approved in memory X") so that the receiver treats the citation as authorization or as provenance | Never in the provenance set, a separate carrier or a frame header [SEC-PRV-015]; provenance only from verified members [SEC-PRV-002]; no authorization decision takes a memory reference as input [SEC-AUZ-024]; delivery never authorizes an action the content requests [SEC-AUZ-020] | L10 (asserts that the reference is absent from every machine-set carrier): not yet built, open risk; F11: not yet built, open risk; gate G5 PASS (gate client only) | A model may still find a cited record persuasive. A citation wrapped in frame-shaped text keeps the residual of the shared-carrier forgery row above |
 | Capture of delivered content by an external memory or telemetry service (06 row 23) | The operator runs a service beside the receiving harness that records that harness's session history | None in the protocol. The capture happens inside the harness session, which no implementation controls. [SEC-PRV-016] and [SEC-PRV-017] keep an implementation from using such a service; nothing here keeps the service from recording. [SEC-PRV-018] advises against secrets in content, which limits what a capture exposes but is advice, not a control | None: an open risk, not a closed mitigation. Carried in `docs/planning/v0.1/11-risks.md` under the risk that 06 row 23 names | Capture is confirmed: one such service, at the version Decision L1 §2 pins, recorded input handed off into both v0.1 harness surfaces verbatim, and one harness's outbound tool-call arguments; a secret-shaped test token in the delivered content was stored unredacted on every path that captured it (Decision L1 §13, live leg of 2026-10-01). Any text in `content`, a secret included, can therefore reach the receiving device's disk. The service's own scoping need not match working-directory scoping (§9.3), and any forwarding beyond the device is the operator's configuration of that service |
-| Reading payloads on a shared transport: another implementation reads the content, kind, signer or recipient of a payload that is not for it, or learns which device is behind a link | It shares a transport that delivers payloads to every implementation it reaches, or it observes that transport's traffic | Each payload sealed to the recipient device's agreement key, with kind, signer, recipient and deadline inside the frame [SEC-SEL-020], [SEC-SEL-030]; a payload opened by a device it is not for is dropped silently [SEC-SEL-035]; a sealing transport carries only sealed payloads, shows no destination, carries nothing beside a frame, and shows no device key id [IFC-TRN-100], [IFC-TRN-103], [IFC-TRN-106], [IFC-TRN-107], [IFC-TRN-108], [IFC-TRN-113] | `sec-sel/SEC-SEL-020.p01`, `.p02`; `sec-sel/SEC-SEL-030.p01`, `.p02`, `.n01` to `.n08`; `sec-sel/SEC-SEL-035.p01`, `.p02`, `.n01`, `.n02`; the core's sealing and a sealing transport's framing: G1 (#62), not yet built, open risk | The frame's length (to 256 octets, with the padding of [SEC-SEL-025]), its timing and its sending link stay visible, and timing can pair a frame with its answer, and so a link with a device (§14.8). No forward secrecy: whoever later obtains a recipient's agreement private key opens every recorded frame sealed to it, until the key is replaced and erased (§14.9). Every implementation on such a transport performs one key agreement per frame, which a flood can exploit; [SEC-SEL-038] lets an operator count discarded frames |
-| Agreement-key substitution or rollback: a sender is led to seal to an agreement key that the attacker holds | The attacker can deliver an agreement statement, replay an old one whose private key it has since obtained, or get one issued with a future time | Statements signed by the device key under their own domain string and admitted only under a trusted key [SEC-SEL-011], [SEC-SEL-012]; weak keys refused [SEC-SEL-013]; never an older statement [SEC-SEL-014], issued in strictly increasing order [SEC-SEL-040], held as durably as the trusted key set [SEC-SEL-041], and never more than `W` ahead of the consumer's clock [SEC-SEL-042]; the recipient key taken only from an admitted statement [SEC-SEL-023] | `sec-sel/SEC-SEL-011.p01`, `SEC-SEL-012.n01` to `.n03`, `SEC-SEL-013.n01` to `.n04`, `SEC-SEL-014.p01`, `.n01`, `.n02`, `SEC-SEL-042.p01`, `.n01`, `SEC-SEL-023.n01`; [SEC-SEL-040] and [SEC-SEL-041]: the core sealing work item, G1 (#62), not yet built, open risk | A stolen device key signs a statement for the attacker's agreement key (the leaked-device-key row). A peer that never receives a newer statement keeps sealing to the older key |
+| Reading payloads on a shared transport: another implementation reads the content, kind, signer or recipient of a payload that is not for it, or learns which device is behind a link | It shares a transport that delivers payloads to every implementation it reaches, or it observes that transport's traffic | Each payload sealed to the recipient device's agreement key, with kind, signer, recipient and deadline inside the frame [SEC-SEL-020], [SEC-SEL-030]; a payload opened by a device it is not for is dropped silently [SEC-SEL-035]; a sealing transport carries only sealed payloads, shows no destination, carries nothing beside a frame, and shows no device key id [IFC-TRN-100], [IFC-TRN-103], [IFC-TRN-106], [IFC-TRN-107], [IFC-TRN-108], [IFC-TRN-113] | `sec-sel/SEC-SEL-020.p01`, `.p02`; `sec-sel/SEC-SEL-030.p01`, `.p02`, `.n01` to `.n08`; `sec-sel/SEC-SEL-035.p01`, `.p02`, `.n01`, `.n02`; the core's sealing and a sealing transport's framing: G1 (#62), not yet built, open risk | The frame's length (to 256 octets, with the padding of [SEC-SEL-025]), its timing and its sending link stay visible, and timing can pair a frame with its answer, and so a link with a device (§14.8). No forward secrecy: whoever later obtains a recipient's agreement private key opens every recorded frame sealed to it, until the key is replaced and erased (§14.9). Every implementation on such a transport performs one key agreement per frame, which a flood can exploit; [SEC-SEL-038] lets an operator count discarded frames. A device that forwards an envelope it opened to a third device that trusts the original signer, but does not bind the envelope's `to`, makes that device answer it with a receipt, which shows other peers that the device is present: the envelope names a session, not a device, so the third device cannot tell it from a misdirected one ([SEC-SEL-035]) |
+| Agreement-key substitution or rollback: a sender is led to seal to an agreement key that the attacker holds | The attacker can deliver an agreement statement, replay an old one whose private key it has since obtained, or get one issued with a future time | Statements signed by the device key under their own domain string and admitted only under a trusted key [SEC-SEL-011], [SEC-SEL-012]; weak keys refused [SEC-SEL-013]; ordered by a signed sequence number, never by the issuer's clock: a statement must carry a higher `seq` than the held one [SEC-SEL-014], issuers count up and keep the count [SEC-SEL-040], [SEC-SEL-043], consumers keep what they hold as durably as the trusted key set [SEC-SEL-041], and a statement more than `W` ahead of the consumer's clock is refused without blocking later ones [SEC-SEL-042]; the recipient key taken only from an admitted statement [SEC-SEL-023] | `sec-sel/SEC-SEL-011.p01`, `SEC-SEL-012.n01` to `.n03`, `SEC-SEL-013.n01` to `.n04`, `SEC-SEL-014.p01`, `.p02`, `.n01`, `.n02`, `SEC-SEL-042.p01`, `.n01`, `SEC-SEL-023.n01`; [SEC-SEL-040], [SEC-SEL-041] and [SEC-SEL-043]: the core sealing work item, G1 (#62), not yet built, open risk | A stolen device key signs a statement for the attacker's agreement key (the leaked-device-key row). A peer that never receives a newer statement keeps sealing to the older key. An issuer that loses its count recovers only by pairing again with each consumer (§14.3) |
 | Clear-text fallback: a payload goes onto a sealing transport unsealed, or an unsealed payload from one is accepted | The sender holds no agreement key for the recipient, a peer sends unsealed payloads, or a core defect passes one | No payload is passed at all without an admitted agreement key, and an envelope is reported `transport-failure` [SEC-SEL-024]; the core passes and takes only sealed payloads on a sealing transport [IFC-TRN-100], [IFC-TRN-103], and the transport refuses any other kind [IFC-TRN-113] | `sec-sel/SEC-SEL-024.n01`; [IFC-TRN-100], [IFC-TRN-103] and [IFC-TRN-113]: F10 transport suite with G1 (#62), not yet built, open risk | A cross-implementation transport that does not declare `sealing` still carries payloads that every implementation it reaches can read: [IFC-TRN-111] is a `SHOULD` |
 
 The three memory rows use neutral terms (§12.5). Their sources, the provider-specific
@@ -1673,10 +1673,12 @@ these members:
 | Member | Content |
 |---|---|
 | `agreement_key` | the agreement key's 32-octet public key (the u-coordinate, [RFC7748] §5), as unpadded base64url ([RFC4648] §5) |
+| `seq` | the statement's sequence number: an integer from 0 to 9007199254740991, higher than that of every statement the device issued before ([SEC-SEL-040]) |
 | `issued_at` | the time the statement was issued, a timestamp (`spec/session-channels.md` §4.4.6) |
 | `security` | an object with exactly `principal`, `key_id` and `signature` |
 
-[SEC-SEL-010] An agreement statement MUST contain exactly the members of the table above.
+[SEC-SEL-010] An agreement statement MUST contain exactly the members of the table above, with
+the types the table gives them.
 
 [SEC-SEL-011] An implementation MUST sign its agreement statement with its device key over the
 signing input of §6.2, using the domain string `oac-agreement-v1`.
@@ -1700,18 +1702,23 @@ signature verifies under that key (§6.3) with the domain string `oac-agreement-
 acceptable.
 
 [SEC-SEL-014] A consumer MUST NOT admit an agreement statement for a device key while it holds
-one for that key whose `issued_at` is the same or later.
+one for that key whose `seq` is the same or higher.
 
-A consumer holds one statement per device key: the latest it admitted, which replaces the one
-before. A replayed older statement therefore cannot bring back an agreement key that its
-device replaced (fixture `sec-sel/SEC-SEL-014.n01`). Three rules keep that true across
-restarts and clock errors.
+A consumer holds one statement per device key: the one with the highest `seq` it admitted,
+which replaces the one before. A replayed older statement therefore cannot bring back an
+agreement key that its device replaced (fixture `sec-sel/SEC-SEL-014.n01`). The order comes
+from `seq`, which the issuer counts, never from `issued_at`, which its clock reads: a
+statement with a higher `seq` replaces the held one even when its `issued_at` is earlier
+(fixture `sec-sel/SEC-SEL-014.p02`). Three more rules keep the order across restarts.
 
-[SEC-SEL-040] An implementation MUST give each agreement statement it issues an `issued_at`
-later than that of every agreement statement it issued before.
+[SEC-SEL-040] An implementation MUST give each agreement statement it issues a `seq` higher than
+that of every agreement statement it issued before.
 
-An issuer whose clock has stepped back therefore issues its next statement just after its
-previous one, not at its clock's reading.
+[SEC-SEL-043] An implementation MUST keep the highest `seq` it has issued as durably as its
+device key.
+
+An issuer that lost the count could issue a `seq` that consumers already hold, and they would
+refuse its new key.
 
 [SEC-SEL-041] A consumer MUST keep the agreement statements it holds for as long as, and as
 durably as, the trusted-key entries they belong to.
@@ -1722,11 +1729,19 @@ again a replayed older statement, whose private key may since have been stolen.
 [SEC-SEL-042] A consumer MUST NOT admit an agreement statement whose `issued_at` is not earlier
 than the consumer's own time plus the replay-window skew allowance `W` (§8.1).
 
-A statement from the future would block every later one under [SEC-SEL-014] (fixtures
-`sec-sel/SEC-SEL-042.p01`, `.n01`). With [SEC-SEL-042], a statement a consumer holds is never
-more than `W` ahead of the consumer's clock when admitted, and its issuer's next statement,
-later under [SEC-SEL-040], is admitted once that much time has passed. An operator recovers
-from a statement held in error by removing the device key ([SEC-SEL-015]) and pairing again.
+`issued_at` serves only this bound (fixtures `sec-sel/SEC-SEL-042.p01`, `.n01`). It keeps a
+statement issued under a clock that ran far ahead from being admitted, but it never orders
+statements, so it cannot block a later one. An issuer whose clock ran ahead has its statement
+refused; once its clock is right, it issues a new statement with the next `seq` and a correct
+`issued_at`, which consumers admit. Anyone who moves an issuer's clock can delay the statements
+issued meanwhile, never the ones after.
+
+**Recovery.** A consumer that holds a statement in error, such as one whose private key was
+stolen, recovers when the issuer issues a statement with a higher `seq` and the consumer
+admits it. An issuer that has lost its count ([SEC-SEL-043]) cannot know which `seq` its
+consumers hold. It recovers the way a device that replaces its device key does (§5.5): each
+consumer's operator removes its key, which removes the held statement ([SEC-SEL-015]), and
+pairs with it again.
 
 [SEC-SEL-015] A consumer that removes a key from its trusted key set MUST, in the same step,
 remove the agreement statement it holds for that key.
@@ -1867,17 +1882,24 @@ the receiver's binding table binds the envelope's `to` to; the presence record's
 for a receipt, the receiver's own key exactly when it holds a record of sending the envelope
 the receipt describes ([SEC-RCT-003] item 3). An envelope whose `to` is unbound, or under
 conflict, names no recipient here, and goes on to its other checks, which report on it as they
-would without sealing. This check runs before every other check of the payload. A device that
-seals a payload it opened to a third device therefore makes that device send nothing, which
-would show other peers that it is present (fixtures `sec-sel/SEC-SEL-035.n01`, `.n02`).
+would without sealing: a legitimate sender to a session that has ended still learns
+`unknown-destination`. This check runs before every other check of the payload. A device that
+seals a payload it opened to a third device which binds its `to` to another key, or which is
+not its `audience`, or which never sent the envelope a receipt describes, therefore makes that
+device send nothing (fixtures `sec-sel/SEC-SEL-035.n01` to `.n03`). A forwarded envelope whose
+`to` the third device does not bind still draws that device's answer, if it trusts the
+original signer: the §13 residual of "Reading payloads on a shared transport".
 
-[SEC-SEL-036] A receiver MUST discard an opened payload at or after the `Deadline` that
-`spec/interfaces.md` Table 6.1 gives for its kind, computed from the payload and read on the
-receiver's own clock.
+[SEC-SEL-036] A receiver MUST discard, without a receipt and without a finding, an opened
+payload that it opens at or after the `Deadline` that `spec/interfaces.md` Table 6.1 gives for
+its kind, computed from the payload and read on the receiver's own clock.
 
 A sealing transport carries no deadline beside a frame (`spec/interfaces.md` [IFC-TRN-107]), so
-it cannot drop a copy that arrives late, and the receiving core does. For an envelope and a
-presence record the rules of its kind already discard it ([SC-RCP-091], [SEC-PRS-006]); for a
+its receiving end cannot drop a copy that arrives late ([IFC-TRN-034]), and the receiving core
+does in its place. The drop stays silent, as the transport's would have been: a late envelope
+draws no `expired` or `outside-replay-window` receipt, and so no frame that other peers could
+see. [SEC-SEL-036] applies once, on opening. A copy that passes it and reaches its deadline
+before its hand-off is reported under [SC-RCP-091] and [SC-RCP-092], as without sealing. For a
 receipt the deadline is that of the envelope it describes, which the receiver sent.
 
 [SEC-SEL-033] A receiver MUST apply to an opened payload every check that this document and
@@ -1899,8 +1921,12 @@ signing the frame, was rejected for four reasons.
 - **Forwarding gains nothing.** The recipient of a frame holds the signed payload and can seal
   it again to a third device. Every signed object already names its recipient: an envelope's
   `to` is bound to one key (§11.3), a presence record carries its signed `audience`
-  ([SEC-PRS-013]), and a receipt matches one sent envelope ([SEC-RCT-003]). The third device
-  discards it silently, before any other check ([SEC-SEL-035]).
+  ([SEC-PRS-013]), and a receipt matches one sent envelope ([SEC-RCT-003]). A third device
+  that binds the envelope's `to` to another key, or that is not the presence record's
+  `audience`, or that never sent the envelope a receipt describes, discards it silently,
+  before any other check ([SEC-SEL-035]). A third device that does not bind the envelope's
+  `to` cannot tell a forwarded envelope from a misdirected one, and answers it as it would
+  without sealing (§13 residual).
 - **No second authenticity proof.** HPKE's authenticated mode would make an agreement key a
   proof of the sender beside the signature. Section 6.6 keeps the signature the only one.
 
@@ -1944,7 +1970,7 @@ therefore gives no forward secrecy. An interactive key agreement would, and this
 defines none.
 
 [SEC-SEL-017] An implementation MAY replace its agreement key by issuing a new agreement
-statement with a later `issued_at`. An implementation that does not keeps one agreement key
+statement with a higher `seq`. An implementation that does not keeps one agreement key
 for as long as it keeps its device key, and a compromise then exposes every frame ever sealed
 to it.
 
@@ -1971,7 +1997,7 @@ fixtures, and one that does not leaves the whole format aside.
 
 **Stage `agreement`** (§14.3). `context`: `consumer_time`, the consumer's clock;
 `trusted_keys`, a trusted-key list (§3.3); optionally `admitted`, an object whose members are
-key ids, each an object with `agreement_key` and `issued_at`, the statements the consumer
+key ids, each an object with `agreement_key`, `seq` and `issued_at`, the statements the consumer
 holds. `input`: `statement`. `expected`: `result`, `admitted` or `refused`.
 
 **Stage `seal`** (§14.4). `context`: `trusted_keys` and `admitted`, as for `agreement`.
@@ -2180,11 +2206,11 @@ requirement whose fixtures exercise it.
 | SEC-SEL-002 | MUST | 14.2 | TODO(fixture): randomness of key generation; the core sealing work item, G1 (#62) |
 | SEC-SEL-003 | MUST NOT | 14.2 | TODO(fixture): review of key generation; the core sealing work item, G1 (#62) |
 | SEC-SEL-004 | MUST NOT | 14.2 | TODO(fixture): secret handling; F11 security suite with the core sealing work item, G1 (#62) |
-| SEC-SEL-010 | MUST | 14.3 | `sec-sel/SEC-SEL-010.n01`; positive: `sec-sel/SEC-SEL-011.p01` |
+| SEC-SEL-010 | MUST | 14.3 | `sec-sel/SEC-SEL-010.n01`, `.n02`; positive: `sec-sel/SEC-SEL-011.p01` |
 | SEC-SEL-011 | MUST | 14.3 | `sec-sel/SEC-SEL-011.p01` |
 | SEC-SEL-012 | MUST NOT | 14.3 | `sec-sel/SEC-SEL-012.n01`, `.n02`, `.n03` |
 | SEC-SEL-013 | MUST NOT | 14.3 | `sec-sel/SEC-SEL-013.n01` to `.n04` |
-| SEC-SEL-014 | MUST NOT | 14.3 | `sec-sel/SEC-SEL-014.p01`, `.n01`, `.n02` |
+| SEC-SEL-014 | MUST NOT | 14.3 | `sec-sel/SEC-SEL-014.p01`, `.p02`, `.n01`, `.n02` |
 | SEC-SEL-015 | MUST | 14.3 | TODO(fixture): key removal with a held statement; the core sealing work item, G1 (#62) |
 | SEC-SEL-016 | MUST | 14.3 | TODO(fixture): by construction; the core sealing work item, G1 (#62) |
 | SEC-SEL-017 | MAY | 14.9 | none (MAY) |
@@ -2200,13 +2226,14 @@ requirement whose fixtures exercise it.
 | SEC-SEL-032 | MUST | 14.5 | covered by SEC-SEL-030 (`expected.kind` in `sec-sel/SEC-SEL-030.p01`, `.p02`) |
 | SEC-SEL-033 | MUST | 14.5 | TODO(fixture): an opened payload through the receive path, every check applied; the core sealing work item, G1 (#62) |
 | SEC-SEL-034 | MUST NOT | 14.5 | TODO(fixture): F11 security suite, a frame sealed by an untrusted device around a forged envelope; the core sealing work item, G1 (#62) |
-| SEC-SEL-035 | MUST | 14.5 | `sec-sel/SEC-SEL-035.p01`, `.p02`, `.n01`, `.n02`; a receipt with no sent record: covered by SEC-RCT-003 (`sec-rct/SEC-RCT-003.n05`) |
-| SEC-SEL-036 | MUST | 14.5 | covered by SC-RCP-091 and SEC-PRS-006 for envelopes and presence records (`sec-prs/SEC-PRS-006.n01`); a late receipt: TODO(fixture), the core sealing work item, G1 (#62) |
+| SEC-SEL-035 | MUST | 14.5 | `sec-sel/SEC-SEL-035.p01` to `.p03`, `.n01` to `.n03` |
+| SEC-SEL-036 | MUST | 14.5 | TODO(fixture): a late copy of each kind, opened on a scripted clock, is dropped with no receipt; the core sealing work item, G1 (#62) |
 | SEC-SEL-037 | MUST | 14.5 | TODO(fixture): a frame built to open under two keys, with two agreement keys held; the core sealing work item, G1 (#62) |
 | SEC-SEL-038 | MAY | 14.5 | none (MAY) |
 | SEC-SEL-040 | MUST | 14.3 | TODO(fixture): issuer-side; the core sealing work item, G1 (#62) |
 | SEC-SEL-041 | MUST | 14.3 | TODO(fixture): statement storage across a restart; the core sealing work item, G1 (#62) |
 | SEC-SEL-042 | MUST NOT | 14.3 | `sec-sel/SEC-SEL-042.p01`, `.n01` |
+| SEC-SEL-043 | MUST | 14.3 | TODO(fixture): issuer state across a restart; the core sealing work item, G1 (#62) |
 
 Retired ids: none.
 
@@ -2270,4 +2297,4 @@ work.*
 | 0.1 (draft) | 2026-10-04 | E7 (#47) freeze preparation, editorial (no requirement added or changed): a dated note in Appendix B records that its nine follow-ups are all applied. |
 | 0.1 | 2026-10-06 | Frozen at Gate S2 (E7, #47): signed off on this date, in force from the merge of PR #276. |
 | 0.2 | 2026-10-08 | #69, PR #350, with `spec/bindings/mcp.md` 0.2: §13 gains the misattributed-send-request row for a pairing key made of an operating-system observation and an issued value (`spec/bindings/mcp.md` §4.5). No requirement is added, removed or changed. Minor revision under `docs/planning/decisions/E7-interface-freeze.md` §7. |
-| 0.3 | 2026-10-09 | Payload sealing, on the lead's ruling of 2026-10-09 on PR #364 (a transport that delivers every payload to every peer is kept, on condition that each frame is encrypted for its recipient; review finding 2). §14 added: agreement keys separate from the device key (SEC-SEL-001 to SEC-SEL-004); the signed agreement statement and its admission, under the new domain string `oac-agreement-v1` (SEC-SEL-010 to SEC-SEL-016); sealing with HPKE (RFC 9180) base mode, DHKEM(X25519, HKDF-SHA256), HKDF-SHA256 and ChaCha20Poly1305, sign-then-seal, no fallback to an unsealed payload (SEC-SEL-020 to SEC-SEL-025); opening, with silent discard and no authenticity from opening (SEC-SEL-030 to SEC-SEL-034); after the review of PR #367: a payload opened by a device it is not for is dropped silently (SEC-SEL-035), the receiving core enforces the deadline, which no longer travels beside a frame (SEC-SEL-036), keys are tried newest first (SEC-SEL-037), an aggregate discard count is allowed (SEC-SEL-038), and statements are issued in strictly increasing order, kept as durably as the trusted key set and refused from more than `W` in the future (SEC-SEL-040 to SEC-SEL-042); replacement and the absence of forward secrecy (SEC-SEL-017, SEC-SEL-018); what stays visible (§14.8). §1.3 scope, §2.3 terms, §3.1 area `SEL`, §5.3 and §5.5 notes, the §6.2 domain table, §6.6, and three §13 rows. References renumbered to §15. Fixtures under `tests/protocol/sec-sel/` in their own format `oac-sealing-fixture/1` (§14.10); agreement test keys in `tests/protocol/sec-test-keys.json`. Minor revision under `docs/planning/decisions/E7-interface-freeze.md` §7 and `spec/session-channels.md` §5.2 item 9: every new `MUST` and `MUST NOT` binds only an implementation that uses a sealing transport, which no earlier revision defined, so an implementation conformant to 0.2 stays conformant. |
+| 0.3 | 2026-10-09 | Payload sealing, on the lead's ruling of 2026-10-09 on PR #364 (a transport that delivers every payload to every peer is kept, on condition that each frame is encrypted for its recipient; review finding 2). §14 added: agreement keys separate from the device key (SEC-SEL-001 to SEC-SEL-004); the signed agreement statement and its admission, under the new domain string `oac-agreement-v1` (SEC-SEL-010 to SEC-SEL-016); sealing with HPKE (RFC 9180) base mode, DHKEM(X25519, HKDF-SHA256), HKDF-SHA256 and ChaCha20Poly1305, sign-then-seal, no fallback to an unsealed payload (SEC-SEL-020 to SEC-SEL-025); opening, with silent discard and no authenticity from opening (SEC-SEL-030 to SEC-SEL-034); after the review of PR #367: a payload opened by a device it is not for is dropped silently (SEC-SEL-035), the receiving core enforces the deadline, which no longer travels beside a frame (SEC-SEL-036), keys are tried newest first (SEC-SEL-037), an aggregate discard count is allowed (SEC-SEL-038), and statements are ordered by a signed `seq` that the issuer counts up and keeps, kept as durably as the trusted key set, and refused from more than `W` in the future, a bound that never orders them (SEC-SEL-040 to SEC-SEL-043); a late payload is dropped silently on opening; replacement and the absence of forward secrecy (SEC-SEL-017, SEC-SEL-018); what stays visible (§14.8). §1.3 scope, §2.3 terms, §3.1 area `SEL`, §5.3 and §5.5 notes, the §6.2 domain table, §6.6, and three §13 rows. References renumbered to §15. Fixtures under `tests/protocol/sec-sel/` in their own format `oac-sealing-fixture/1` (§14.10); agreement test keys in `tests/protocol/sec-test-keys.json`. Minor revision under `docs/planning/decisions/E7-interface-freeze.md` §7 and `spec/session-channels.md` §5.2 item 9: every new `MUST` and `MUST NOT` binds only an implementation that uses a sealing transport, which no earlier revision defined, so an implementation conformant to 0.2 stays conformant. |

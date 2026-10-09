@@ -1,11 +1,10 @@
 {
   "fixture_format": "oac-sealing-fixture/1",
-  "requirement": "SEC-SEL-012",
+  "requirement": "SEC-SEL-014",
   "spec": "spec/security.md",
   "spec_revision": "0.3",
-  "kind": "negative",
-  "failure_mode": "signature by another trusted key",
-  "description": "A statement that names Bob's key id but is signed by Mallory's key is refused.",
+  "kind": "positive",
+  "description": "A statement for Bob with seq 6, higher than the 5 the consumer holds, is admitted and replaces it.",
   "stage": "agreement",
   "context": {
     "consumer_time": "2026-10-09T13:00:00Z",
@@ -19,27 +18,29 @@
         "principal": "principal-b",
         "key_id": "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a",
         "public_key": "nAwqaFMHIMyOtfh4ovJIGr8MJhLV3qhFaN550YS7M2g"
-      },
-      {
-        "principal": "principal-m",
-        "key_id": "f9d705129917c4e5e0735c6d9b2fbe75e185a91df3eb643b107fe3711d9c954b",
-        "public_key": "ect6X1av62gGwcrcQ_oDwMA6T2NyTMflmuCuoqEklFM"
       }
-    ]
+    ],
+    "admitted": {
+      "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a": {
+        "agreement_key": "wcSSzJLhvIMKmwB60NLYtLZcibdrU5_XcugIsJugBG8",
+        "seq": 5,
+        "issued_at": "2026-10-09T12:00:00Z"
+      }
+    }
   },
   "input": {
     "statement": {
-      "agreement_key": "wcSSzJLhvIMKmwB60NLYtLZcibdrU5_XcugIsJugBG8",
-      "seq": 1,
-      "issued_at": "2026-10-09T12:00:00Z",
+      "agreement_key": "23CAsLfguWcZ_lB_LEDtITT6oqdmdlTBsKn5lCafOSg",
+      "seq": 6,
+      "issued_at": "2026-10-09T13:00:00Z",
       "security": {
         "principal": "principal-b",
         "key_id": "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a",
-        "signature": "GJalsrTzZdBEBkcm2IdIZ0ycGHhg0C8ExblkNvEUpCZz31jc9P4YRSMR3ft6KgNDtoenrIDL5nc4K3-IP1BZAg"
+        "signature": "Q1L2-4cPHGRb_oRf-VgmMclvdkhtuPa0MtMjJf0EA7bCgGm8TiK8WX5xGsIab6i0r4fDUFYYpVhtMa5HR4_wDQ"
       }
     }
   },
   "expected": {
-    "result": "refused"
+    "result": "admitted"
   }
 }

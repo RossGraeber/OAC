@@ -1,11 +1,11 @@
 {
   "fixture_format": "oac-sealing-fixture/1",
-  "requirement": "SEC-SEL-012",
+  "requirement": "SEC-SEL-014",
   "spec": "spec/security.md",
   "spec_revision": "0.3",
   "kind": "negative",
-  "failure_mode": "signature by another trusted key",
-  "description": "A statement that names Bob's key id but is signed by Mallory's key is refused.",
+  "failure_mode": "seq no higher than the held one",
+  "description": "A second statement for Bob with the same seq as the held one is refused.",
   "stage": "agreement",
   "context": {
     "consumer_time": "2026-10-09T13:00:00Z",
@@ -19,23 +19,25 @@
         "principal": "principal-b",
         "key_id": "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a",
         "public_key": "nAwqaFMHIMyOtfh4ovJIGr8MJhLV3qhFaN550YS7M2g"
-      },
-      {
-        "principal": "principal-m",
-        "key_id": "f9d705129917c4e5e0735c6d9b2fbe75e185a91df3eb643b107fe3711d9c954b",
-        "public_key": "ect6X1av62gGwcrcQ_oDwMA6T2NyTMflmuCuoqEklFM"
       }
-    ]
+    ],
+    "admitted": {
+      "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a": {
+        "agreement_key": "wcSSzJLhvIMKmwB60NLYtLZcibdrU5_XcugIsJugBG8",
+        "seq": 5,
+        "issued_at": "2026-10-09T12:00:00Z"
+      }
+    }
   },
   "input": {
     "statement": {
-      "agreement_key": "wcSSzJLhvIMKmwB60NLYtLZcibdrU5_XcugIsJugBG8",
-      "seq": 1,
-      "issued_at": "2026-10-09T12:00:00Z",
+      "agreement_key": "23CAsLfguWcZ_lB_LEDtITT6oqdmdlTBsKn5lCafOSg",
+      "seq": 5,
+      "issued_at": "2026-10-09T13:00:00Z",
       "security": {
         "principal": "principal-b",
         "key_id": "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a",
-        "signature": "GJalsrTzZdBEBkcm2IdIZ0ycGHhg0C8ExblkNvEUpCZz31jc9P4YRSMR3ft6KgNDtoenrIDL5nc4K3-IP1BZAg"
+        "signature": "Im3R03MFzDfsJFmqrq7xTT-Oj9PsSIbzWK3-EIN1hqYnLM5FJt0vpTM1pXqp72FrT9-P6Y0HOPe4gfcQFFE4AQ"
       }
     }
   },

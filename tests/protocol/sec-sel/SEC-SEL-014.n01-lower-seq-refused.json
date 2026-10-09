@@ -4,8 +4,8 @@
   "spec": "spec/security.md",
   "spec_revision": "0.3",
   "kind": "negative",
-  "failure_mode": "statement older than the held one",
-  "description": "A statement for Bob issued before the one the consumer holds is refused: a replayed old statement cannot bring back a replaced agreement key.",
+  "failure_mode": "seq lower than the held one",
+  "description": "A statement for Bob with seq 4, lower than the 5 the consumer holds, is refused although it is issued later: a replayed old statement cannot bring back a replaced agreement key.",
   "stage": "agreement",
   "context": {
     "consumer_time": "2026-10-09T13:00:00Z",
@@ -24,6 +24,7 @@
     "admitted": {
       "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a": {
         "agreement_key": "wcSSzJLhvIMKmwB60NLYtLZcibdrU5_XcugIsJugBG8",
+        "seq": 5,
         "issued_at": "2026-10-09T12:00:00Z"
       }
     }
@@ -31,11 +32,12 @@
   "input": {
     "statement": {
       "agreement_key": "23CAsLfguWcZ_lB_LEDtITT6oqdmdlTBsKn5lCafOSg",
-      "issued_at": "2026-10-09T11:00:00Z",
+      "seq": 4,
+      "issued_at": "2026-10-09T13:00:00Z",
       "security": {
         "principal": "principal-b",
         "key_id": "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a",
-        "signature": "hEhpfF_XW1OiTD3R2OpuBFW4XN8FeQgZtpkETP3_4Z1Ej0LHM6Pt0ASi_M9q1HqDWBiCplZyAZ1DFzXKGWORDA"
+        "signature": "XI4YQPxFmmklB54JK1ScIg9iDsJt7DxhN6fT_q6Vir32eXJlhj_JG_Zwca73XHgv2Q1zAXPW9fW45aVRGxgYCA"
       }
     }
   },

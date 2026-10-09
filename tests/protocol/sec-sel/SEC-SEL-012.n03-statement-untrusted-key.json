@@ -25,11 +25,12 @@
   "input": {
     "statement": {
       "agreement_key": "23CAsLfguWcZ_lB_LEDtITT6oqdmdlTBsKn5lCafOSg",
+      "seq": 1,
       "issued_at": "2026-10-09T12:00:00Z",
       "security": {
         "principal": "principal-c",
         "key_id": "86761fb8ff6100cec63ae093b79ecf2f1b1aed21d9ea860db031ffb5bf4768e9",
-        "signature": "-58zcx3SVi6o-1uFGycFGSyCqAddD5Thzusgn4nkW2FosXDGFw-mJ27UR0ETRa9wCp7sQpyPBly5pkLkLKHaCg"
+        "signature": "PLedXiOoe3UCBIgnJjvNvxoBFVYhlzU_3GYPYl0Z3pzhHWZXEKU2o4IUsChHkoo3BqSwCO_NsgEAAqvNfETlAQ"
       }
     }
   },

@@ -28,10 +28,12 @@
     "admitted": {
       "b3db3806621d3de16e61d08fcb01841f6c60c54a68e7d482076677db5c44d174": {
         "agreement_key": "H8yrDgHwcdmpCJIKPAxJkLySW5FGSw_WDTlUUcSeCnc",
+        "seq": 1,
         "issued_at": "2026-10-09T12:00:00Z"
       },
       "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a": {
         "agreement_key": "wcSSzJLhvIMKmwB60NLYtLZcibdrU5_XcugIsJugBG8",
+        "seq": 1,
         "issued_at": "2026-10-09T12:00:00Z"
       }
     }

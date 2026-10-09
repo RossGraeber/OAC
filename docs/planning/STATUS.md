@@ -19,11 +19,12 @@ manifest or code under `core/`, `transports/` or `adapters/` changes.
   than the one held. Every payload passed to a sealing transport is signed, then sealed with
   HPKE (RFC 9180) base mode, DHKEM(X25519, HKDF-SHA256), HKDF-SHA256, ChaCha20Poly1305, to
   the recipient device's agreement key; kind, signer, recipient and deadline travel inside
-  the frame, and the receiving core enforces the deadline. With no admitted statement for the
-  recipient, nothing is sent (`transport-failure`), never in the clear. Frames that do not
-  open, and opened payloads for another device, are discarded silently. Statements are
-  issued in strictly increasing order, kept as durably as the trusted key set, and refused
-  from more than `W` in the future. SEC-SEL-001 to SEC-SEL-042, three §13 rows.
+  the frame, and the receiving core drops a late payload silently. With no admitted statement
+  for the recipient, nothing is sent (`transport-failure`), never in the clear. Frames that do
+  not open, and opened payloads for another device, are discarded silently. Statements are
+  ordered by a signed `seq` that the issuer counts up and keeps, never by its clock; consumers
+  keep them as durably as the trusted key set and refuse one more than `W` in the future,
+  which never blocks a later one. SEC-SEL-001 to SEC-SEL-043, three §13 rows.
   `spec/interfaces.md` 0.3 §6.10: payload kind `sealed`, declaration member `sealing`,
   IFC-TRN-100 to IFC-TRN-113 (no value beside a frame, no device key id on the wire, other
   kinds refused); [IFC-TRN-034] binds a sealing transport's sending end; [IFC-TRN-081] admits

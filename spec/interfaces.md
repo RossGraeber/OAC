@@ -1021,12 +1021,13 @@ flight, for example to retransmit it. It keeps nothing else.
 [IFC-TRN-033] A transport MUST NOT hold a copy of a payload except while that copy is in flight.
 
 [IFC-TRN-034] A transport MUST NOT hold, or deliver, a copy of a payload at or after the
-payload's `Deadline`.
+payload's `Deadline`, except that the receiving end of a sealing transport (§6.10), which holds
+no `Deadline` ([IFC-TRN-107]), is bound only by [IFC-TRN-033] and [IFC-TRN-036].
 
-A sealing transport carries no `Deadline` beside a frame ([IFC-TRN-107]), so only its sending
-end knows it. For a sealing transport, [IFC-TRN-034] binds the end that took the payload from
-the core; a copy that reaches the receiving end late is handed over, and the receiving core
-discards it after opening it (`spec/security.md` [SEC-SEL-036]).
+The receiving end of a sealing transport hands a late copy over, and the receiving core drops
+it silently on opening (`spec/security.md` [SEC-SEL-036]). The obligation moves from one part
+of the receiving implementation to another, and only for an implementation that uses a
+sealing transport (`spec/session-channels.md` §5.2 item 9).
 
 [IFC-TRN-035] A transport MUST NOT keep a payload across a restart of the transport, or deliver
 a payload again after the destination's implementation restarted.
@@ -1255,14 +1256,16 @@ holds a copy no later than that `Deadline`, and the receiving core discards a pa
 deadline has passed after opening it (`spec/security.md` [SEC-SEL-036]). The transport can
 still carry values of its own link, such as a carrier handle (§6.6), within [IFC-TRN-108].
 
-[IFC-TRN-108] A sealing transport MUST NOT make the local device's key id, or any value derived
-from it, observable to any other implementation.
+[IFC-TRN-108] A sealing transport MUST NOT make the local device's key id, a session id, or any
+value derived from either, observable to any other implementation, except inside the octets of
+a sealed payload.
 
 The key id passed to `start` is public (§6.4), but a link that carried it, or a value derived
-from it, would name the device behind every frame sent over that link. That covers the
-transport's frame headers, its link and peer identifiers, its carrier handles, and any signal
-of liveness or carrier loss (§6.6): none of them names or derives from a device key id or a
-session id.
+from it, would name the device behind every frame sent over that link, and a session id would
+name the session. The rule covers the transport's frame headers, its link and peer
+identifiers, its carrier handles, and any signal of liveness or carrier loss (§6.6). A
+liveness signal that names a session is not a sealed payload's `Destination`, so
+[IFC-TRN-106] alone would not cover it.
 
 [IFC-TRN-109] A sealing transport MUST declare a `max_payload_octets` of at least 65590.
 
@@ -1543,7 +1546,7 @@ the requirement whose fixtures exercise it. Appendix C gives each requirement's 
 | IFC-TRN-105 | MUST | 6.10 | TODO(fixture): F10 transport suite; G1 (#62) |
 | IFC-TRN-106 | MUST NOT | 6.10 | TODO(fixture): F10 transport suite, a third implementation holding both destinations sees the same addressing for each; G1 (#62), H2 |
 | IFC-TRN-107 | MUST NOT | 6.10 | TODO(fixture): document review of the binding's framing and an F10 check; G1 (#62) |
-| IFC-TRN-108 | MUST NOT | 6.10 | TODO(fixture): F10 transport suite, a third implementation's view of frame headers, link and carrier identifiers and liveness signals holds no value derived from a device key id; G1 (#62) for the frame header, G2 (#63) for liveness and carrier loss |
+| IFC-TRN-108 | MUST NOT | 6.10 | TODO(fixture): F10 transport suite, a third implementation's view of frame headers, link and carrier identifiers and liveness signals holds no value derived from a device key id or a session id; G1 (#62) for the frame header, G2 (#63) for liveness and carrier loss |
 | IFC-TRN-109 | MUST | 6.10 | TODO(fixture): F10 transport suite; G1 (#62) |
 | IFC-TRN-110 | MUST | 6.10 | TODO(fixture): document review; G1 (#62), G3 (#64) |
 | IFC-TRN-111 | SHOULD | 6.10 | none (SHOULD) |
@@ -1569,7 +1572,7 @@ a frame, so the id was reused for the rule it holds now and is not retired.
 | 0.1 (draft) | 2026-10-04 | Review of PR #279 and the operator rulings on #273: operations whose meaning changed renamed (`take_connection`, `watch_attachments`, `set_binding`, `accept_requests`, `send_presence`); persistence and offline queueing declared absent, and a transport holds a copy only in flight and never past its deadline or across a restart (IFC-TRN-026, IFC-TRN-033 to IFC-TRN-037); the `not-passed` request result; Appendix C gives every `MUST` and `MUST NOT` of the four documents one owner, checked by the reference runner; connections are created and authenticated by the core process (IFC-ADP-012, IFC-ADP-013); transport non-disclosure of subscriptions (IFC-TRN-043, IFC-TRN-044); `ChannelMessage` keeps unrecognized members (IFC-TYP-003); scope and device grants in Table 4.9; receipts addressed to the verifying key; the hand-off never steers and is made at most once (IFC-ADP-057, after #278); single-member negative fixtures for IFC-TYP-050 and IFC-TYP-060. |
 | 0.1 | 2026-10-06 | Frozen at Gate S2 (E7, #47): signed off on this date, in force from the merge of PR #276. |
 | 0.2 | 2026-10-08 | #69, PR #350, with `spec/bindings/mcp.md` 0.2 (the issued-value pairing for one v0.1 harness, §4.5 there): `NativeSignal` gains `revealed` and a `refused` result gains `pairing_value` (§4.10); the `attachment-unconfirmed` event (§5.4); IFC-ADP-090 (pairing values drawn from a secure random source), IFC-ADP-091 (the event comes before the request), IFC-ADP-092 and IFC-ADP-093 (the core stops serving the attachment until it is paired again, and records a finding); Appendix C gives owners to the `MUST` and `MUST NOT` requirements among MCPB-ATT-004 to MCPB-ATT-026, and to MCPB-CDX-006. Minor revision under `docs/planning/decisions/E7-interface-freeze.md` §7: no wire form changes, the added members are optional, and every new `MUST` binds only an implementation that issues pairing values or receives the new event, so an implementation conformant to 0.1 stays conformant. |
-| 0.3 | 2026-10-09 | Sealing transports, with `spec/security.md` 0.3 (payload sealing, §14 there), on the lead's ruling of 2026-10-09 on PR #364 (review finding 2): `Payload` gains the kind `sealed` (§4.11, Table 6.1); `TransportCapabilities` gains `sealing` (Table 6.3); §6.10 adds IFC-TRN-100 to IFC-TRN-104 (the core passes and takes only sealed payloads on a sealing transport, addressed to the recipient device, with room for the frame's overhead), IFC-TRN-105 to IFC-TRN-110 and IFC-TRN-113 (the transport hands sealed payloads to the local device's subscription, shows no destination, carries nothing beside a frame, deadline included, shows no device key id, declares a size floor of 65590, declares the `sealing` value its binding states, and refuses any other payload kind), IFC-TRN-111 (`SHOULD`: seal on every unrestricted cross-implementation transport) and IFC-TRN-112 (the binding document states what travels beside a frame); [IFC-TRN-034] binds a sealing transport's sending end, with the receiving core enforcing the deadline; [IFC-TRN-081] admits a sealing transport as a second way across implementations, with a dated note; §6.2, §6.4 and §8 updated; Appendix C gives owners to the new `MUST` and `MUST NOT` requirements and to those of SEC-SEL-001 to SEC-SEL-042. Minor revision under `docs/planning/decisions/E7-interface-freeze.md` §7 and `spec/session-channels.md` §5.2 item 9: the relaxed [IFC-TRN-081] forbids nothing it allowed, and every new `MUST`, and the narrower reach of [IFC-TRN-034], binds only a transport that declares `sealing` or a core that uses one, which no earlier revision defined. |
+| 0.3 | 2026-10-09 | Sealing transports, with `spec/security.md` 0.3 (payload sealing, §14 there), on the lead's ruling of 2026-10-09 on PR #364 (review finding 2): `Payload` gains the kind `sealed` (§4.11, Table 6.1); `TransportCapabilities` gains `sealing` (Table 6.3); §6.10 adds IFC-TRN-100 to IFC-TRN-104 (the core passes and takes only sealed payloads on a sealing transport, addressed to the recipient device, with room for the frame's overhead), IFC-TRN-105 to IFC-TRN-110 and IFC-TRN-113 (the transport hands sealed payloads to the local device's subscription, shows no destination, carries nothing beside a frame, deadline included, shows no device key id or session id, declares a size floor of 65590, declares the `sealing` value its binding states, and refuses any other payload kind), IFC-TRN-111 (`SHOULD`: seal on every unrestricted cross-implementation transport) and IFC-TRN-112 (the binding document states what travels beside a frame); [IFC-TRN-034] no longer binds a sealing transport's receiving end, in the rule's own text, and the receiving core drops late payloads in its place; [IFC-TRN-081] admits a sealing transport as a second way across implementations, with a dated note; §6.2, §6.4 and §8 updated; Appendix C gives owners to the new `MUST` and `MUST NOT` requirements and to those of SEC-SEL-001 to SEC-SEL-043. Minor revision under `docs/planning/decisions/E7-interface-freeze.md` §7 and `spec/session-channels.md` §5.2 item 9: the relaxed [IFC-TRN-081] forbids nothing it allowed, and every new `MUST`, and the narrower reach of [IFC-TRN-034], whose obligation moves to the receiving core, binds only a transport that declares `sealing` or a core that uses one, which no earlier revision defined. |
 
 ## Appendix C. Owner index
 
@@ -1603,7 +1606,7 @@ carries the requirement out.
 | SEC-RCT | core | 001, 002, 003, 004, 005 |
 | SEC-PRS | core | 001, 002, 003, 004, 005, 006, 007, 010, 011, 012, 013, 014, 015 |
 | SEC-PRV | adapter | 001, 002, 003, 004, 005, 006, 007, 008, 009, 010, 012, 013, 014, 015, 016, 017 |
-| SEC-SEL | core | 001, 002, 003, 004, 010, 011, 012, 013, 014, 015, 016, 020, 021, 022, 023, 024, 030, 031, 032, 033, 034, 035, 036, 037, 040, 041, 042 |
+| SEC-SEL | core | 001, 002, 003, 004, 010, 011, 012, 013, 014, 015, 016, 020, 021, 022, 023, 024, 030, 031, 032, 033, 034, 035, 036, 037, 040, 041, 042, 043 |
 | MCPB-DLV | adapter | 001, 002 |
 | MCPB-EXT | adapter | 001, 002, 003, 004 |
 | MCPB-ERA | adapter | 001, 002, 003, 004, 005, 007, 008, 009, 011 |

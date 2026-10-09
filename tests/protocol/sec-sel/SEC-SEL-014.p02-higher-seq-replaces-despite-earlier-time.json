@@ -4,7 +4,7 @@
   "spec": "spec/security.md",
   "spec_revision": "0.3",
   "kind": "positive",
-  "description": "A statement for Bob issued after the one the consumer holds is admitted, replacing it.",
+  "description": "A statement for Bob with seq 6 but an issued_at before the held statement's is admitted: order comes from seq, never from the issuer's clock, so a clock that once ran ahead cannot block a later replacement.",
   "stage": "agreement",
   "context": {
     "consumer_time": "2026-10-09T13:00:00Z",
@@ -23,6 +23,7 @@
     "admitted": {
       "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a": {
         "agreement_key": "wcSSzJLhvIMKmwB60NLYtLZcibdrU5_XcugIsJugBG8",
+        "seq": 5,
         "issued_at": "2026-10-09T12:00:00Z"
       }
     }
@@ -30,11 +31,12 @@
   "input": {
     "statement": {
       "agreement_key": "23CAsLfguWcZ_lB_LEDtITT6oqdmdlTBsKn5lCafOSg",
-      "issued_at": "2026-10-09T13:00:00Z",
+      "seq": 6,
+      "issued_at": "2026-10-09T11:00:00Z",
       "security": {
         "principal": "principal-b",
         "key_id": "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a",
-        "signature": "6wdgnB0am3dfXLniSn0EbWfCqnnJWPczXifjeIxqOh1t-9kiLdz0BiwjBmeI-IFwbuHuIbpQN-sLpJUluoevBg"
+        "signature": "whG2VnRqq68HvcuK_bobbANcv8mYgJmdp3_dikOkKGAqsrCSYjvpeajKGkHK7eBpXkdjWuQ7zW-7XeQorU7VDQ"
       }
     }
   },

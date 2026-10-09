@@ -13,7 +13,9 @@ const b64url = (b) => Buffer.from(b).toString('base64').replace(/\+/g, '-').repl
 const isKey32Form = (v) => isStr(v) && /^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$/.test(v);
 
 export const AGREEMENT_DOMAIN = 'oac-agreement-v1';
-const STATEMENT_MEMBERS = ['agreement_key', 'issued_at', 'security'];
+const STATEMENT_MEMBERS = ['agreement_key', 'seq', 'issued_at', 'security'];
+// `seq`: an integer from 0 to 9007199254740991 ([SEC-SEL-010]).
+const isSeq = (v) => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0;
 
 // [SEC-SEL-012]: the trusted-key entry a statement names, or null.
 function resolve(trusted, sec) {
@@ -32,10 +34,10 @@ export function admits(trusted, held, st, now) {
   if (!verify(b64urlDecode(entry.public_key), signingInput(AGREEMENT_DOMAIN, st).bytes, b64urlDecode(sec.signature))) return false; // [SEC-SEL-012]
   if (!isKey32Form(st.agreement_key) || !acceptableAgreementKey(b64urlDecode(st.agreement_key))) return false; // [SEC-SEL-013]
   const t = parseTimestamp(st.issued_at);
-  if (t === null) return false; // [SEC-SEL-010]
+  if (t === null || !isSeq(st.seq)) return false; // [SEC-SEL-010]
   if (t >= now + REPLAY_WINDOW_NS) return false; // [SEC-SEL-042]
   const prior = held[sec.key_id];
-  if (prior && t <= parseTimestamp(prior.issued_at)) return false; // [SEC-SEL-014]
+  if (prior && st.seq <= prior.seq) return false; // [SEC-SEL-014]: by seq, never by issued_at
   return true;
 }
 

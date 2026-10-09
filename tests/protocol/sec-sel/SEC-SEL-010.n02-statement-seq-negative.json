@@ -1,11 +1,11 @@
 {
   "fixture_format": "oac-sealing-fixture/1",
-  "requirement": "SEC-SEL-014",
+  "requirement": "SEC-SEL-010",
   "spec": "spec/security.md",
   "spec_revision": "0.3",
   "kind": "negative",
-  "failure_mode": "statement no later than the held one",
-  "description": "A second statement for Bob with the same issued_at as the held one is refused.",
+  "failure_mode": "seq out of range",
+  "description": "A statement whose seq is -1, not an integer from 0 to 9007199254740991, is refused.",
   "stage": "agreement",
   "context": {
     "consumer_time": "2026-10-09T13:00:00Z",
@@ -20,22 +20,17 @@
         "key_id": "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a",
         "public_key": "nAwqaFMHIMyOtfh4ovJIGr8MJhLV3qhFaN550YS7M2g"
       }
-    ],
-    "admitted": {
-      "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a": {
-        "agreement_key": "wcSSzJLhvIMKmwB60NLYtLZcibdrU5_XcugIsJugBG8",
-        "issued_at": "2026-10-09T12:00:00Z"
-      }
-    }
+    ]
   },
   "input": {
     "statement": {
-      "agreement_key": "23CAsLfguWcZ_lB_LEDtITT6oqdmdlTBsKn5lCafOSg",
+      "agreement_key": "wcSSzJLhvIMKmwB60NLYtLZcibdrU5_XcugIsJugBG8",
+      "seq": -1,
       "issued_at": "2026-10-09T12:00:00Z",
       "security": {
         "principal": "principal-b",
         "key_id": "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a",
-        "signature": "jKCw2fiBXuKV8q2H9H6Cc7zKl2vxxU5Nij2ows6Zn-g5MdB67pemmb4h7o6LNKVcJ1hlvxj9ER5vkQtGf4D9Bg"
+        "signature": "H9luar7uYHoRMWaaTLphWWs8P9vXt2xJEh2TaHdVaq0Ci-zfAxmcoeXZYlD2UUbNsnXa2ZP19TbA0nutv3miCQ"
       }
     }
   },

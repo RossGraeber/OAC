@@ -600,14 +600,18 @@ revision of the same major version handles correctly without being updated:
 9. Adding a `MUST` or `MUST NOT` that binds only an implementation that takes up something no
    earlier minor revision of the same major version defined: a new declared value, which may
    be declared once for a whole binding rather than by each peer, or a new wire form used only
-   between implementations that both take that value up. An implementation conformant to an
-   earlier minor revision never takes it up, so it stays conformant, and it never receives the
-   new wire form.
+   between implementations that both take that value up. Narrowing a `MUST` or `MUST NOT` only
+   for an implementation that takes such a value up is classified the same way, when that same
+   implementation takes on an equal obligation elsewhere, in another of its parts. An
+   implementation conformant to an earlier minor revision never takes the value up, so it stays
+   conformant, and it never receives the new wire form.
 
 *Dated note, 2026-10-09 (revision 0.2): item 9 records the classification that
 `spec/interfaces.md` 0.2 (PR #350) already applied to its pairing requirements, and that
 `spec/security.md` 0.3 and `spec/interfaces.md` 0.3 apply to payload sealing: each new `MUST`
-there binds only a transport that declares `sealing` and the core that uses one. A `MUST` that
+there binds only a transport that declares `sealing` and the core that uses one, and the
+narrowed [IFC-TRN-034] of `spec/interfaces.md` moves the receiving end's deadline check from a
+sealing transport to the receiving core (`spec/security.md` [SEC-SEL-036]). A `MUST` that
 an implementation conformant to an earlier minor revision would violate stays breaking
 (§5.3 item 11).*
 
@@ -2988,4 +2992,4 @@ Retired ids: none.
 | 0.1 (draft) | 2026-10-04 | #275, no requirement added or changed: the fixture `context` of §3.3, and the `routing` and `receive` stages of §8.5, gain an optional `max_envelope_octets` (the receiver-wide size limit of [SC-RCP-076]; 65536, the default of [SC-ENV-004], when absent), so that a fixture can decide `envelope-too-large` at the envelope stage. New fixtures `sc-rcp/SC-RCP-076.p02`, `.p03`, `.n02`, `.n03`, `SC-RCP-071.n07`, `SC-RCP-028.p01`, `.p02`, `.n03`, `.n04`, `SC-RCP-079.p01`, `.n02`, `SC-RCP-090.n03` and `SC-RCP-072.n01` decide `envelope-too-large` and `transport-failure` (Gate S2 demonstration, E7 blocker B3). |
 | 0.1 (draft) | 2026-10-04 | E7 (#47) freeze preparation, editorial (no requirement added or changed): Appendix A row SC-ID-080 named only Stage 2 owners (E3, E6), both closed. Its `TODO(fixture)` is now owned by F6 and F10, as the other issuer-side rows of §7.2.5 are. |
 | 0.1 | 2026-10-06 | Frozen at Gate S2 (E7, #47): signed off on this date, in force from the merge of PR #276. |
-| 0.2 | 2026-10-09 | With `spec/security.md` 0.3 and `spec/interfaces.md` 0.3 (payload sealing, on the lead's ruling of 2026-10-09 on PR #364): §5.2 item 9 classifies a `MUST` that binds only an implementation taking up a newly defined declared value or wire form as a minor change, with a dated note; §3.3 names the sealing fixture format of `spec/security.md` §14.10; a §7.3.2 dated note records that a sealing transport binding meets [SC-DLV-066]. No requirement of this document is added, removed or changed, and no wire form of this document changes. Minor revision under `docs/planning/decisions/E7-interface-freeze.md` §7. |
+| 0.2 | 2026-10-09 | With `spec/security.md` 0.3 and `spec/interfaces.md` 0.3 (payload sealing, on the lead's ruling of 2026-10-09 on PR #364): §5.2 item 9 classifies as a minor change a `MUST` that binds only an implementation taking up a newly defined declared value or wire form, and the narrowing of a requirement for such an implementation when it takes on an equal obligation elsewhere, with a dated note; §3.3 names the sealing fixture format of `spec/security.md` §14.10; a §7.3.2 dated note records that a sealing transport binding meets [SC-DLV-066]. No requirement of this document is added, removed or changed, and no wire form of this document changes. Minor revision under `docs/planning/decisions/E7-interface-freeze.md` §7. |
