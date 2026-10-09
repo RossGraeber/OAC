@@ -51,8 +51,8 @@ pub const EXPERIMENTAL_METHODS: &[&str] = &[THREAD_QUEUE_ADD];
 /// `clientUserMessageId` (upstream Codex repository, tag `rust-v0.160.0`,
 /// `codex-rs/app-server-protocol/src/protocol/v2/thread.rs#L910-L914`, cited in
 /// `spec/bindings/mcp.md` §8.2.1, retrieved 2026-10-04); the request was recorded with
-/// exactly these at `0.161.0` (`docs/planning/gates/fixtures/s3-codex-capture/transcript-2026-10-07-0.161.0-herdr.jsonl`
-/// L65, L99, L109). The method is absent from the default schema
+/// exactly these at `0.161.0` (the S3 Codex capture of 2026-10-07 in
+/// `docs/planning/gates/fixtures/s3-codex-capture/`, L65, L99, L109). The method is absent from the default schema
 /// (`docs/planning/vendor/codex-app-server-protocol/README.md`).
 pub const QUEUE_ADD_MEMBERS: &[&str] = &["clientUserMessageId", "input", "threadId"];
 
