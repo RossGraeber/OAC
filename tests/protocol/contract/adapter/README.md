@@ -48,7 +48,10 @@ fabricates or filters what the fake observed. That residual is covered by review
 fixed file, and Gate S4 evidence for an adapter must cite it at the commit that ran.
 That review covers everything `contract.rs` calls outside this suite, including the
 adapter's own `src/` helpers. A helper that filters what the fake observed is part of the
-harness.
+harness. A hostile edit to an allowed dependency (`oac-core` or `oac-fake-claude`) that
+re-exports an `include` macro, such as `pub use std::include as load`, is covered by review
+like any other hostile edit to reviewed code. Plain `include_str!` in `oac-fake-claude`
+stays allowed.
 
 `tests/harness_location.rs` keeps this mechanical:
 

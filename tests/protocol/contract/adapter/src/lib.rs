@@ -83,7 +83,10 @@
 //! not do in a way the observations do not show. That residual is covered by reviewing
 //! the one fixed file. Gate S4 evidence for an adapter must cite it, at the commit run.
 //! The review covers everything `contract.rs` calls outside this suite, including the
-//! adapter's own `src/` helpers.
+//! adapter's own `src/` helpers. A hostile edit to an allowed dependency (`oac-core` or
+//! `oac-fake-claude`) that re-exports an `include` macro, e.g. `pub use std::include as load`,
+//! is covered by review like any other hostile edit to reviewed code; plain `include_str!`
+//! in `oac-fake-claude` stays allowed.
 //!
 //! `tests/harness_location.rs` keeps the rule mechanical:
 //! - Only an adapter, `adapters/mcp-tools` and its listed packages (`oac-transport-memory`)
