@@ -45,6 +45,8 @@ pub const HOLDING_HAND_OFF: &str = "thread/queue/add";
 /// The Codex profile of `spec/bindings/mcp.md` §8.2.1.
 pub const PROFILE: Profile = Profile {
     name: "codex-app-server",
+    // The calls the fake flags `handOff` (its README, "Call flags").
+    surface_operations: &[HOLDING_HAND_OFF, "turn/start", "turn/steer"],
     holding_hand_off: Some(HOLDING_HAND_OFF),
     steering_operations: &["turn/start", "turn/steer"],
     rules: &[
@@ -57,6 +59,12 @@ pub const PROFILE: Profile = Profile {
     // ([`CodexFake::set_archived`]), which section 8.2.1 classifies `handoff-failed`
     // ([SC-DLV-009]), not "cannot take input now" ([SC-DLV-008]).
     turned_away_code: Some(ErrorCode::HandoffFailed),
+    // The TUI user's turns (`CodexFake::tui_turn`) make a thread busy.
+    runs_own_turns: true,
+    // Codex's requests travel the MCP tool path shared with Claude (`spec/bindings/mcp.md`
+    // section 5), which the fake app-server does not model; they are exercised through the
+    // Claude harness.
+    makes_requests: false,
 };
 
 /// The client name of the suite's own "TUI user" connection.

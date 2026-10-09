@@ -1003,3 +1003,331 @@ fn the_suite_catches_each_planted_queue_breach() {
 fn the_tui_client_is_not_the_stand_in() {
     assert_ne!(TUI_CLIENT, STAND_IN_CLIENT);
 }
+
+// ---- harness breaches (#351) -----------------------------------------------------------------
+
+/// A harness that drops checks through what it supplies. Each one's values come from
+/// `plant`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum HarnessBreach {
+    /// Its binding's profile with no refusal code and no rules.
+    WeakensProfile,
+    /// The other binding's profile.
+    ClaimsOtherBinding,
+    /// A profile no binding has.
+    InventsProfile,
+    /// `refuse_hand_offs` returns a gap.
+    RefusalAsGap,
+    /// `start_turn` returns a gap.
+    TurnAsGap,
+    /// `request` returns a gap.
+    RequestsAsGap,
+    /// `source_files` returns nothing.
+    NoSourceFiles,
+    /// `native_ids` returns nothing (PR #355 review R1).
+    NoNativeIds,
+    /// `start_turn` returns Ok without starting a turn (PR #355 review R2).
+    TurnNoop,
+}
+
+/// `inner`, with `breach` planted.
+struct Rigged<H> {
+    inner: H,
+    breach: HarnessBreach,
+}
+
+impl<H: AdapterHarness> AdapterHarness for Rigged<H> {
+    fn name(&self) -> String {
+        format!("{} rigged {:?}", self.inner.name(), self.breach)
+    }
+    fn adapter(&self) -> Arc<dyn ProviderAdapter> {
+        self.inner.adapter()
+    }
+    fn profile(&self) -> Profile {
+        let own = self.inner.profile();
+        match self.breach {
+            HarnessBreach::WeakensProfile => plant::weakened_profile(own),
+            HarnessBreach::ClaimsOtherBinding => plant::other_binding(own),
+            HarnessBreach::InventsProfile => plant::invented_profile(),
+            _ => own,
+        }
+    }
+    fn open_session(&mut self, core: &CoreSide) -> Step<(usize, Vec<Connection>)> {
+        self.inner.open_session(core)
+    }
+    fn session_ready(&mut self, s: usize) -> Step<()> {
+        self.inner.session_ready(s)
+    }
+    fn end_session(&mut self, s: usize) -> Step<()> {
+        self.inner.end_session(s)
+    }
+    fn start_turn(&mut self, s: usize) -> Step<()> {
+        match self.breach {
+            HarnessBreach::TurnAsGap => return Err(plant::turn_as_gap()),
+            HarnessBreach::TurnNoop => return plant::turn_noop(),
+            _ => {}
+        }
+        self.inner.start_turn(s)
+    }
+    fn drain(&mut self, s: usize) -> Step<()> {
+        self.inner.drain(s)
+    }
+    fn refuse_hand_offs(&mut self, s: usize) -> Step<()> {
+        if self.breach == HarnessBreach::RefusalAsGap {
+            return Err(plant::refusal_as_gap());
+        }
+        self.inner.refuse_hand_offs(s)
+    }
+    fn allow_hand_offs(&mut self, s: usize) -> Step<()> {
+        self.inner.allow_hand_offs(s)
+    }
+    fn request(&mut self, s: usize, request: &HarnessRequest) -> Step<ObservedResult> {
+        if self.breach == HarnessBreach::RequestsAsGap {
+            return Err(plant::requests_as_gap());
+        }
+        self.inner.request(s, request)
+    }
+    fn observe(&mut self, s: usize) -> Observations {
+        self.inner.observe(s)
+    }
+    fn source_files(&self) -> Vec<PathBuf> {
+        if self.breach == HarnessBreach::NoSourceFiles {
+            return plant::no_source_files();
+        }
+        self.inner.source_files()
+    }
+    fn native_ids(&self) -> Vec<String> {
+        if self.breach == HarnessBreach::NoNativeIds {
+            return plant::no_native_ids();
+        }
+        self.inner.native_ids()
+    }
+}
+
+fn rigged_channel_report(adapter: ChannelBreach, breach: HarnessBreach) -> Report {
+    let mut h = Rigged {
+        inner: ClaudeHarness::new(
+            Arc::new(ChannelStandIn::new(adapter)),
+            MidTurnRelease::OnePerBoundary,
+            encode,
+            this_file(),
+        ),
+        breach,
+    };
+    run(&mut h)
+}
+
+fn rigged_queue_report(adapter: QueueBreach, breach: HarnessBreach) -> Report {
+    let fake = Arc::new(CodexFake::spawn().expect("spawn the fake Codex app-server with node"));
+    let mut h = Rigged {
+        inner: QueueHarness {
+            fake: fake.clone(),
+            adapter: Arc::new(QueueStandIn::new(fake.url(), adapter)),
+            sessions: Vec::new(),
+            own: Vec::new(),
+        },
+        breach,
+    };
+    run(&mut h)
+}
+
+/// Asserts that each of `ids` failed, and the roll-up with them.
+fn assert_caught(report: &Report, what: &str, ids: &[&str]) {
+    for id in ids {
+        assert!(report.failed(id), "{what} not caught as {id}:\n{report}");
+    }
+    assert!(report.failed("IFC-ADP-010"), "{what}:\n{report}");
+}
+
+#[test]
+fn the_suite_catches_each_planted_queue_harness_breach() {
+    // Each harness breach is planted on a well-behaved stand-in and, where the breach
+    // would hide one, on the adapter breach it would hide. The profile routes would
+    // otherwise drop SC-DLV-009 and the MCPB-CDX rows; the gap routes would make the rows
+    // they name not applicable.
+    let cases: [(QueueBreach, HarnessBreach, &[&str]); 14] = [
+        (
+            QueueBreach::None,
+            HarnessBreach::NoNativeIds,
+            &["IFC-TYP-092"],
+        ),
+        (
+            QueueBreach::HealthNamesThread,
+            HarnessBreach::NoNativeIds,
+            &["IFC-TYP-092"],
+        ),
+        (
+            QueueBreach::None,
+            HarnessBreach::TurnNoop,
+            &["SEC-AUZ-025", "SEC-AUZ-026"],
+        ),
+        (QueueBreach::None, HarnessBreach::WeakensProfile, &[]),
+        (
+            QueueBreach::ReportsNotNow,
+            HarnessBreach::WeakensProfile,
+            &["SC-DLV-009"],
+        ),
+        (
+            QueueBreach::OverridesSettings,
+            HarnessBreach::WeakensProfile,
+            &["MCPB-CDX-005"],
+        ),
+        (
+            QueueBreach::StartsTurns,
+            HarnessBreach::ClaimsOtherBinding,
+            &["SEC-AUZ-025", "MCPB-CDX-002", "MCPB-CDX-003"],
+        ),
+        (
+            QueueBreach::ReportsNotNow,
+            HarnessBreach::ClaimsOtherBinding,
+            &["SC-DLV-009"],
+        ),
+        (
+            QueueBreach::ReportsNotNow,
+            HarnessBreach::InventsProfile,
+            &["SC-DLV-009"],
+        ),
+        (
+            QueueBreach::None,
+            HarnessBreach::RefusalAsGap,
+            &["SEC-AUZ-027", "SC-DLV-009"],
+        ),
+        (
+            QueueBreach::ReportsNotNow,
+            HarnessBreach::RefusalAsGap,
+            &["SEC-AUZ-027", "SC-DLV-009"],
+        ),
+        (
+            QueueBreach::None,
+            HarnessBreach::TurnAsGap,
+            &["SEC-AUZ-025", "SEC-AUZ-026"],
+        ),
+        (
+            QueueBreach::None,
+            HarnessBreach::NoSourceFiles,
+            &["IFC-ADP-001", "IFC-ADP-002", "IFC-ADP-007", "IFC-ADP-013"],
+        ),
+        // Requests are not applicable on the Codex binding, so the gap there stays an
+        // honest n/a; only the roll-up is asserted, and it must pass.
+        (QueueBreach::None, HarnessBreach::RequestsAsGap, &[]),
+    ];
+    for (adapter, breach, ids) in cases {
+        let report = rigged_queue_report(adapter, breach);
+        let what = format!("{breach:?} over {adapter:?}");
+        match breach {
+            HarnessBreach::RequestsAsGap => report.assert_conformant(),
+            _ => {
+                assert_caught(&report, &what, ids);
+                if matches!(
+                    breach,
+                    HarnessBreach::WeakensProfile
+                        | HarnessBreach::ClaimsOtherBinding
+                        | HarnessBreach::InventsProfile
+                ) {
+                    assert!(
+                        report
+                            .rows
+                            .iter()
+                            .any(|r| r.check == "harness-profile-is-the-bindings"
+                                && r.verdict.is_fail()),
+                        "{what}:\n{report}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn the_suite_catches_each_planted_channel_harness_breach() {
+    let cases: [(HarnessBreach, &[&str]); 6] = [
+        (HarnessBreach::WeakensProfile, &[]),
+        (HarnessBreach::ClaimsOtherBinding, &[]),
+        (HarnessBreach::InventsProfile, &[]),
+        (HarnessBreach::TurnAsGap, &["SEC-AUZ-025", "SEC-AUZ-026"]),
+        (
+            HarnessBreach::RequestsAsGap,
+            &["IFC-ADP-003", "IFC-ADP-031", "IFC-ADP-060"],
+        ),
+        (
+            HarnessBreach::NoSourceFiles,
+            &["IFC-ADP-001", "IFC-ADP-002", "IFC-ADP-007", "IFC-ADP-013"],
+        ),
+    ];
+    for (breach, ids) in cases {
+        let report = rigged_channel_report(ChannelBreach::None, breach);
+        let what = format!("{breach:?}");
+        if breach == HarnessBreach::WeakensProfile {
+            // The Claude profile has no refusal code and no rule to remove, so the weakened
+            // copy is the profile itself: nothing is dropped, and the run passes.
+            report.assert_conformant();
+            continue;
+        }
+        assert_caught(&report, &what, ids);
+        if matches!(
+            breach,
+            HarnessBreach::ClaimsOtherBinding | HarnessBreach::InventsProfile
+        ) {
+            assert!(
+                report
+                    .rows
+                    .iter()
+                    .any(|r| r.check == "harness-profile-is-the-bindings" && r.verdict.is_fail()),
+                "{what}:\n{report}"
+            );
+        }
+    }
+    // Omitted native ids, over a well-behaved stand-in and over the breach they would
+    // hide; and a start_turn that starts nothing.
+    let cases: [(ChannelBreach, HarnessBreach, &[&str]); 3] = [
+        (
+            ChannelBreach::None,
+            HarnessBreach::NoNativeIds,
+            &["IFC-TYP-092"],
+        ),
+        (
+            ChannelBreach::HealthNamesToolUse,
+            HarnessBreach::NoNativeIds,
+            &["IFC-TYP-092"],
+        ),
+        (
+            ChannelBreach::None,
+            HarnessBreach::TurnNoop,
+            &["SEC-AUZ-025", "SEC-AUZ-026"],
+        ),
+    ];
+    for (adapter, breach, ids) in cases {
+        let report = rigged_channel_report(adapter, breach);
+        assert_caught(&report, &format!("{breach:?} over {adapter:?}"), ids);
+    }
+    // Claude has no refusal path: a gap from refuse_hand_offs stays an honest n/a there.
+    let report = rigged_channel_report(ChannelBreach::None, HarnessBreach::RefusalAsGap);
+    report.assert_conformant();
+    assert!(
+        report.not_applicable().contains(&"SC-DLV-009")
+            && report.not_applicable().contains(&"SEC-AUZ-027"),
+        "{report}"
+    );
+}
+
+#[test]
+fn the_binding_is_identified_by_its_surface_not_by_the_harness() {
+    use oac_contract_adapter::{claude, identify_binding};
+    assert_eq!(
+        identify_binding([codex::HOLDING_HAND_OFF, "turn/steer"]).map(|p| p.name),
+        Ok(codex::PROFILE.name)
+    );
+    assert_eq!(
+        identify_binding([oac_fake_claude::CHANNEL_NOTIFICATION]).map(|p| p.name),
+        Ok(claude::PROFILE.name)
+    );
+    assert!(identify_binding([]).is_err());
+    assert!(identify_binding(["thread/inject_items"]).is_err());
+    assert!(
+        identify_binding([
+            codex::HOLDING_HAND_OFF,
+            oac_fake_claude::CHANNEL_NOTIFICATION
+        ])
+        .is_err()
+    );
+}
