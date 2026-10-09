@@ -144,9 +144,9 @@ Message shapes are checked in at `codex-rs/app-server-protocol/schema/json` and
 `schema/typescript` in `github.com/openai/codex`, regenerable with
 `codex app-server generate-json-schema`. Treat the checked-in schema as the
 source of truth for message shapes (backlog task G6 acceptance criterion), not
-this skill's prose. Repo license Apache-2.0; reusable Rust crates
-`app-server-client`, `app-server-protocol`, `app-server-transport` exist under
-that license. Full listing: `references/events-and-schema.md`.
+this skill's prose (vendored at `rust-v0.161.0` in `docs/planning/vendor/codex-app-server-protocol/`).
+Codex's Rust crates are Apache-2.0, but **OAC may depend on none of them**: ADR-001 refuses
+them (model API client, keyring, rollouts; `docs/planning/decisions/G-7-stage4-dependencies.md` §2). Full listing: `references/events-and-schema.md`.
 
 ## The correlation gap — an open obligation, not a solved problem
 

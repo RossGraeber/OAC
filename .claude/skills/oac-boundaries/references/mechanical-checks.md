@@ -189,7 +189,8 @@ fi
 # 12. Zenoh containment (boundary 5; DESIGN acceptance criterion 9; 07 section 4(a)): no
 #    Zenoh name, `zid`, key expression or liveliness term in any git-tracked entry outside
 #    transports/zenoh/ under core/ cli/ adapters/ transports/ spec/ tests/fakes/
-#    tests/protocol/ (fixtures and contract suites) or the root Cargo.toml / Cargo.lock.
+#    tests/protocol/ (fixtures and contract suites) or the root Cargo.toml. Not Cargo.lock
+#    (G-7 section 7): the zenoh crates in it are confined by check-crate-deps.mjs rule 4.
 #    Wider than check 1, and the close of the scope gap 09 section 8 and C7 section 2
 #    record: `zenoh` matches inside longer identifiers, `zid` as any snake/kebab/camel/
 #    Pascal segment (leading too: `zidMap`, `ZidMap`), and adapters/ and cli/ are in

@@ -19,7 +19,11 @@
 //              (`session_zid`, `sessionZid`, `SESSION_ZID`, `zidMap`, `ZidMap`), not
 //              inside a word (`zidane`);
 //            - adapters/ and cli/ are in scope, as are transports/memory/, spec/, the fakes,
-//              the contract suites, the conformance fixtures and the root manifests.
+//              the contract suites, the conformance fixtures and the root Cargo.toml.
+//          Cargo.lock is not scanned (#7, lead decision 2026-10-08; G-7 section 7): once
+//          transports/zenoh/ depends on zenoh, the lock names the zenoh crates by design.
+//          Which member may depend on them is scripts/check-crate-deps.mjs rule 4, over the
+//          resolved cargo graph: the zenoh crates are confined to transports/zenoh/ there.
 //          Comments and prose count: a path or line that names Zenoh outside its module is a
 //          hit. The one allowance is the module's own name (`oac-transport-zenoh`,
 //          `oac_transport_zenoh`, `transports/zenoh`), which names the OAC crate, not a Zenoh
@@ -59,6 +63,8 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { checkMetadata } from './check-crate-deps.mjs';
+
 const scriptPath = fileURLToPath(import.meta.url);
 const repoRoot = resolve(dirname(scriptPath), '..');
 
@@ -74,7 +80,6 @@ const ZENOH_SCOPE = [
   'tests/fakes/',
   'tests/protocol/',
   'Cargo.toml',
-  'Cargo.lock',
 ];
 // The module's own names: removed before matching, so they alone never hit.
 const ZENOH_MODULE_NAME = /oac[-_]transport[-_]zenoh|transports[\\/]+zenoh(?![\w-])/gi;
@@ -292,7 +297,6 @@ const CASES = [
   ['12 liveliness', { 'cli/src/p.rs': 'let liveliness = 1;\n' }, '12 liveliness'],
   ['12 zenoh in a fixture', { 'tests/protocol/sc-env/X.json': '{"note":"zenoh"}\n' }, '12 zenoh name'],
   ['12 zenoh in a path name', { 'adapters/codex/src/zenoh_bridge.rs': 'fn f() {}\n' }, '12 zenoh name (path)'],
-  ['12 zenoh crate in the root lock', { 'Cargo.lock': '[[package]]\nname = "zenoh"\n' }, '12 zenoh name'],
   ['12 zenoh under transports/zenoh-ish sibling', { 'transports/zenohx/src/lib.rs': 'fn f() {}\n' }, '12 zenoh name (path)'],
   ['13 #[path] into a fake', { 'core/src/lib.rs': '#[path = "../../tests/fakes/claude/src/lib.rs"]\nmod fake;\n' }, '13 test double referenced from product code'],
   ['13 include_str! of a contract suite file', { 'adapters/codex/src/x.rs': 'const S: &str = include_str!("../../../tests/protocol/contract/adapter/src/lib.rs");\n' }, '13 test double referenced from product code'],
@@ -330,6 +334,34 @@ function runSelfTest() {
     }
   };
   run('control: the base tree is clean', BASE, null);
+  // #7 (G-7 section 7): Cargo.lock is out of check 12's scope; the zenoh crates in it are
+  // confined by check-crate-deps.mjs rule 4 instead (next case).
+  run('control: a zenoh crate in the root lock is out of scope', { ...BASE, 'Cargo.lock': '[[package]]\nname = "zenoh"\n' }, null);
+  {
+    // Rule 4 of scripts/check-crate-deps.mjs catches a zenoh dependency outside
+    // transports/zenoh, which this check no longer reads from the lock.
+    const id = (n) => `id:${n}`;
+    const pkg = (n, d) => ({ id: id(n), name: n, manifest_path: join(resolve('/ws'), d, 'Cargo.toml') });
+    const dep = (t) => ({ name: t, pkg: id(t), dep_kinds: [{ kind: null, target: null }] });
+    const meta = {
+      workspace_root: resolve('/ws'),
+      workspace_members: [id('oac-core'), id('oac-adapter-codex'), id('oac-transport-zenoh')],
+      packages: [pkg('oac-core', 'core'), pkg('oac-adapter-codex', 'adapters/codex'),
+        pkg('oac-transport-zenoh', 'transports/zenoh'), pkg('zenoh', '../registry/zenoh')],
+      resolve: {
+        nodes: [
+          { id: id('oac-core'), deps: [] },
+          { id: id('oac-adapter-codex'), deps: [dep('oac-core'), dep('zenoh')] },
+          { id: id('oac-transport-zenoh'), deps: [dep('oac-core'), dep('zenoh')] },
+          { id: id('zenoh'), deps: [] },
+        ],
+      },
+    };
+    const v = checkMetadata(meta);
+    const ok = v.length > 0 && v.every((x) => x.startsWith('oac-adapter-codex')) && v.some((x) => /zenoh \(zenoh\)/.test(x));
+    console.log(`${ok ? 'ok  ' : 'FAIL'} 12 zenoh dependency outside transports/zenoh is caught by check-crate-deps rule 4${ok ? '' : ` -> ${JSON.stringify(v)}`}`);
+    if (!ok) failed++;
+  }
   for (const [name, plant, expect] of CASES) run(name, { ...BASE, ...plant }, expect);
   // An empty scope is an error, never a pass.
   {
@@ -343,7 +375,7 @@ function runSelfTest() {
       rmSync(dir, { recursive: true, force: true });
     }
   }
-  const total = CASES.length + 2;
+  const total = CASES.length + 4;
   console.log(`self-test: ${total - failed}/${total} passed`);
   return failed === 0 ? 0 : 1;
 }
