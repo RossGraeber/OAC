@@ -16,7 +16,7 @@
 //! the harness, or anything else, for pending messages ([IFC-ADP-040]; no polling of any
 //! kind).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::mpsc::RecvTimeoutError;
 use std::sync::{Arc, Mutex, MutexGuard, RwLock};
 use std::time::Duration;
@@ -58,11 +58,16 @@ struct Att {
     peer: Option<Peer<RoleServer>>,
     runtime: Option<tokio::runtime::Handle>,
     cancel: Option<RunningServiceCancellationToken>,
-    /// Hand-off records for a reply's `to`: message id to sender, for messages this
-    /// attachment was handed. The core still checks every reply target itself
-    /// (`spec/session-channels.md` §8.2.2).
-    handed: HashMap<String, SessionId>,
+    /// Hand-off records for a reply's `to`: message id and sender, for the last
+    /// [`HANDED_KEPT`] messages this attachment was handed, oldest first. They only find the
+    /// sender for a `reply` that names no `to`; the core still checks every reply target
+    /// against its own records (`spec/session-channels.md` §8.2.2).
+    handed: VecDeque<(String, SessionId)>,
 }
+
+/// How many hand-off records an attachment keeps for `reply`. Older ones are dropped, so a
+/// peer cannot grow the adapter's memory without bound; a reply to a dropped one needs `to`.
+pub const HANDED_KEPT: usize = 1024;
 
 #[derive(Default)]
 struct State {
@@ -176,9 +181,13 @@ impl Inner {
             let st = lock(&self.state);
             let att = st.attachments.get(a);
             let record = match &call {
-                ToolCall::Reply { in_reply_to, .. } => {
-                    att.and_then(|x| x.handed.get(in_reply_to).cloned())
-                }
+                ToolCall::Reply { in_reply_to, .. } => att.and_then(|x| {
+                    x.handed
+                        .iter()
+                        .rev()
+                        .find(|(id, _)| id == in_reply_to)
+                        .map(|(_, from)| from.clone())
+                }),
                 _ => None,
             };
             (st.sink.clone(), att.and_then(|x| x.bound.clone()), record)
@@ -313,7 +322,7 @@ impl ProviderAdapter for ClaudeAdapter {
                     peer: None,
                     runtime: None,
                     cancel: None,
-                    handed: HashMap::new(),
+                    handed: VecDeque::new(),
                 },
             );
         }
@@ -411,8 +420,11 @@ impl ProviderAdapter for ClaudeAdapter {
                 .attachments
                 .get_mut(hand_off.attachment())
             {
+                if att.handed.len() >= HANDED_KEPT {
+                    att.handed.pop_front();
+                }
                 att.handed
-                    .insert(env.id().as_str().to_owned(), env.from().clone());
+                    .push_back((env.id().as_str().to_owned(), env.from().clone()));
             }
         }
         outcome
