@@ -377,7 +377,48 @@ configuration; it is recorded here because a future local-mode tuning change tha
 for `#iface=` on Windows or macOS would be relying on an undocumented behaviour, which
 this document flags in advance rather than after the fact.
 
+*Dated note, 2026-10-09 (#62, G1; PR #364 review, blocking finding 1): reversal taken, for
+a reason this section did not foresee.* "Multicast scouting: ON by default" is reversed to
+the named reversal path above, on every platform. With scouting on, a local-mode peer
+answered scouts and connected out to a plain Zenoh peer listening on a LAN address, which
+then received envelope frames: binding the listener to `127.0.0.1` does not stop a peer
+from connecting *out*. Scouting cannot be confined to loopback with the stable
+configuration:
+- autoconnect has no filter on the locators a peer is told;
+- with gossip on, a neighbour forwards its own neighbours' locators one hop
+  (`zenoh` `1.10.1`, `src/net/protocol/network.rs` L609-L627);
+- on Linux a socket receives group datagrams that any socket on the host joined, on any
+  interface.
+
+So local mode now fails closed:
+- scouting and gossip are off, and every listener is on `127.0.0.1`;
+- transports meet at a fixed loopback rendezvous, port `17447` by default (the port G3's
+  rendezvous scenario used; the lead may want to ratify the default);
+- the first transport holds the port with its in-process session in Zenoh's `router` mode,
+  so that it relays, and later transports are `client` sessions linked to it alone. This
+  is not `zenohd`; boundary 6 is unaffected;
+- `multicast_discovery` is declared absent.
+
+`transports/zenoh/tests/peer_transport.rs`
+`local_mode_reaches_nothing_beyond_loopback` proves it. A LAN-address probe peer with
+scouting on receives nothing and is never linked, and the test fails if scouting is turned
+back on. The as-built description is the binding document in `transports/zenoh/src/lib.rs`.
+The "Scouting exposure beyond loopback in local mode" row of §9 is now closed by design
+rather than a residual.
+
 ## 6. LAN-mode section
+
+*Dated note, 2026-10-09 (#62, G1): a requirement on G3 (#64), recorded here so that G3
+sees it, and as `docs/planning/v0.1/11-risks.md` row 77.* The G1 frame carries a payload's
+deadline as a wall-clock expiry, and the receiver drops a frame at or after it. That is
+exact on one host, where both read one clock. Between hosts it is not safe: a receiver
+whose clock runs `d` behind the sender's can hand a frame over up to `d` after its deadline
+([IFC-TRN-034]); a receiver `d` ahead drops early, which is safe. Before LAN mode carries a
+frame between hosts, G3 must bound this, and record the bound in the binding document. Two
+ways to do it:
+- carry the time left instead of an expiry, and subtract a stated transit allowance; or
+- declare a maximum skew, subtract it at the sender, and refuse any payload with less time
+  left than that bound.
 
 **TLS is the v0.1 default; QUIC is the named alternative.** Zenoh's config exposes both
 TLS and QUIC listeners with per-endpoint certificates (`oac-zenoh` §5: "TLS/mTLS and

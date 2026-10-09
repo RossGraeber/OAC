@@ -209,9 +209,15 @@ list.
   over loopback on Windows 11 on the multicast path and on the fixed rendezvous path
   (`transports/zenoh/tests/contract.rs`). Linux and macOS were not run: GitHub Actions
   are off under the lead's 2026-10-08 policy, and the G1 session's worktree guard refused
-  WSL. On a host that cannot send to the multicast group at all (expected inside
-  `scripts/loopback-only.sh`'s namespace), the multicast leg prints a `GAP:` line and only
-  the rendezvous leg runs; whether that happens on Linux is still to be recorded.
+  WSL.
+- **Status (2026-10-09, #62; PR #364 review).** Local mode no longer uses multicast
+  scouting. With scouting on, a local-mode peer connected out to a LAN peer, and
+  confinement to loopback cannot be guaranteed. Local mode is now the fixed loopback
+  rendezvous with scouting and gossip off, on every platform (C7 §5 dated note). This risk
+  therefore no longer bears on OAC's local mode, whose discovery no longer depends on
+  multicast. It stays open as a fact about Zenoh for any future multicast use, which would
+  need a new decision. The contract suite has one leg, the rendezvous, and it runs on every
+  host, the Linux loopback-only namespace included.
 
 ### RISK-G5 — Provenance fails
 
@@ -1278,7 +1284,7 @@ note, 2026-10-08, #69: rows 71-75 come from the Codex issued-value pairing,
 | 33 | G3 on physical Mac hardware (from G3). Was "G3 criteria 1-4 on macOS"; those closed PASS on a GitHub-hosted VM 2026-10-02 (#219), leaving physical hardware open | RISK-G3 |
 | 34 | G3 on bare-metal Linux (from G3; the Linux leg ran on WSL2) | RISK-G3 |
 | 35 | `#iface=` on macOS and on Windows with a valid interface name (from G3). Note 2026-10-02 (#219): on the macOS hosted VM a nonexistent name was accepted without exception, so `#iface=` is not enforced there; log warnings untested | RISK-G3 |
-| 36 | G3 via the Rust `zenoh` crate built with `1.98.1` and embedded in OAC (from G3) | RISK-G3. Narrowed 2026-10-08 (#62): the Rust crate `1.10.1`, built with `1.98.1` and embedded in `transports/zenoh`, passes the transport contract suite over loopback on Windows 11 on both paths, multicast scouting with `127.0.0.1` listeners and a fixed rendezvous port (`transports/zenoh/tests/contract.rs`). Linux and macOS: not run. No GitHub Actions run under the lead's 2026-10-08 policy, and a local WSL run was refused by the G1 session's worktree guard, so the Linux loopback-only multicast gap is unrecorded too. TLS stays G3's (#64) |
+| 36 | G3 via the Rust `zenoh` crate built with `1.98.1` and embedded in OAC (from G3) | RISK-G3. Narrowed 2026-10-08 (#62): the Rust crate `1.10.1`, built with `1.98.1` and embedded in `transports/zenoh`, passes the transport contract suite over loopback on Windows 11 (`transports/zenoh/tests/contract.rs`). Since the PR #364 review (2026-10-09) local mode uses the fixed loopback rendezvous only, with scouting and gossip off (C7 §5 dated note), so the multicast path is no longer OAC's and G3's multicast verdict no longer bears on local mode. Linux and macOS: not run. No GitHub Actions run under the lead's 2026-10-08 policy, and the G1 session's worktree guard refused a local WSL run. TLS stays G3's (#64) |
 | 37 | Unidentified second thread loaded in the Codex daemon (from G2) | RISK-CODEX-EXPERIMENTAL |
 | 38 | Codex daemon `originator`/`source` do not reliably identify the creating client (from G2). At the `0.157.1` re-run the same TUI thread's `originator` matched the TUI itself (`codex-tui`), unlike at `0.154.0` (`oac_g2_spike`) — consistent with a first-initializing-client mechanism, not a fix | RISK-CODEX-EXPERIMENTAL |
 | 39 | Cross-process resume does not attach (openai/codex #21743), not re-tested at `0.154.0` or `0.157.1` (from G2) | RISK-CODEX-EXPERIMENTAL |
@@ -1318,6 +1324,8 @@ note, 2026-10-08, #69: rows 71-75 come from the Codex issued-value pairing,
 | 73 | Whether the app-server applies `thread/resume` setting overrides to a thread that is already loaded (`spec/bindings/mcp.md` [MCPB-CDX-006], which forbids sending them either way). Owner G7 (#68) | RISK-CODEX-EXPERIMENTAL |
 | 74 | The F9 fake app-server (`tests/fakes/codex-app-server/`) emits no `mcpToolCall` items, so none of the `TODO(fixture)` items of `spec/bindings/mcp.md` §4.5 (MCPB-ATT-007 to MCPB-ATT-023) can be written yet. Owners G8 (#69) and F9 (#58) | RISK-SEC-SPEC |
 | 75 | A Codex call with no arguments is reported as `arguments: null` and sent without an `arguments` member, which §4.5.2 treats as matching (source only at `rust-v0.161.0`: `codex-rs/core/src/mcp_tool_call.rs` L145-L150, L1041, L1087; `codex-rs/rmcp-client/src/rmcp_client.rs` L847-L855, L868). Availability only. Owner G8 (#69) | RISK-G4 |
+| 76 | The Zenoh transport's carrier handle is the 16 octets the *sending* peer writes into the frame header. Nothing checks them, so any peer of the partition can claim another's. The handle groups what one sender sent, and must not attribute carrier loss or anything else (binding document, `transports/zenoh/src/lib.rs` "Carrier handles"; PR #364 review finding 6). G2 must derive carrier loss from what the receiving transport itself observes (its own link or liveliness events), never from a handle a frame carried. Owner G2 (#63) | RISK-G3 |
+| 77 | The Zenoh frame carries a payload's deadline as a wall-clock expiry. It is exact on one host; between hosts a receiver whose clock runs behind can deliver after the deadline ([IFC-TRN-034]). G3 must bound clock skew, or carry the time left with a stated transit allowance, before LAN mode carries a frame between hosts, and must record the bound in the binding document (C7 §6 dated note; PR #364 review finding 7). Owner G3 (#64) | RISK-G3 |
 
 ## Self-check (`oac-evidence` §8, `oac-planning-package` §6)
 

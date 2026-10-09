@@ -4,6 +4,22 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
+**Last updated:** 2026-10-09 (**Issue #62 (G1): the Zenoh reference transport, after the
+PR #364 review.** No gate verdict, pin or ADR text changes.
+
+- **Local mode, reversed to the C7 §5 fallback.** With multicast scouting on, a local-mode
+  peer connected out to a LAN peer, which received envelope frames (review finding 1). Local
+  mode now fails closed on every platform. Scouting and gossip are off, and transports meet
+  at a fixed loopback rendezvous (port `17447` by default). The first transport holds it in
+  Zenoh's in-process `router` mode; later transports are `client` sessions linked to it.
+  `multicast_discovery` is declared absent. Dated note in C7 §5; a LAN-probe test proves the
+  change.
+- **Timing.** Handlers run on a dispatch thread behind a bounded queue that drops when full,
+  not on Zenoh's receive callback; a blocked `put` waits at most 1 s.
+- **New ledger rows.** 11-risks.md row 76: the carrier handle is set by the sender, so G2
+  (#63) must not attribute carrier loss by it. Row 77: G3 (#64) must bound clock skew
+  before LAN mode. RISK-G3 no longer bears on local mode.
+
 **Last updated:** 2026-10-08 (**Issue #62 (G1): the Zenoh reference transport.** No gate
 verdict, pin or ADR text changes. Zenoh `=1.10.1` (Apache-2.0 arm, default features off) and
 `sha2 =0.11.0` (already core's) are added to `transports/zenoh/` only, under the pins and
@@ -11,8 +27,8 @@ licence policy of `docs/planning/decisions/G-7-stage4-dependencies.md` (#352). G
 `transport_tcp` only, of the two features G-7 records; `transport_tls` comes with G3 (#64).
 
 - **Transport.** `transports/zenoh/` implements the frozen `Transport` contract on the stable
-  `Wait` path and passes the transport contract suite unchanged, over loopback, with
-  multicast scouting and with a fixed rendezvous port (`transports/zenoh/tests/contract.rs`).
+  `Wait` path and passes the transport contract suite unchanged, over loopback
+  (`transports/zenoh/tests/contract.rs`; the fixed rendezvous since 2026-10-09).
   Its binding document ([IFC-TRN-090], publish and subscribe half) is
   `transports/zenoh/src/lib.rs`.
 - **Finding, C7 §3 against [IFC-TRN-043].** Per-session native subscriptions would reveal
@@ -2641,8 +2657,14 @@ recorded on Codex `0.161.0` (`docs/planning/gates/fixtures/s3-codex-capture/tran
   set and embedded in the OAC runtime (UNVERIFIED — G3 ran the Python binding
   `eclipse-zenoh==1.10.1` on the same tag-`1.10.1` core; see
   `docs/planning/gates/G3-result.md`. Narrowed 2026-10-08, #62: on Windows 11 the Rust
-  crate passes the transport contract suite over loopback on both the multicast and the
-  rendezvous path; Linux and macOS not yet run; 11-risks.md row 36).
+  crate passes the transport contract suite over loopback; since 2026-10-09 local mode is
+  the loopback rendezvous only, with no multicast; Linux and macOS not yet run;
+  11-risks.md row 36).
+- The Zenoh transport's carrier handle is set by the sender and checked by nothing, so it
+  cannot attribute carrier loss (UNVERIFIED as a basis for attribution — no mechanism binds
+  it to a link; G2 #63 must use its own link or liveliness observations; 11-risks.md row 76).
+- Frame expiry under clock skew between hosts (UNVERIFIED for LAN mode — exact on one host,
+  unbounded across hosts until G3 #64 bounds it; C7 §6 dated note; 11-risks.md row 77).
 - Implicit Codex daemon attach at runtime on macOS and Linux, `0.157.1` (UNVERIFIED — G2
   has exercised Windows only, on both `0.154.0` and the `0.157.1` re-run; see
   `docs/planning/gates/G2-result.md`).
