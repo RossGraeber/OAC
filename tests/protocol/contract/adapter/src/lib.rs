@@ -37,6 +37,86 @@
 //!
 //! A check the fake harness cannot exercise is [`Verdict::NotApplicable`] with the reason,
 //! never a pass.
+//!
+//! # What a harness cannot change (#351)
+//!
+//! The harness is written by the adapter's task, so the suite does not take its word for
+//! the binding. Each route below fails rather than drops a check:
+//!
+//! - **The profile.** The binding is identified from the operations of the hand-off calls
+//!   the fake recorded ([`identify_binding`] over [`BINDINGS`]), and every check runs under
+//!   the suite's own profile for it. A harness profile that differs from it (a weakened
+//!   copy, another binding's, or one no binding has) fails [IFC-ADP-010]
+//!   `harness-profile-is-the-bindings`; so does a run whose hand-off calls identify no
+//!   single binding. Later hand-off calls off that binding's surface fail [IFC-ADP-010]
+//!   `hand-offs-on-one-binding`.
+//! - **A [`Gap`] where the binding's profile makes the step mandatory.** Each
+//!   `Gap`-returning step, and the rows a gap there would make not applicable:
+//!
+//!   | Step | Rows | Mandatory when | Claude | Codex |
+//!   |---|---|---|---|---|
+//!   | `refuse_hand_offs` | [SEC-AUZ-027], [SC-DLV-009] | [`Profile::turned_away_code`] names a code | n/a: a channel notification gets no answer, so there is no refusal | mandatory: the recorded archived refusal |
+//!   | `start_turn` | [SEC-AUZ-025], [SEC-AUZ-026] | [`Profile::runs_own_turns`] | mandatory | mandatory |
+//!   | `request` | [IFC-ADP-003], [IFC-ADP-031], [IFC-ADP-060] | [`Profile::makes_requests`] | mandatory | n/a: the fake app-server does not model the MCP tool path Codex requests travel |
+//!   | `open_session`, `session_ready`, `end_session`, `drain`, `allow_hand_offs` | the whole run | always | the run fails | the run fails |
+//!
+//!   A [`Gap::Broken`] step always fails.
+//! - **A `start_turn` that starts nothing.** Neither message handed off to the busy session
+//!   may become input before [`AdapterHarness::drain`]; one that does fails [SEC-AUZ-025]
+//!   and [SEC-AUZ-026].
+//! - **Omitted inputs.** Every adapter has source, so an empty
+//!   [`AdapterHarness::source_files`] fails [IFC-ADP-001], [IFC-ADP-002], [IFC-ADP-007] and
+//!   [IFC-ADP-013] rather than making the static checks not applicable. Every fake harness
+//!   knows native ids once a session is open, so an empty [`AdapterHarness::native_ids`]
+//!   (a required method) fails [IFC-TYP-092].
+//!
+//! # Where a harness lives
+//!
+//! An adapter takes this suite as a dev-dependency, and the suite never depends on an
+//! adapter: 07 section 3, `scripts/check-crate-deps.mjs` rule 5, and this crate's
+//! `Cargo.toml`. So **the harness a real adapter runs under lives in that adapter, at
+//! exactly one fixed path: `adapters/<name>/tests/contract.rs`**. It may use what this
+//! crate gives it, such as [`claude::ClaudeHarness`] or [`codex::CodexFake`].
+//!
+//! The suite's own checks bound what a harness can do, as above. What they cannot see is a
+//! harness that fabricates or filters [`Observations`], or returns `Ok` from a step it did
+//! not do in a way the observations do not show. That residual is covered by reviewing
+//! the one fixed file. Gate S4 evidence for an adapter must cite it, at the commit run.
+//! The review covers everything `contract.rs` calls outside this suite, including the
+//! adapter's own `src/` helpers. A hostile edit to an allowed dependency (`oac-core` or
+//! `oac-fake-claude`) that re-exports an `include` macro, e.g. `pub use std::include as load`,
+//! is covered by review like any other hostile edit to reviewed code; plain `include_str!`
+//! in `oac-fake-claude` stays allowed.
+//!
+//! `tests/harness_location.rs` keeps the rule mechanical:
+//! - Only an adapter, `adapters/mcp-tools` and its listed packages (`oac-transport-memory`)
+//!   depend on this crate. The adapter and the tool crate do so as a dev-dependency only,
+//!   and none under another name.
+//! - In an adapter, only `tests/contract.rs` names `AdapterHarness` or this crate, or
+//!   reaches [`run`]. No other file outside this crate and the listed packages names
+//!   either.
+//! - The harness file and an adapter's other test files hold no `self as` import,
+//!   `macro_rules!`, `include!` or `#[path]`. The harness file also holds no file module and
+//!   no glob or renamed import.
+//! - A listed package may drive the fakes' harnesses, but may not implement or rename
+//!   `AdapterHarness`, reach [`run`], or hold those shapes.
+//! - An adapter takes no dev-dependency but this crate, `oac-core` and `oac-fake-claude`.
+//!   This excludes an identifier-pasting proc macro.
+//! - The files read are git's (`git ls-files -co --exclude-standard`), not a directory
+//!   walk's, minus untracked files under `target/`. Any `CACHEDIR.TAG` among them fails.
+//!   Cargo's target directory is `target/` or outside the repository.
+//! - What cargo compiles for an adapter is checked too:
+//!   - no workspace member has a build script;
+//!   - every test, example and bench target is the harness file or passes the name rules;
+//!   - no `.rs` file under `adapters/` is git-ignored;
+//!   - the lib target has `doctest = false`, and its `src/` files are held to the hiding
+//!     shapes;
+//!   - every adapter file, of any extension, is held to the name rule;
+//!   - its normal and build dependencies are the vetted ones.
+//!
+//! Those are text rules. What really bounds a listed transport is
+//! `scripts/check-crate-deps.mjs`: a transport can never reach an adapter, so a harness
+//! hidden in it could drive only a stand-in.
 
 pub mod claude;
 pub mod codex;
@@ -177,10 +257,19 @@ pub enum Rule {
 /// What the adapter binding document says of the harness's input surface
 /// ([IFC-ADP-080]): its holding hand-off, its steering operations, and the binding rules
 /// over them, each under its requirement id.
-#[derive(Clone, Copy, Debug)]
+///
+/// The suite owns one profile per binding ([`BINDINGS`]). A harness's
+/// [`AdapterHarness::profile`] is only compared with it: the suite identifies the binding
+/// from the hand-off calls the fake recorded ([`identify_binding`]), runs every check under
+/// that binding's own profile, and fails [IFC-ADP-010] `harness-profile-is-the-bindings`
+/// when the harness's profile differs (#351).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Profile {
     /// The harness.
     pub name: &'static str,
+    /// Every operation of the harness's input surface that the fake records as a hand-off
+    /// call. The suite identifies the binding by these, never by what the harness claims.
+    pub surface_operations: &'static [&'static str],
     /// The holding hand-off, if the surface has one ([SEC-AUZ-025]).
     pub holding_hand_off: Option<&'static str>,
     /// The steering operations ([SEC-AUZ-022]).
@@ -192,7 +281,53 @@ pub struct Profile {
     /// suite checks the adapter's outcome for that refusal against it through Table 5.3 of
     /// `spec/interfaces.md` ([`HandOffOutcome::recorded`]): `handoff-failed`
     /// ([SC-DLV-009]) or `destination-unavailable` ([SC-DLV-008]).
+    ///
+    /// When it names a code, the harness can refuse, so `refuse_hand_offs` returning a
+    /// [`Gap`] fails [SEC-AUZ-027] and [SC-DLV-009] rather than making them not applicable.
     pub turned_away_code: Option<ErrorCode>,
+    /// True when the harness's sessions run turns of their own, so that a hand-off can meet
+    /// a running turn ([SEC-AUZ-025], [SEC-AUZ-026]). When true, `start_turn` returning a
+    /// [`Gap`] fails those rows rather than making them not applicable.
+    pub runs_own_turns: bool,
+    /// True when the harness makes its requests (send, discovery) through the surface its
+    /// fake models, so that the suite can drive them ([IFC-ADP-003], [IFC-ADP-031],
+    /// [IFC-ADP-060]). When true, `request` returning a [`Gap`] fails those rows rather than
+    /// making them not applicable.
+    pub makes_requests: bool,
+}
+
+/// The suite's own profile of every binding it knows, one per binding.
+pub const BINDINGS: [Profile; 2] = [claude::PROFILE, codex::PROFILE];
+
+/// The binding whose input surface every operation in `operations` belongs to, from
+/// [`BINDINGS`]: the operations of the hand-off calls the fake recorded. Fails when there
+/// is no operation, or no single binding has them all.
+pub fn identify_binding<'a>(
+    operations: impl IntoIterator<Item = &'a str>,
+) -> Result<Profile, String> {
+    let mut ops: Vec<&str> = operations.into_iter().collect();
+    ops.sort_unstable();
+    ops.dedup();
+    if ops.is_empty() {
+        return Err(
+            "the fake recorded no hand-off call, so the binding cannot be identified".into(),
+        );
+    }
+    let fits: Vec<Profile> = BINDINGS
+        .iter()
+        .filter(|p| ops.iter().all(|op| p.surface_operations.contains(op)))
+        .copied()
+        .collect();
+    match fits.as_slice() {
+        [p] => Ok(*p),
+        [] => Err(format!(
+            "no binding's input surface has every hand-off operation the fake recorded: {ops:?}"
+        )),
+        many => Err(format!(
+            "hand-off operations {ops:?} fit more than one binding: {:?}",
+            many.iter().map(|p| p.name).collect::<Vec<_>>()
+        )),
+    }
 }
 
 /// What an adapter under test supplies: the adapter, wired to a fake harness.
@@ -203,7 +338,8 @@ pub trait AdapterHarness {
     /// The adapter under test, the same one for the harness's life.
     fn adapter(&self) -> Arc<dyn ProviderAdapter>;
 
-    /// The harness profile.
+    /// The harness profile. It must be the suite's own profile for the binding
+    /// ([`BINDINGS`]); the suite checks under its own and fails a profile that differs.
     fn profile(&self) -> Profile;
 
     /// Start one live session on the fake harness and return its index and the local
@@ -217,7 +353,9 @@ pub trait AdapterHarness {
     /// End the session from the harness side.
     fn end_session(&mut self, s: usize) -> Step<()>;
 
-    /// Make the session busy: a turn of the harness's own starts.
+    /// Make the session busy: a turn of the harness's own starts. Hand-offs made next must
+    /// not become input until [`AdapterHarness::drain`]; one that does fails [SEC-AUZ-025]
+    /// and [SEC-AUZ-026].
     fn start_turn(&mut self, s: usize) -> Step<()>;
 
     /// Release everything the harness holds and let every turn end.
@@ -238,15 +376,15 @@ pub trait AdapterHarness {
     fn observe(&mut self, s: usize) -> Observations;
 
     /// The adapter's source files, for the static checks of [`source`]
-    /// ([`source::crate_files`] gives a crate's `src/` and `build.rs`).
+    /// ([`source::crate_files`] gives a crate's `src/` and `build.rs`). None at all fails
+    /// those checks.
     fn source_files(&self) -> Vec<PathBuf>;
 
     /// The harness-native ids the fake harness knows for its sessions (thread ids,
     /// session ids): none of them may appear in the adapter's `health` detail
-    /// ([IFC-TYP-092]).
-    fn native_ids(&self) -> Vec<String> {
-        Vec::new()
-    }
+    /// ([IFC-TYP-092]). Every fake harness knows some once a session is open, so none at
+    /// all (or only empty ones) fails that row.
+    fn native_ids(&self) -> Vec<String>;
 }
 
 // ---- the core side ----------------------------------------------------------------------
@@ -679,6 +817,25 @@ fn took(o: &Observations, text: &str) -> bool {
     o.inputs.iter().any(|i| i.contains(text))
 }
 
+/// Every adapter has source, so a harness that gives none has dropped the static checks
+/// (#351).
+const NO_SOURCE: &str = "the harness gave no source files to scan; every adapter has source, so the static checks cannot be skipped";
+
+/// The verdict for checks whose harness step returned `g`. A broken step fails. An
+/// unsupported step fails too when `required_by` names the binding whose profile makes the
+/// step mandatory (`because` says why); otherwise the checks are not applicable (#351).
+fn gap_verdict(g: &Gap, required_by: Option<&str>, step: &str, because: &str) -> Verdict {
+    match (g, required_by) {
+        (Gap::Broken(w), _) => Verdict::Fail(format!("the harness could not {step}: {w}")),
+        (Gap::Unsupported(_), Some(name)) => Verdict::Fail(format!(
+            "the {name} binding makes this check mandatory (its {because}), but the harness says it cannot {step}: {g}"
+        )),
+        (Gap::Unsupported(_), None) => {
+            Verdict::NotApplicable(format!("the fake harness cannot {step}: {g}"))
+        }
+    }
+}
+
 macro_rules! check {
     ($ctx:expr, $id:literal, $name:literal, $body:expr) => {{
         let v: Verdict = $body;
@@ -735,7 +892,7 @@ pub fn run(harness: &mut dyn AdapterHarness) -> Report {
 
 #[allow(clippy::too_many_lines)]
 fn scenarios(ctx: &mut Ctx<'_>) -> Result<(), String> {
-    let profile = ctx.h.profile();
+    let claimed = ctx.h.profile();
     ctx.adapter.watch_attachments(ctx.core.handler());
     ctx.adapter.accept_requests(ctx.core.sink());
 
@@ -816,6 +973,35 @@ fn scenarios(ctx: &mut Ctx<'_>) -> Result<(), String> {
         }
     });
 
+    // ---- the binding (#351) ---------------------------------------------------------------
+    // The binding is identified from the hand-off calls the fake recorded, not from the
+    // harness's profile, and every later check runs under the suite's own profile for it.
+    // A harness cannot drop a binding's checks by naming another binding, an invented one,
+    // or a weakened copy of its own.
+    let identified = identify_binding(
+        after
+            .client_hand_off_calls
+            .iter()
+            .map(|c| c.operation.as_str()),
+    );
+    let profile = identified.as_ref().map_or(claimed, |p| *p);
+    check!(
+        ctx,
+        "IFC-ADP-010",
+        "harness-profile-is-the-bindings",
+        match &identified {
+            Err(why) => Verdict::Fail(why.clone()),
+            Ok(p) if *p == claimed => Verdict::Pass(format!(
+                "the harness's profile is the suite's own {} profile, the binding its hand-off calls identify",
+                p.name
+            )),
+            Ok(p) => Verdict::Fail(format!(
+                "the hand-off calls identify the {} binding, and the harness's profile differs from the suite's own for it: {claimed:?}; the suite's is used",
+                p.name
+            )),
+        }
+    );
+
     // ---- capabilities ([IFC-ADP-041]) ------------------------------------------------------
     check!(ctx, "IFC-ADP-041", "reported-sizes-handed-off-unchanged", {
         match caps.max_envelope_octets {
@@ -864,10 +1050,33 @@ fn scenarios(ctx: &mut Ctx<'_>) -> Result<(), String> {
         Err(g) => Err(g),
     };
     match &busy {
-        Ok((a, b, _during, o)) => {
+        Ok((a, b, during, o)) => {
             let holding = profile.holding_hand_off;
+            // Neither message may become input while the turn `start_turn` started is
+            // running: a harness whose `start_turn` returns Ok without starting one would
+            // make both rows pass without a busy session (#351, PR #355 review R2).
+            // While the turn runs the harness holds both, so it must report at least two
+            // held inputs and neither among the inputs taken. The held count is what the
+            // planted TurnNoop pins. The inputs check is defence in depth: no planted breach
+            // pins it, since only a harness that misreports Observations (the declared
+            // residual) could pass the held count and still let a message through.
+            let mut not_busy: Vec<String> = [a, b]
+                .iter()
+                .filter(|(t, _)| took(during, t))
+                .map(|(t, _)| {
+                    format!(
+                        "{t:?} became input while the turn start_turn started should have been running"
+                    )
+                })
+                .collect();
+            if during.held < 2 {
+                not_busy.push(format!(
+                    "the harness held {} input(s) while its turn should have been running, not both messages",
+                    during.held
+                ));
+            }
             check!(ctx, "SEC-AUZ-025", "holding-hand-off-while-running", {
-                let mut bad = Vec::new();
+                let mut bad = not_busy.clone();
                 for (t, out) in [a, b] {
                     let calls = calls_with(o, t);
                     if calls.iter().any(|c| c.steering) {
@@ -893,27 +1102,30 @@ fn scenarios(ctx: &mut Ctx<'_>) -> Result<(), String> {
             });
             check!(ctx, "SEC-AUZ-026", "order-kept-through-the-hold", {
                 let pos = |t: &str| o.inputs.iter().position(|i| i.contains(t));
-                match (pos(&a.0), pos(&b.0)) {
-                    (Some(x), Some(y)) if x < y => {
-                        Verdict::Pass("taken in the order handed off".into())
+                if !not_busy.is_empty() {
+                    Verdict::Fail(not_busy.join("; "))
+                } else {
+                    match (pos(&a.0), pos(&b.0)) {
+                        (Some(x), Some(y)) if x < y => {
+                            Verdict::Pass("taken in the order handed off".into())
+                        }
+                        (Some(_), Some(_)) => {
+                            Verdict::Fail("taken out of the order handed off".into())
+                        }
+                        _ => Verdict::Fail(format!("not both taken: inputs {:?}", o.inputs)),
                     }
-                    (Some(_), Some(_)) => Verdict::Fail("taken out of the order handed off".into()),
-                    _ => Verdict::Fail(format!("not both taken: inputs {:?}", o.inputs)),
                 }
             });
         }
         Err(g) => {
-            let why = format!("the fake harness cannot start a turn: {g}");
-            ctx.row(
-                "SEC-AUZ-025",
-                "holding-hand-off-while-running",
-                Verdict::NotApplicable(why.clone()),
+            let v = gap_verdict(
+                g,
+                profile.runs_own_turns.then_some(profile.name),
+                "start a turn",
+                "sessions run turns of their own",
             );
-            ctx.row(
-                "SEC-AUZ-026",
-                "order-kept-through-the-hold",
-                Verdict::NotApplicable(why),
-            );
+            ctx.row("SEC-AUZ-025", "holding-hand-off-while-running", v.clone());
+            ctx.row("SEC-AUZ-026", "order-kept-through-the-hold", v);
         }
     }
 
@@ -981,17 +1193,14 @@ fn scenarios(ctx: &mut Ctx<'_>) -> Result<(), String> {
             });
         }
         Err(g) => {
-            let why = format!("the fake harness cannot turn a hand-off away: {g}");
-            ctx.row(
-                "SEC-AUZ-027",
-                "turned-away-makes-no-other-call",
-                Verdict::NotApplicable(why.clone()),
+            let v = gap_verdict(
+                g,
+                profile.turned_away_code.map(|_| profile.name),
+                "turn a hand-off away",
+                "harness refuses hand-offs with a refusal the binding classifies",
             );
-            ctx.row(
-                "SC-DLV-009",
-                "refusal-reported-as-binding-says",
-                Verdict::NotApplicable(why),
-            );
+            ctx.row("SEC-AUZ-027", "turned-away-makes-no-other-call", v.clone());
+            ctx.row("SC-DLV-009", "refusal-reported-as-binding-says", v);
         }
     }
 
@@ -1049,14 +1258,19 @@ fn scenarios(ctx: &mut Ctx<'_>) -> Result<(), String> {
     } else {
         None
     };
-    if let Some(why) = &unsupported {
-        let why = format!("the fake harness makes no requests: {why}");
+    if let Some(why) = unsupported {
+        let v = gap_verdict(
+            &Gap::Unsupported(why),
+            profile.makes_requests.then_some(profile.name),
+            "make requests",
+            "harness makes its requests through the surface its fake models",
+        );
         for (id, name) in [
             ("IFC-ADP-003", "requests-reach-the-core"),
             ("IFC-ADP-031", "requests-labelled-by-connection"),
             ("IFC-ADP-060", "results-returned-unchanged"),
         ] {
-            ctx.row(id, name, Verdict::NotApplicable(why.clone()));
+            ctx.row(id, name, v.clone());
         }
     } else {
         let all = ctx.core.requests();
@@ -1414,6 +1628,8 @@ fn scenarios(ctx: &mut Ctx<'_>) -> Result<(), String> {
             .collect();
         if !foreign.is_empty() {
             Verdict::Fail(format!("handles the core never issued: {foreign:?}"))
+        } else if files.is_empty() {
+            Verdict::Fail(NO_SOURCE.into())
         } else if !static_013.is_empty() {
             Verdict::Fail(format!(
                 "the adapter's source makes connections: {}",
@@ -1426,6 +1642,24 @@ fn scenarios(ctx: &mut Ctx<'_>) -> Result<(), String> {
             )
         }
     });
+    if identified.is_ok() {
+        let off: Vec<_> = o
+            .client_hand_off_calls
+            .iter()
+            .map(|c| c.operation.as_str())
+            .filter(|op| !profile.surface_operations.contains(op))
+            .collect();
+        if !off.is_empty() {
+            ctx.row(
+                "IFC-ADP-010",
+                "hand-offs-on-one-binding",
+                Verdict::Fail(format!(
+                    "hand-off calls outside the {} binding's input surface: {off:?}",
+                    profile.name
+                )),
+            );
+        }
+    }
     if let Some(halted) = &o.halted {
         ctx.row(
             "IFC-ADP-010",
@@ -1437,31 +1671,39 @@ fn scenarios(ctx: &mut Ctx<'_>) -> Result<(), String> {
     // ---- health ([IFC-TYP-092]) -------------------------------------------------------------
     check!(ctx, "IFC-TYP-092", "health-holds-no-secret-or-native-id", {
         let h = ctx.adapter.health();
-        match &h.detail {
-            None => Verdict::Pass(format!(
-                "{} with no detail (checked for directories, addresses and {} native id(s))",
-                h.state.as_str(),
-                ctx.h.native_ids().len()
-            )),
-            Some(d) => {
-                let mut forbidden: Vec<String> = Vec::new();
-                if let Ok(c) = std::env::current_dir() {
-                    forbidden.push(c.display().to_string());
-                }
-                for v in ["HOME", "USERPROFILE"] {
-                    if let Ok(x) = std::env::var(v)
-                        && !x.is_empty()
-                    {
-                        forbidden.push(x);
+        // Sessions were opened, so the fake knows native ids for them; with none the check
+        // would pass any detail (#351, PR #355 review R1).
+        if ctx.h.native_ids().iter().all(String::is_empty) {
+            Verdict::Fail(
+                "the harness gave no native ids although sessions were opened, so the detail cannot be checked for them".into(),
+            )
+        } else {
+            match &h.detail {
+                None => Verdict::Pass(format!(
+                    "{} with no detail (checked for directories, addresses and {} native id(s))",
+                    h.state.as_str(),
+                    ctx.h.native_ids().len()
+                )),
+                Some(d) => {
+                    let mut forbidden: Vec<String> = Vec::new();
+                    if let Ok(c) = std::env::current_dir() {
+                        forbidden.push(c.display().to_string());
                     }
-                }
-                forbidden.extend(ctx.h.native_ids().into_iter().filter(|x| !x.is_empty()));
-                match forbidden.iter().find(|f| d.contains(f.as_str())) {
-                    Some(f) => Verdict::Fail(format!("health detail {d:?} contains {f:?}")),
-                    None if d.contains("://") => {
-                        Verdict::Fail(format!("health detail {d:?} holds an address"))
+                    for v in ["HOME", "USERPROFILE"] {
+                        if let Ok(x) = std::env::var(v)
+                            && !x.is_empty()
+                        {
+                            forbidden.push(x);
+                        }
                     }
-                    None => Verdict::Pass(format!("{}: {d:?}", h.state.as_str())),
+                    forbidden.extend(ctx.h.native_ids().into_iter().filter(|x| !x.is_empty()));
+                    match forbidden.iter().find(|f| d.contains(f.as_str())) {
+                        Some(f) => Verdict::Fail(format!("health detail {d:?} contains {f:?}")),
+                        None if d.contains("://") => {
+                            Verdict::Fail(format!("health detail {d:?} holds an address"))
+                        }
+                        None => Verdict::Pass(format!("{}: {d:?}", h.state.as_str())),
+                    }
                 }
             }
         }
@@ -1479,7 +1721,7 @@ fn scenarios(ctx: &mut Ctx<'_>) -> Result<(), String> {
             .map(|f| f.to_string())
             .collect();
         let v = if files.is_empty() {
-            Verdict::NotApplicable("the harness gave no source files to scan".into())
+            Verdict::Fail(NO_SOURCE.into())
         } else if mine.is_empty() {
             Verdict::Pass(format!(
                 "{} source file(s) parsed, paths resolved through their imports; and the adapter's operations take no transport",

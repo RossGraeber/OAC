@@ -4,6 +4,77 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
+**Last updated:** 2026-10-08 (**Issue #351: the adapter contract suite no longer trusts a
+harness's profile or gaps** (PR #348 review; Refs #59). No `spec/` file, fake, gate verdict,
+pin, dependency, static-scan rule or ADR text changes.
+
+- **Profile.** The suite identifies the binding from the operations of the hand-off calls
+  the fake recorded (`identify_binding` over `BINDINGS`, `claude::PROFILE` and
+  `codex::PROFILE`), and runs every check under its own profile for that binding. A harness
+  profile that differs (weakened, another binding's, or invented) fails [IFC-ADP-010]
+  `harness-profile-is-the-bindings`. `Profile` gains `surface_operations`, `runs_own_turns`
+  and `makes_requests`.
+- **Gaps.** A `Gap` from a step the binding's profile makes mandatory fails the rows it
+  used to make not applicable: `refuse_hand_offs` when `turned_away_code` is set
+  ([SEC-AUZ-027], [SC-DLV-009]); `start_turn` when `runs_own_turns` ([SEC-AUZ-025],
+  [SEC-AUZ-026]); and `request` when `makes_requests` ([IFC-ADP-003], [IFC-ADP-031],
+  [IFC-ADP-060]). `Gap::Broken` always fails. An empty `source_files` fails the static rows.
+  Two not-applicable cases remain, and the module doc's table records each: Claude has no
+  refusal path, and the fake app-server does not model the MCP tool path that Codex
+  requests travel.
+- **PR #355 review.**
+  - An empty `native_ids` (now a required method) fails [IFC-TYP-092].
+  - A `start_turn` that returns `Ok` without starting a turn fails [SEC-AUZ-025] and
+    [SEC-AUZ-026]. While the turn should run, the harness must hold both busy messages,
+    and neither may be input yet.
+  - The new breaches are `NoNativeIds` and `TurnNoop`.
+- **Where a harness lives (PR #355 second review, B1 and B2).** The documented direction
+  stands (07 §3, crate-deps rule 5): an adapter takes the suite as a dev-dependency, and
+  the suite never depends on an adapter. A real adapter's harness lives at exactly
+  `adapters/<name>/tests/contract.rs`. Reviewing that one file covers the fabrication
+  residual, and Gate S4 evidence must cite it.
+  - `tests/harness_location.rs` lets an adapter, and `adapters/mcp-tools` (#352),
+    dev-depend on the suite. It refuses a rename or a non-dev edge.
+  - Only the harness file may name `AdapterHarness` or the suite, or reach `run`.
+    `oac-transport-memory` stays listed, and crate-deps is what bounds it.
+  - Adapter test files and listed packages may hold no `self as`, `macro_rules!`,
+    `include!` or `#[path]`.
+  - Third review (C1, C2): the file set comes from `git ls-files -co --exclude-standard`,
+    minus cargo's `target_directory`. A committed `CACHEDIR.TAG` fails, so it can no
+    longer hide a second harness at `tests/<dir>/main.rs`. An adapter's dev-dependencies
+    are limited to the suite, `oac-core` and `oac-fake-claude`, so no identifier-pasting
+    proc macro. The one-file review covers the adapter `src/` helpers `contract.rs` calls.
+  - Fourth review (N1, N2): what cargo compiles for an adapter is checked as well.
+    - An adapter has no build script.
+    - Each test, example and bench target in `cargo metadata` is `tests/contract.rs` or
+      passes the name rules.
+    - No `.rs` file under `adapters/` is git-ignored.
+    - Cargo's target directory is `target/` or outside the repository.
+    - An adapter's normal and build dependencies are the vetted list.
+  - Fifth review (D1): a doctest that `include!`s a harness from a non-`.rs` file is
+    caught three ways:
+    - adapter `src/` files are held to the hiding shapes, read from raw text;
+    - every adapter file, of any extension, is held to the name rule;
+    - adapter lib targets set `doctest = false`, now set in `adapters/claude` and
+      `adapters/codex`.
+    No workspace member may have a build script. The target-directory check fails closed.
+  - Sixth review (E1): an aliased include, such as `use std::include as notes;`, is
+    refused. Every adapter file and every listed-package file may not hold `include`,
+    `include_str` or `include_bytes` as a whole word, the same word rule `source.rs`
+    applies to adapter `src/`.
+  - Seventh review: `main` (#352, #361) is merged in. The residual list now names a hostile
+    edit to an allowed dependency (`oac-core`, `oac-fake-claude`) that re-exports an
+    `include` macro. Review covers it, like any hostile edit to reviewed code.
+- **Planted breaches.** There are nine new harness breaches in `src/plant.rs`.
+  `tests/stand_in.rs` shows the suite catching each one on every stand-in whose binding
+  makes it a breach. Three cases are not breaches, and the tests show they stay
+  conformant: a weakened Claude profile, which equals the Claude profile; a refusal gap on
+  Claude; and a request gap on Codex. All existing adapter breaches fail the same rows as
+  before.
+- **Gate S4 criterion 1.** The suite is strengthened before any real adapter runs it, as
+  #347 was. It merges after #352, so it sets the baseline (record G-7 §6). Baseline
+  candidate for `tests/protocol/contract/`: commit `b85814f`.)
+
 **Last updated:** 2026-10-08 (**Issue #7: the Stage 4 dependency decisions, recorded before
 any adapter code** (Refs #7, #59, #69). The lead's decisions in chat of 2026-10-08 are in
 `docs/planning/decisions/G-7-stage4-dependencies.md`, in force from the lead's merge of this
