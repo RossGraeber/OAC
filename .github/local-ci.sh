@@ -3,10 +3,11 @@
 #
 # The bash bodies of scripts/local-ci.mjs (no GitHub-hosted CI since 2026-10-08; the lead's
 # decision: "Anything that has an associated cost on the github side needs to go"). Run one
-# section per call, always through local-ci.mjs, which reads this file, drops any CR (a
-# Windows checkout may hold it with CRLF line endings) and feeds it to bash on stdin:
+# section per call, always through local-ci.mjs, which copies this file to a temporary file
+# with any CR dropped (a Windows checkout may hold it with CRLF line endings) and runs it,
+# never from stdin, so a child that reads stdin cannot consume the rest of the script:
 #
-#   bash -s -- <section> < .github/local-ci.sh   (cwd: the repository root)
+#   bash <copy of this file> <section>   (cwd: the repository root)
 #
 # Why under .github/: checks 3 and 8 search the tree with rg, which skips hidden paths, as
 # it skipped .github/workflows/boundary-lint.yml when these commands lived there. Kept in
@@ -27,8 +28,10 @@
 #       $RUNNER_TEMP replaced by $G3_WORK (set by local-ci.mjs) and the artifact upload
 #       replaced by leaving $G3_WORK/g3-out in place. macOS only.
 #
-# local-ci.mjs runs each section as `bash --noprofile --norc -eo pipefail -s -- <section>`,
-# the shell GitHub Actions used for a `run:` step.
+# local-ci.mjs runs each section as `bash --noprofile --norc -eo pipefail <file> <section>`,
+# the shell options GitHub Actions used for a `run:` step. For g3-macos that is stricter than
+# the deleted workflow, whose steps ran as `bash -e` without pipefail (`set -eu`): there a
+# verify.py failure piped into `tee` passed; here it fails the tier.
 
 section="${1:-}"
 shift || true

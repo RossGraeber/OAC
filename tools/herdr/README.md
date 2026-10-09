@@ -629,9 +629,10 @@ as an error. A repository checkout on such a filesystem is refused with that rea
 The Linux namespace cases in the self-test need an unprivileged user and mount namespace: the
 bind mount of a home, the overlayfs merged-vs-`lowerdir` case, and the L3 file mounted in from
 a tmpfs. The loopback-only sandbox (`local-ci.mjs` on Linux) does not allow such a namespace.
-Where a case is skipped under GitHub Actions, the skip is also emitted as a `::warning::`
-annotation (#357); under `local-ci.mjs` the skip is printed in the step's output. They run on
-WSL outside the sandbox (`node tools/herdr/run.mjs --self-test`).
+A skipped case is printed in the self-test's output, so it shows in the `herdr-self-test`
+step of `node scripts/local-ci.mjs` (#357; when `GITHUB_ACTIONS=true` it is also emitted as a
+`::warning::` annotation, but no GitHub-hosted run exists any more). They run on WSL outside
+the sandbox (`node tools/herdr/run.mjs --self-test`).
 
 Residuals the guard cannot close (each but the race needs mount privilege or a hard link
 made by the operator's own account):

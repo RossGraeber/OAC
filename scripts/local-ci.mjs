@@ -21,6 +21,16 @@
 //   node scripts/local-ci.mjs --only <id>[,<id>...]    # run only these steps (the summary
 //                                                      # says PARTIAL; not for a PR)
 //   node scripts/local-ci.mjs --self-test      # prove every step still runs (see below)
+//   --allow-cargo-config   do not fail on a cargo config file outside the repository that can
+//                          swap a crate's source (it is still listed in the summary)
+//
+// Cargo configuration outside the repository (PR #365 review B2): cargo also reads
+// $CARGO_HOME/config(.toml) and .cargo/config(.toml) in every ancestor of the checkout. Any
+// of them can hold `[source] replace-with`, `[patch]` or `paths`, which swap a crate's source
+// behind check-crate-deps.mjs, --adapters-alone and the licence inventory (G-7 section 5,
+// check-workflows.mjs W6). Hosted runners started clean; a developer machine does not. Step
+// `cargo-config` lists every such file and fails when one holds those keys, unless
+// --allow-cargo-config is passed; the summary lists them either way.
 //
 // The default tier keeps the old rules (oac-testing section 2; PLANNING-PROMPT sections 6 and
 // 9.10): no live provider, no API key, no network beyond loopback. The one networked step is
@@ -36,8 +46,14 @@
 // the PR as it is.
 //
 // --self-test (part of the default tier, so every summary carries it):
-//   - coverage: every step of the deleted workflows, listed in PORTED below by its old job
-//     and step, maps to a step here, so a step cannot drop out unnoticed;
+//   - port contract (PR #365 review B1): scripts/local-ci.ported.json freezes, as data kept
+//     apart from this file, every step of the deleted workflows (its old job and step, tier,
+//     argv or bash section, env, sandbox flag, OS limit) with a row count and a sha256 of the
+//     rows. The live plan must match it exactly, both ways: a dropped step, a weakened flag
+//     (`--all-targets`, `-D warnings`, `--locked`), a lost CARGO_NET_OFFLINE or a lost
+//     loopback wrapper fails, and so does an edit to the table that does not also update its
+//     count and hash. Changing the contract is a visible edit to that file. Planted
+//     mutations (the review's) must each be caught;
 //   - plan: the plan is built for linux, win32 and darwin, full and --quick, and run against
 //     a recording stub: every step is attempted, the sandboxed ones inside the loopback
 //     wrapper on Linux, and --quick changes nothing but the herdr self-test's environment;
@@ -47,21 +63,28 @@
 //     the herdr driver beyond its exact offline self-test, or installs a harness CLI; every
 //     cargo step after the fetch is offline; planted violations must be caught;
 //   - boundary lint: each `rg` check of .github/local-ci.sh passes a clean throwaway git tree
-//     and fails its planted violation.
+//     and fails its planted violation;
+//   - cargo config: a planted ancestor `.cargo/config.toml` with `[patch]` and a
+//     $CARGO_HOME/config.toml with `replace-with` are found and flagged, a plain one is found
+//     and not flagged.
 //
 // Node built-ins only. Exit codes: 0 = every step passed (SKIPs included); 1 = a step failed
 // (or the self-test did); 2 = usage or environment error; 3 = no failure, but a step was
 // NOT RUN (a missing prerequisite, or a tier this OS cannot run).
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir, release as osRelease } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { homedir, tmpdir, release as osRelease } from 'node:os';
+import { dirname, join, parse as parsePath, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const scriptPath = fileURLToPath(import.meta.url);
 const repoRoot = resolve(dirname(scriptPath), '..');
 const BASH_BODIES = '.github/local-ci.sh';
+const PORTED_FILE = 'scripts/local-ci.ported.json';
+// Steps of this runner's own, with no counterpart in a deleted workflow.
+const LOCAL_ONLY = new Set(['local-ci-self-test', 'cargo-config']);
 const TOOLCHAIN = '1.98.1'; // rust-toolchain.toml; docs/planning/PINS.md
 
 // ---- steps ----------------------------------------------------------------------------
@@ -70,13 +93,15 @@ const TOOLCHAIN = '1.98.1'; // rust-toolchain.toml; docs/planning/PINS.md
 // check: <built-in check name>, env, sandbox (wrap in loopback-only.sh on Linux), offline
 // (CARGO_NET_OFFLINE=true), os (only on these platforms; elsewhere SKIP with osReason),
 // needs (programs that must be on PATH, else NOT RUN), quickEnv (env added under --quick),
-// paths (set from PATHS below: what the step depends on) }.
+// paths (set from PATHS below: what the step depends on), winWorkDir (on Windows, pass
+// `--work-dir <os.tmpdir()>/<winWorkDir>`: a short path, under MAX_PATH) }.
 // `node` means this Node; `bash` means Git Bash on Windows.
 
 const OFFLINE = { CARGO_NET_OFFLINE: 'true' };
 const LINUX_ONLY_SANDBOX = 'not Linux: no network namespace; the rule rests on offline cargo and loopback-only fakes, as on the old windows/macos CI legs';
 
 const toolchain = { id: 'toolchain', name: `rustc is the ${TOOLCHAIN} pin (rust-toolchain.toml)`, check: 'toolchain' };
+const cargoConfig = { id: 'cargo-config', name: 'no cargo config outside the repository swaps a crate source (PR #365 B2)', check: 'cargo-config' };
 const fetch = { id: 'cargo-fetch', name: 'cargo fetch --locked (the one networked step)', cmd: ['cargo', 'fetch', '--locked'] };
 const loopbackSelect = { id: 'loopback-select', name: 'loopback-only sandbox: select (mandatory on Linux)', check: 'loopback-select', os: ['linux'], osReason: LINUX_ONLY_SANDBOX };
 const loopbackProbe = { id: 'loopback-probe', name: 'loopback-only sandbox: probe (loopback connects, nothing else is reachable)', cmd: ['bash', 'scripts/loopback-only.sh', '--probe'], os: ['linux'], osReason: LINUX_ONLY_SANDBOX };
@@ -85,6 +110,7 @@ export const TIERS = {
   default: [
     // ci.yml job `test`
     toolchain,
+    cargoConfig,
     { id: 'fmt', name: 'cargo fmt --check', cmd: ['cargo', 'fmt', '--all', '--check'] },
     fetch,
     { id: 'build', name: 'cargo build (all targets)', cmd: ['cargo', 'build', '--workspace', '--all-targets', '--locked'], offline: true },
@@ -128,7 +154,7 @@ export const TIERS = {
     { id: 'conformance', name: 'conformance fixtures and requirement indexes (reference runner)', cmd: ['node', 'tests/protocol/runner/run.mjs'], sandbox: true },
     { id: 'fake-codex-self-test', name: 'fake Codex app-server self-test (stdio and loopback WebSocket)', cmd: ['node', 'tests/fakes/codex-app-server/self-test.mjs'], sandbox: true },
     { id: 'compiled-tests', name: 'security suite threat map vs compiled tests', cmd: ['node', 'tests/security/check-compiled-tests.mjs'], offline: true, sandbox: true },
-    { id: 'compiled-tests-self-test', name: 'security suite threat map check self-test', cmd: ['node', 'tests/security/check-compiled-tests.mjs', '--self-test'], offline: true, sandbox: true },
+    { id: 'compiled-tests-self-test', name: 'security suite threat map check self-test', cmd: ['node', 'tests/security/check-compiled-tests.mjs', '--self-test'], offline: true, sandbox: true, winWorkDir: 'oac-cts' },
     // boundary-lint.yml job `boundary-lint`, the rg checks (verbatim in .github/local-ci.sh)
     { id: 'boundary-check-3', name: 'check 3: no provider SDK imports or deps in the code tree', bash: 'boundary-check-3', needs: ['rg'] },
     { id: 'boundary-check-8', name: 'check 8: no separately administered server for local use', bash: 'boundary-check-8', needs: ['rg'] },
@@ -141,6 +167,7 @@ export const TIERS = {
   // service io.github.rossgraeber.oac.test, never the device key's entry, never a harness's.
   keystore: [
     toolchain,
+    cargoConfig,
     {
       id: 'keystore-os-store',
       name: 'real credential store round trip (Credential Manager / Keychain)',
@@ -172,12 +199,14 @@ export const TIERS = {
   // scale-optin.yml (#328)
   scale: [
     toolchain,
+    cargoConfig,
     fetch,
     { id: 'scale-full', name: 'full-scale bound tests (release, ignored by default)', cmd: ['cargo', 'test', '-p', 'oac-core', '--release', '--locked', 'full_scale', '--', '--ignored'], offline: true },
   ],
   // security-mutation-optin.yml (#329)
   mutation: [
     toolchain,
+    cargoConfig,
     fetch,
     loopbackSelect,
     loopbackProbe,
@@ -195,6 +224,7 @@ const RUST = ['Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', '.cargo/', 'cor
 const PRODUCT = ['adapters/', 'core/', 'cli/', 'transports/', 'spec/'];
 export const PATHS = {
   toolchain: ['rust-toolchain.toml'],
+  'cargo-config': ['**'], // and files outside the repository: never skip it
   fmt: [...RUST, 'rustfmt.toml', '.rustfmt.toml'],
   'cargo-fetch': ['Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml'],
   build: RUST,
@@ -241,61 +271,73 @@ export const PATHS = {
 };
 for (const steps of Object.values(TIERS)) for (const s of steps) s.paths = PATHS[s.id];
 
-// Every step of every deleted workflow -> the step here that runs it. Setup-only steps
-// (checkout, cache, artifact upload, ripgrep install) have no counterpart; they are named so
-// the list is complete.
-export const PORTED = [
-  ['ci.yml test: Install the pinned toolchain from rust-toolchain.toml', 'default', 'toolchain'],
-  ['ci.yml test: cargo fmt --check', 'default', 'fmt'],
-  ['ci.yml test: cargo fetch', 'default', 'cargo-fetch'],
-  ['ci.yml test: cargo build', 'default', 'build'],
-  ['ci.yml test: cargo clippy -D warnings', 'default', 'clippy'],
-  ['ci.yml test: Select the loopback-only sandbox', 'default', 'loopback-select'],
-  ['ci.yml test: Loopback-only sandbox probe', 'default', 'loopback-probe'],
-  ['ci.yml test: Unit, contract, security, fake-integration and conformance tiers (cargo test)', 'default', 'cargo-test'],
-  ['ci.yml test: Security suite threat map vs compiled tests', 'default', 'compiled-tests'],
-  ['ci.yml test: Security suite threat map check self-test', 'default', 'compiled-tests-self-test'],
-  ['ci.yml test: Conformance runner self-test', 'default', 'conformance-self-test'],
-  ['ci.yml test: Conformance fixtures and requirement indexes', 'default', 'conformance'],
-  ['ci.yml test: Fake Codex app-server self-test', 'default', 'fake-codex-self-test'],
-  ['ci.yml herdr-selftest: herdr driver self-test', 'default', 'herdr-self-test'],
-  ['ci.yml crate-deps: Dependency direction self-test', 'default', 'crate-deps-self-test'],
-  ['ci.yml crate-deps: Dependency direction', 'default', 'crate-deps'],
-  ['ci.yml crate-deps: Dependency direction mutation test', 'default', 'crate-deps-mutation'],
-  ['ci.yml crate-deps: Adapters build alone (PR #352)', 'default', 'crate-deps-adapters-alone'],
-  ['ci.yml licenses: License check self-test', 'default', 'licenses-self-test'],
-  ['ci.yml licenses: License check mutation test', 'default', 'licenses-mutation'],
-  ['ci.yml licenses: License headers and dependency inventory', 'default', 'licenses'],
-  ['boundary-lint.yml boundary-lint: Checks 9-10 self-test', 'default', 'herdr-containment-self-test'],
-  ['boundary-lint.yml boundary-lint: Checks 9-10 herdr containment', 'default', 'herdr-containment'],
-  ['boundary-lint.yml boundary-lint: Check 3', 'default', 'boundary-check-3'],
-  ['boundary-lint.yml boundary-lint: Check 8', 'default', 'boundary-check-8'],
-  ['boundary-lint.yml boundary-lint: Checks 1-2 and spec neutral vocabulary', 'default', 'boundary-checks-1-2'],
-  ['boundary-lint.yml boundary-lint: Check 11', 'default', 'boundary-check-11'],
-  ['boundary-lint.yml fixture-manifest: Fixture manifest self-test', 'default', 'fixture-manifest-self-test'],
-  ['boundary-lint.yml fixture-manifest: Fixture manifest check', 'default', 'fixture-manifest'],
-  ['boundary-lint.yml containment: Checks 12-13 self-test', 'default', 'containment-self-test'],
-  ['boundary-lint.yml containment: Check 12 and check 13', 'default', 'containment'],
-  ['boundary-lint.yml workflow-policy: Workflow policy self-test', 'default', 'workflows-self-test'],
-  ['boundary-lint.yml workflow-policy: Workflow policy', 'default', 'workflows'],
-  ['boundary-lint.yml agents-skills-sync: Codex skills copy self-test', 'default', 'agents-skills-sync-self-test'],
-  ['boundary-lint.yml agents-skills-sync: Codex skills copy matches its source', 'default', 'agents-skills-sync'],
-  ['boundary-lint.yml agents-skills-sync: Skill budgets', 'default', 'skills'],
-  ['keystore-optin.yml (every job): Install the pinned toolchain from rust-toolchain.toml', 'keystore', 'toolchain'],
-  ['keystore-optin.yml os-credential-store: Real credential store round trip', 'keystore', 'keystore-os-store'],
-  ['keystore-optin.yml linux-secret-service: Build the test first, outside the session bus', 'keystore', 'keystore-build'],
-  ['keystore-optin.yml linux-secret-service: Real Secret Service round trip', 'keystore', 'keystore-secret-service'],
-  ['keystore-optin.yml linux-headless-fallback: Headless fallback to the encrypted file', 'keystore', 'keystore-headless'],
-  ['scale-optin.yml full-scale: Install the pinned toolchain from rust-toolchain.toml', 'scale', 'toolchain'],
-  ['scale-optin.yml full-scale: cargo fetch', 'scale', 'cargo-fetch'],
-  ['scale-optin.yml full-scale: Full-scale bound tests', 'scale', 'scale-full'],
-  ['security-mutation-optin.yml mutation-check: Install the pinned toolchain from rust-toolchain.toml', 'mutation', 'toolchain'],
-  ['security-mutation-optin.yml mutation-check: cargo fetch', 'mutation', 'cargo-fetch'],
-  ['security-mutation-optin.yml mutation-check: Select the loopback-only sandbox', 'mutation', 'loopback-select'],
-  ['security-mutation-optin.yml mutation-check: Loopback-only sandbox probe', 'mutation', 'loopback-probe'],
-  ['security-mutation-optin.yml mutation-check: Mutation check', 'mutation', 'mutation-check'],
-  ['g3-macos-hosted.yml g3-macos: every step (record, venv, stage, certs, matrix, extras)', 'g3-macos', 'g3-macos'],
+// ---- the port contract (PR #365 review B1) -------------------------------------------
+//
+// Every step of every deleted workflow is a row of scripts/local-ci.ported.json, kept apart
+// from this file so one edit here cannot drop a step and its record together. A step's
+// contract is everything that decides what it runs and where.
+export function contractOf(step) {
+  return {
+    cmd: step.cmd ?? null,
+    bash: step.bash ?? null,
+    check: step.check ?? null,
+    env: { ...(step.offline ? OFFLINE : {}), ...(step.env ?? {}) },
+    quickEnv: step.quickEnv ?? {},
+    sandbox: Boolean(step.sandbox),
+    os: step.os ?? null,
+    winWorkDir: step.winWorkDir ?? null,
+  };
+}
+const canon = (v) => JSON.stringify(v, (_k, x) => (x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => (a < b ? -1 : 1))) : x));
+export const rowsHash = (rows) => createHash('sha256').update(JSON.stringify(rows), 'utf8').digest('hex');
+export function loadPorted(text = readFileSync(join(repoRoot, PORTED_FILE), 'utf8')) {
+  return JSON.parse(text);
+}
+// Violations of the frozen contract by `tiers`, both ways, plus the table's own count and hash.
+export function portViolations(tiers, ported) {
+  const v = [];
+  const rows = Array.isArray(ported?.rows) ? ported.rows : [];
+  if (ported?.count !== rows.length) v.push(`${PORTED_FILE}: count ${ported?.count} but ${rows.length} rows`);
+  if (ported?.sha256 !== rowsHash(rows)) v.push(`${PORTED_FILE}: sha256 does not match its rows (edit rows, count and sha256 together)`);
+  const seen = new Set();
+  for (const r of rows) {
+    const key = `${r.tier}/${r.id}`;
+    if (seen.has(key)) v.push(`${key}: two rows`);
+    seen.add(key);
+    const step = tiers[r.tier]?.find((s) => s.id === r.id);
+    if (!step) {
+      v.push(`${key} (${r.from}): no such step: a ported step was dropped`);
+      continue;
+    }
+    const want = { cmd: r.cmd, bash: r.bash, check: r.check, env: r.env, quickEnv: r.quickEnv, sandbox: r.sandbox, os: r.os, winWorkDir: r.winWorkDir };
+    const got = contractOf(step);
+    for (const k of Object.keys(want)) if (canon(want[k]) !== canon(got[k])) v.push(`${key} (${r.from}): ${k} is ${canon(got[k])}, the contract says ${canon(want[k])}`);
+  }
+  for (const [tier, steps] of Object.entries(tiers)) {
+    for (const s of steps) if (!LOCAL_ONLY.has(s.id) && !seen.has(`${tier}/${s.id}`)) v.push(`${tier}/${s.id}: a step with no row in ${PORTED_FILE}`);
+  }
+  return v;
+}
+
+// The PR #365 review's mutations, each of which the contract must catch.
+export const PORT_MUTATIONS = [
+  ['remove crate-deps-adapters-alone (its row stays in the frozen file)', (t) => { t.default = t.default.filter((s) => s.id !== 'crate-deps-adapters-alone'); }],
+  ['drop --all-targets from cargo build', (t) => { const s = t.default.find((x) => x.id === 'build'); s.cmd = s.cmd.filter((a) => a !== '--all-targets'); }],
+  ['drop -D warnings from clippy', (t) => { const s = t.default.find((x) => x.id === 'clippy'); s.cmd = s.cmd.slice(0, s.cmd.indexOf('--')); }],
+  ['drop CARGO_NET_OFFLINE from --adapters-alone', (t) => { t.default.find((x) => x.id === 'crate-deps-adapters-alone').offline = false; }],
+  ['drop the loopback wrapper from cargo test', (t) => { t.default.find((x) => x.id === 'cargo-test').sandbox = false; }],
+  ['drop --locked from cargo test', (t) => { const s = t.default.find((x) => x.id === 'cargo-test'); s.cmd = s.cmd.filter((a) => a !== '--locked'); }],
+  ['limit a default step to one OS', (t) => { t.default.find((x) => x.id === 'licenses').os = ['linux']; }],
+  ['drop the herdr quick switch (so --quick no longer skips only the lifecycle half)', (t) => { delete t.default.find((x) => x.id === 'herdr-self-test').quickEnv; }],
+  ['add an unrecorded step', (t) => { t.default.push({ id: 'extra', cmd: ['node', 'x.mjs'] }); }],
 ];
+// Edits to the frozen file that must fail too.
+export const TABLE_MUTATIONS = [
+  ['remove a row, keep count and hash', (p) => { p.rows = p.rows.filter((r) => r.id !== 'crate-deps-adapters-alone'); }],
+  ['remove a row and fix the count, keep the hash', (p) => { p.rows = p.rows.filter((r) => r.id !== 'crate-deps-adapters-alone'); p.count = p.rows.length; }],
+  ['weaken a row, keep the hash', (p) => { p.rows.find((r) => r.id === 'clippy').cmd = ['cargo', 'clippy']; }],
+];
+
 // Setup steps with no counterpart, by design.
 export const NOT_PORTED = [
   'actions/checkout (the developer\'s own checkout; fixture-manifest needs full history, as fetch-depth: 0 gave)',
@@ -325,6 +367,47 @@ function findBash() {
   return candidates.find((c) => existsSync(c) && !/\\(?:System32|WindowsApps)\\/i.test(c)) ?? null;
 }
 
+// Cargo config files outside the repository that cargo reads for a build in `root`
+// (https://doc.rust-lang.org/cargo/reference/config.html, "Hierarchical structure"):
+// `.cargo/config` and `.cargo/config.toml` in every ancestor of `root`, and `config` /
+// `config.toml` in $CARGO_HOME (default ~/.cargo). The repository's own .cargo/ is left to
+// check-crate-deps.mjs rule 7. Each file found: { path, flagged: [what it holds] }, where
+// flagged names the keys that can swap a crate's source: a `[source...]` or `[patch...]`
+// table (or dotted `source.` / `patch.` keys), `replace-with`, or `paths`.
+const SOURCE_KEYS = [
+  [/^\s*\[\s*source\b/, '[source]'],
+  [/^\s*\[\s*patch\b/, '[patch]'],
+  [/^\s*source\s*\./, 'source.*'],
+  [/^\s*patch\s*\./, 'patch.*'],
+  [/\breplace-with\s*=/, 'replace-with'],
+  [/^\s*paths\s*=/, 'paths'],
+];
+export function cargoConfigFiles({ root = repoRoot, cargoHome = process.env.CARGO_HOME || join(homedir(), '.cargo') } = {}) {
+  const candidates = [];
+  let dir = dirname(resolve(root));
+  const top = parsePath(dir).root;
+  for (;;) {
+    candidates.push(join(dir, '.cargo', 'config'), join(dir, '.cargo', 'config.toml'));
+    if (dir === top) break;
+    dir = dirname(dir);
+  }
+  candidates.push(join(cargoHome, 'config'), join(cargoHome, 'config.toml'));
+  const out = [];
+  for (const path of [...new Set(candidates)]) {
+    let text;
+    try {
+      if (!statSync(path).isFile()) continue;
+      text = readFileSync(path, 'utf8');
+    } catch {
+      continue;
+    }
+    const lines = text.split(/\r?\n/).map((l) => l.replace(/#.*$/, ''));
+    const flagged = SOURCE_KEYS.filter(([re]) => lines.some((l) => re.test(l))).map(([, what]) => what);
+    out.push({ path, flagged });
+  }
+  return out;
+}
+
 const git = (args) => {
   const r = spawnSync('git', args, { cwd: repoRoot, encoding: 'utf8' });
   return r.status === 0 ? r.stdout.trim() : null;
@@ -346,12 +429,39 @@ export function plan(tier, { platform, quick, work, only = null }) {
       if (s.check) return { step: s, check: s.check, env };
       if (s.bash) return { step: s, bash: s.bash, env: s.bash === 'g3-macos' ? { ...env, G3_WORK: work } : env };
       let argv = s.cmd.map((a) => a.replace('<work>', work));
+      // A short work dir on Windows: a deep checkout plus target/<copy>/target/... overruns
+      // MAX_PATH (PR #365 review).
+      if (s.winWorkDir && platform === 'win32') argv = [...argv, '--work-dir', join(tmpdir(), s.winWorkDir)];
       if (s.sandbox && platform === 'linux') argv = ['bash', 'scripts/loopback-only.sh', ...argv];
       return { step: s, argv, env };
     });
 }
 
 // ---- running --------------------------------------------------------------------------
+
+// A section of .github/local-ci.sh, run as `bash <file> <section>` from a temporary copy with
+// CRs dropped (a Windows checkout may hold CRLF): bash reads the body from that file, never
+// from stdin, so a child that reads stdin (python, openssl) cannot consume the rest of the
+// script (PR #365 review). (`bash -c <body>` was tried first: Git Bash's command-line
+// parsing on Windows mangled the 10 KB body.) Shell options as GitHub Actions ran a `run:`
+// step: --noprofile --norc -eo pipefail.
+const bashFiles = new Map();
+function bashFile(bodyText) {
+  const text = bodyText.replace(/\r/g, '');
+  if (!bashFiles.has(text)) {
+    const dir = mkdtempSync(join(tmpdir(), 'oac-local-ci-sh-'));
+    const file = join(dir, 'local-ci.sh');
+    writeFileSync(file, text);
+    bashFiles.set(text, file);
+  }
+  return bashFiles.get(text);
+}
+process.on('exit', () => {
+  for (const f of bashFiles.values()) rmSync(dirname(f), { recursive: true, force: true });
+});
+export function bashArgs(section, bodyText = readFileSync(join(repoRoot, BASH_BODIES), 'utf8')) {
+  return ['--noprofile', '--norc', '-eo', 'pipefail', bashFile(bodyText), section];
+}
 
 function run(actions, ctx) {
   const results = [];
@@ -375,6 +485,17 @@ function run(actions, ctx) {
       done(r.status === 0 && out.startsWith(`rustc ${TOOLCHAIN} `) ? 'PASS' : 'FAIL', out || 'rustc not found');
       continue;
     }
+    if (a.check === 'cargo-config') {
+      const files = cargoConfigFiles();
+      ctx.cargoConfigs = files;
+      for (const f of files) console.log(`${f.path}: ${f.flagged.length ? `holds ${f.flagged.join(', ')}` : 'no source-swapping keys'}`);
+      const bad = files.filter((f) => f.flagged.length);
+      if (!files.length) done('PASS', 'no cargo config outside the repository');
+      else if (!bad.length) done('PASS', `${files.length} file(s) outside the repository, none with source-swapping keys`);
+      else if (ctx.allowCargoConfig) done('PASS', `--allow-cargo-config: ${bad.map((f) => f.path).join(', ')} hold source-swapping keys`);
+      else done('FAIL', `${bad.map((f) => `${f.path} (${f.flagged.join(', ')})`).join('; ')} can swap a crate's source behind the dependency checks; remove it or pass --allow-cargo-config`);
+      continue;
+    }
     if (a.check === 'loopback-select') {
       const r = spawnSync(ctx.bash, ['scripts/loopback-only.sh', '--select'], { cwd: repoRoot, encoding: 'utf8', env });
       process.stdout.write(r.stdout ?? '');
@@ -389,8 +510,7 @@ function run(actions, ctx) {
     }
     let r;
     if (a.bash) {
-      const body = readFileSync(join(repoRoot, BASH_BODIES), 'utf8').replace(/\r/g, '');
-      r = spawnSync(ctx.bash, ['--noprofile', '--norc', '-eo', 'pipefail', '-s', '--', a.bash], { cwd: repoRoot, env, input: body, stdio: ['pipe', 'inherit', 'inherit'] });
+      r = spawnSync(ctx.bash, bashArgs(a.bash), { cwd: repoRoot, env, stdio: ['ignore', 'inherit', 'inherit'] });
     } else {
       const [prog, ...args] = a.argv;
       const program = prog === 'node' ? process.execPath : prog === 'bash' ? ctx.bash : prog;
@@ -405,6 +525,13 @@ function run(actions, ctx) {
 }
 
 const fmt = (ms) => (ms < 60000 ? `${(ms / 1000).toFixed(1)}s` : `${Math.floor(ms / 60000)}m${String(Math.round((ms % 60000) / 1000)).padStart(2, '0')}s`);
+
+function cargoConfigLine(ctx) {
+  const files = ctx.cargoConfigs ?? cargoConfigFiles();
+  if (!files.length) return 'none';
+  const list = files.map((f) => `\`${f.path}\`${f.flagged.length ? ` **holds ${f.flagged.join(', ')}**` : ' (no source-swapping keys)'}`).join('; ');
+  return `${list}${ctx.allowCargoConfig ? ' (--allow-cargo-config)' : ''}`;
+}
 
 function summary(tier, results, ctx, totalMs) {
   const head = git(['rev-parse', 'HEAD']) ?? '(unknown)';
@@ -421,6 +548,7 @@ function summary(tier, results, ctx, totalMs) {
     `- Platform: ${ctx.platform} ${process.arch}${ctx.wsl ? ' (WSL)' : ''}, OS ${osRelease()}; node ${process.version}; ${rustc}`,
     `- Loopback-only sandbox: ${ctx.platform === 'linux' ? 'used for the sandboxed steps' : 'not available on this OS (as on the old windows/macos CI legs)'}`,
     `- Cargo source overrides inherited from the environment (W6; the dependency checks trust it): ${overrides.length ? `**${overrides.join(', ')}** (review them)` : 'none'}`,
+    `- Cargo config outside the repository (read by cargo; the dependency checks trust it): ${cargoConfigLine(ctx)}`,
     `- ${n('PASS')} passed, ${n('FAIL')} failed, ${n('SKIP')} skipped, ${n('NOT RUN')} not run; ${fmt(totalMs)} in all`,
     '',
     '| Step | Result | Time |',
@@ -498,13 +626,37 @@ function selfTest() {
     if (!ok) failed++;
   };
 
-  // 1. coverage
-  for (const [what, tier, id] of PORTED) check(`coverage: ${what} -> ${tier}/${id}`, TIERS[tier]?.some((s) => s.id === id));
-  const ported = new Set(PORTED.map(([, t, id]) => `${t}/${id}`));
+  // 1. the port contract (PR #365 review B1), frozen in scripts/local-ci.ported.json
+  let ported = null;
+  try {
+    ported = loadPorted();
+  } catch (e) {
+    check(`contract: ${PORTED_FILE} reads as JSON`, false, e.message);
+  }
+  if (ported) {
+    const live = portViolations(TIERS, ported);
+    check(`contract: the live plan matches all ${ported.rows?.length} frozen rows exactly, both ways, with count ${ported.count} and sha256 ${String(ported.sha256).slice(0, 12)}...`, live.length === 0, live.join('; '));
+    for (const r of ported.rows ?? []) check(`contract: ${r.from} -> ${r.tier}/${r.id}`, TIERS[r.tier]?.some((s) => s.id === r.id));
+    for (const [name, mutate] of PORT_MUTATIONS) {
+      const t = structuredClone(TIERS);
+      mutate(t);
+      const v = portViolations(t, ported);
+      check(`contract: planted "${name}" is caught`, v.length > 0);
+    }
+    for (const [name, mutate] of TABLE_MUTATIONS) {
+      const p = structuredClone(ported);
+      mutate(p);
+      check(`contract: frozen-table edit "${name}" is caught`, portViolations(TIERS, p).length > 0);
+    }
+    check('contract: the review\'s "remove the step, its row and its paths entry" is caught (the row lives in another file)', (() => {
+      const t = structuredClone(TIERS);
+      t.default = t.default.filter((s) => s.id !== 'crate-deps-adapters-alone');
+      return portViolations(t, ported).some((x) => x.includes('crate-deps-adapters-alone') && x.includes('dropped'));
+    })());
+  }
   for (const [tier, steps] of Object.entries(TIERS)) {
     const ids = steps.map((s) => s.id);
     check(`coverage: ${tier} step ids are unique`, new Set(ids).size === ids.length, ids.join(','));
-    for (const s of steps) if (s.id !== 'local-ci-self-test') check(`coverage: ${tier}/${s.id} traces to a deleted workflow step`, ported.has(`${tier}/${s.id}`));
     for (const s of steps) check(`paths: ${tier}/${s.id} names the paths it depends on (#362)`, Array.isArray(s.paths) && s.paths.length > 0 && s.paths.every((p) => typeof p === 'string' && p && !p.startsWith('/')));
   }
   const allIds = new Set(Object.values(TIERS).flat().map((s) => s.id));
@@ -582,8 +734,17 @@ function selfTest() {
   const bash = findBash();
   check('boundary: bash found (Git Bash on Windows)', Boolean(bash));
   check('boundary: rg on PATH', onPath('rg'));
+  check('boundary: a section runs from a CR-free script file with its name as $1, never from stdin', (() => {
+    const a = bashArgs('boundary-check-3', 'x\r\ny');
+    return !a.includes('-s') && !a.includes('-c') && readFileSync(a.at(-2), 'utf8') === 'x\ny' && a.at(-1) === 'boundary-check-3';
+  })());
+  if (bash) {
+    // A child reading stdin must not eat the script: what it reads is stdin, and the next
+    // line of the section still runs.
+    const r = spawnSync(bash, bashArgs('s', 'read -r line; echo "got-$line"\necho after-$1\n'), { encoding: 'utf8', input: 'from-stdin\necho injected\n' });
+    check('boundary: a child reading stdin does not consume the rest of a section', r.status === 0 && r.stdout.trim() === 'got-from-stdin\nafter-s', `${r.status} ${JSON.stringify(r.stdout)} ${r.stderr}`);
+  }
   if (bash && onPath('rg')) {
-    const body = bashBodies.replace(/\r/g, '');
     for (const [section, name, files, want] of BOUNDARY_CASES) {
       const dir = mkdtempSync(join(tmpdir(), 'oac-local-ci-'));
       try {
@@ -593,11 +754,41 @@ function selfTest() {
         }
         spawnSync('git', ['init', '-q'], { cwd: dir });
         spawnSync('git', ['add', '-A'], { cwd: dir });
-        const r = spawnSync(bash, ['--noprofile', '--norc', '-eo', 'pipefail', '-s', '--', section], { cwd: dir, input: body, encoding: 'utf8' });
+        const r = spawnSync(bash, bashArgs(section, bashBodies), { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
         check(`boundary: ${section}: ${name} exits ${want}`, r.status === want, `exit ${r.status}: ${(r.stdout + r.stderr).slice(-300)}`);
       } finally {
         rmSync(dir, { recursive: true, force: true });
       }
+    }
+  }
+
+  // 6. cargo config outside the repository (PR #365 review B2), in a throwaway tree:
+  //    <t>/a/.cargo/config.toml ([patch]), <t>/a/b/.cargo/config (plain), repo <t>/a/b/repo,
+  //    CARGO_HOME <t>/home/config.toml (replace-with). Files above <t> are the machine's own
+  //    and are not asserted on.
+  {
+    const t = mkdtempSync(join(tmpdir(), 'oac-cargo-cfg-'));
+    try {
+      const put = (rel, text) => {
+        mkdirSync(dirname(join(t, rel)), { recursive: true });
+        writeFileSync(join(t, rel), text);
+      };
+      put('a/.cargo/config.toml', '[patch.crates-io]\ntokio = { path = "../tokio" }\n');
+      put('a/b/.cargo/config', '[build]\njobs = 2\n# [source.crates-io] in a comment is not a key\n');
+      put('a/b/repo/.cargo/config.toml', '[patch.crates-io]\nx = { path = "y" }\n');
+      put('home/config.toml', "[source.crates-io]\nreplace-with = 'mirror'\n");
+      put('home2/config', "paths = ['../x']\n");
+      const mine = (files) => files.filter((f) => f.path.startsWith(t));
+      const found = mine(cargoConfigFiles({ root: join(t, 'a', 'b', 'repo'), cargoHome: join(t, 'home') }));
+      const at = (rel) => found.find((f) => f.path === join(t, rel));
+      check('cargo config: an ancestor .cargo/config.toml with [patch] is found and flagged', at('a/.cargo/config.toml')?.flagged.includes('[patch]'));
+      check('cargo config: a plain ancestor .cargo/config (comment ignored) is found, not flagged', at('a/b/.cargo/config')?.flagged.length === 0);
+      check('cargo config: $CARGO_HOME/config.toml with [source] replace-with is found and flagged', ['[source]', 'replace-with'].every((k) => at('home/config.toml')?.flagged.includes(k)));
+      check("cargo config: the repository's own .cargo/ is left to check-crate-deps rule 7", !at('a/b/repo/.cargo/config.toml'));
+      const home2 = mine(cargoConfigFiles({ root: join(t, 'a', 'b', 'repo'), cargoHome: join(t, 'home2') })).find((f) => f.path === join(t, 'home2', 'config'));
+      check('cargo config: a legacy $CARGO_HOME/config with paths is found and flagged', home2?.flagged.includes('paths'));
+    } finally {
+      rmSync(t, { recursive: true, force: true });
     }
   }
 
@@ -609,7 +800,7 @@ function selfTest() {
 
 function usage(msg) {
   if (msg) console.error(`local-ci: ${msg}`);
-  console.error('usage: node scripts/local-ci.mjs [--quick] [--tier default|keystore|scale|mutation|g3-macos] [--only id,...] [--list] | --self-test');
+  console.error('usage: node scripts/local-ci.mjs [--quick] [--allow-cargo-config] [--tier default|keystore|scale|mutation|g3-macos] [--only id,...] [--list] | --self-test');
   process.exit(2);
 }
 
@@ -618,12 +809,14 @@ function main(argv) {
   let quick = false;
   let list = false;
   let only = null;
+  let allowCargoConfig = false;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--self-test') {
       if (argv.length !== 1) usage('--self-test takes no other option');
       return selfTest();
     } else if (a === '--quick') quick = true;
+    else if (a === '--allow-cargo-config') allowCargoConfig = true;
     else if (a === '--list') list = true;
     else if (a === '--tier') {
       tier = argv[++i];
@@ -647,7 +840,7 @@ function main(argv) {
   try {
     wsl = platform === 'linux' && /microsoft/i.test(readFileSync('/proc/version', 'utf8'));
   } catch {}
-  const ctx = { platform, quick, only, bash, wsl };
+  const ctx = { platform, quick, only, bash, wsl, allowCargoConfig };
   const t0 = Date.now();
   const results = run(plan(tier, { platform, quick, work, only }), ctx);
   const { text, verdict } = summary(tier, results, ctx, Date.now() - t0);
