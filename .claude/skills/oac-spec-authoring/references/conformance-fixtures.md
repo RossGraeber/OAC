@@ -24,7 +24,7 @@ Task E8 acceptance requires all four of these to exist as negative fixtures:
 ## Location and execution
 
 Fixtures live under `tests/protocol/` (DESIGN §Suggested repository shape). The reference
-runner `node tests/protocol/runner/run.mjs` (E8, #48; CI job `conformance`) evaluates every
+runner `node tests/protocol/runner/run.mjs` (E8, #48; `local-ci.mjs` step `conformance`) evaluates every
 fixture from the spec text and checks the requirement indexes against the fixtures. Run it
 in any change that adds a fixture, a stage or an index row; a new stage needs an evaluator
 there. `node tests/protocol/runner/run.mjs --self-test` checks that the runner rejects planted

@@ -79,6 +79,9 @@
 //   redirected CARGO_HOME, or a CARGO_SOURCE_* / CARGO_PATCH* variable in a workflow could
 //   swap a source behind them; scripts/check-workflows.mjs W6 refuses each, so adding one is
 //   a reviewed change. Targets other than the three CI operating systems are not built.
+//   Since 2026-10-08 there is no GitHub-hosted CI: "CI" is `node scripts/local-ci.mjs`, whose
+//   --self-test refuses the same overrides in its steps, and whose summary lists any such
+//   variable the developer's environment carries. A local run trusts that environment.
 //
 //   --adapters-alone runs `cargo check --locked --lib` on the adapters and adapters/mcp-tools
 //   only, so their dependencies' features unify among themselves and not with cli/'s (PR
@@ -89,7 +92,7 @@
 //   each in the dev profile and in `--release` (so code under `cfg(not(debug_assertions))`,
 //   the shipped binary's profile, is too; third review finding 1). The adapters' own
 //   features are held to the vetted list, so "all features, alone" is the widest build they
-//   may legitimately get. CI runs it in job crate-deps on each of its three OSes.
+//   may legitimately get. `node scripts/local-ci.mjs` runs it (step crate-deps-adapters-alone).
 //
 //   node scripts/check-crate-deps.mjs                    # check this workspace
 //   node scripts/check-crate-deps.mjs --metadata <file>  # check a saved metadata JSON

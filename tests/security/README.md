@@ -47,8 +47,9 @@ The crate is `oac-security-suite`. It is CI-default: it runs in the plain
   `harness = false` target). `tests/threat_map.rs` refuses both statically, and refuses a
   function that is a test only through `#[cfg_attr(.., test)]`.
 
-  CI runs it on every OS. `--self-test` plants each known evasion in a copy and checks it
-  is caught; CI runs it on the ubuntu image. `--self-test --work-dir <dir>` puts the copy
+  `node scripts/local-ci.mjs` runs it and its `--self-test` (the client-side CI; run it on
+  Windows and in WSL). `--self-test` plants each known evasion in a copy and checks it
+  is caught (the hosted CI ran it on the ubuntu image only). `--self-test --work-dir <dir>` puts the copy
   and its `target/` under `<dir>` (default `target/security-compiled-tests`), so a short
   path keeps Windows under its path-length limit. `<dir>` must be outside the repository
   or under its `target/`; both scripts refuse one inside the sources.
@@ -73,8 +74,10 @@ the suite catches each one.
   Such a mutant must instead be caught by the `oac-core` test that `THREATS` cites.
 - It is the one check that catches a proof which returns early before it asserts.
 - The default CI tier does not run it, because it recompiles the core for each mutation.
-  It runs in a workflow of its own instead (#329): weekly and on manual dispatch, in
-  `.github/workflows/security-mutation-optin.yml`.
+  It is an opt-in tier of its own (#329): `node scripts/local-ci.mjs --tier mutation`, run
+  by hand when the suite or a core mitigation changes. (Until 2026-10-08 a hosted workflow,
+  `security-mutation-optin.yml`, also ran it weekly; there is no GitHub-hosted CI now, so
+  nothing runs it on a schedule.)
 
 ```sh
 node tests/security/mutation-check.mjs          # all mutations

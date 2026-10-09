@@ -24,14 +24,22 @@ Choose an [issue](https://github.com/RossGraeber/OAC/issues) that belongs to an 
 Follow its **Skills:** line and [AGENTS.md](https://github.com/RossGraeber/OAC/blob/main/AGENTS.md).
 The local skills are the maintained instructions for the work.
 
-With Node.js available, repository checks include:
+There is no GitHub-hosted CI. Before opening or merging a pull request, run every check
+client-side on Windows and in WSL, and paste each run's summary (it names the git HEAD SHA)
+into the pull request:
+
+```sh
+node scripts/local-ci.mjs
+```
+
+Single checks can also run on their own, for example:
 
 ```sh
 node scripts/check-skills.mjs
 node scripts/check-herdr-containment.mjs
 ```
 
-Run the checks appropriate to your changes. Gate fixtures also have
+Gate fixtures also have
 `node scripts/check-fixture-manifest.mjs`; their capture and review procedure lives
 in the [gate guide](https://github.com/RossGraeber/OAC/blob/main/docs/planning/gates/README.md).
 

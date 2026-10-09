@@ -57,6 +57,8 @@
 // <text> (the unit checks and the other lifecycle blocks are skipped), so one case can be
 // looped, e.g. OAC_HERDR_SELFTEST_ONLY='selection does not move'. Unset (the default),
 // everything runs. A filter that matches no case is a failure, never an empty pass.
+// OAC_HERDR_SELFTEST_UNIT_ONLY=1 (set by `node scripts/local-ci.mjs --quick`) runs the unit
+// half only and says so; the full run (no --quick) is the one a PR summary needs on POSIX.
 
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -1106,6 +1108,9 @@ export async function runSelfTest() {
   ciUnit(check);
   if (process.platform === 'win32') {
     console.log('lifecycle checks skipped: the fake herdr runs pane commands with sh (POSIX only)');
+  } else if (process.env.OAC_HERDR_SELFTEST_UNIT_ONLY === '1') {
+    // `node scripts/local-ci.mjs --quick`: the unit half only; the slow lifecycle half is skipped.
+    console.log('lifecycle checks skipped: OAC_HERDR_SELFTEST_UNIT_ONLY=1 (local-ci --quick)');
   } else {
     console.log('herdr driver self-test (lifecycle, against test/fake-herdr.mjs -- not herdr)');
     await lifecycle();

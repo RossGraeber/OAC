@@ -156,7 +156,7 @@ export function unverifiedNames(date) {
 
 // #303: the release-notes URL Codex's update prompt shows (codex-rs/tui/src/update_prompt.rs:42
 // at rust-v0.160.0). Spelled in two parts so that oac-boundaries check 3 (no provider SDK name
-// in the code tree, boundary-lint.yml) does not match a plain URL; it is no SDK use.
+// in the code tree, run by scripts/local-ci.mjs) does not match a plain URL; it is no SDK use.
 export const CODEX_RELEASE_NOTES_URL = `https://github.com/open${'a'}i/codex/releases/latest`;
 
 // The kind table follows lib/g1.mjs DIALOG_KINDS (see the field notes there).

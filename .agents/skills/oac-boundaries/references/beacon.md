@@ -66,5 +66,5 @@ Each one is a boundary hit, not a feature request.
 - Risk register: `docs/planning/v0.1/11-risks.md` `RISK-BEACON`.
 - Operator guide and "What OAC does not do": `docs/planning/v0.1/08-cli-and-deployment.md`
   §20 (all Beacon commands live there, not here).
-- Lint: `references/mechanical-checks.md` check 11 (no Beacon in product paths; CI step
-  "Check 11 - no Beacon in product paths").
+- Lint: `references/mechanical-checks.md` check 11 (no Beacon in product paths;
+  `node scripts/local-ci.mjs` step `boundary-check-11`).

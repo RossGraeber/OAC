@@ -134,6 +134,24 @@ run in CI with fake harness endpoints and recorded protocol fixtures, with no li
 provider, no API key, and no network beyond loopback" is a design-for-replacement
 requirement of the plan, not a target to relax under schedule pressure.
 
+*Dated note, 2026-10-08 (lead decisions): there is no GitHub-hosted CI.* First "Tests for
+PR should be done client side", then "Anything that has an associated cost on the github
+side needs to go". Every workflow on a GitHub-hosted runner was deleted (`ci.yml`,
+`boundary-lint.yml`, `keystore-optin.yml`, `scale-optin.yml`,
+`security-mutation-optin.yml`, `g3-macos-hosted.yml`), and "CI" in this file now means
+`node scripts/local-ci.mjs`, which runs every step those workflows ran. The default tier
+above is its default run: before a PR is opened or merged it runs on Windows and in WSL,
+and each run's summary (git HEAD SHA, every step's result) is pasted into the PR; on Linux
+the test steps run inside `scripts/loopback-only.sh`, as on the old ubuntu image. The
+opt-in tiers run locally on demand (`--tier keystore|scale|mutation|g3-macos`). PR #330's
+candidate required-checks list no longer applies: no GitHub check exists to require.
+The port is frozen as data in `scripts/local-ci.ported.json`, which `--self-test` compares
+with the live plan; any diff to that file must be justified in its PR against the deleted
+workflow YAML at `c8497d6` (`git show c8497d6:.github/workflows/<name>`) or a newly added
+check. What
+the local run cannot reproduce is listed as lost coverage in this note's PR (the macOS legs
+without a Mac, and a hosted runner's clean image).
+
 ---
 
 ## 4. Opt-in mechanics
@@ -195,11 +213,12 @@ tooling only, kept out of `adapters/`, `core/`, `cli/`, `transports/` and `spec/
 count toward a gate verdict, is `oac-gates` `references/scripted-runs.md` and
 `docs/planning/gates/README.md` "Scripted runs (herdr)". This file does not restate
 either. K6 (issue #129) adds the one workflow that runs the driver,
-`.github/workflows/herdr-provider-optin.yml`. It starts only on a manual dispatch or on a
-push to `main` that changes `docs/planning/PINS.md`, and it runs only on operator-owned
-self-hosted runners (`docs/planning/gates/herdr-runner.md`). No default workflow runs it,
-and `scripts/check-herdr-containment.mjs` check 9 fails any other workflow that reaches
-the driver or those runners.
+`.github/workflows/herdr-provider-optin.yml`. It starts only on a manual dispatch (its
+push-to-`main`-on-`docs/planning/PINS.md` trigger was removed on 2026-10-08, §3's dated
+note), and it runs only on operator-owned self-hosted runners
+(`docs/planning/gates/herdr-runner.md`), which bill no GitHub Actions minutes. It is the one
+workflow left, and `scripts/check-herdr-containment.mjs` check 9 fails any other workflow
+that reaches the driver or those runners.
 
 > **Reference implementation note:** the v0.1 Rust workspace's own mechanism for
 > separating the opt-in tier from the default `cargo test` run — a Cargo feature flag, a
@@ -365,7 +384,8 @@ yet landed) as an open item, per the same disposition `docs/planning/v0.1/06-sec
 
 *(Dated note, 2026-10-07, #61, F12: the second check now exists. `oac-boundaries` check 12,
 `scripts/check-containment.mjs`, runs as the build-failing `containment` job of
-`.github/workflows/boundary-lint.yml`. It matches `zenoh` anywhere in a token, `zid` as a
+`.github/workflows/boundary-lint.yml` (since 2026-10-08, §3's dated note: the `containment`
+step of `node scripts/local-ci.mjs`). It matches `zenoh` anywhere in a token, `zid` as a
 `snake_case`, kebab-case or `camelCase` segment, key expressions and liveliness terms, in
 every git-tracked entry outside `transports/zenoh/` under `core/`, `cli/`, `adapters/`,
 `transports/`, `spec/`, `tests/fakes/` and `tests/protocol/`, and in the root manifests,

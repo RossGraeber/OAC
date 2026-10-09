@@ -549,8 +549,9 @@ who did it. Nothing else in the record is signed.
   carrying `herdr.executableCheck`). It must record a first-party `match`, and its
   expected value must equal PINS.md's committed row for the platform, and also the row in
   PINS.md at the run's `driver.commit`. That commit must resolve in the checkout or the file
-  is refused: a shallow clone must fetch full history first. The CI fixture-manifest job
-  uses `fetch-depth: 0` for this reason. The check applies only to Verification-form
+  is refused: a shallow clone must fetch full history first. Run
+  `node scripts/local-ci.mjs` (step `fixture-manifest`) from a full clone for this reason
+  (the deleted hosted job used `fetch-depth: 0`). The check applies only to Verification-form
   files; pre-#252 attestations are not affected. The stated herdr hash must
   be the manifest's. The script refuses a `-herdr` fixture from a run whose
   `herdr.executableCheck` is not `match`, or from a `schemaVersion` 3 manifest without

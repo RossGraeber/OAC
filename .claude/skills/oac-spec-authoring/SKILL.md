@@ -82,7 +82,7 @@ restated here; see `oac-security-work`.
 A fixture is a data file, not code, proving exactly one normative requirement, readable by a
 second independent implementation (task E8 acceptance). Fixtures live under `tests/protocol/`
 (DESIGN §Suggested repository shape); a conformance runner (Stage 3, task F12) executes them
-in CI. Content shape, the required negative-fixture set, and the requirement-id scheme (fixed
+in `node scripts/local-ci.mjs` (client-side; no GitHub-hosted CI). Content shape, the required negative-fixture set, and the requirement-id scheme (fixed
 by task E1 in `spec/session-channels.md` §3): `references/conformance-fixtures.md`.
 
 **The rule, restated from §1:** a `MUST` with no fixture is not yet specified. Treat a missing

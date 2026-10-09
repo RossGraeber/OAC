@@ -45,11 +45,15 @@ PLANNING-PROMPT.md §6 and §9.10, sharply:
   because someone remembered to mark it slow.
 - **herdr-driven runs** (`node tools/herdr/run.mjs`, Epic K) are provider-integration tier,
   not a new tier: each drives a real, logged-in harness, so it is opt-in by construction.
-  No default test target or default CI workflow invokes one. How a run is recorded, and
-  when it may count toward a gate, is `oac-gates` `references/scripted-runs.md`.
+  No default test target or default `local-ci.mjs` step invokes one. How a run is recorded,
+  and when it may count toward a gate, is `oac-gates` `references/scripted-runs.md`.
 - A test that seems to need a live provider "just this once" is a sign the fake/fixture is
   incomplete, not a reason to add a default-tier exception. Fix the fixture (§3); do not
   weaken the default tier.
+- **Where "CI" runs** (no GitHub-hosted CI since 2026-10-08): the default run of
+  `node scripts/local-ci.mjs` on Windows and in WSL before a PR opens or merges, summaries
+  pasted into the PR; opt-in tiers via `--tier`; new checks are steps there (09 §3).
+  PR #330's candidate required-checks list no longer applies.
 
 ## 3. Adding a fixture
 
@@ -121,7 +125,7 @@ before Stage 5 exit:
 | 1 | One-command local startup | e.g. "smoke / fresh-install one-command start" | CLI smoke | pass/fail/not-yet-written |
 | 2 | Distinct neutral sessions per adapter | ... | contract/unit | ... |
 | ... | ... (all 10, verbatim from DESIGN "v0.1 acceptance criteria") | ... | ... | ... |
-| 9 | Zenoh types confined to its transport module | the `oac-boundaries` CI lint, not a runtime test | lint (CI-default) | ... |
+| 9 | Zenoh types confined to its transport module | the `oac-boundaries` lint (`local-ci.mjs` step `containment`), not a runtime test | lint (CI-default) | ... |
 | 10 | Transport contract documented enough for a second backend | evidenced by E9's design-for-replacement proof, not a test | doc proof | ... |
 
 **Threat-model mitigation -> test:**

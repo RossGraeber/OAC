@@ -5,15 +5,18 @@
 # tools/herdr/runner-hooks/, which refuses every job except this file on refs/heads/main;
 # nothing in this file can stop a fork's copy of another workflow, the hook does.
 #
-# This is NOT the default CI tier (oac-testing section 2; docs/planning/v0.1/09-test-strategy.md
-# section 4). Only a manual dispatch, or a push to main that changes docs/planning/PINS.md,
-# starts it.
+# This is NOT the default tier (oac-testing section 2; docs/planning/v0.1/09-test-strategy.md
+# section 4). Only a manual dispatch starts it: the push-to-main-on-PINS.md trigger was
+# removed on 2026-10-08 with all GitHub-hosted CI (lead decision; the default tier runs
+# client-side with `node scripts/local-ci.mjs`). It is the one workflow left, and it runs
+# only on operator-owned self-hosted runners, which bill no GitHub Actions minutes.
 #
 # Hard rules for this file. scripts/check-herdr-containment.mjs (oac-boundaries check 9)
-# fails the build if any is broken:
-#   - Triggers are exactly workflow_dispatch and push-to-main-touching-PINS.md (checked
-#     as an allowlist). No PR-event trigger, no event chained from another workflow, and no
-#     event any stranger can fire (issues, stars, forks, discussions).
+# and scripts/check-workflows.mjs (W7, W8) fail `node scripts/local-ci.mjs` if any is broken:
+#   - The only trigger is workflow_dispatch (checked as an allowlist). No push, schedule or
+#     PR-event trigger, no event chained from another workflow, and no event any stranger
+#     can fire (issues, stars, forks, discussions).
+#   - Every job runs on self-hosted runners only.
 #   - Permissions exactly contents: read. Every action pinned by full commit SHA.
 #   - No secrets context, no job token, no provider API key, no harness credential path.
 #     Harness login is the runner operator's, done by hand before any run, never by this
@@ -51,11 +54,6 @@ on:
           - both
           - linux
           - windows
-  push:
-    branches:
-      - main
-    paths:
-      - docs/planning/PINS.md
 
 permissions:
   contents: read
@@ -69,7 +67,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # A push run (no inputs) uses both runners.
+        # An empty runner input (a dispatch from the API without one) uses both runners.
         os: ${{ fromJSON(inputs.runner == 'linux' && '["linux"]' || inputs.runner == 'windows' && '["windows"]' || '["linux","windows"]') }}
     runs-on: [self-hosted, oac-harness, "${{ matrix.os }}"]
     # One run at a time per runner label, never cancelling a run in progress (a cancelled

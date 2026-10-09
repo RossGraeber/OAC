@@ -3267,10 +3267,10 @@ mod tests {
     /// [`ended_sessions_free_their_partitions`] at the real cap, [`MAX_RECORD_PARTITIONS`].
     /// Each session's registration record takes a signature and a verification, so this
     /// takes about a minute in a debug build and about a second in a release one: it runs
-    /// in the opt-in `scale-optin.yml` workflow, or by hand with
+    /// in the opt-in tier `node scripts/local-ci.mjs --tier scale`, or by hand with
     /// `cargo test -p oac-core --release -- --ignored full_scale` (#328).
     #[test]
-    #[ignore = "full scale: run with --release -- --ignored full_scale (scale-optin.yml)"]
+    #[ignore = "full scale: run with --release -- --ignored full_scale (local-ci.mjs --tier scale)"]
     fn full_scale_ended_sessions_free_their_partitions() {
         churn_frees_partitions(MAX_RECORD_PARTITIONS);
     }

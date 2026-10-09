@@ -234,7 +234,9 @@ this file states the rule, not the enforcement mechanism.
 these edges over `cargo metadata` and runs in `.github/workflows/rust-workspace.yml`.
 Dated note, 2026-10-07, #61: that workflow is now `.github/workflows/ci.yml`, job
 `crate-deps`; §4(a) is enforced by `scripts/check-containment.mjs` check 12, job
-`containment` of `boundary-lint.yml`.)
+`containment` of `boundary-lint.yml`. Dated note, 2026-10-08: there is no GitHub-hosted CI
+any more; both run as steps `crate-deps*` and `containment*` of `node scripts/local-ci.mjs`,
+client-side, `09-test-strategy.md` §3.)
 (Dated note, 2026-10-06, #57: the same script admits `tests/fakes/<name>` members, lets
 them reach `core/` only, and fails any product member (`core/`, `cli/`, an adapter or a
 transport) that reaches one over normal or build edges; `core/` may not reach one at all.)

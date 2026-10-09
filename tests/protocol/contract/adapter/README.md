@@ -191,7 +191,9 @@ and each needs a reviewed workflow change: a cargo `--config` flag (the outer ca
 this suite's inner `cargo metadata` never sees), a `CARGO_HOME` that CI points somewhere
 else, and targets other than the three CI operating systems. `scripts/check-workflows.mjs`
 W6 refuses `--config`, `CARGO_HOME` and `CARGO_SOURCE_*` / `CARGO_PATCH*` in workflows
-(G-7 §5).
+(G-7 §5). Since 2026-10-08 "CI" is the client-side `node scripts/local-ci.mjs` (no
+GitHub-hosted CI): its `--self-test` refuses the same overrides in its steps, and its
+summary lists any such variable inherited from the developer's environment.
 
 No adapter needs any of the refused shapes today. If an adapter needs a macro, a module or
 target outside cargo's default layout, or another dependency, that is a deliberate change

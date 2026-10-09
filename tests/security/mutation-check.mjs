@@ -15,10 +15,10 @@
 //   node tests/security/mutation-check.mjs --work-dir <dir>   # default: target/security-mutation
 //
 // Not part of the per-change CI run: each mutation recompiles core/ and the suite (a few
-// minutes in all, with the work directory's target/ reused between runs). It runs in a
-// workflow of its own instead (#329): weekly and on manual dispatch, in
-// .github/workflows/security-mutation-optin.yml. Run it by hand too when the suite or a core
-// mitigation changes. Node built-ins only; cargo runs with --offline.
+// minutes in all, with the work directory's target/ reused between runs). It is an opt-in
+// tier of its own instead (#329): `node scripts/local-ci.mjs --tier mutation` (until
+// 2026-10-08 also a weekly hosted workflow; there is no GitHub-hosted CI now). Run it when
+// the suite or a core mitigation changes. Node built-ins only; cargo runs with --offline.
 // Exit codes: 0 = every mutation caught and the control passes; 1 = a mutation survived
 // or the control failed; 2 = usage or environment error.
 
