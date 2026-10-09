@@ -87,7 +87,9 @@ into it on this repo.
 
 11. **[ADR-001 v0.1 scope]** Group rooms/broadcast, attachments, durable offline mailboxes,
     federation, full E2E encryption, GUI, production Gemini/ChatGPT/Cursor adapters, and
-    alternative transports are explicitly deferred, not v0.1 work. Drift: you add a durable
+    alternative transports are explicitly deferred, not v0.1 work. Per-recipient payload
+    sealing (`spec/security.md` §14) is v0.1 work under ADR-001-A4 once the lead merges it;
+    forward secrecy and traffic-metadata confidentiality stay deferred. Drift: you add a durable
     store so a message survives an offline peer and gets delivered later — that is the
     deferred offline mailbox. A broadcast/room key pattern in the transport layer is the same
     failure (deferred group rooms).

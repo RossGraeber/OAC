@@ -1,0 +1,20 @@
+{
+  "fixture_format": "oac-sealing-fixture/1",
+  "requirement": "SEC-SEL-030",
+  "spec": "spec/security.md",
+  "spec_revision": "0.3",
+  "kind": "negative",
+  "failure_mode": "padding not all zero",
+  "description": "A frame that opens under Bob's key, whose plaintext carries a padding octet that is not zero, is discarded.",
+  "stage": "open",
+  "context": {
+    "own_agreement_private_key": "tixpxVaqHt4ol9JZki2B1xxOUwqg_NtynYtauTbIn4Q"
+  },
+  "input": {
+    "frame": "ATsGolHOL37qu4pJsVc9Y_OgoOzOZhKUl0U-8zspO2h2J2ywMgye5vn7yXdRjzhHptJLjvQdyAtknA"
+  },
+  "expected": {
+    "result": "discarded",
+    "record": "none"
+  }
+}

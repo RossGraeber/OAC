@@ -160,9 +160,10 @@ gossip enabled, and the `auth.pubkey` block's six key names
 carries no semantics comment for this block, so pubkey-auth **semantics**
 remain UNVERIFIED (`docs/planning/REVERIFICATION-B2.md` §3.4 box 6). Binary
 size estimate (5-15 MB) remains UNVERIFIED — derived, not built by B2
-(`REVERIFICATION-B2.md` §3.4 box 7). Cross-check against crates.io did not
-return page content in B1 and was not re-attempted in B2 (UNVERIFIED —
-GitHub releases used instead; see `docs/planning/PINS.md`). Source:
+(`REVERIFICATION-B2.md` §3.4 box 7; first Windows-only measurement,
+2026-10-08, `11-risks.md` row 6). crates.io cross-check CLOSED 2026-10-08
+(#62): https://crates.io/api/v1/crates/zenoh/1.10.1 gives `1.10.1`,
+published 2026-09-07, `EPL-2.0 OR Apache-2.0`, the newest version. Source:
 `docs/planning/PINS.md` — "Zenoh" and "Rust toolchain" pin records, and
 `docs/planning/REVERIFICATION-B2.md` §3.4, retrieved 2026-09-16.
 

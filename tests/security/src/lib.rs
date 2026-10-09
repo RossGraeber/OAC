@@ -1150,6 +1150,23 @@ pub const THREATS: &[Threat] = &[
         gated: &[],
     },
     Threat {
+        row: "S13-sealing",
+        attack: "Reading, misdirecting or unsealing payloads on a shared transport",
+        spec13: &[
+            "Reading payloads on a shared transport",
+            "Agreement-key substitution",
+            "Clear-text fallback",
+        ],
+        tests: &["gated_s13_payloads_on_a_sealing_transport_open_only_for_their_recipient"],
+        facts: &[],
+        core_tests: &[],
+        status: Status::Gated,
+        gated: &[Gate {
+            issue: G1_G3,
+            what: "the core's payload sealing (spec/security.md §14) and a sealing transport (spec/interfaces.md §6.10); the sec-sel fixtures prove the format through the reference runner only (gated_s13_payloads_on_a_sealing_transport_open_only_for_their_recipient)",
+        }],
+    },
+    Threat {
         row: "X-exhaustion",
         attack: "Registry and quota exhaustion (PR #317 and #321 threat rows; spec §8.3, §8.4, §11)",
         spec13: &[],

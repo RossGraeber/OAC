@@ -452,7 +452,10 @@ own pass criterion; LAN mode defaults to TLS (QUIC named as the alternative) usi
 fingerprint, default-deny ACL; ACL subjects are certificate common name or username only,
 never `zid`; only the stable `zenoh`/`zenoh-ext` API surface is used, no `unstable`
 feature; every Zenoh type stays inside `transports/zenoh/`. Source: `docs/planning/
-decisions/C7-zenoh-transport.md` §1.
+decisions/C7-zenoh-transport.md` §1. *(Dated note, 2026-10-09, #62: multicast scouting is
+now off in local mode. Local mode takes C7 §5's named reversal path, the fixed loopback
+rendezvous, because a scouting peer connected out to the LAN (PR #364 review); see the C7
+§5 dated note.)*
 
 **Decisive evidence.** The `oac-boundaries` containment grep (`references/
 mechanical-checks.md` check 1) is the mechanical enforcement of the module boundary,
@@ -581,6 +584,12 @@ this same allocation and found no `ADR-001.md` text needing correction beyond wh
 already fixed — each closed its own conflict as `RESOLVED-IN-DECISION` instead (§3
 below), explicitly declining to issue `A4`. `A4` remains the next number a future
 amendment would take, and is not issued by this file.
+
+*Dated note, 2026-10-09 (payload sealing, the lead's ruling on PR #364):* `ADR-001-A4` is
+proposed in `docs/planning/ADR-001-AMENDMENTS.md`. It narrows the "full E2E encryption"
+deferral of ADR-001's "v0.1 scope" to what per-recipient payload sealing
+(`spec/security.md` §14) does not cover. It is in force from the lead's merge of its pull
+request; the next free number is then `A5`.
 
 Every quotation below is copied from `docs/planning/ADR-001-AMENDMENTS.md`, not
 independently re-fetched from `ADR-001.md` — per this file's own Generated-summary

@@ -4,7 +4,7 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
-**Last updated:** 2026-10-08 (**No GitHub-hosted CI: every check runs client-side with
+**Last updated:** 2026-10-09 (**No GitHub-hosted CI: every check runs client-side with
 `node scripts/local-ci.mjs`** (Refs #123). The lead decided on 2026-10-08 that PR checks run
 client-side ("Tests for PR should be done client side"), then that "Anything that has an
 associated cost on the github side needs to go". No gate verdict, pin, spec text, ADR text
@@ -46,7 +46,195 @@ or dependency changes.
   #330's candidate required-checks list no longer applies.
 - **Docs.** `oac-testing` §2, `oac-implementation`, `oac-boundaries` and its
   mechanical-checks reference, `oac-authoring-skills`, 09 §3-4, 07, `herdr-runner.md`, the
-  herdr, security, integration and fake-Codex READMEs; `.agents/` re-synced.)
+  herdr, security, integration and fake-Codex READMEs; `.agents/` re-synced. The G1 Zenoh
+  transport (#364), the sealing spec (#367) and #355 add no workflow step: their tests run
+  inside the existing `cargo test --workspace` and conformance-runner steps.)
+
+**Last updated:** 2026-10-09 (**Payload sealing: per-recipient encryption of every payload
+on a shared transport, proposed as a minor revision of the frozen specifications for the
+lead's approval** (Refs #62, #64, #7). On 2026-10-09 the lead ruled on PR #364 (G1, review
+finding 2): keep a transport that delivers every payload to every peer, so that whether a
+session listens stays hidden ([IFC-TRN-043]), and encrypt each frame for its recipient; #364 carries no real
+traffic until this lands. Nothing here is in force until the lead approves and merges the
+pull request (`docs/planning/decisions/E7-interface-freeze.md` §7). No gate verdict, pin,
+manifest or code under `core/`, `transports/` or `adapters/` changes.
+
+- **Specs.** `spec/security.md` 0.3 §14: each device holds an X25519 agreement key,
+  separate from its Ed25519 device key, published in an agreement statement signed under the
+  new domain string `oac-agreement-v1` and admitted only under a trusted key, never older
+  than the one held. Every payload passed to a sealing transport is signed, then sealed with
+  HPKE (RFC 9180) base mode, DHKEM(X25519, HKDF-SHA256), HKDF-SHA256, ChaCha20Poly1305, to
+  the recipient device's agreement key; kind, signer, recipient and deadline travel inside
+  the frame, and the receiving core drops a late payload silently. With no admitted statement
+  for the recipient, nothing is sent (`transport-failure`), never in the clear. Frames that do
+  not open, and opened payloads for another device, are discarded silently. Statements are
+  ordered by a signed `seq` that the issuer counts up and keeps, never by its clock; consumers
+  keep them as durably as the trusted key set and refuse one more than `W` in the future,
+  which never blocks a later one. SEC-SEL-001 to SEC-SEL-043, three §13 rows.
+  `spec/interfaces.md` 0.3 §6.10: payload kind `sealed`, declaration member `sealing`,
+  IFC-TRN-100 to IFC-TRN-113 (no value beside a frame, no device key id on the wire, other
+  kinds refused); [IFC-TRN-034] binds a sealing transport's sending end; [IFC-TRN-081] admits
+  a sealing transport as a second way across implementations. `spec/session-channels.md` 0.2: §5.2 item 9, a §3.3 sentence
+  and a §7.3.2 dated note; no requirement changes.
+- **Classification: minor, not breaking.** Every new `MUST` binds only an implementation that
+  uses a transport declaring `sealing`, which no earlier revision defined (§5.2 item 9, the
+  #350 precedent). Making sealing unconditional for every cross-implementation transport
+  would be breaking (§5.3 item 11); [IFC-TRN-111] asks for it as a `SHOULD` instead.
+- **ADR-001-A4 (proposed).** ADR-001 "v0.1 scope" defers full E2E encryption, so the ruling
+  is recorded as a boundary-11 conflict and A4 narrows the deferral
+  (`docs/planning/ADR-001-AMENDMENTS.md`).
+- **Fixtures and runner.** 32 fixtures under `tests/protocol/sec-sel/`, format
+  `oac-sealing-fixture/1` (stages `agreement`, `seal`, `open`); agreement test keys in
+  `tests/protocol/sec-test-keys.json`. The runner gains `hpke.mjs` and `stages-sel.mjs`; its
+  self-test checks RFC 9180 Appendix A.2.1 and RFC 7748 §6.1. Every frame was also opened by
+  a separate program on the `hpke` crate 0.12.0 (not committed), with the same results.
+- **Security suite.** Threat entry `S13-sealing`, gated on #62/#64 with the placeholder
+  `gated_s13_payloads_on_a_sealing_transport_open_only_for_their_recipient`; the 09 §12
+  table gains its row.
+- **Work items.** Core (under G1, #62; no issue of its own yet): agreement key and statement,
+  pairing carrying statements, seal and open, and running `oac-sealing-fixture/1` in
+  `core/tests/conformance.rs`. G1 (#62): the reference transport declares `sealing`, uses
+  one destination-free key for all frames, hands every frame to the device subscription,
+  carries nothing beside a frame (no kind tag, digest or deadline), refuses other payload
+  kinds, and replaces its per-sender handle with one that no device key id derives (#364
+  review finding 6); its dispatch queue, now shared by every frame of the partition, needs
+  sizing against a flood. Once G1 seals, #364's Appendix A evidence for [IFC-TRN-043] and
+  [IFC-TRN-050] (`presence-whole-to-named-device`, `frames_reach_only_their_own_local_consumer`)
+  must be replaced. G2 (#63): liveliness tokens and carrier-loss signals name no device or
+  session ([IFC-TRN-108]). G3 (#64): the same across hosts; access control on subscriptions is
+  no longer needed for confidentiality. **New crate for the core, needing the lead's approval:** `hpke` `=0.12.0`
+  (MIT/Apache-2.0), features `alloc` and `x25519`. It is already in `Cargo.lock` under `age`
+  (Unix only), and so are `x25519-dalek` 2.0.1, `chacha20poly1305` 0.10.1 and `hkdf` 0.12.4,
+  so no download is needed; nothing is added to any manifest here.
+- **Ledger.** New "Open UNVERIFIED items" entry; `11-risks.md` rows 78 to 80 (rows 76, 77
+  and 81 are #364's).)
+
+**Last updated:** 2026-10-09 (**Issue #62 (G1): the lead's rulings on PR #364.** No gate
+verdict, pin or ADR text changes.
+
+- **No real traffic yet.** The partition-wide subscriber is ratified on condition of
+  per-recipient frame encryption: a frozen-spec addition, PR #367. Until that addition and
+  the core's sealing work have landed, the Zenoh transport must not carry real traffic
+  (C7 §3 dated note; binding document).
+- **Local mode ratified, with a condition.** The fixed loopback rendezvous (`17447`), with
+  the first transport as the in-process relay, is ratified on condition that G3 (#64)
+  authenticates the relay with a per-user pinned TLS certificate before real traffic.
+  Rendezvous port squatting is recorded in C7 §5 and §9 and in 11-risks.md row 81, owner
+  #64. The cases: an unauthenticated relay that can read, drop or delay frames; denial of
+  service by any program on the port; one process, possibly another user's, relaying the
+  host; a cut-off between holders; a fixed, unregistered port. `start` now names the port
+  when something else holds it.
+
+**Last updated:** 2026-10-09 (**Issue #62 (G1): the Zenoh reference transport, after the
+PR #364 review.** No gate verdict, pin or ADR text changes.
+
+- **Local mode, reversed to the C7 §5 fallback.** With multicast scouting on, a local-mode
+  peer connected out to a LAN peer, which received envelope frames (review finding 1). Local
+  mode now fails closed on every platform. Scouting and gossip are off, and transports meet
+  at a fixed loopback rendezvous (port `17447` by default). The first transport holds it in
+  Zenoh's in-process `router` mode; later transports are `client` sessions linked to it.
+  `multicast_discovery` is declared absent. Dated note in C7 §5; a LAN-probe test proves the
+  change.
+- **Timing.** Handlers run on a dispatch thread behind a bounded queue that drops when full,
+  not on Zenoh's receive callback; a blocked `put` waits at most 1 s.
+- **New ledger rows.** 11-risks.md row 76: the carrier handle is set by the sender, so G2
+  (#63) must not attribute carrier loss by it. Row 77: G3 (#64) must bound clock skew
+  before LAN mode. RISK-G3 no longer bears on local mode.
+
+**Last updated:** 2026-10-08 (**Issue #62 (G1): the Zenoh reference transport.** No gate
+verdict, pin or ADR text changes. Zenoh `=1.10.1` (Apache-2.0 arm, default features off) and
+`sha2 =0.11.0` (already core's) are added to `transports/zenoh/` only, under the pins and
+licence policy of `docs/planning/decisions/G-7-stage4-dependencies.md` (#352). G1 enables
+`transport_tcp` only, of the two features G-7 records; `transport_tls` comes with G3 (#64).
+
+- **Transport.** `transports/zenoh/` implements the frozen `Transport` contract on the stable
+  `Wait` path and passes the transport contract suite unchanged, over loopback
+  (`transports/zenoh/tests/contract.rs`; the fixed rendezvous since 2026-10-09).
+  Its binding document ([IFC-TRN-090], publish and subscribe half) is
+  `transports/zenoh/src/lib.rs`.
+- **Finding, C7 §3 against [IFC-TRN-043].** Per-session native subscriptions would reveal
+  a subscription to any peer holding the session id. The transport declares one subscriber
+  per started transport, on its partition, and filters locally; publishing still targets
+  one destination's key expression. Recorded as a dated note in C7 §3.
+- **Spec index.** [IFC-TRN-013], [IFC-TRN-043] and [IFC-TRN-044] name their tests instead of
+  `TODO(fixture)` (index rows only, no version bump).
+- **Ledger.** Closed: the crates.io cross-check (11-risks.md row 10, crates.io API retrieved
+  2026-10-08) and the `rustls` TLS stack (row 15, from Zenoh's own `1.10.1` manifests); their
+  bullets below are removed. Narrowed: binary size (row 6, first measurement, Windows only),
+  the Rust crate under G3 (row 36, Windows only: no GitHub Actions under the lead's policy,
+  and WSL refused by the session's worktree guard) and presence
+  carriage (row 61, records carried; carrier loss stays G2).)
+
+**Last updated:** 2026-10-08 (**Issue #351: the adapter contract suite no longer trusts a
+harness's profile or gaps** (PR #348 review; Refs #59). No `spec/` file, fake, gate verdict,
+pin, dependency, static-scan rule or ADR text changes.
+
+- **Profile.** The suite identifies the binding from the operations of the hand-off calls
+  the fake recorded (`identify_binding` over `BINDINGS`, `claude::PROFILE` and
+  `codex::PROFILE`), and runs every check under its own profile for that binding. A harness
+  profile that differs (weakened, another binding's, or invented) fails [IFC-ADP-010]
+  `harness-profile-is-the-bindings`. `Profile` gains `surface_operations`, `runs_own_turns`
+  and `makes_requests`.
+- **Gaps.** A `Gap` from a step the binding's profile makes mandatory fails the rows it
+  used to make not applicable: `refuse_hand_offs` when `turned_away_code` is set
+  ([SEC-AUZ-027], [SC-DLV-009]); `start_turn` when `runs_own_turns` ([SEC-AUZ-025],
+  [SEC-AUZ-026]); and `request` when `makes_requests` ([IFC-ADP-003], [IFC-ADP-031],
+  [IFC-ADP-060]). `Gap::Broken` always fails. An empty `source_files` fails the static rows.
+  Two not-applicable cases remain, and the module doc's table records each: Claude has no
+  refusal path, and the fake app-server does not model the MCP tool path that Codex
+  requests travel.
+- **PR #355 review.**
+  - An empty `native_ids` (now a required method) fails [IFC-TYP-092].
+  - A `start_turn` that returns `Ok` without starting a turn fails [SEC-AUZ-025] and
+    [SEC-AUZ-026]. While the turn should run, the harness must hold both busy messages,
+    and neither may be input yet.
+  - The new breaches are `NoNativeIds` and `TurnNoop`.
+- **Where a harness lives (PR #355 second review, B1 and B2).** The documented direction
+  stands (07 §3, crate-deps rule 5): an adapter takes the suite as a dev-dependency, and
+  the suite never depends on an adapter. A real adapter's harness lives at exactly
+  `adapters/<name>/tests/contract.rs`. Reviewing that one file covers the fabrication
+  residual, and Gate S4 evidence must cite it.
+  - `tests/harness_location.rs` lets an adapter, and `adapters/mcp-tools` (#352),
+    dev-depend on the suite. It refuses a rename or a non-dev edge.
+  - Only the harness file may name `AdapterHarness` or the suite, or reach `run`.
+    `oac-transport-memory` stays listed, and crate-deps is what bounds it.
+  - Adapter test files and listed packages may hold no `self as`, `macro_rules!`,
+    `include!` or `#[path]`.
+  - Third review (C1, C2): the file set comes from `git ls-files -co --exclude-standard`,
+    minus cargo's `target_directory`. A committed `CACHEDIR.TAG` fails, so it can no
+    longer hide a second harness at `tests/<dir>/main.rs`. An adapter's dev-dependencies
+    are limited to the suite, `oac-core` and `oac-fake-claude`, so no identifier-pasting
+    proc macro. The one-file review covers the adapter `src/` helpers `contract.rs` calls.
+  - Fourth review (N1, N2): what cargo compiles for an adapter is checked as well.
+    - An adapter has no build script.
+    - Each test, example and bench target in `cargo metadata` is `tests/contract.rs` or
+      passes the name rules.
+    - No `.rs` file under `adapters/` is git-ignored.
+    - Cargo's target directory is `target/` or outside the repository.
+    - An adapter's normal and build dependencies are the vetted list.
+  - Fifth review (D1): a doctest that `include!`s a harness from a non-`.rs` file is
+    caught three ways:
+    - adapter `src/` files are held to the hiding shapes, read from raw text;
+    - every adapter file, of any extension, is held to the name rule;
+    - adapter lib targets set `doctest = false`, now set in `adapters/claude` and
+      `adapters/codex`.
+    No workspace member may have a build script. The target-directory check fails closed.
+  - Sixth review (E1): an aliased include, such as `use std::include as notes;`, is
+    refused. Every adapter file and every listed-package file may not hold `include`,
+    `include_str` or `include_bytes` as a whole word, the same word rule `source.rs`
+    applies to adapter `src/`.
+  - Seventh review: `main` (#352, #361) is merged in. The residual list now names a hostile
+    edit to an allowed dependency (`oac-core`, `oac-fake-claude`) that re-exports an
+    `include` macro. Review covers it, like any hostile edit to reviewed code.
+- **Planted breaches.** There are nine new harness breaches in `src/plant.rs`.
+  `tests/stand_in.rs` shows the suite catching each one on every stand-in whose binding
+  makes it a breach. Three cases are not breaches, and the tests show they stay
+  conformant: a weakened Claude profile, which equals the Claude profile; a refusal gap on
+  Claude; and a request gap on Codex. All existing adapter breaches fail the same rows as
+  before.
+- **Gate S4 criterion 1.** The suite is strengthened before any real adapter runs it, as
+  #347 was. It merges after #352, so it sets the baseline (record G-7 §6). Baseline
+  candidate for `tests/protocol/contract/`: commit `b85814f`.)
 
 **Last updated:** 2026-10-08 (**Issue #7: the Stage 4 dependency decisions, recorded before
 any adapter code** (Refs #7, #59, #69). The lead's decisions in chat of 2026-10-08 are in
@@ -2097,7 +2285,10 @@ about Claude acknowledgements). C9 and C10 are likewise closed separately, by
 neither Codex-correlation text nor a `claude/channel/permission`-default claim). See
 `ADR-001-AMENDMENTS.md`'s conflict-register legend for how `RESOLVED-IN-DECISION`
 differs from `RESOLVED-HERE`. `docs/planning/ADR-001.md` carries a one-line pointer to
-the amendments file; its body text is unchanged.
+the amendments file; its body text is unchanged. (Dated note, 2026-10-09: A4 is
+proposed in `ADR-001-AMENDMENTS.md` with the payload-sealing spec revision. It narrows the
+"full E2E encryption" deferral of "v0.1 scope" to what per-recipient payload sealing does
+not cover, and is in force from the lead's merge of that pull request.)
 
 ## Gate verdicts
 
@@ -2491,7 +2682,25 @@ CLOSED. No pin row changes. Record: `docs/planning/decisions/F-6-stage3-exit.md`
   SC-DLV-066 across installs. *(Dated note, 2026-10-07, #6: was "the transport binding,
   F6/F10, E5". E5 (#45), F6 (#55) and the Stage 3 part of F10 are closed. The in-memory
   transport carries presence under the transport contract suite, but the v0.1 transport is
-  Zenoh, which is Stage 4's.)* `11-risks.md` row 61.
+  Zenoh, which is Stage 4's.)* *(Dated note, 2026-10-09, payload sealing: the lead ruled on
+  PR #364 that the reference transport keeps its partition-wide subscriber on condition that
+  each payload is encrypted for its recipient. `spec/security.md` 0.3 §14 and
+  `spec/interfaces.md` 0.3 §6.10 (proposed) define that as payload sealing, the
+  "unreadable to others" way to meet SC-DLV-066. Whether the reference transport meets it is
+  still open: neither the core's sealing nor a transport that declares `sealing` exists.
+  Owners: G1 (#62) for the core's sealing and the transport's framing, G3 (#64) across
+  hosts.)* `11-risks.md` row 61.
+
+- **New, from payload sealing (2026-10-09, `spec/security.md` 0.3 §14, proposed):**
+  (a) no implementation seals yet: the `sec-sel` fixtures are checked by the reference runner
+  only, and `core/tests/conformance.rs` skips their fixture format
+  (`oac-sealing-fixture/1`) until the core implements §14; (b) the cost of trying to open
+  every frame on a shared transport (one X25519 agreement and one AEAD tag check per frame
+  and device) is not measured; (c) whether the `hpke` crate `0.12.0` (feature `x25519`),
+  proposed for the core, has had an independent audit at that version is not established
+  from a first-party source. Its fit is verified: built offline from the local registry
+  cache, it opened every `sec-sel` frame with the fixtures' results (2026-10-09). Owner: the
+  core sealing work item, under G1 (#62). `11-risks.md` rows 78 to 80.
 *(Removed 2026-10-08, #343 / PR #344 review nit 6: the E3 (#43) entry on whether Codex's
 `thread/queue/add` keeps the order of several inputs queued during a running turn. Two adds
 during one running turn on Codex `0.161.0` ran as two turns, one per idle, in the order added
@@ -2660,7 +2869,18 @@ recorded on Codex `0.161.0` (`docs/planning/gates/fixtures/s3-codex-capture/tran
 - G3 criteria via the Rust `zenoh` crate built with toolchain `1.98.1`, using OAC's feature
   set and embedded in the OAC runtime (UNVERIFIED — G3 ran the Python binding
   `eclipse-zenoh==1.10.1` on the same tag-`1.10.1` core; see
-  `docs/planning/gates/G3-result.md`).
+  `docs/planning/gates/G3-result.md`. Narrowed 2026-10-08, #62: on Windows 11 the Rust
+  crate passes the transport contract suite over loopback; since 2026-10-09 local mode is
+  the loopback rendezvous only, with no multicast; Linux and macOS not yet run;
+  11-risks.md row 36).
+- The Zenoh transport's carrier handle is set by the sender and checked by nothing, so it
+  cannot attribute carrier loss (UNVERIFIED as a basis for attribution — no mechanism binds
+  it to a link; G2 #63 must use its own link or liveliness observations; 11-risks.md row 76).
+- Frame expiry under clock skew between hosts (UNVERIFIED for LAN mode — exact on one host,
+  unbounded across hosts until G3 #64 bounds it; C7 §6 dated note; 11-risks.md row 77).
+- The identity of the local-mode rendezvous holder (UNVERIFIED — nothing authenticates it,
+  so any local program on the port is the relay; G3 #64 must pin it with a per-user TLS
+  certificate before real traffic; C7 §5 dated note; 11-risks.md row 81).
 - Implicit Codex daemon attach at runtime on macOS and Linux, `0.157.1` (UNVERIFIED — G2
   has exercised Windows only, on both `0.154.0` and the `0.157.1` re-run; see
   `docs/planning/gates/G2-result.md`).
@@ -2685,7 +2905,9 @@ recorded on Codex `0.161.0` (`docs/planning/gates/fixtures/s3-codex-capture/tran
 - The 5-15 MB Zenoh binary size estimate (UNVERIFIED — derived estimate; see
   REVERIFICATION-B2.md §3.4 box 7. Earlier text said the first G3 build artifact from task
   D3 would resolve it. D3 ran the Python wheel and built no Rust artifact, so the owner is
-  now task I3, which records the actual release binary size).
+  now task I3, which records the actual release binary size. Narrowed 2026-10-08, #62:
+  10,401,792 octets on Windows x86_64 MSVC for a release binary that runs the transport,
+  `transports/zenoh/examples/loopback.rs`; Linux and macOS not measured; 11-risks.md row 6).
 - The named compatibility shim boundary for the Claude Code Channels preview surface
   (UNVERIFIED — DESIGN.md names no such module; out of scope for B2, needs a C-series
   decision or a DESIGN.md update; see REVERIFICATION-B2.md "Carried to 11-risks.md").
@@ -2703,9 +2925,6 @@ recorded on Codex `0.161.0` (`docs/planning/gates/fixtures/s3-codex-capture/tran
   drift: the v2 JSON schemas are published as `v2.0.0-alphaX` prereleases, latest
   `schema-v2.0.0-alpha.7` (2026-09-30), and the v2 protocol docs are separately in Draft
   (record §1.3 A8; `PINS.md` "ACP").)*
-- Zenoh crate version/date read from GitHub releases rather than crates.io directly,
-  because the crates.io page did not return content in B1 and was not re-attempted in B2
-  (UNVERIFIED — re-confirm on crates.io when reachable; see PINS.md).
 - `codex mcp-server` deprecation date (2026-08-20) and deletion date (2026-09-05)
   (UNVERIFIED — carried unchanged from PLANNING-PROMPT.md §3.2, not independently
   re-confirmed against the CLI reference in B1 or B2; see REVERIFICATION-B2.md §3.2
@@ -2772,9 +2991,6 @@ L1320-L1356, L1409-L1431) adds `callId`, `threadId`, `sessionId` and
   Claude Code's channel path included, accept an `extensions` member in an `initialize`
   result (UNVERIFIED — G4's channel server never sent one; `spec/bindings/mcp.md` MCPB-ERA-008).
 
-- Zenoh's default TLS stack being `rustls` rather than OpenSSL (UNVERIFIED — carried
-  from PLANNING-PROMPT.md §3.4 unchanged; not independently re-fetched from Zenoh's own
-  `Cargo.toml`/feature docs; see `docs/planning/decisions/C1-language-runtime.md` §9).
 - Whether an `rmcp`-based OAC server, run end-to-end against a live Claude Code
   instance with `MCP_PROTOCOL_NEGOTIATION=legacy`, actually registers as a channel
   (UNVERIFIED — SDK capability verified, runtime behaviour is gate G4's job, verdict

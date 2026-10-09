@@ -1,0 +1,22 @@
+{
+  "fixture_format": "oac-sealing-fixture/1",
+  "requirement": "SEC-SEL-035",
+  "spec": "spec/security.md",
+  "spec_revision": "0.3",
+  "kind": "positive",
+  "description": "The same presence record sealed to Alice, its audience, opens and goes on to presence authentication.",
+  "stage": "open",
+  "context": {
+    "own_agreement_private_key": "qXxQn7ucHJlNH7y8zeNT2glcogG4kcJ483xPXs9Rtz0",
+    "own_key_id": "b3db3806621d3de16e61d08fcb01841f6c60c54a68e7d482076677db5c44d174",
+    "bindings": {}
+  },
+  "input": {
+    "frame": "AQ2CwMzIyPVSgLs950bXNXf37zsiJatZsw7FQRNpJT0yRprnoCXwN1sez7wBhL2cA8cbdkmCLI9d6n_rheDTFtsSk8FY0AyVeMt2sbdJPK_SqaOOqiQIhwxhmuWp7DAdxMSTbZzEMTe8QP4k5Da0Fv9J-quwq95HlRdnvWgm5TLlFeI7DofM7anliYlvKsxcx4ToVcmaXIw7hqvWTNyP71LQJN-IRTx1M7QiDQO-oI2jbOaPjsh9FsO4_p-QReuRC4fhPGYQ8JkDBadcvMoZwTC0q1XgyW-vXtqwVkrTZeNH52xDJRAsQVrDnqcPDZwoZfu9zcgbxAXrNAFiF23p_qQC4v7xwEVgaMs2rRzATNdEycdcyMoHowrvU3u5_wRNYkuPObYnBug6Nw7dDq5rHgWFD8PqQ7NgKnMiLsl9OSTNZCAbsd2GRe50kfyYk7stg7DNvbVXzKJbnZnPFDQp0EnU1CxFAp4el2WHT705AIERWv1tI-gSykTO0_gt185ilIFcidCRbBWHlABwM_0hKYC5J0p_x--Nbrk2v6STalzmCPMfKdC0rOpPHyklQ22G8IE_N-z7LYiAtxfTRmzI5RrAee6K2U3NZ6dsnXijxfs57xAU2qayS0svQbpsDhhmBhuaSQZplgT4ACK8KtGWa_v3yaVwLjw8n1ZaFn1AIi-hN13l3E2QbujNjrcphc-UkGsJvQjvoWYwpX0V6wSh9F3eyGoM37nTFlqb-C3aDO7ZtY4eR4baugmpI7CfdbVDihFoEXRngeuyXvxPSC380QIBgE2X9bC9Z16IL6uqL9uBFCL_H15LYtcqQaEMRIYM9ssXyzWsC7fGXPEuuENa_y9Jbr6RbXCW9ypUyrHZ6iuTs0NwJNUE-fq1jrPh3kty"
+  },
+  "expected": {
+    "result": "opened",
+    "kind": "presence",
+    "payload": "eyJyZWNvcmQiOnsic2Vzc2lvbl9pZCI6IjdncTNtOHoyYzVrOXQxdzR4NmIwbjJyOHZkIiwic2VxIjo0LCJwcmVzZW50Ijp0cnVlLCJpc3N1ZWRfYXQiOiIyMDI2LTEwLTAzVDEyOjAwOjAwLjAwMFoiLCJsaWZldGltZV9tcyI6NjAwMDAsImRlc2NyaXB0b3IiOnsic2Vzc2lvbl9pZCI6IjdncTNtOHoyYzVrOXQxdzR4NmIwbjJyOHZkIiwiY2FwYWJpbGl0aWVzIjp7ImlvLmdpdGh1Yi5yb3NzZ3JhZWJlci9vYWMtc2Vzc2lvbi1jaGFubmVscyI6eyJyZXZpc2lvbiI6IjAuMSIsImFjdGl2ZV9pbmJvdW5kIjp0cnVlfX0sImhhcm5lc3NfbGFiZWwiOiJoYXJuZXNzLWIifX0sImF1ZGllbmNlIjoiYjNkYjM4MDY2MjFkM2RlMTZlNjFkMDhmY2IwMTg0MWY2YzYwYzU0YTY4ZTdkNDgyMDc2Njc3ZGI1YzQ0ZDE3NCIsInNlY3VyaXR5Ijp7InByaW5jaXBhbCI6InByaW5jaXBhbC1iIiwia2V5X2lkIjoiYjk1YzlmMGI5OTVmMjY5N2EyMjg2NDVlODZlMTcxZDcwMmU1MzUwYTE0YTMyYzZkNjkwZWU3NmExNzMzYWYxYSIsInNpZ25hdHVyZSI6Ino4azluX0FyLVlPcjRqS3p5V2hCN3FjRnFmV05obWFRenA5bmYxVGRJXzhXSnJNc1p0THlwMHpuSmVtOTRaQXU1UExvS0hjbzBRMXczV2hEc0JybkNnIn19"
+  }
+}

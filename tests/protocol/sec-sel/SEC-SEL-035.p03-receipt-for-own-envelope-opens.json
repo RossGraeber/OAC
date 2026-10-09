@@ -1,0 +1,30 @@
+{
+  "fixture_format": "oac-sealing-fixture/1",
+  "requirement": "SEC-SEL-035",
+  "spec": "spec/security.md",
+  "spec_revision": "0.3",
+  "kind": "positive",
+  "description": "Alice opens the receipt frame of SEC-SEL-020.p02 and holds the record of sending the envelope it describes (sec-rct/SEC-RCT-001.p01), so she is its recipient and the receipt goes on to its checks.",
+  "stage": "open",
+  "context": {
+    "own_agreement_private_key": "qXxQn7ucHJlNH7y8zeNT2glcogG4kcJ483xPXs9Rtz0",
+    "own_key_id": "b3db3806621d3de16e61d08fcb01841f6c60c54a68e7d482076677db5c44d174",
+    "bindings": {},
+    "sent": [
+      {
+        "id": "msg-01hzx3k8q2v6w9m4t7p0r5s1ya",
+        "from": "01harn7x9k2m4p6q8r0s2t4v6w",
+        "to": "7gq3m8z2c5k9t1w4x6b0n2r8vd",
+        "nonce": "IWbLRgaoV3SucODJ7eS70g"
+      }
+    ]
+  },
+  "input": {
+    "frame": "AQ2CwMzIyPVSgLs950bXNXf37zsiJatZsw7FQRNpJT0yR5rno77wN1sez7YakOuEQp5KdlSHIIxcxXPQzr7TG54O08tNmg-eN9h8rr5POqHSvKqNrCIHgVgxg7Tr8CAd0tLaIZrTOCupS9VgrC2rQaBH6POrudlMxjA_onhx83DjVuxkD8TTqa7Hjsx3Nt4Vg9WyANuQJMZ2yqPaTpSP6RLdGsCVAnUwIagwUk3voZqmaubExJ5gAYLn7MuGUrrOQIftEGoGpMZFbaFZrZ0DiTLlqBPojXPoWfa3BkCNZ6tPoCZTPAIVAleO3qsNEo0tb_j6qMdWj1DnZA9nTHWzquQOpOavxhVyPtZy4EPPHYgP2tANjYcM4B_iXnqn_zdQLx-XfuZ4UsgePC3hS_UmeBjnWIyHZpojJlZwQccxd2nLbydM-cCASakzl_LKibMxjrzOr4YZl-JOg9KbVTU4w0ucxX1EQtcGkxbMSupnS4ZGDPt2f_oSwBmZhvIr2M8xl9dX24GVP0iHwFV3Ov91e4LtKk17kbjfbOhmuPPEOFK6D_JOJtTlqutKG38nEDnH6Jcob7yhbtDXtheSCTzzwCe1AOHB80bcc5xf22Oo0Yk2_AgPwPWQcWkJWuAsEgI1UBr2cit74U6sUH6wPvLQUfWfrqkrbkk8m1JQRgEMJyXMYnCgqC2Cb7223rVu_Iq-lCsrzxjx6t1WPWSLaAnR9voQ8FiaNPY"
+  },
+  "expected": {
+    "result": "opened",
+    "kind": "receipt",
+    "payload": "eyJyZWNlaXB0Ijp7ImVudmVsb3BlX2lkIjoibXNnLTAxaHp4M2s4cTJ2Nnc5bTR0N3AwcjVzMXlhIiwiZW52ZWxvcGVfZnJvbSI6IjAxaGFybjd4OWsybTRwNnE4cjBzMnQ0djZ3Iiwic3RhdGUiOiJoYW5kZWQtdG8taGFybmVzcyIsIm9ic2VydmVyIjoicmVjZWl2ZXIiLCJvYnNlcnZlZF9hdCI6IjIwMjYtMTAtMDNUMTI6MDA6MDEuMjUwWiJ9LCJlbnZlbG9wZV90byI6IjdncTNtOHoyYzVrOXQxdzR4NmIwbjJyOHZkIiwiZW52ZWxvcGVfbm9uY2UiOiJJV2JMUmdhb1YzU3VjT0RKN2VTNzBnIiwic2VjdXJpdHkiOnsicHJpbmNpcGFsIjoicHJpbmNpcGFsLWIiLCJrZXlfaWQiOiJiOTVjOWYwYjk5NWYyNjk3YTIyODY0NWU4NmUxNzFkNzAyZTUzNTBhMTRhMzJjNmQ2OTBlZTc2YTE3MzNhZjFhIiwic2lnbmF0dXJlIjoiUlFEV0N0aVp5eHpYWjZ6ZzZILWNqcnQwS0pDSjY4YjA4ODN4M1JJME1oNmlpby1Fdlg3UVJqaXZMN2U2OGhKeDBvVWNIdENRdjZlSTU3dEx1SzV0Q0EifX0"
+  }
+}

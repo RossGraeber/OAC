@@ -1,0 +1,22 @@
+{
+  "fixture_format": "oac-sealing-fixture/1",
+  "requirement": "SEC-SEL-035",
+  "spec": "spec/security.md",
+  "spec_revision": "0.3",
+  "kind": "negative",
+  "failure_mode": "opened presence record with another audience",
+  "description": "Bob's presence record for Alice (sec-prs/SEC-PRS-001.p01), sealed to Carol: it opens, but its audience is Alice, so Carol discards it silently.",
+  "stage": "open",
+  "context": {
+    "own_agreement_private_key": "ie0LKCQcSat-0_Mnql5O8XhTnObeWYkbeTxx-j8byaA",
+    "own_key_id": "86761fb8ff6100cec63ae093b79ecf2f1b1aed21d9ea860db031ffb5bf4768e9",
+    "bindings": {}
+  },
+  "input": {
+    "frame": "ATsGolHOL37qu4pJsVc9Y_OgoOzOZhKUl0U-8zspO2h2JIyBrheNQ6w1jTcPYorslpsJ6fGOrmY68bLfDS0hPal9dXut8xGSs-fyksGyzARI6XmUf4Y85VKBHipVKxMkLMdRJqLgJV7qyyNruBrWtLb63nQtCGwmA8bhL3cAIz-O_4XkUEe8D_jgvtscrbyrY-gf90RbUcsmlF8EACSiexVjRVDv6i4cl7KXjGQZmYA2qaU2wmcXMhYMql_goXh3w9_EUroZbZ2ctzOqjQQmDevtPl_Z6Hc0lyi7n0hS7NCNVWAAjfwTMFdnySankoRb8IQmjzsL_pG7q0y4rbMOJHRKRCAX8V_vLkgLX0Q4ECTCxdCrx3QkI62RGnMerQFRUjHBaV9eWsokzcFi5r2LQu87pJOqr8iEuyBRGrnlOYE22TEXIAg2Qz9uxYD8nt3diHBprEvQiWfyYaKbglQlplagZJqFbYfbUON-Tn9byDtdK_FfdmmHYCyYjEv1g9q34Pu8ObJpj1n_gywMruyHfHDLgSb3epgCxggwl1bJmf9Ds0FL5eppy6cR61jt5KVF6r_oO0kGilzkIRhjOviyTG4-BSuSF3uj9wJs3ieS9seitHpF5fgTMWBcchq1o22D713_vPOzEH1k2ojRPnmSBkaOccQpcrACyY3HV0sc9pgR1YMGOxAO0aJ_kTKzc0ZgX-JFaInOUBGdYmF_ryHSrWuROYdoxCqVc6SnXYgEPFL-17zrcYIfZJv9Bx9Y6Z5RLtbuF6l4sCynV6-GxOhVtBzAGnTyMER5hIJEbW9OQZqUlyrpDmHzMpD_49qSgVP_yWbavw6zATMPOne-qQkGTb66lJ4jbvcSxQ_GeNNSsRjY3vQ1aQs_UvVLcE9SGYMW"
+  },
+  "expected": {
+    "result": "discarded",
+    "record": "none"
+  }
+}

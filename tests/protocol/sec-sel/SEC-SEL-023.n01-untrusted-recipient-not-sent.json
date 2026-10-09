@@ -1,0 +1,52 @@
+{
+  "fixture_format": "oac-sealing-fixture/1",
+  "requirement": "SEC-SEL-023",
+  "spec": "spec/security.md",
+  "spec_revision": "0.3",
+  "kind": "negative",
+  "failure_mode": "recipient key not trusted",
+  "description": "Mallory is not in the trusted key set: no statement can be admitted for her key, so nothing is sealed to her.",
+  "stage": "seal",
+  "context": {
+    "trusted_keys": [
+      {
+        "principal": "principal-a",
+        "key_id": "b3db3806621d3de16e61d08fcb01841f6c60c54a68e7d482076677db5c44d174",
+        "public_key": "b88HyoN6BEjyTX4WNo6n8JJcjhXQUuVjex4U1p-vqzc"
+      },
+      {
+        "principal": "principal-b",
+        "key_id": "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a",
+        "public_key": "nAwqaFMHIMyOtfh4ovJIGr8MJhLV3qhFaN550YS7M2g"
+      },
+      {
+        "principal": "principal-c",
+        "key_id": "86761fb8ff6100cec63ae093b79ecf2f1b1aed21d9ea860db031ffb5bf4768e9",
+        "public_key": "LGPN2K_EISaRrzouTAmZRDaX66hHaXyOX0i-x3X0JUE"
+      }
+    ],
+    "admitted": {
+      "b3db3806621d3de16e61d08fcb01841f6c60c54a68e7d482076677db5c44d174": {
+        "agreement_key": "H8yrDgHwcdmpCJIKPAxJkLySW5FGSw_WDTlUUcSeCnc",
+        "seq": 1,
+        "issued_at": "2026-10-09T12:00:00Z"
+      },
+      "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a": {
+        "agreement_key": "wcSSzJLhvIMKmwB60NLYtLZcibdrU5_XcugIsJugBG8",
+        "seq": 1,
+        "issued_at": "2026-10-09T12:00:00Z"
+      }
+    }
+  },
+  "input": {
+    "recipient_key_id": "f9d705129917c4e5e0735c6d9b2fbe75e185a91df3eb643b107fe3711d9c954b",
+    "kind": "envelope",
+    "payload": "eyJ2ZXJzaW9uIjoiMC4xIiwiaWQiOiJtc2ctMDFoengzazhxMnY2dzltNHQ3cDByNXMxeWEiLCJmcm9tIjoiMDFoYXJuN3g5azJtNHA2cThyMHMydDR2NnciLCJ0byI6IjdncTNtOHoyYzVrOXQxdzR4NmIwbjJyOHZkIiwiY3JlYXRlZF9hdCI6IjIwMjYtMTAtMDNUMTI6MDA6MDAuMDAwWiIsImNvbnRlbnQiOlt7InR5cGUiOiJ0ZXh0IiwidGV4dCI6IlBsZWFzZSByZXZpZXcgdGhlIHNjaGVkdWxlciBtb2R1bGUuIn1dLCJ0dGxfbXMiOjMwMDAwMCwiY29udmVyc2F0aW9uX2lkIjoiY29udi00ZDJhIiwic2VjdXJpdHkiOnsicHJpbmNpcGFsIjoicHJpbmNpcGFsLWEiLCJrZXlfaWQiOiJiM2RiMzgwNjYyMWQzZGUxNmU2MWQwOGZjYjAxODQxZjZjNjBjNTRhNjhlN2Q0ODIwNzY2NzdkYjVjNDRkMTc0Iiwibm9uY2UiOiJJV2JMUmdhb1YzU3VjT0RKN2VTNzBnIiwic2lnbmF0dXJlIjoiX2ZuUTIteEM2VmZpYUxDNnZoU1ExZmdKT05xSVdxQkZtZzJjeDJfZk50QW16V1o1aG9sUy1fY2hiM0QzM0hfOXF1OEhDc1pqMHdFSnZNZjVuNUptQkEifX0",
+    "padding": 0,
+    "ephemeral_private_key": "dP-Oz4o6SOHaNwrY4tvyuOjuL6xa2njLvSKsySwIdi8"
+  },
+  "expected": {
+    "result": "refused",
+    "error": "transport-failure"
+  }
+}

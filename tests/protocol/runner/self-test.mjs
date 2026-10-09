@@ -21,6 +21,7 @@ const leBytes = (x) => {
 };
 const L = 2n ** 252n + 27742317777372353535851937790883648493n;
 import { parseTimestamp, isSessionId, isToken } from './core.mjs';
+import { sealBase, openBase, x25519, x25519Public, acceptableAgreementKey, seal as sealFrame, open as openFrame } from './hpke.mjs';
 import { checkOwners } from './index-check.mjs';
 import { contractStrays } from './layout.mjs';
 import fs from 'node:fs';
@@ -277,6 +278,41 @@ export function selfTest() {
   expect('contract/: Rust sources in src/, tests/, benches/, examples/ and build.rs are skipped', contractStrays([
     { name: 'adapter', isDir: true, hasCargoToml: true, files: ['build.rs', 'src/a/b.rs', 'tests/t.rs', 'benches/b.rs', 'examples/e.rs'], texts: { 'src/a/b.rs': '#[test]\nfn f() {}\n', 'tests/t.rs': '[test] // not JSON\n' } },
   ]).length === 0);
+
+  // Payload sealing (spec/security.md §14): RFC 9180 Appendix A.2.1, the suite §14.4 fixes
+  // (DHKEM(X25519, HKDF-SHA256), HKDF-SHA256, ChaCha20Poly1305), mode_base, sequence 0.
+  const a21 = sealBase(hex('4310ee97d88cc1f088a5576c77ab0cf5c3ac797f3d95139c6c84b5429c59662a'),
+    hex('4f6465206f6e2061204772656369616e2055726e'), hex('436f756e742d30'),
+    hex('4265617574792069732074727574682c20747275746820626561757479'),
+    hex('f4ec9b33b792c372c1d2c2063507b684ef925b8c75a42dbcbf57d63ccd381600'));
+  expect('RFC 9180 A.2.1 enc', a21 && a21.enc.equals(hex('1afa08d3dec047a643885163f1180476fa7ddb54c6a8029ea33f95796bf2ac4a')));
+  expect('RFC 9180 A.2.1 ciphertext, sequence 0', a21 && a21.ct.equals(hex('1c5250d8034ec2b784ba2cfd69dbdb8af406cfe3ff938e131f0def8c8b60b4db21993c62ce81883d2dd1b51a28')));
+  expect('RFC 9180 A.2.1 pkRm from skRm', x25519Public(hex('8057991eef8f1f1af18f4a9491d16a1ce333f695d4db8e38da75975c4478e0fb')).equals(hex('4310ee97d88cc1f088a5576c77ab0cf5c3ac797f3d95139c6c84b5429c59662a')));
+  expect('RFC 9180 A.2.1 opens', (() => {
+    const pt = openBase(hex('1afa08d3dec047a643885163f1180476fa7ddb54c6a8029ea33f95796bf2ac4a'), hex('8057991eef8f1f1af18f4a9491d16a1ce333f695d4db8e38da75975c4478e0fb'),
+      hex('4f6465206f6e2061204772656369616e2055726e'), hex('436f756e742d30'), a21.ct);
+    return pt && pt.equals(hex('4265617574792069732074727574682c20747275746820626561757479'));
+  })());
+  // RFC 7748 §6.1 example: Alice's and Bob's public keys, and the shared secret.
+  expect('RFC 7748 §6.1 shared secret', (() => {
+    const s = x25519(hex('77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a'), hex('de9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882b4f'));
+    return s && s.equals(hex('4a5d9d5ba4ce2de1728e3bf480350f25e07e21c947d19e3376f09b3c1e161742'));
+  })());
+  // Agreement-key admission (§14.3, [SEC-SEL-013]) and a frame round trip (§14.4, §14.5).
+  expect('agreement key u = 0 is not acceptable', !acceptableAgreementKey(Buffer.alloc(32)));
+  // u = p + 9 reduces to the base point, of large order: only the canonical-value check can
+  // refuse it (u = p itself reduces to 0, which the small-order check would also refuse).
+  expect('agreement key u = 9 (the base point) is acceptable', acceptableAgreementKey(hex('09' + '00'.repeat(31))));
+  expect('agreement key u = p + 9 is not acceptable', !acceptableAgreementKey(hex('f6ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f')));
+  expect('agreement key with the top bit set is not acceptable', !acceptableAgreementKey(hex('de9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882bcf')));
+  expect('RFC 7748 public key is acceptable', acceptableAgreementKey(hex('de9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882b4f')));
+  {
+    const skR = Buffer.alloc(32, 0x11);
+    const frame = sealFrame(x25519Public(skR), 'presence', Buffer.from('{}'), 7, Buffer.alloc(32, 0x22));
+    const o = openFrame(frame, skR);
+    expect('sealed frame round trip', o.kind === 'presence' && o.payload.equals(Buffer.from('{}')) && frame.length === 54 + 2 + 7);
+    expect('sealed frame refused by another key', openFrame(frame, Buffer.alloc(32, 0x33)).kind === undefined);
+  }
 
   return failures;
 }

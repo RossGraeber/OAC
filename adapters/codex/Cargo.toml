@@ -13,5 +13,10 @@ license.workspace = true
 repository.workspace = true
 publish.workspace = true
 
+# No doctests: they build with the dev-dependencies, so one could hold a contract-suite
+# harness outside tests/contract.rs (tests/protocol/contract/adapter/tests/harness_location.rs).
+[lib]
+doctest = false
+
 [dependencies]
 oac-core.workspace = true

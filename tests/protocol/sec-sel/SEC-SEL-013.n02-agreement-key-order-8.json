@@ -1,0 +1,40 @@
+{
+  "fixture_format": "oac-sealing-fixture/1",
+  "requirement": "SEC-SEL-013",
+  "spec": "spec/security.md",
+  "spec_revision": "0.3",
+  "kind": "negative",
+  "failure_mode": "small-order agreement key (order 8)",
+  "description": "An agreement key of small order (order 8 on the curve) is refused.",
+  "stage": "agreement",
+  "context": {
+    "consumer_time": "2026-10-09T13:00:00Z",
+    "trusted_keys": [
+      {
+        "principal": "principal-a",
+        "key_id": "b3db3806621d3de16e61d08fcb01841f6c60c54a68e7d482076677db5c44d174",
+        "public_key": "b88HyoN6BEjyTX4WNo6n8JJcjhXQUuVjex4U1p-vqzc"
+      },
+      {
+        "principal": "principal-b",
+        "key_id": "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a",
+        "public_key": "nAwqaFMHIMyOtfh4ovJIGr8MJhLV3qhFaN550YS7M2g"
+      }
+    ]
+  },
+  "input": {
+    "statement": {
+      "agreement_key": "4Ot6fDtBuK4WVuP68Z_EatoJjeucMrH9hmIFFl9JuAA",
+      "seq": 1,
+      "issued_at": "2026-10-09T12:00:00Z",
+      "security": {
+        "principal": "principal-b",
+        "key_id": "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a",
+        "signature": "928YpQyauENBK_529tizmWHN2nD4sOM1KZohAs9tuoDYWOXvLscauexEB-BMuMLw0nxuU8UDolsxUhdBHKJBDQ"
+      }
+    }
+  },
+  "expected": {
+    "result": "refused"
+  }
+}

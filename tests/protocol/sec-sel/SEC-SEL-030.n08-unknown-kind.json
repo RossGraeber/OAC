@@ -1,0 +1,20 @@
+{
+  "fixture_format": "oac-sealing-fixture/1",
+  "requirement": "SEC-SEL-030",
+  "spec": "spec/security.md",
+  "spec_revision": "0.3",
+  "kind": "negative",
+  "failure_mode": "unknown kind octet",
+  "description": "A frame that opens under Bob's key, whose kind octet is 0x04, is discarded.",
+  "stage": "open",
+  "context": {
+    "own_agreement_private_key": "tixpxVaqHt4ol9JZki2B1xxOUwqg_NtynYtauTbIn4Q"
+  },
+  "input": {
+    "frame": "AX9SAhmmVkKnkTaoPsZ6h6PbifZhlZ9TqhzG6nH6hoMD-zCTn4XSA-PKOY8BHPlazUmcvhiaL9w"
+  },
+  "expected": {
+    "result": "discarded",
+    "record": "none"
+  }
+}
