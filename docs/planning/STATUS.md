@@ -4,6 +4,20 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
+**Last updated:** 2026-10-09 (**#369: the core seals payloads** (Closes #369 on merge; Refs
+#62, #7). `core/src/sealing.rs`: the per-device X25519 agreement key and its store seam,
+agreement statements (`oac-agreement-v1`, signed `seq` counted and kept by the issuer, held
+statements kept with the pairing store and removed with their key, `W` future bound, weak
+and non-canonical key checks), HPKE sealing and opening on the `hpke` crate `=0.12.0` (new
+pin, lead approval on #369), padding to 256 octets. The pipelines seal and open only for a
+transport that declares `sealing`: no clear-text fallback (`transport-failure`), silent
+discard of frames that do not open, newest key first, recipient-mismatch and late discard,
+a discard counter; nothing changes for other transports. Statements travel in the pairing
+offer, response and key-id flow. `core/tests/conformance.rs` runs all 36
+`oac-sealing-fixture/1` fixtures; threat entry `S13-sealing` is proven for the core, with the
+reference transport's side (declaring `sealing`, frame without header values) still gated on
+G1's follow-up (#62). No gate verdict changes.)
+
 **Last updated:** 2026-10-09 (**Payload sealing: per-recipient encryption of every payload
 on a shared transport, proposed as a minor revision of the frozen specifications for the
 lead's approval** (Refs #62, #64, #7). On 2026-10-09 the lead ruled on PR #364 (G1, review

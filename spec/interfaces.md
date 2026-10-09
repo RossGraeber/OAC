@@ -1538,11 +1538,11 @@ the requirement whose fixtures exercise it. Appendix C gives each requirement's 
 | IFC-TRN-080 | MUST | 6.7 | TODO(fixture): F10 transport suite; G3 |
 | IFC-TRN-081 | MUST NOT | 6.7 | TODO(fixture): F6, F10, H2 |
 | IFC-TRN-090 | MUST | 6.9 | TODO(fixture): document review; G1, G2 |
-| IFC-TRN-100 | MUST | 6.10 | TODO(fixture): F10 transport suite against a sealing transport, with the core sealing work item, G1 (#62) |
-| IFC-TRN-101 | MUST | 6.10 | TODO(fixture): the core sealing work item, G1 (#62); F10 |
-| IFC-TRN-102 | MUST NOT | 6.10 | TODO(fixture): the core sealing work item, G1 (#62); F10 |
-| IFC-TRN-103 | MUST | 6.10 | TODO(fixture): the core sealing work item, G1 (#62); F10 |
-| IFC-TRN-104 | MUST NOT | 6.10 | TODO(fixture): F6, F10, with the core sealing work item, G1 (#62) |
+| IFC-TRN-100 | MUST | 6.10 | tested, no fixture (a behaviour, not a wire form; the core side, #369): every payload the core passes to a sealing test transport is of kind `sealed`, and `send_presence` is never called, `core/tests/sealing.rs` (each test's `all_sealed`), F11 `s13_only_the_recipient_device_opens_a_frame`, `s13_nothing_crosses_unsealed_without_a_statement`; against the reference transport: TODO(fixture), F10 with G1 (#62) |
+| IFC-TRN-101 | MUST | 6.10 | tested, no fixture (the core side, #369): each sealed payload goes with the `device` destination it is sealed to, `core/tests/sealing.rs` `only_the_recipient_opens_and_a_third_device_stays_silent`, `own_sessions_are_sealed_to_the_own_statement`; against the reference transport: TODO(fixture), F10 with G1 (#62) |
+| IFC-TRN-102 | MUST NOT | 6.10 | tested, no fixture (the core side, #369): a transport that does not declare `sealing` is passed no `sealed` payload, `core/tests/pipeline.rs` `two_devices_exchange_a_message_and_a_correlated_reply`; F10 with G1 (#62) |
+| IFC-TRN-103 | MUST | 6.10 | tested, no fixture (#369): payloads of the other kinds, from the device subscription and from `watch_presence`, are not taken, `core/tests/sealing.rs` `unsealed_payloads_from_a_sealing_transport_are_discarded`, F11 `s13_an_unsealed_payload_from_a_sealing_transport_is_not_taken` |
+| IFC-TRN-104 | MUST NOT | 6.10 | tested, no fixture (#369): a larger adapter limit is declared as `max_payload_octets` less 54, `core/tests/sealing.rs` `the_declared_envelope_limit_leaves_room_for_the_frame` |
 | IFC-TRN-105 | MUST | 6.10 | TODO(fixture): F10 transport suite; G1 (#62) |
 | IFC-TRN-106 | MUST NOT | 6.10 | TODO(fixture): F10 transport suite, a third implementation holding both destinations sees the same addressing for each; G1 (#62), H2 |
 | IFC-TRN-107 | MUST NOT | 6.10 | TODO(fixture): document review of the binding's framing and an F10 check; G1 (#62) |

@@ -2202,21 +2202,21 @@ requirement whose fixtures exercise it.
 | SEC-PRV-016 | MUST NOT | 12.5 | TODO(fixture): behaviour across the implementation; L10, F11 |
 | SEC-PRV-017 | MUST NOT | 12.5 | TODO(fixture): behaviour across the implementation; L10, F11 |
 | SEC-PRV-018 | SHOULD NOT | 12.6 | none (SHOULD NOT); advice to whoever writes content |
-| SEC-SEL-001 | MUST | 14.2 | TODO(fixture): by construction of the key store; the core sealing work item, G1 (#62) |
-| SEC-SEL-002 | MUST | 14.2 | TODO(fixture): randomness of key generation; the core sealing work item, G1 (#62) |
-| SEC-SEL-003 | MUST NOT | 14.2 | TODO(fixture): review of key generation; the core sealing work item, G1 (#62) |
-| SEC-SEL-004 | MUST NOT | 14.2 | TODO(fixture): secret handling; F11 security suite with the core sealing work item, G1 (#62) |
+| SEC-SEL-001 | MUST | 14.2 | tested, no fixture (by construction of the key store, #369): the agreement key is its own key pair in its own store, `core` test `sealing::tests::agreement_key_is_separate_from_and_not_derived_from_the_device_key`; no sealing transport starts without one, `core/tests/sealing.rs` `a_sealing_transport_needs_an_agreement_key` |
+| SEC-SEL-002 | MUST | 14.2 | tested, no fixture (randomness of key generation, #369): 32 octets from the operating system's random number generator, two keys differ, `core` test `sealing::tests::agreement_key_is_separate_from_and_not_derived_from_the_device_key` |
+| SEC-SEL-003 | MUST NOT | 14.2 | tested, no fixture (review of key generation, #369): drawn independently of the device key, and neither the device key's Montgomery form nor its key, `core` test `sealing::tests::agreement_key_is_separate_from_and_not_derived_from_the_device_key` |
+| SEC-SEL-004 | MUST NOT | 14.2 | tested, no fixture (secret handling, #369): no type prints a private key and copies are zeroized, `core` test `sealing::tests::no_type_prints_a_private_key` |
 | SEC-SEL-010 | MUST | 14.3 | `sec-sel/SEC-SEL-010.n01`, `.n02`; positive: `sec-sel/SEC-SEL-011.p01` |
 | SEC-SEL-011 | MUST | 14.3 | `sec-sel/SEC-SEL-011.p01` |
 | SEC-SEL-012 | MUST NOT | 14.3 | `sec-sel/SEC-SEL-012.n01`, `.n02`, `.n03` |
 | SEC-SEL-013 | MUST NOT | 14.3 | `sec-sel/SEC-SEL-013.n01` to `.n04` |
 | SEC-SEL-014 | MUST NOT | 14.3 | `sec-sel/SEC-SEL-014.p01`, `.p02`, `.n01`, `.n02` |
-| SEC-SEL-015 | MUST | 14.3 | TODO(fixture): key removal with a held statement; the core sealing work item, G1 (#62) |
-| SEC-SEL-016 | MUST | 14.3 | TODO(fixture): by construction; the core sealing work item, G1 (#62) |
+| SEC-SEL-015 | MUST | 14.3 | tested, no fixture (key removal with a held statement, #369): `core/tests/sealing.rs` `statements_live_and_die_with_their_keys`; F11 `s13_removing_a_key_removes_its_statement` |
+| SEC-SEL-016 | MUST | 14.3 | tested, no fixture (by construction, #369): `core/tests/sealing.rs` `own_sessions_are_sealed_to_the_own_statement` |
 | SEC-SEL-017 | MAY | 14.9 | none (MAY) |
 | SEC-SEL-018 | SHOULD | 14.9 | none (SHOULD) |
 | SEC-SEL-020 | MUST | 14.4 | `sec-sel/SEC-SEL-020.p01`, `.p02` |
-| SEC-SEL-021 | MUST | 14.4 | TODO(fixture): randomness of ephemeral keys; the core sealing work item, G1 (#62) |
+| SEC-SEL-021 | MUST | 14.4 | tested, no fixture (randomness of ephemeral keys, #369): `core` test `sealing::tests::each_frame_has_a_fresh_ephemeral_key` |
 | SEC-SEL-022 | MUST | 14.4 | covered by SEC-SEL-020 (`sec-sel/SEC-SEL-020.p01`, `.p02`: each plaintext holds a signed object, signature included) |
 | SEC-SEL-023 | MUST | 14.4 | `sec-sel/SEC-SEL-023.n01` |
 | SEC-SEL-024 | MUST NOT | 14.4 | `sec-sel/SEC-SEL-024.n01` |
@@ -2224,16 +2224,16 @@ requirement whose fixtures exercise it.
 | SEC-SEL-030 | MUST | 14.5 | `sec-sel/SEC-SEL-030.p01`, `.p02`, `.n01` to `.n08` |
 | SEC-SEL-031 | MUST NOT | 14.5 | covered by SEC-SEL-030 (`expected.record` `none` in `sec-sel/SEC-SEL-030.n01` to `.n08`) |
 | SEC-SEL-032 | MUST | 14.5 | covered by SEC-SEL-030 (`expected.kind` in `sec-sel/SEC-SEL-030.p01`, `.p02`) |
-| SEC-SEL-033 | MUST | 14.5 | TODO(fixture): an opened payload through the receive path, every check applied; the core sealing work item, G1 (#62) |
-| SEC-SEL-034 | MUST NOT | 14.5 | TODO(fixture): F11 security suite, a frame sealed by an untrusted device around a forged envelope; the core sealing work item, G1 (#62) |
+| SEC-SEL-033 | MUST | 14.5 | tested, no fixture (an opened payload through the receive path, #369): `core/tests/sealing.rs` `opened_envelopes_meet_every_check`, `an_opened_frame_proves_nothing_about_its_sender` |
+| SEC-SEL-034 | MUST NOT | 14.5 | tested, no fixture (#369): a frame sealed by an untrusted device around an envelope it signed, or around one claiming another device's principal and key id, `core/tests/sealing.rs` `an_opened_frame_proves_nothing_about_its_sender` |
 | SEC-SEL-035 | MUST | 14.5 | `sec-sel/SEC-SEL-035.p01` to `.p03`, `.n01` to `.n03` |
-| SEC-SEL-036 | MUST | 14.5 | TODO(fixture): a late copy of each kind, opened on a scripted clock, is dropped with no receipt; the core sealing work item, G1 (#62) |
-| SEC-SEL-037 | MUST | 14.5 | TODO(fixture): a frame built to open under two keys, with two agreement keys held; the core sealing work item, G1 (#62) |
+| SEC-SEL-036 | MUST | 14.5 | tested, no fixture (#369): a late envelope and a late receipt, opened on a scripted clock, are dropped with no receipt, `core/tests/sealing.rs` `late_opened_payloads_are_dropped_without_a_receipt`; a presence record's deadline is the end of its freshness window, so its late drop is the one [SEC-PRS-006] makes (`sec-prs/SEC-PRS-006.n01`) |
+| SEC-SEL-037 | MUST | 14.5 | tested, no fixture (#369): the keys are tried in descending `issued_at` order, `core` test `sealing::tests::keys_are_tried_newest_first`; a replaced key still opens, `core/tests/sealing.rs` `a_replaced_key_still_opens_until_erased`. A frame built to open under two keys: TODO(fixture), F11 (it needs a ChaCha20-Poly1305 multi-key collision whose two plaintexts both have a valid kind octet and `L`) |
 | SEC-SEL-038 | MAY | 14.5 | none (MAY) |
-| SEC-SEL-040 | MUST | 14.3 | TODO(fixture): issuer-side; the core sealing work item, G1 (#62) |
-| SEC-SEL-041 | MUST | 14.3 | TODO(fixture): statement storage across a restart; the core sealing work item, G1 (#62) |
+| SEC-SEL-040 | MUST | 14.3 | tested, no fixture (issuer-side, #369): `core` test `sealing::tests::issuer_seq_rises_and_survives_a_restart` |
+| SEC-SEL-041 | MUST | 14.3 | tested, no fixture (statement storage across a restart, #369): `core/tests/sealing.rs` `statements_live_and_die_with_their_keys`; F11 `s13_a_restart_does_not_readmit_an_older_statement`; the `agreement` fixtures run through a consumer restored from its pairing store (`core/tests/conformance.rs` `sealing_fixtures`) |
 | SEC-SEL-042 | MUST NOT | 14.3 | `sec-sel/SEC-SEL-042.p01`, `.n01` |
-| SEC-SEL-043 | MUST | 14.3 | TODO(fixture): issuer state across a restart; the core sealing work item, G1 (#62) |
+| SEC-SEL-043 | MUST | 14.3 | tested, no fixture (issuer state across a restart, #369): the new `seq` is saved and read back before its statement exists, `core` test `sealing::tests::issuer_seq_rises_and_survives_a_restart` |
 
 Retired ids: none.
 
