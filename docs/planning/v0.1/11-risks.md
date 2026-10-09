@@ -207,10 +207,11 @@ list.
 - **Status (2026-10-08, #62).** The Rust crate half is narrowed. OAC's own transport, on
   the Rust `zenoh` crate `1.10.1` built with `1.98.1`, passes the transport contract suite
   over loopback on Windows 11 on the multicast path and on the fixed rendezvous path
-  (`transports/zenoh/tests/contract.rs`). Linux and macOS evidence is the G1 PR's CI
-  matrix. The Linux CI test step runs inside a loopback-only network namespace
-  (`scripts/loopback-only.sh`); where that host cannot send to the multicast group at all,
-  the multicast leg prints a `GAP:` line and only the rendezvous leg runs.
+  (`transports/zenoh/tests/contract.rs`). Linux and macOS were not run: GitHub Actions
+  are off under the lead's 2026-10-08 policy, and the G1 session's worktree guard refused
+  WSL. On a host that cannot send to the multicast group at all (expected inside
+  `scripts/loopback-only.sh`'s namespace), the multicast leg prints a `GAP:` line and only
+  the rendezvous leg runs; whether that happens on Linux is still to be recorded.
 
 ### RISK-G5 — Provenance fails
 
@@ -1277,7 +1278,7 @@ note, 2026-10-08, #69: rows 71-75 come from the Codex issued-value pairing,
 | 33 | G3 on physical Mac hardware (from G3). Was "G3 criteria 1-4 on macOS"; those closed PASS on a GitHub-hosted VM 2026-10-02 (#219), leaving physical hardware open | RISK-G3 |
 | 34 | G3 on bare-metal Linux (from G3; the Linux leg ran on WSL2) | RISK-G3 |
 | 35 | `#iface=` on macOS and on Windows with a valid interface name (from G3). Note 2026-10-02 (#219): on the macOS hosted VM a nonexistent name was accepted without exception, so `#iface=` is not enforced there; log warnings untested | RISK-G3 |
-| 36 | G3 via the Rust `zenoh` crate built with `1.98.1` and embedded in OAC (from G3) | RISK-G3. Narrowed 2026-10-08 (#62): the Rust crate `1.10.1`, built with `1.98.1` and embedded in `transports/zenoh`, passes the transport contract suite over loopback on Windows 11 on both paths, multicast scouting with `127.0.0.1` listeners and a fixed rendezvous port (`transports/zenoh/tests/contract.rs`). Linux and macOS: the G1 PR's CI matrix (to be recorded here). TLS stays G3's (#64) |
+| 36 | G3 via the Rust `zenoh` crate built with `1.98.1` and embedded in OAC (from G3) | RISK-G3. Narrowed 2026-10-08 (#62): the Rust crate `1.10.1`, built with `1.98.1` and embedded in `transports/zenoh`, passes the transport contract suite over loopback on Windows 11 on both paths, multicast scouting with `127.0.0.1` listeners and a fixed rendezvous port (`transports/zenoh/tests/contract.rs`). Linux and macOS: not run. No GitHub Actions run under the lead's 2026-10-08 policy, and a local WSL run was refused by the G1 session's worktree guard, so the Linux loopback-only multicast gap is unrecorded too. TLS stays G3's (#64) |
 | 37 | Unidentified second thread loaded in the Codex daemon (from G2) | RISK-CODEX-EXPERIMENTAL |
 | 38 | Codex daemon `originator`/`source` do not reliably identify the creating client (from G2). At the `0.157.1` re-run the same TUI thread's `originator` matched the TUI itself (`codex-tui`), unlike at `0.154.0` (`oac_g2_spike`) — consistent with a first-initializing-client mechanism, not a fix | RISK-CODEX-EXPERIMENTAL |
 | 39 | Cross-process resume does not attach (openai/codex #21743), not re-tested at `0.154.0` or `0.157.1` (from G2) | RISK-CODEX-EXPERIMENTAL |

@@ -24,7 +24,8 @@ licence policy of `docs/planning/decisions/G-7-stage4-dependencies.md` (#352). G
 - **Ledger.** Closed: the crates.io cross-check (11-risks.md row 10, crates.io API retrieved
   2026-10-08) and the `rustls` TLS stack (row 15, from Zenoh's own `1.10.1` manifests); their
   bullets below are removed. Narrowed: binary size (row 6, first measurement, Windows only),
-  the Rust crate under G3 (row 36, Windows; Linux and macOS from the PR's CI) and presence
+  the Rust crate under G3 (row 36, Windows only: no GitHub Actions under the lead's policy,
+  and WSL refused by the session's worktree guard) and presence
   carriage (row 61, records carried; carrier loss stays G2).)
 
 **Last updated:** 2026-10-08 (**Issue #7: the Stage 4 dependency decisions, recorded before
@@ -2641,7 +2642,7 @@ recorded on Codex `0.161.0` (`docs/planning/gates/fixtures/s3-codex-capture/tran
   `eclipse-zenoh==1.10.1` on the same tag-`1.10.1` core; see
   `docs/planning/gates/G3-result.md`. Narrowed 2026-10-08, #62: on Windows 11 the Rust
   crate passes the transport contract suite over loopback on both the multicast and the
-  rendezvous path; Linux and macOS are the G1 PR's CI matrix; 11-risks.md row 36).
+  rendezvous path; Linux and macOS not yet run; 11-risks.md row 36).
 - Implicit Codex daemon attach at runtime on macOS and Linux, `0.157.1` (UNVERIFIED — G2
   has exercised Windows only, on both `0.154.0` and the `0.157.1` re-run; see
   `docs/planning/gates/G2-result.md`).
