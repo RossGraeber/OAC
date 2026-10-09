@@ -1,0 +1,44 @@
+{
+  "fixture_format": "oac-sealing-fixture/1",
+  "requirement": "SEC-SEL-014",
+  "spec": "spec/security.md",
+  "spec_revision": "0.3",
+  "kind": "negative",
+  "failure_mode": "statement no later than the held one",
+  "description": "A second statement for Bob with the same issued_at as the held one is refused.",
+  "stage": "agreement",
+  "context": {
+    "trusted_keys": [
+      {
+        "principal": "principal-a",
+        "key_id": "b3db3806621d3de16e61d08fcb01841f6c60c54a68e7d482076677db5c44d174",
+        "public_key": "b88HyoN6BEjyTX4WNo6n8JJcjhXQUuVjex4U1p-vqzc"
+      },
+      {
+        "principal": "principal-b",
+        "key_id": "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a",
+        "public_key": "nAwqaFMHIMyOtfh4ovJIGr8MJhLV3qhFaN550YS7M2g"
+      }
+    ],
+    "admitted": {
+      "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a": {
+        "agreement_key": "wcSSzJLhvIMKmwB60NLYtLZcibdrU5_XcugIsJugBG8",
+        "issued_at": "2026-10-09T12:00:00Z"
+      }
+    }
+  },
+  "input": {
+    "statement": {
+      "agreement_key": "23CAsLfguWcZ_lB_LEDtITT6oqdmdlTBsKn5lCafOSg",
+      "issued_at": "2026-10-09T12:00:00Z",
+      "security": {
+        "principal": "principal-b",
+        "key_id": "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a",
+        "signature": "jKCw2fiBXuKV8q2H9H6Cc7zKl2vxxU5Nij2ows6Zn-g5MdB67pemmb4h7o6LNKVcJ1hlvxj9ER5vkQtGf4D9Bg"
+      }
+    }
+  },
+  "expected": {
+    "result": "refused"
+  }
+}

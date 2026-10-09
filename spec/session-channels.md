@@ -1,8 +1,10 @@
 # OAC Session Channels
 
 **Document:** `spec/session-channels.md`, the normative OAC Session Channels specification.
-**Revision:** 0.1, frozen at Gate S2: signed off 2026-10-06, in force from the merge of
-PR #276 (E7, #47; `docs/planning/decisions/E7-interface-freeze.md`). Changes follow its §7.
+**Revision:** 0.2, a minor revision of the 0.1 frozen at Gate S2 (signed off 2026-10-06, in
+force from the merge of PR #276; E7, #47; `docs/planning/decisions/E7-interface-freeze.md`),
+made under its §7 with `spec/security.md` 0.3 (payload sealing). Appendix B records the
+change.
 **Companion document:** `spec/security.md` (task E5, #45) holds the identity hierarchy,
 signing, replay defence, authorization and provenance rules. This document does not restate
 them.
@@ -149,7 +151,9 @@ this document can define further stages, each with its own `context`, `input` an
 
 A binding document can define a fixture format of its own, under its own `fixture_format`
 string, for inputs that this format's stages do not express; the MCP binding does so in
-`spec/bindings/mcp.md` §12.2. A conformance runner dispatches on `fixture_format`.
+`spec/bindings/mcp.md` §12.2. `spec/security.md` does so for payload sealing (§14.10 there),
+which only an implementation that uses a sealing transport implements. A conformance runner
+dispatches on `fixture_format`.
 
 An envelope-stage fixture's `security` members hold placeholder strings. Envelope-stage
 validation checks their presence and type (§4.6), never their values. Signature vectors and
@@ -593,6 +597,18 @@ revision of the same major version handles correctly without being updated:
 6. Adding a `SHOULD`, `SHOULD NOT` or `MAY` requirement.
 7. Adding a fixture for an existing requirement, or replacing a `TODO(fixture)` with one.
 8. Editorial changes that leave every requirement's normative meaning unchanged.
+9. Adding a `MUST` or `MUST NOT` that binds only an implementation that takes up something no
+   earlier minor revision of the same major version defined: a new declared value, or a new
+   wire form used only between implementations that both declare it. An implementation
+   conformant to an earlier minor revision never takes it up, so it stays conformant, and it
+   never receives the new wire form.
+
+*Dated note, 2026-10-09 (revision 0.2): item 9 records the classification that
+`spec/interfaces.md` 0.2 (PR #350) already applied to its pairing requirements, and that
+`spec/security.md` 0.3 and `spec/interfaces.md` 0.3 apply to payload sealing: each new `MUST`
+there binds only a transport that declares `sealing` and the core that uses one. A `MUST` that
+an implementation conformant to an earlier minor revision would violate stays breaking
+(§5.3 item 11).*
 
 ### 5.3 What forces a new major version and a new extension identifier
 
@@ -1798,6 +1814,12 @@ records (§11 there), with a signed `audience` that limits each record to one de
 ([SEC-PRS-013]). That is the authentication half only. The same-install-only ruling above
 stands until a transport binding meets [SC-DLV-066].*
 
+*Dated note, 2026-10-09 (revision 0.2): payload sealing (`spec/security.md` §14;
+`spec/interfaces.md` §6.10) is the second way to meet [SC-DLV-066] named above: the core
+encrypts each presence record to the one device it is released to, so no other peer can read
+it. A transport binding that declares `sealing` therefore meets [SC-DLV-066]. The
+same-install-only ruling above holds for every other transport binding.*
+
 #### 7.3.3 Capability declarations for sending
 
 This subsection is how a sender comes to hold the capability declaration that [SC-ID-086]
@@ -2965,3 +2987,4 @@ Retired ids: none.
 | 0.1 (draft) | 2026-10-04 | #275, no requirement added or changed: the fixture `context` of §3.3, and the `routing` and `receive` stages of §8.5, gain an optional `max_envelope_octets` (the receiver-wide size limit of [SC-RCP-076]; 65536, the default of [SC-ENV-004], when absent), so that a fixture can decide `envelope-too-large` at the envelope stage. New fixtures `sc-rcp/SC-RCP-076.p02`, `.p03`, `.n02`, `.n03`, `SC-RCP-071.n07`, `SC-RCP-028.p01`, `.p02`, `.n03`, `.n04`, `SC-RCP-079.p01`, `.n02`, `SC-RCP-090.n03` and `SC-RCP-072.n01` decide `envelope-too-large` and `transport-failure` (Gate S2 demonstration, E7 blocker B3). |
 | 0.1 (draft) | 2026-10-04 | E7 (#47) freeze preparation, editorial (no requirement added or changed): Appendix A row SC-ID-080 named only Stage 2 owners (E3, E6), both closed. Its `TODO(fixture)` is now owned by F6 and F10, as the other issuer-side rows of §7.2.5 are. |
 | 0.1 | 2026-10-06 | Frozen at Gate S2 (E7, #47): signed off on this date, in force from the merge of PR #276. |
+| 0.2 | 2026-10-09 | With `spec/security.md` 0.3 and `spec/interfaces.md` 0.3 (payload sealing, on the lead's ruling of 2026-10-09 on PR #364): §5.2 item 9 classifies a `MUST` that binds only an implementation taking up a newly defined declared value or wire form as a minor change, with a dated note; §3.3 names the sealing fixture format of `spec/security.md` §14.10; a §7.3.2 dated note records that a sealing transport binding meets [SC-DLV-066]. No requirement of this document is added, removed or changed, and no wire form of this document changes. Minor revision under `docs/planning/decisions/E7-interface-freeze.md` §7. |

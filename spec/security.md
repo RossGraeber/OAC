@@ -1,10 +1,11 @@
 # OAC Session Channels Security
 
 **Document:** `spec/security.md`, the normative security model of OAC Session Channels.
-**Revision:** 0.2, a minor revision of the 0.1 frozen at Gate S2 (signed off 2026-10-06, in
+**Revision:** 0.3, a minor revision of the 0.1 frozen at Gate S2 (signed off 2026-10-06, in
 force from the merge of PR #276; E7, #47), made under
-`docs/planning/decisions/E7-interface-freeze.md` §7 (issue #69, PR #350). Written by task E5 (#45).
-Appendix C records the change.
+`docs/planning/decisions/E7-interface-freeze.md` §7: 0.2 (issue #69, PR #350) and 0.3
+(payload sealing, §14; the lead's ruling of 2026-10-09 on PR #364). Written by task E5 (#45).
+Appendix C records the changes.
 **Companion document:** `spec/session-channels.md`, which defines the envelope (§4),
 versioning (§5), session identity (§6), presence and discovery (§7), and delivery states,
 receipts and errors (§8). This document does not restate those rules. It defines what that
@@ -70,10 +71,20 @@ the receiving harness later looks up with it is untrusted text too (§12.5).
 | 11 | Presence-record authentication and the publishable binding proof |
 | 12 | Provenance rendering |
 | 13 | Threat-to-requirement traceability |
+| 14 | Payload sealing |
 
-Out of scope for this revision: confidentiality of message content against a transport
-(full end-to-end encryption is deferred, `docs/planning/ADR-001.md`, "v0.1 scope"); the
-wire format of a pairing exchange between two devices (§5.3); online key rotation (§5.5).
+Out of scope for this revision: confidentiality of message content against a transport that
+does not declare `sealing` (§14.1; `spec/interfaces.md` §6.10), and against the recipient
+device itself; confidentiality of traffic metadata, that is the size and timing of what a
+transport carries (§14.8); forward secrecy (§14.9); the wire format of a pairing exchange
+between two devices (§5.3); online key rotation (§5.5, §14.9).
+
+*Dated note, 2026-10-09 (the lead's ruling on PR #364): revision 0.2 put all confidentiality
+of content against a transport out of scope, as `docs/planning/ADR-001.md` ("v0.1 scope")
+defers full end-to-end encryption. Revision 0.3 adds payload sealing (§14): each payload
+passed to a sealing transport is encrypted to the one device it is for. ADR-001-A4
+(`docs/planning/ADR-001-AMENDMENTS.md`, proposed with this revision) narrows the deferral
+to what §14 does not cover.*
 
 ---
 
@@ -122,6 +133,12 @@ their meaning here. In addition:
 - **Provenance set:** the machine-set values an adapter renders with each message (§12.1).
 - **Adapter:** the part of an implementation that hands content to one harness's input
   surface.
+- **Agreement key:** a device's X25519 key pair [RFC7748], used only to open sealed frames
+  (§14.2).
+- **Agreement statement:** a device's signed statement of its current agreement key (§14.3).
+- **Sealed frame:** a payload encrypted to one device's agreement key (§14.4).
+- **Sealing transport:** a transport whose capability declaration has `sealing` `true`
+  (`spec/interfaces.md` §6.3, §6.10).
 
 ---
 
@@ -142,6 +159,7 @@ document prefix `SEC` that §3.2 there registers. Its areas are:
 | `RCT` | 10 | receipt authentication |
 | `PRS` | 11 | presence-record authentication and binding proof |
 | `PRV` | 12 | provenance rendering |
+| `SEL` | 14 | payload sealing |
 
 Ids are allocated in increasing order within an area, gaps are allowed, and the stability
 rules of `spec/session-channels.md` §3.2 apply unchanged.
@@ -150,7 +168,8 @@ rules of `spec/session-channels.md` §3.2 apply unchanged.
 
 Fixtures follow `spec/session-channels.md` §3.3. They live under
 `tests/protocol/sec-<area>/` and carry `"spec": "spec/security.md"`. Their stages are listed
-in §3.3. Appendix A indexes every requirement and its fixtures.
+in §3.3, except that the payload-sealing fixtures of §14 have a fixture format of their own
+(§14.10). Appendix A indexes every requirement and its fixtures.
 
 **Test keys.** `tests/protocol/sec-test-keys.json` lists the device keys the fixtures use.
 They are **test keys only**: each private seed is the SHA-256 of a published label, so anyone
@@ -376,6 +395,10 @@ exchange.
 > implementation on one machine need no exchange: they are one device, with one key
 > (C5 §10(a)).
 
+When either device uses a sealing transport, pairing also gives each device the other's
+agreement statement (§14.3). The statement is signed by the device key that pairing makes
+trusted, so it needs no comparison of its own.
+
 [SEC-KEY-034] An implementation MUST NOT add to its trusted key set a public key whose
 encoding is not canonical (RFC 8032 §5.1.3: a y-coordinate not less than p, or a zero
 x-coordinate with its sign bit set) or whose point has small order (its order divides 8).
@@ -435,6 +458,7 @@ This revision defines no online key rotation (`docs/planning/decisions/C5-envelo
 §4). A device that replaces its key is a new device: its peers remove the old key
 ([SEC-KEY-035]) and pair with the new one ([SEC-KEY-032]). Until they do, a leaked key stays
 trusted by every peer that has not removed it. Section 13 records this as a residual risk.
+A device's agreement key (§14.2) can be replaced without replacing its device key (§14.9).
 
 ---
 
@@ -483,7 +507,7 @@ retrieved 2026-10-03).
 
 The zero octet separates the domain string from the JSON text, which cannot contain a raw
 zero octet, so no signing input of one kind can be read as one of another kind
-(`docs/planning/decisions/C5-envelope-auth.md` §3). This document defines four domain
+(`docs/planning/decisions/C5-envelope-auth.md` §3). This document defines five domain
 strings:
 
 | Domain string | Signed object | Section |
@@ -492,6 +516,7 @@ strings:
 | `oac-registration-v1` | registration record | §5.4 |
 | `oac-receipt-v1` | authenticated receipt | §10 |
 | `oac-presence-v1` | authenticated presence record | §11 |
+| `oac-agreement-v1` | agreement statement | §14.3 |
 
 `oac-pairing-v1` is reserved for a future pairing exchange
 (`docs/planning/decisions/C5-envelope-auth.md` §3).
@@ -603,6 +628,9 @@ transport (`docs/planning/decisions/C5-envelope-auth.md` §12, §14).
 
 [SEC-SIG-030] A receiver MUST NOT skip or relax any check of §6 or §7 because a transport
 authenticated, encrypted or access-controlled the connection that delivered the envelope.
+
+Payload sealing (§14) is not a substitute either. A frame that opens under the receiver's
+agreement key proves only that someone sealed it to that key, and anyone can ([SEC-SEL-034]).
 
 ---
 
@@ -1546,6 +1574,9 @@ proving test does not exist yet is an open risk, carried as `RISK-SEC-SPEC` in
 | Prompt injection through a memory reference or resolved memory (06 row 21) | A trusted, granted peer writes a memory reference into content, or the receiving harness looks one up through its own memory service and gets adversarial text back | Doctrine §1.2 and §12.5: the reference is a sender claim rendered as content [SEC-PRV-012], [SEC-PRV-015]; no implementation looks a reference up, validates it or adds what a service returns [SEC-PRV-016], [SEC-PRV-017], so a verified signature never extends to resolved memory | L10 (opt-in scenario: a memory reference travels between the two v0.1 harness surfaces and is resolved by the receiver's own memory service; asserts that the reference and the resolved text appear only in the untrusted body): not yet built, open risk; F11: not yet built, open risk; gate G5 PASS (gate client only, provenance framing) | Once the receiving harness has looked the reference up in its own turn, the returned text never crosses this protocol. Whether the model obeys it is the harness's and the memory service's concern: the doctrine limit of the authenticated-peer row above |
 | False authority through a cited memory reference (06 row 22) | A trusted, granted peer cites a stored record ("approved in memory X") so that the receiver treats the citation as authorization or as provenance | Never in the provenance set, a separate carrier or a frame header [SEC-PRV-015]; provenance only from verified members [SEC-PRV-002]; no authorization decision takes a memory reference as input [SEC-AUZ-024]; delivery never authorizes an action the content requests [SEC-AUZ-020] | L10 (asserts that the reference is absent from every machine-set carrier): not yet built, open risk; F11: not yet built, open risk; gate G5 PASS (gate client only) | A model may still find a cited record persuasive. A citation wrapped in frame-shaped text keeps the residual of the shared-carrier forgery row above |
 | Capture of delivered content by an external memory or telemetry service (06 row 23) | The operator runs a service beside the receiving harness that records that harness's session history | None in the protocol. The capture happens inside the harness session, which no implementation controls. [SEC-PRV-016] and [SEC-PRV-017] keep an implementation from using such a service; nothing here keeps the service from recording. [SEC-PRV-018] advises against secrets in content, which limits what a capture exposes but is advice, not a control | None: an open risk, not a closed mitigation. Carried in `docs/planning/v0.1/11-risks.md` under the risk that 06 row 23 names | Capture is confirmed: one such service, at the version Decision L1 §2 pins, recorded input handed off into both v0.1 harness surfaces verbatim, and one harness's outbound tool-call arguments; a secret-shaped test token in the delivered content was stored unredacted on every path that captured it (Decision L1 §13, live leg of 2026-10-01). Any text in `content`, a secret included, can therefore reach the receiving device's disk. The service's own scoping need not match working-directory scoping (§9.3), and any forwarding beyond the device is the operator's configuration of that service |
+| Reading payloads on a shared transport: another implementation reads the content, kind, signer or recipient of a payload that is not for it | It shares a transport that delivers payloads to every implementation it reaches, or it observes that transport's traffic | Each payload sealed to the recipient device's agreement key, with kind, signer and recipient inside the frame [SEC-SEL-020], [SEC-SEL-030]; a sealing transport carries only sealed payloads and nothing beside them but a deadline, and never shows a destination [IFC-TRN-100], [IFC-TRN-103], [IFC-TRN-106], [IFC-TRN-107] | `sec-sel/SEC-SEL-020.p01`, `.p02`; `sec-sel/SEC-SEL-030.p01`, `.p02`, `.n01` to `.n08`; the core's sealing and a sealing transport's framing: G1 (#62), not yet built, open risk | The frame's length (to 256 octets, with the padding of [SEC-SEL-025]), its timing, its sending link and its deadline stay visible (§14.8). No forward secrecy: whoever later obtains a recipient's agreement private key opens every recorded frame sealed to it, until the key is replaced and erased (§14.9). Every implementation on such a transport performs one key agreement per frame, which a flood can exploit |
+| Agreement-key substitution: a sender is led to seal to an agreement key that the attacker holds | The attacker can deliver an agreement statement, or replay an old one whose private key it has since obtained | Statements signed by the device key under their own domain string and admitted only under a trusted key [SEC-SEL-011], [SEC-SEL-012]; weak keys refused [SEC-SEL-013]; never an older statement [SEC-SEL-014]; the recipient key taken only from an admitted statement [SEC-SEL-023] | `sec-sel/SEC-SEL-011.p01`, `SEC-SEL-012.n01` to `.n03`, `SEC-SEL-013.n01` to `.n04`, `SEC-SEL-014.p01`, `.n01`, `.n02`, `SEC-SEL-023.n01` | A stolen device key signs a statement for the attacker's agreement key (the leaked-device-key row). A peer that never receives a newer statement keeps sealing to the older key |
+| Clear-text fallback: a payload goes onto a sealing transport unsealed, or an unsealed payload from one is accepted | The sender holds no agreement key for the recipient, or a peer sends unsealed payloads | No payload is passed at all without an admitted agreement key, and an envelope is reported `transport-failure` [SEC-SEL-024]; a sealing transport takes and yields only sealed payloads [IFC-TRN-100], [IFC-TRN-103] | `sec-sel/SEC-SEL-024.n01`; [IFC-TRN-100] and [IFC-TRN-103]: F10 transport suite with G1 (#62), not yet built, open risk | A cross-implementation transport that does not declare `sealing` still carries payloads that every implementation it reaches can read: [IFC-TRN-111] is a `SHOULD` |
 
 The three memory rows use neutral terms (§12.5). Their sources, the provider-specific
 evidence and the named service are in `docs/planning/v0.1/06-security.md` §14 rows 21 to 23
@@ -1574,9 +1605,337 @@ try. The timing test is owned by the implementation tasks (Epic F).
 
 ---
 
-## 14. References
+## 14. Payload sealing
 
-### 14.1 Normative references
+### 14.1 Purpose and scope
+
+A transport is not trusted for confidentiality (`spec/interfaces.md` §6.2). Some transports
+deliver every payload to every implementation they reach and leave it to each receiver to
+pick out its own. **Payload sealing** keeps such a transport from showing one
+implementation's payloads to another: the core encrypts each payload to the one device it is
+for, before any transport carries it, and only the implementation that holds that device's
+agreement key can open it.
+
+A **sealing transport** is a transport whose capability declaration has `sealing` `true`
+(`spec/interfaces.md` §6.3). The core passes only sealed payloads to it, and takes only sealed
+payloads from it (`spec/interfaces.md` §6.10).
+
+The requirements of this section bind an implementation that passes payloads to, or takes
+payloads from, a sealing transport. An implementation that uses no sealing transport conforms
+to this revision without implementing this section.
+
+Sealing adds confidentiality, and nothing else. It does not authenticate: anyone can seal a
+frame to any device. The signed object inside a frame is verified exactly as it is without
+sealing (§6, §10, §11), and the doctrine of §1.2 is unchanged.
+
+From every implementation except the recipient's, sealing hides the payload's content, its
+kind, the device and principal that signed it, the device and session it is for, and every
+member of the signed object. Section 14.8 lists what stays visible.
+
+### 14.2 Agreement keys
+
+An **agreement key** is an X25519 key pair [RFC7748] that a device uses only to open sealed
+frames.
+
+[SEC-SEL-001] An implementation that uses a sealing transport MUST hold an agreement key that
+is separate from its device key.
+
+[SEC-SEL-002] An implementation MUST generate the 32-octet private key of an agreement key
+with a cryptographically secure random number generator.
+
+[SEC-SEL-003] An implementation MUST NOT derive an agreement key from its device key.
+
+[SEC-SEL-004] An implementation MUST NOT disclose the private key of an agreement key to a
+peer, a harness, a session, a model or a transport.
+
+An Ed25519 device key can be converted to an X25519 key, and the joint use of one key pair for
+Ed25519 and for an X25519-based KEM has a security proof (Thormarker, "On using the same key
+pair for Ed25519 and an X25519 based KEM", IACR ePrint 2021/509,
+https://eprint.iacr.org/2021/509, retrieved 2026-10-09). This revision still uses a separate
+key, for two reasons. The library the reference implementation verifies signatures with
+advises against using a signing key for key agreement and recommends a separate key
+(`ed25519-dalek` 3.0.0, `VerifyingKey::to_montgomery` and `SigningKey::to_scalar_bytes`,
+https://docs.rs/ed25519-dalek/3.0.0/ed25519_dalek/struct.SigningKey.html, retrieved
+2026-10-09). And a separate key can be replaced without replacing the device key and pairing
+again, which is the only bound on exposure that this revision offers (§14.9).
+
+> **Reference implementation note:** the agreement private key is planned to be kept as the
+> device key's seed is (§5.1 note): in the operating system's credential store, with the
+> encrypted-file fallback.
+
+### 14.3 The agreement statement
+
+An **agreement statement** binds an agreement key to a device key. It is a JSON object with
+these members:
+
+| Member | Content |
+|---|---|
+| `agreement_key` | the agreement key's 32-octet public key (the u-coordinate, [RFC7748] §5), as unpadded base64url ([RFC4648] §5) |
+| `issued_at` | the time the statement was issued, a timestamp (`spec/session-channels.md` §4.4.6) |
+| `security` | an object with exactly `principal`, `key_id` and `signature` |
+
+[SEC-SEL-010] An agreement statement MUST contain exactly the members of the table above.
+
+[SEC-SEL-011] An implementation MUST sign its agreement statement with its device key over the
+signing input of §6.2, using the domain string `oac-agreement-v1`.
+
+A statement holds no secret and needs no confidentiality. It can travel over any channel, a
+transport included. A consumer trusts it only through the device key that signed it, which
+pairing made trusted (§5.3).
+
+An agreement key is **acceptable** when its `agreement_key` decodes to 32 octets whose most
+significant bit is zero, whose value read as a little-endian integer is less than
+2^255 - 19, and whose point has no small order on the curve or on its twist. A key of small
+order makes the shared secret all zero, which HPKE refuses ([RFC9180] §7.1.4). [RFC7748] §5
+masks the most significant bit on input rather than rejecting it, so the bit check keeps
+exactly one accepted encoding per key.
+
+[SEC-SEL-012] A consumer MUST NOT admit an agreement statement unless its
+`security.principal` and `security.key_id` name a trusted key ([SEC-KEY-030]) and its
+signature verifies under that key (§6.3) with the domain string `oac-agreement-v1`.
+
+[SEC-SEL-013] A consumer MUST NOT admit an agreement statement whose agreement key is not
+acceptable.
+
+[SEC-SEL-014] A consumer MUST NOT admit an agreement statement for a device key while it holds
+one for that key whose `issued_at` is the same or later.
+
+A consumer holds one statement per device key: the latest it admitted, which replaces the one
+before. A replayed older statement therefore cannot bring back an agreement key that its
+device replaced (fixture `sec-sel/SEC-SEL-014.n01`).
+
+[SEC-SEL-015] A consumer that removes a key from its trusted key set MUST, in the same step,
+remove the agreement statement it holds for that key.
+
+This extends [SEC-KEY-035] to statements: a revoked device can no longer be sealed to.
+
+[SEC-SEL-016] An implementation that uses a sealing transport MUST hold its own agreement
+statement as admitted for its own device key.
+
+The implementation then seals payloads between two of its own sessions as it seals any other.
+A sealing transport carries those as it carries every payload (`spec/interfaces.md`
+[IFC-TRN-002]), and no other implementation can read them.
+
+**Pairing.** Pairing (§5.3) makes a device key trusted. When either device uses a sealing
+transport, each device also gives the other its current agreement statement, during pairing
+or later. The consumer admits it under [SEC-SEL-012] to [SEC-SEL-014], with no further
+operator confirmation.
+
+> **Reference implementation note:** the reference pairing exchange is planned to carry each
+> device's statement beside its public key, in the offer and in the response, and the
+> key-id comparison flow beside the key file. The statement does not enter the pairing code:
+> the signature already binds it to the key the code confirms.
+
+### 14.4 Sealing a payload
+
+A payload is sealed with HPKE [RFC9180] in base mode, single-shot, with these parameters:
+
+| Parameter | Value |
+|---|---|
+| KEM | DHKEM(X25519, HKDF-SHA256), identifier `0x0020` |
+| KDF | HKDF-SHA256, identifier `0x0001` |
+| AEAD | ChaCha20Poly1305, identifier `0x0003` |
+| `info` | the ASCII octets `oac-seal-v1` |
+| `aad` | empty |
+| Sequence number | 0: one frame per encryption context |
+
+The plaintext is laid out as Table 14.1.
+
+Table 14.1.
+
+| Octets | Content |
+|---|---|
+| 1 | the kind: `0x01` for an envelope, `0x02` for an authenticated presence record, `0x03` for an authenticated receipt |
+| 4 | `L`, the payload's length in octets, as a big-endian unsigned integer |
+| `L` | the payload's octets, exactly as signed and serialized |
+| 0 or more | padding: octets of value zero |
+
+The frame is laid out as Table 14.2.
+
+Table 14.2.
+
+| Octets | Content |
+|---|---|
+| 1 | the frame version, `0x01` |
+| 32 | `enc`, the encapsulated key: the sender's ephemeral X25519 public key |
+| the rest | the ciphertext: the length of the plaintext, plus 16 |
+
+The smallest frame, with an empty payload and no padding, is 54 octets.
+
+[SEC-SEL-020] A sender MUST seal a payload as the frame of Table 14.2, made with the
+parameters above from the plaintext of Table 14.1 and the recipient's agreement key.
+
+[SEC-SEL-021] A sender MUST generate a new ephemeral key pair for each frame with a
+cryptographically secure random number generator.
+
+[SEC-SEL-022] A sender MUST seal the octets of a payload as signed and serialized, so that the
+signature is inside the frame.
+
+The **recipient** of a payload is the device that its `Destination` names
+(`spec/interfaces.md` Table 6.1): for an envelope, the device key that `to` is bound to; for an
+authenticated presence record, its `audience`; for an authenticated receipt, the key that
+verified the envelope it describes.
+
+[SEC-SEL-023] A sender MUST seal a payload only to the agreement key of the statement that it
+holds, admitted under §14.3, for the recipient's key id.
+
+[SEC-SEL-024] A sender that holds no admitted agreement statement for the recipient MUST NOT
+pass the payload to a transport.
+
+For an envelope, the sender reports `transport-failure` (`spec/session-channels.md` Table
+8.3: the envelope could not be passed to a transport), and it can retry once it holds a
+statement. It never falls back to an unsealed payload, which a sealing transport does not take
+([IFC-TRN-100]).
+
+[SEC-SEL-025] A sender SHOULD pad each plaintext to a multiple of 256 octets, unless the frame
+would then be longer than the transport's `max_payload_octets`. A sender that does not
+deviates: each frame's length then shows the exact size of its payload, and often its kind.
+
+### 14.5 Opening a frame
+
+A receiver tries to open every frame that a sealing transport hands it. On a transport that
+delivers every payload to every implementation it reaches, most frames are for other devices
+and do not open.
+
+A frame **opens** under an agreement private key when all of the following hold:
+
+1. the frame is at least 54 octets long;
+2. its first octet is `0x01`;
+3. HPKE single-shot open, with the parameters of §14.4, that private key, `enc` and the
+   ciphertext, succeeds; this fails, among other cases, when the shared secret is all zero
+   ([RFC9180] §7.1.4);
+4. the plaintext's kind octet is one of the three of Table 14.1;
+5. `L` is no greater than the length of the plaintext less 5;
+6. every padding octet is zero.
+
+[SEC-SEL-030] A receiver MUST discard a frame that opens under no agreement private key it
+holds.
+
+[SEC-SEL-031] A receiver MUST NOT send a receipt for, or record a finding about, a frame that it
+discards under [SEC-SEL-030].
+
+Such a frame names no sender the receiver could trust, and on a shared transport it is
+usually another device's frame, not an attack.
+
+[SEC-SEL-032] A receiver MUST process an opened payload only as the kind that its kind octet
+names.
+
+[SEC-SEL-033] A receiver MUST apply to an opened payload every check that this document and
+`spec/session-channels.md` apply to a payload of the same kind taken from a transport.
+
+[SEC-SEL-034] A receiver MUST NOT treat a payload as authenticated, or as coming from any
+device, because its frame opened.
+
+### 14.6 Why the signature is inside the frame
+
+Informative. A sender signs, then seals ([SEC-SEL-022]). The other order, sealing and then
+signing the frame, was rejected for four reasons.
+
+- **The signer stays hidden.** A signature outside the frame would show every implementation
+  on the transport the signing key id and principal.
+- **Verification is unchanged.** The signed objects, their domain strings and their
+  verification (§6) are the same with and without sealing. No signature covers a frame, so
+  sealing changes no signed field set.
+- **Forwarding gains nothing.** The recipient of a frame holds the signed payload and can seal
+  it again to a third device. Every signed object already names its recipient: an envelope's
+  `to` is bound to one key (§11.3), a presence record carries its signed `audience`
+  ([SEC-PRS-013]), and a receipt matches one sent envelope ([SEC-RCT-003]). The third device
+  therefore refuses or discards it.
+- **No second authenticity proof.** HPKE's authenticated mode would make an agreement key a
+  proof of the sender beside the signature. Section 6.6 keeps the signature the only one.
+
+### 14.7 Replay
+
+A replayed frame opens to the same signed payload, so the defences that apply to the payload
+apply after opening: the replay window and the duplicate store for an envelope (§8); `seq`
+([SC-DLV-042]) and freshness ([SEC-PRS-006]) for a presence record; the sent record for a
+receipt ([SEC-RCT-003]). A new frame around a captured payload is a replay of that payload,
+and meets the same checks. Sealing keeps no state of its own and adds no freshness.
+
+### 14.8 What stays visible
+
+Table 14.3.
+
+| Visible to every implementation that receives a frame | Visible only to the recipient |
+|---|---|
+| the frame's length, to the padding's granularity ([SEC-SEL-025]) | the payload's exact length and its kind |
+| when the frame was sent, and the transport link it came over | the signing key id, principal and signature |
+| the frame version octet | the recipient device and session |
+| `enc`, a fresh ephemeral public key, which links no two frames | every member of the signed object: ids, timestamps, nonce, audience, receipt state |
+| what the transport carries beside the frame: at most its deadline (`spec/interfaces.md` [IFC-TRN-107], [IFC-TRN-108]) | the content |
+
+This matches what a transport may expose under `spec/interfaces.md` §6.4: that a payload of
+some size went from one transport peer to another at some time. A sealing transport that
+delivers every frame to every implementation it reaches does not show the "to" either
+([IFC-TRN-106]).
+
+### 14.9 Replacing an agreement key, and forward secrecy
+
+A sender keeps nothing that opens a frame it sent: the ephemeral private key is used once
+([SEC-SEL-021]). The recipient's agreement key is static. Whoever obtains a recipient's
+agreement private key can open every recorded frame that was sealed to it. Sealing alone
+therefore gives no forward secrecy. An interactive key agreement would, and this revision
+defines none.
+
+[SEC-SEL-017] An implementation MAY replace its agreement key by issuing a new agreement
+statement with a later `issued_at`. An implementation that does not keeps one agreement key
+for as long as it keeps its device key, and a compromise then exposes every frame ever sealed
+to it.
+
+[SEC-SEL-018] An implementation SHOULD erase a replaced agreement private key once it no longer
+opens frames with it. An implementation that does not deviates: a later compromise of the
+device exposes the frames sealed to the replaced key.
+
+This revision defines no online delivery of a new statement, as §5.5 defines none for a new
+device key. A new statement reaches a peer the way the first one did. Until the peer admits
+it, the peer seals to the old key, and a receiver that still holds the old private key opens
+those frames under [SEC-SEL-030].
+
+A leaked device key lets its holder sign a statement for an agreement key of its own, which
+consumers admit. That is the leaked-device-key row of §13: removing the device key also
+removes its statement ([SEC-KEY-035], [SEC-SEL-015]).
+
+### 14.10 Fixtures
+
+The fixtures of this section use the fixture format `oac-sealing-fixture/1`. Its members are
+those of `spec/session-channels.md` §3.3, with `"spec": "spec/security.md"`, and its stages
+are the three below. Sealing has a format of its own because only an implementation that uses
+a sealing transport implements this section (§14.1): such an implementation runs these
+fixtures, and one that does not leaves the whole format aside.
+
+**Stage `agreement`** (§14.3). `context`: `trusted_keys`, a trusted-key list (§3.3);
+optionally `admitted`, an object whose members are key ids, each an object with
+`agreement_key` and `issued_at`, the statements the consumer holds. `input`: `statement`.
+`expected`: `result`, `admitted` or `refused`.
+
+**Stage `seal`** (§14.4). `context`: `trusted_keys` and `admitted`, as for `agreement`.
+`input`: `recipient_key_id`; `kind`, one of `envelope`, `presence` and `receipt`; `payload`,
+the payload's octets as unpadded base64url; `padding`, the number of zero octets of padding;
+`ephemeral_private_key`, as unpadded base64url. A fixture fixes the ephemeral key so that its
+frame can be reproduced; a sender draws a new one for each frame ([SEC-SEL-021]).
+`expected`: `result`, `sealed` with `frame` (unpadded base64url), or `refused` with `error`.
+
+**Stage `open`** (§14.5). `context`: `own_agreement_private_key`, unpadded base64url.
+`input`: `frame`, unpadded base64url. `expected`: `result`, `opened` with `kind` and
+`payload`, or `discarded` with `record`: `none` ([SEC-SEL-031]).
+
+The agreement keys and ephemeral keys the fixtures use are **test keys only**, listed in
+`tests/protocol/sec-test-keys.json` (`agreement_keys`, `agreement_rule` and
+`ephemeral_labels`). Each private key is the SHA-256 of a published label.
+
+> **Reference implementation note:** the reference runner (`tests/protocol/runner/hpke.mjs`)
+> implements the key schedule of [RFC9180] §4-§5 itself over `node:crypto`'s X25519, HMAC and
+> ChaCha20-Poly1305, and its self-test checks it against [RFC9180] Appendix A.2.1 and the
+> X25519 example of [RFC7748] §6.1. When this revision was written, on 2026-10-09, every
+> sealed frame of the `seal` and `open` fixtures was also opened by a separate program built
+> on the `hpke` crate 0.12.0 (feature `x25519`), which shares no code with the runner, with
+> the same result for each. That program is not committed; the fixtures are the artifact.
+
+---
+
+## 15. References
+
+### 15.1 Normative references
 
 - [RFC2119] Bradner, S., "Key words for use in RFCs to Indicate Requirement Levels",
   BCP 14, RFC 2119. https://www.rfc-editor.org/rfc/rfc2119
@@ -1594,9 +1953,14 @@ try. The timing test is owned by the implementation tasks (Epic F).
   (§5, base64url). https://www.rfc-editor.org/rfc/rfc4648
 - [FIPS180-4] NIST, "Secure Hash Standard (SHS)", FIPS PUB 180-4.
   https://doi.org/10.6028/NIST.FIPS.180-4
+- [RFC7748] Langley, A., Hamburg, M. and S. Turner, "Elliptic Curves for Security",
+  RFC 7748. https://www.rfc-editor.org/rfc/rfc7748 (§5, §6.1, retrieved 2026-10-09)
+- [RFC9180] Barnes, R., Bhargavan, K., Lipp, B. and C. Wood, "Hybrid Public Key
+  Encryption", RFC 9180. https://www.rfc-editor.org/rfc/rfc9180 (§4, §5, §6.1, §7.1.4,
+  Appendix A.2.1, retrieved 2026-10-09)
 - `spec/session-channels.md`, the OAC Session Channels specification.
 
-### 14.2 Informative references
+### 15.2 Informative references
 
 - `docs/planning/ADR-001.md`, "Security model".
 - `docs/planning/decisions/C2-process-model.md` §4 (local peer authentication).
@@ -1610,7 +1974,13 @@ try. The timing test is owned by the implementation tasks (Epic F).
 - `docs/planning/gates/G5-result.md` (provenance gate verdict).
 - `ed25519-dalek` 3.0.0, `VerifyingKey`,
   https://docs.rs/ed25519-dalek/3.0.0/ed25519_dalek/struct.VerifyingKey.html, retrieved
-  2026-10-03.
+  2026-10-03; `VerifyingKey::to_montgomery` and `SigningKey::to_scalar_bytes`, retrieved
+  2026-10-09.
+- Thormarker, E., "On using the same key pair for Ed25519 and an X25519 based KEM", IACR
+  ePrint 2021/509. https://eprint.iacr.org/2021/509, retrieved 2026-10-09.
+- The PR #364 review, finding 2:
+  https://github.com/RossGraeber/OAC/pull/364#issuecomment-6075170836, and the lead's ruling
+  on it (2026-10-09).
 
 ---
 
@@ -1737,6 +2107,30 @@ requirement whose fixtures exercise it.
 | SEC-PRV-016 | MUST NOT | 12.5 | TODO(fixture): behaviour across the implementation; L10, F11 |
 | SEC-PRV-017 | MUST NOT | 12.5 | TODO(fixture): behaviour across the implementation; L10, F11 |
 | SEC-PRV-018 | SHOULD NOT | 12.6 | none (SHOULD NOT); advice to whoever writes content |
+| SEC-SEL-001 | MUST | 14.2 | TODO(fixture): by construction of the key store; the core sealing work item, G1 (#62) |
+| SEC-SEL-002 | MUST | 14.2 | TODO(fixture): randomness of key generation; the core sealing work item, G1 (#62) |
+| SEC-SEL-003 | MUST NOT | 14.2 | TODO(fixture): review of key generation; the core sealing work item, G1 (#62) |
+| SEC-SEL-004 | MUST NOT | 14.2 | TODO(fixture): secret handling; F11 security suite with the core sealing work item, G1 (#62) |
+| SEC-SEL-010 | MUST | 14.3 | `sec-sel/SEC-SEL-010.n01`; positive: `sec-sel/SEC-SEL-011.p01` |
+| SEC-SEL-011 | MUST | 14.3 | `sec-sel/SEC-SEL-011.p01` |
+| SEC-SEL-012 | MUST NOT | 14.3 | `sec-sel/SEC-SEL-012.n01`, `.n02`, `.n03` |
+| SEC-SEL-013 | MUST NOT | 14.3 | `sec-sel/SEC-SEL-013.n01` to `.n04` |
+| SEC-SEL-014 | MUST NOT | 14.3 | `sec-sel/SEC-SEL-014.p01`, `.n01`, `.n02` |
+| SEC-SEL-015 | MUST | 14.3 | TODO(fixture): key removal with a held statement; the core sealing work item, G1 (#62) |
+| SEC-SEL-016 | MUST | 14.3 | TODO(fixture): by construction; the core sealing work item, G1 (#62) |
+| SEC-SEL-017 | MAY | 14.9 | none (MAY) |
+| SEC-SEL-018 | SHOULD | 14.9 | none (SHOULD) |
+| SEC-SEL-020 | MUST | 14.4 | `sec-sel/SEC-SEL-020.p01`, `.p02` |
+| SEC-SEL-021 | MUST | 14.4 | TODO(fixture): randomness of ephemeral keys; the core sealing work item, G1 (#62) |
+| SEC-SEL-022 | MUST | 14.4 | covered by SEC-SEL-020 (`sec-sel/SEC-SEL-020.p01`, `.p02`: each plaintext holds a signed object, signature included) |
+| SEC-SEL-023 | MUST | 14.4 | `sec-sel/SEC-SEL-023.n01` |
+| SEC-SEL-024 | MUST NOT | 14.4 | `sec-sel/SEC-SEL-024.n01` |
+| SEC-SEL-025 | SHOULD | 14.4 | none (SHOULD); `sec-sel/SEC-SEL-020.p01` pads, `.p02` does not |
+| SEC-SEL-030 | MUST | 14.5 | `sec-sel/SEC-SEL-030.p01`, `.p02`, `.n01` to `.n08` |
+| SEC-SEL-031 | MUST NOT | 14.5 | covered by SEC-SEL-030 (`expected.record` `none` in `sec-sel/SEC-SEL-030.n01` to `.n08`) |
+| SEC-SEL-032 | MUST | 14.5 | covered by SEC-SEL-030 (`expected.kind` in `sec-sel/SEC-SEL-030.p01`, `.p02`) |
+| SEC-SEL-033 | MUST | 14.5 | TODO(fixture): an opened payload through the receive path, every check applied; the core sealing work item, G1 (#62) |
+| SEC-SEL-034 | MUST NOT | 14.5 | TODO(fixture): F11 security suite, a frame sealed by an untrusted device around a forged envelope; the core sealing work item, G1 (#62) |
 
 Retired ids: none.
 
@@ -1800,3 +2194,4 @@ work.*
 | 0.1 (draft) | 2026-10-04 | E7 (#47) freeze preparation, editorial (no requirement added or changed): a dated note in Appendix B records that its nine follow-ups are all applied. |
 | 0.1 | 2026-10-06 | Frozen at Gate S2 (E7, #47): signed off on this date, in force from the merge of PR #276. |
 | 0.2 | 2026-10-08 | #69, PR #350, with `spec/bindings/mcp.md` 0.2: §13 gains the misattributed-send-request row for a pairing key made of an operating-system observation and an issued value (`spec/bindings/mcp.md` §4.5). No requirement is added, removed or changed. Minor revision under `docs/planning/decisions/E7-interface-freeze.md` §7. |
+| 0.3 | 2026-10-09 | Payload sealing, on the lead's ruling of 2026-10-09 on PR #364 (the partition-wide subscriber kept on condition that each frame is encrypted for its recipient; review finding 2). §14 added: agreement keys separate from the device key (SEC-SEL-001 to SEC-SEL-004); the signed agreement statement and its admission, under the new domain string `oac-agreement-v1` (SEC-SEL-010 to SEC-SEL-016); sealing with HPKE (RFC 9180) base mode, DHKEM(X25519, HKDF-SHA256), HKDF-SHA256 and ChaCha20Poly1305, sign-then-seal, no fallback to an unsealed payload (SEC-SEL-020 to SEC-SEL-025); opening, with silent discard and no authenticity from opening (SEC-SEL-030 to SEC-SEL-034); replacement and the absence of forward secrecy (SEC-SEL-017, SEC-SEL-018); what stays visible (§14.8). §1.3 scope, §2.3 terms, §3.1 area `SEL`, §5.3 and §5.5 notes, the §6.2 domain table, §6.6, and three §13 rows. References renumbered to §15. Fixtures under `tests/protocol/sec-sel/` in their own format `oac-sealing-fixture/1` (§14.10); agreement test keys in `tests/protocol/sec-test-keys.json`. Minor revision under `docs/planning/decisions/E7-interface-freeze.md` §7 and `spec/session-channels.md` §5.2 item 9: every new `MUST` and `MUST NOT` binds only an implementation that uses a sealing transport, which no earlier revision defined, so an implementation conformant to 0.2 stays conformant. |

@@ -1,0 +1,20 @@
+{
+  "fixture_format": "oac-sealing-fixture/1",
+  "requirement": "SEC-SEL-030",
+  "spec": "spec/security.md",
+  "spec_revision": "0.3",
+  "kind": "negative",
+  "failure_mode": "frame sealed to another device",
+  "description": "Carol receives the frame sealed to Bob, as every device on a shared transport may: she cannot open it and discards it silently.",
+  "stage": "open",
+  "context": {
+    "own_agreement_private_key": "ie0LKCQcSat-0_Mnql5O8XhTnObeWYkbeTxx-j8byaA"
+  },
+  "input": {
+    "frame": "ATsGolHOL37qu4pJsVc9Y_OgoOzOZhKUl0U-8zspO2h2J2ywMBueuY-fY8A8AZsaY_qmeQQ0YnhgOTzWWigHgNRmi-v4GHmLYm2q5B5lMV5sqs2vHJixmhVUeUrGOunSGySK2pH13vzdC8tfUophNs5ular7BROhzSa1LGqdDpXYnq794G6a-3o5NFVyuC0TQnUJ9eHVk3KbYHskqLTWGIGRhk64aqcaQI9-riq_4c50lzLI7fcB7erpFpU4_KdRM7Rqh0DaNiuhgH0fR7kwaseKYNrB534rzxPrEQJpQ7Owu4LKqzxOU0qPVUjgqfi7QhDdolM5jvZLVWCNqJixrvju8UbaMh0iZUsolh0f1HG7GwjU6WZqgbVxN6F3pAs4WAmS5TTVXSdZ2IYCW2dz89NkOyzcYMaymN9KH7ojKK9Q2VEzLZX1t5bZfYwcBx0Bv2WMeBiwuCQmaJ9H6tJCpL-CeOX62xXJA8zLBCwLDGz4oee7fa23SkRNBr6chw8bZtQIELRcSkXlO0iKYsMidVskK4TP4RJnW-3zzfzm4Jo1wciELYjTQJM2SZagnGRh_sznhAsuQCd-3gEScNfmauX9d2Ua19C2Jeqk0aunOYY83imZrTomk-jHoMBG3QK6ZXPrLi2gvq9mClPTV7HETKn7i43cJSzocjpe1QABM8hti5lcXK-TtJxpMXh4Z-1isXt6iVgw8fP1ZgxUDx0-DKtqIkbzjXCNsJKVdBoo9T7Qi3O2DaeRSqizx6cCEWNRdNIvtreY3oJcUN90-KI_f-DmCXXvi-hmbBUzRJAfSrqO9SKTktUboj_WarjBDP46g6JH0CXv9L46S9Oh8ULR2XlwJMgezOB1GDSFjLoPVc7x00V7vYRBkMDKiWbtRD5EecY2EYfkmCIno3PMrGOO8tR3VsatRkHHjX364neFbK5nELGvKD0z728fxzkQaMz38gGa-Z5iuxlkzMk494-2ctJ8VCqSjXtFoTHh712SsmivALGcRNJ8Gf8PxUUKGLIwhq_gO9nAf8HOhTx4wnWCkHKV4ETGjE9ftixwgWmz6SqkrRUJzhPgbMPgEqFAsVB9Og"
+  },
+  "expected": {
+    "result": "discarded",
+    "record": "none"
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "fixture_format": "oac-sealing-fixture/1",
+  "requirement": "SEC-SEL-010",
+  "spec": "spec/security.md",
+  "spec_revision": "0.3",
+  "kind": "negative",
+  "failure_mode": "statement carries an undefined member",
+  "description": "A statement with a member beyond agreement_key, issued_at and security is refused, although its signature covers that member.",
+  "stage": "agreement",
+  "context": {
+    "trusted_keys": [
+      {
+        "principal": "principal-a",
+        "key_id": "b3db3806621d3de16e61d08fcb01841f6c60c54a68e7d482076677db5c44d174",
+        "public_key": "b88HyoN6BEjyTX4WNo6n8JJcjhXQUuVjex4U1p-vqzc"
+      },
+      {
+        "principal": "principal-b",
+        "key_id": "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a",
+        "public_key": "nAwqaFMHIMyOtfh4ovJIGr8MJhLV3qhFaN550YS7M2g"
+      }
+    ]
+  },
+  "input": {
+    "statement": {
+      "agreement_key": "wcSSzJLhvIMKmwB60NLYtLZcibdrU5_XcugIsJugBG8",
+      "issued_at": "2026-10-09T12:00:00Z",
+      "note": "x",
+      "security": {
+        "principal": "principal-b",
+        "key_id": "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a",
+        "signature": "4xJcHY8FqwRgejqE_WCj7oejC-UB_ZRPrGT8DLdnIwW8zyMJZgqtKeoy_tn4sUs8kmYjPaG6HkYLqsHL6JU_DQ"
+      }
+    }
+  },
+  "expected": {
+    "result": "refused"
+  }
+}

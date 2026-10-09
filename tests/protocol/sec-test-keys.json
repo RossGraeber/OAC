@@ -53,5 +53,33 @@
       "public_key": "ect6X1av62gGwcrcQ_oDwMA6T2NyTMflmuCuoqEklFM",
       "key_id": "f9d705129917c4e5e0735c6d9b2fbe75e185a91df3eb643b107fe3711d9c954b"
     }
+  ],
+  "agreement_rule": "agreement private key for label L = SHA-256(UTF-8 \"oac-test-agreement/\" + L), used as an X25519 private key (RFC 7748 §5 clamps it); ephemeral private key for label E = SHA-256(UTF-8 \"oac-test-ephemeral/\" + E). Test keys only.",
+  "agreement_keys": [
+    {
+      "label": "alice",
+      "private_key_hex": "a97c509fbb9c1c994d1fbcbccde353da095ca201b891c278f37c4f5ecf51b73d",
+      "agreement_key": "H8yrDgHwcdmpCJIKPAxJkLySW5FGSw_WDTlUUcSeCnc"
+    },
+    {
+      "label": "bob",
+      "private_key_hex": "b62c69c556aa1ede2897d259922d81d71c4e530aa0fcdb729d8b5ab936c89f84",
+      "agreement_key": "wcSSzJLhvIMKmwB60NLYtLZcibdrU5_XcugIsJugBG8"
+    },
+    {
+      "label": "carol",
+      "private_key_hex": "89ed0b28241c49ab7ed3f327aa5e4ef178539ce6de59891b793c71fa3f1bc9a0",
+      "agreement_key": "23CAsLfguWcZ_lB_LEDtITT6oqdmdlTBsKn5lCafOSg"
+    },
+    {
+      "label": "mallory",
+      "private_key_hex": "1171093e5b7b08c161137f71515bb04192ec4f36b6f68a75c725552a9a68c536",
+      "agreement_key": "7YH3LPN5lonG2IZGQoT4eTBRlnMLONzFrbcYSDmRVic"
+    }
+  ],
+  "ephemeral_labels": [
+    "e1",
+    "e2",
+    "e3"
   ]
 }

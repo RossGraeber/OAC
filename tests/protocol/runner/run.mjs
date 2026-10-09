@@ -9,7 +9,7 @@
 //
 // It reads each fixture, dispatches on `fixture_format` and then on `stage`, evaluates the
 // stage from the rules of the spec documents (spec/session-channels.md §3.3, §6.10, §7.5,
-// §8.5; spec/security.md §3.3; spec/bindings/mcp.md §12.2), and compares the outcome with
+// §8.5; spec/security.md §3.3 and §14.10; spec/bindings/mcp.md §12.2), and compares the outcome with
 // the fixture's `expected`. It also checks each fixture's own form, that every error code
 // a fixture expects is in Table 8.3 of spec/session-channels.md ([SC-RCP-074]), and the
 // requirement indexes against the fixtures (index-check.mjs).
@@ -25,6 +25,7 @@ import { readTable83 } from './core.mjs';
 import * as sc from './stages-sc.mjs';
 import * as sec from './stages-sec.mjs';
 import { mcpBinding } from './mcpb.mjs';
+import * as sel from './stages-sel.mjs';
 import { checkIndexes, DOC_OF_PREFIX, dirOfId } from './index-check.mjs';
 import { selfTest } from './self-test.mjs';
 import { contractStrays, readContractEntries } from './layout.mjs';
@@ -34,6 +35,7 @@ const FIXTURES = path.join(ROOT, 'tests', 'protocol');
 
 const CORE = 'oac-conformance-fixture/1';
 const MCPB = 'oac-mcpb-fixture/1';
+const SEL = 'oac-sealing-fixture/1';
 
 // Stage table: evaluator, required `expected` members, optional ones. A member listed as
 // `a|b` is required in one of the alternatives the stage function's result decides; the
@@ -70,6 +72,12 @@ const STAGES = {
   // spec/bindings/mcp.md §12.2
   [MCPB]: {
     'mcp-binding': [mcpBinding, ['result'], []],
+  },
+  // spec/security.md §14.10 (payload sealing)
+  [SEL]: {
+    agreement: [sel.agreement, ['result'], []],
+    seal: [sel.seal, ['result'], ['frame', 'error']],
+    open: [sel.open, ['result'], ['kind', 'payload', 'record']],
   },
 };
 
@@ -108,9 +116,12 @@ function listFixtures() {
 }
 
 // The revisions each document has had; a fixture cites the one it was written against
-// (§3.3). A document not listed has had only 0.1.
+// (§3.3).
 const REVISIONS = {
   'spec/bindings/mcp.md': ['0.1', '0.2'],
+  'spec/security.md': ['0.1', '0.2', '0.3'],
+  'spec/session-channels.md': ['0.1', '0.2'],
+  'spec/interfaces.md': ['0.1', '0.2', '0.3'],
 };
 
 // The fixture's own form (§3.3; spec/bindings/mcp.md §12.2).

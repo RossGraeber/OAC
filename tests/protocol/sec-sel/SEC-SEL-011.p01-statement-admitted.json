@@ -1,0 +1,37 @@
+{
+  "fixture_format": "oac-sealing-fixture/1",
+  "requirement": "SEC-SEL-011",
+  "spec": "spec/security.md",
+  "spec_revision": "0.3",
+  "kind": "positive",
+  "description": "Bob's agreement statement, signed by Bob's device key under oac-agreement-v1, is admitted by a consumer that trusts Bob's key.",
+  "stage": "agreement",
+  "context": {
+    "trusted_keys": [
+      {
+        "principal": "principal-a",
+        "key_id": "b3db3806621d3de16e61d08fcb01841f6c60c54a68e7d482076677db5c44d174",
+        "public_key": "b88HyoN6BEjyTX4WNo6n8JJcjhXQUuVjex4U1p-vqzc"
+      },
+      {
+        "principal": "principal-b",
+        "key_id": "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a",
+        "public_key": "nAwqaFMHIMyOtfh4ovJIGr8MJhLV3qhFaN550YS7M2g"
+      }
+    ]
+  },
+  "input": {
+    "statement": {
+      "agreement_key": "wcSSzJLhvIMKmwB60NLYtLZcibdrU5_XcugIsJugBG8",
+      "issued_at": "2026-10-09T12:00:00Z",
+      "security": {
+        "principal": "principal-b",
+        "key_id": "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a",
+        "signature": "Nl5LzITZ8cKCOCLaA9uXBVcLavI0PIzvXr8ZA6XPmQ09L9cf1S4TaE8Rcajd2584gJ6WjbePQgrMZMPOYqeTBw"
+      }
+    }
+  },
+  "expected": {
+    "result": "admitted"
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "fixture_format": "oac-sealing-fixture/1",
+  "requirement": "SEC-SEL-013",
+  "spec": "spec/security.md",
+  "spec_revision": "0.3",
+  "kind": "negative",
+  "failure_mode": "small-order agreement key (u = 0)",
+  "description": "An agreement key of u = 0, a point of small order, is refused.",
+  "stage": "agreement",
+  "context": {
+    "trusted_keys": [
+      {
+        "principal": "principal-a",
+        "key_id": "b3db3806621d3de16e61d08fcb01841f6c60c54a68e7d482076677db5c44d174",
+        "public_key": "b88HyoN6BEjyTX4WNo6n8JJcjhXQUuVjex4U1p-vqzc"
+      },
+      {
+        "principal": "principal-b",
+        "key_id": "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a",
+        "public_key": "nAwqaFMHIMyOtfh4ovJIGr8MJhLV3qhFaN550YS7M2g"
+      }
+    ]
+  },
+  "input": {
+    "statement": {
+      "agreement_key": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "issued_at": "2026-10-09T12:00:00Z",
+      "security": {
+        "principal": "principal-b",
+        "key_id": "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a",
+        "signature": "Yc7k7PUTJNQt6O8JSsaxqjfBsZEGWzpoIRh7eqDKHEjdQWgA-3tzcL_OKSBWcJdI3RKydfD3jswx21GF7w6rBQ"
+      }
+    }
+  },
+  "expected": {
+    "result": "refused"
+  }
+}
