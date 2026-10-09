@@ -1,7 +1,13 @@
 # SPDX-License-Identifier: Apache-2.0
 #
-# adapters/claude/: depends on core/ only. Never on another adapter, a transport, or cli/
-# (07 section 3; scripts/check-crate-deps.mjs).
+# adapters/claude/: depends on core/ and adapters/mcp-tools only. Never on another adapter, a
+# transport, or cli/ (07 section 3; scripts/check-crate-deps.mjs).
+#
+# rmcp and tokio are the vetted MCP server side (G-7 sections 3.1 and 5): rmcp pinned exactly,
+# default features off, `server` and `transport-async-rw` only, never `macros`; tokio pinned
+# exactly, with only features rmcp itself turns on (no `net`, `process`, `fs`). The adapter
+# static scan vets each line by identity, pin and features
+# (tests/protocol/contract/adapter/src/source.rs VETTED_DEPENDENCIES).
 
 [package]
 name = "oac-adapter-claude"
@@ -20,3 +26,13 @@ doctest = false
 
 [dependencies]
 oac-core.workspace = true
+oac-mcp-tools.workspace = true
+rmcp = { version = "=3.4.0", default-features = false, features = ["server", "transport-async-rw"] }
+tokio = { version = "=1.53.2", features = ["rt", "sync", "io-util", "time"] }
+
+# The adapter contract suite runs from tests/contract.rs only (#59; G-7). An adapter takes no
+# other dev-dependency (ADAPTER_DEV_DEPENDENCIES in harness_location.rs).
+[dev-dependencies]
+oac-contract-adapter = { path = "../../tests/protocol/contract/adapter" }
+oac-core.workspace = true
+oac-fake-claude = { path = "../../tests/fakes/claude" }
