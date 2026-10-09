@@ -43,9 +43,11 @@ does not stop a fork's pull request from editing *another* workflow. For a
 `pull_request` event, GitHub runs the workflow files from the pull request's merge commit
 (`content/actions/reference/workflows-and-actions/events-that-trigger-workflows.md`
 L458-462: `GITHUB_SHA` is the "Last merge commit on the `GITHUB_REF` branch", `GITHUB_REF`
-is `refs/pull/PULL_REQUEST_NUMBER/merge`). A fork can therefore change
-`.github/workflows/boundary-lint.yml`, which runs on every pull request, to
-`runs-on: [self-hosted, oac-harness, linux]` and run its own code on the runner.
+is `refs/pull/PULL_REQUEST_NUMBER/merge`). A fork can therefore add a workflow with a
+`pull_request` trigger and `runs-on: [self-hosted, oac-harness, linux]` and run its own code
+on the runner. (Until 2026-10-08 it could simply edit `boundary-lint.yml`, which ran on every
+pull request; no workflow in this repository has a PR trigger since then, but a fork's pull
+request still brings its own workflow files, so that changes nothing here.)
 
 **Fork-PR approval is not the protection.** GitHub's approval setting decides whose fork
 pull requests run without a maintainer's click. GitHub itself says it is not a security
@@ -186,26 +188,33 @@ therefore doubly UNVERIFIED until its first dispatch.
 
 ## 3. What the workflow does
 
-**Triggers.** Only these two:
+**Trigger.** Only this one:
 
 - `workflow_dispatch`, with inputs `scenario` (choice: `smoke`, `g1-claude-wake`; default
-  `smoke`) and `runner` (choice: `both`, `linux`, `windows`; default `both`);
-- `push` to `main` that changes `docs/planning/PINS.md`. That run uses `smoke` on both
-  runners. It checks that herdr at the (possibly new) pin still starts, reads a pane and
-  tears down. It does not run G1, which needs the operator at the keyboard.
+  `smoke`) and `runner` (choice: `both`, `linux`, `windows`; default `both`).
+
+Until 2026-10-08 a `push` to `main` that changed `docs/planning/PINS.md` also started a
+`smoke` run on both runners. That trigger was removed with all GitHub-side runs a person did
+not start (lead decision, 2026-10-08; `docs/planning/v0.1/09-test-strategy.md` §3's dated
+note): after a herdr pin move, dispatch `smoke` by hand. Self-hosted runs bill no GitHub
+Actions minutes; the upload step stores a run artifact for 14 days.
 
 There is no other trigger. `scripts/check-herdr-containment.mjs` check 9 reads the
-workflow's `on:` keys and fails the build unless they are exactly `workflow_dispatch` and
-`push`, with `push` limited to `main` and `docs/planning/PINS.md`. It is an allowlist, so
-a trigger any GitHub user can fire (`issues`, `watch`, `fork`, `discussion`, …) fails too.
+workflow's `on:` keys and fails `node scripts/local-ci.mjs` unless they are exactly
+`workflow_dispatch`, and `scripts/check-workflows.mjs` W7 does the same for every workflow.
+It is an allowlist, so `push`, `schedule` and any trigger any GitHub user can fire
+(`issues`, `watch`, `fork`, `discussion`, …) fail too.
 The same check requires `permissions` to be exactly `contents: read`, every `uses:` to be
 `actions/checkout` or `actions/upload-artifact` pinned by commit SHA, checkout to set
 `persist-credentials: false`, and forbids any `secrets` or `github.token` use (see
 `.claude/skills/oac-boundaries/references/mechanical-checks.md`). No other workflow runs
 the driver or names a label these runners carry (check 9 again). The pre-job hook (§1)
-refuses any other event or workflow on the runner itself, whatever the files say. The default CI tier,
-`boundary-lint.yml` on `ubuntu-latest`, is unchanged. It runs the containment lint, which
-mentions herdr only in its script name, and never runs the driver or herdr.
+refuses any other event or workflow on the runner itself, whatever the files say. (The hook
+still admits a `push` event; with no push trigger in the workflow none arrives, and
+tightening the hook to `workflow_dispatch` only is a runner-side change for the operator.)
+The default CI tier runs client-side (`node scripts/local-ci.mjs`), never on these runners.
+It runs the containment lint and the driver's offline self-test against test doubles, never
+herdr itself or a harness.
 
 **Concurrency.** One job at a time per runner label: group
 `herdr-provider-optin-<linux|windows>`, `cancel-in-progress: false`. A run in progress is

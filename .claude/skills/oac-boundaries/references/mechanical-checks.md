@@ -4,17 +4,22 @@ The boundary lint scripts are `scripts/check-herdr-containment.mjs` (checks 9 an
 `scripts/check-containment.mjs` (checks 12 and 13, #61).
 Checks 1-8 have no script: this file **is** the check — run the whole list as part of every
 `type:code` / `type:spec` work item, not just once. (`scripts/check-skills.mjs` checks skill
-budgets, not ADR-001 boundaries.) `.github/workflows/boundary-lint.yml` runs checks 1, 2, 3, 8, 9,
-10, 11, 12 and 13 on every pull request and push to main. Checks 1-2 run over `spec/`, which is mandatory
+budgets, not ADR-001 boundaries.) `node scripts/local-ci.mjs` runs checks 1, 2, 3, 8, 9,
+10, 11, 12 and 13, client-side, before every PR and merge (no GitHub-hosted CI since
+2026-10-08; the `rg` commands of checks 1-3, 8 and 11 sit verbatim in `.github/local-ci.sh`,
+copied from the deleted `boundary-lint.yml`). Checks 1-2 run over `spec/`, which is mandatory
 (a missing `spec/` fails), and over `core/` once it exists, together with the zero-hits group
 of `oac-spec-authoring` `references/neutral-vocabulary-check.md` over `spec/` (#41). Check 2
 and that group exempt exactly `spec/bindings/mcp.md` (the task E6 binding document); check 1
 exempts nothing. `--hidden` keeps dot-files in scope, and `--no-ignore` stops a committed
 `.ignore`, `.rgignore` or `.gitignore` from switching a check off (checks 3 and 8 carry it
-too). In CI the spec checks run on an explicit `find` list of every regular file under
+too). In `local-ci.mjs` the spec checks run on an explicit `find` list of every regular file under
 `spec/` (and `core/`), so the exemption is that one regular file and nothing else: a
 non-regular `spec/bindings/mcp.md`, or any symlink under `spec/`, fails the step. The
-commands below are the manual equivalents. Checks 4-7 are not wired to CI and stay manual.
+commands below are the manual equivalents. Checks 4-7 are not wired to `local-ci.mjs` and
+stay manual. Known quirk of check 3 as written (kept verbatim; `local-ci.mjs --self-test`
+pins it): ripgrep lets the last matching glob win, so the later `--glob '*.json'` etc.
+override `!docs/**` and `!target`, and a docs/ or target/ file of a scanned type is scanned.
 
 All commands are Git Bash / ripgrep syntax. `spec/` exists since 2026-10-03 (#41).
 `core/`, `adapters/claude/`, `adapters/codex/`, `cli/` and `transports/zenoh/` exist since
@@ -43,7 +48,7 @@ manifests.
 
 Checks 9 and 10 report pending themselves instead of via a ripgrep path error: a target with
 no git-tracked files prints `PENDING`, the last line reads `Result: PENDING`, and the exit code
-is 0 so CI stays green. `Result: PENDING` is still not a pass — only `Result: CLEAN` is. Any
+is 0 so `local-ci.mjs` stays green. `Result: PENDING` is still not a pass — only `Result: CLEAN` is. Any
 violation exits 1 with `Result: FAIL`.
 
 ```bash
@@ -107,20 +112,15 @@ rg -n --no-ignore -i --glob '!docs/**' 'dockerfile|docker-compose|kubernetes|hel
 #    Workflows (K6): no workflow other than
 #    .github/workflows/herdr-provider-optin.yml names tools/herdr or any label a
 #    self-hosted runner carries (self-hosted, oac-harness, linux, windows, macos, x64, arm,
-#    arm64 -- a job routes to any runner holding all its runs-on labels). One exact line is
-#    exempt (#345): a `run:` of `[$LOOPBACK_ONLY ]node tools/herdr/run.mjs --self-test`, the
-#    driver's offline self-test against its test doubles (ci.yml `herdr-selftest`); any
-#    other text on the line, a comment naming the path, or a run: block still fails, and
-#    the whole parsed `run:` value must be exactly that command: a deeper-indented
-#    continuation line, or the line inside a block, quoted or flow scalar, fails (PR #349
-#    review B1). Its step may hold only name/id/if/shell/run/timeout-minutes, each once,
-#    shell only `bash`; no job env:/defaults:/container:/services:, no workflow defaults:,
-#    workflow env: CARGO_* only, and no YAML anchor, alias or merge key (#353; D2 holds the
-#    same). Not statically checkable: a sibling step writing to `$GITHUB_ENV` (ci.yml sets
-#    LOOPBACK_ONLY that way); that rests on review of the job. The opt-in
+#    arm64 -- a job routes to any runner holding all its runs-on labels). No line is
+#    exempt any more: the #345 exemption for the driver self-test line (hardened by PR #349
+#    and #353) was retired on 2026-10-08 with ci.yml, the one workflow that used it; the
+#    self-test runs client-side in `node scripts/local-ci.mjs`. With no other workflow
+#    tracked, this target reports ok, not PENDING (scripts/check-workflows.mjs W8 refuses a
+#    hosted runner, so together the two leave room for no other workflow). The opt-in
 #    workflow is read with a small fail-closed YAML reader and must have: `on:` exactly
-#    {workflow_dispatch, push} (an allowlist: issues/watch/fork/discussion/PR events all
-#    fail), push limited to branches [main] and paths [docs/planning/PINS.md],
+#    {workflow_dispatch} (an allowlist: push, schedule, issues/watch/fork/discussion/PR
+#    events all fail; the push-on-PINS.md trigger was removed 2026-10-08),
 #    workflow_dispatch with inputs only, top-level permissions exactly contents: read and
 #    no job-level permissions, every `uses:` actions/checkout or actions/upload-artifact
 #    at a 40-hex commit SHA, checkout with persist-credentials: false; and must not have
@@ -128,7 +128,7 @@ rg -n --no-ignore -i --glob '!docs/**' 'dockerfile|docker-compose|kubernetes|hel
 #    `github.token`, a `${{ }}` inside a `run:` block, or a direct driver call or driver
 #    option. Text rules apply to comments too, so the opt-in workflow's own comments
 #    avoid those words. All of this catches drift in this repository, not a fork: a
-#    fork's pull request runs its own copy of every workflow and of this lint. The
+#    fork can edit any workflow and this lint. The
 #    runner-side pre-job hook is what refuses a fork (docs/planning/gates/herdr-runner.md
 #    section 1).
 # 10. The herdr driver must not touch harness credentials or harness config (boundaries 3,
@@ -137,7 +137,7 @@ rg -n --no-ignore -i --glob '!docs/**' 'dockerfile|docker-compose|kubernetes|hel
 #    keyring/keychain/OS credential-store access, `integration install`, and harness
 #    config-mutating CLI calls (`claude|codex mcp add/remove`, `plugin install`,
 #    `config set`, `login`, ...).
-#    Both scan the git index (staged blobs, what CI sees), not the work tree. An entry is
+#    Both scan the git index (staged blobs, what a clone sees), not the work tree. An entry is
 #    matched by its path, a file by its blob, a symlink by its stored target and then by
 #    where it lands after following tracked symlinks segment by segment, as realpath does
 #    (chains and symlinked directories, each expanded before a following `..`; the landed
@@ -176,8 +176,8 @@ node scripts/check-herdr-containment.mjs --self-test
 #    no spec/ exception: Beacon guidance is docs-only, so spec/ text never names it.
 #    Case-insensitive; a hit in a tracked path name or in file content fails. Scans the
 #    git index (git ls-files), not the work tree. No tracked file in scope prints PENDING
-#    and exits 0 -- pending is not a pass. CI runs this exact command as boundary-lint.yml
-#    step "Check 11 - no Beacon in product paths"; change both together.
+#    and exits 0 -- pending is not a pass. `local-ci.mjs` runs this exact command as
+#    section `boundary-check-11` of .github/local-ci.sh; change both together.
 pattern='\bbeacon\b|beacon_|beacon-managed|agent-beacon|asymptote-labs|memory\.db|get_memory_context|search_memory|get_memory\b'
 mapfile -d '' files < <(git ls-files -z -- adapters core cli transports spec Cargo.toml Cargo.lock)
 if [ "${#files[@]}" -eq 0 ]; then echo "check 11 PENDING"; else
@@ -206,7 +206,7 @@ fi
 #    comment lines and Markdown are skipped). check-crate-deps.mjs rule 5 covers the
 #    cargo graph.
 #    Both scan the git index; a symlink or submodule in scope fails closed; an empty scope
-#    is an error. CI: boundary-lint.yml job `containment`.
+#    is an error. Run by `local-ci.mjs` steps `containment` and `containment-self-test`.
 node scripts/check-containment.mjs
 node scripts/check-containment.mjs --self-test
 ```

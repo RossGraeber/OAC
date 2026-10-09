@@ -100,6 +100,12 @@ Pick an [issue](https://github.com/RossGraeber/OAC/issues), read its **Skills:**
 sets the architectural boundaries. Include evidence for provider behavior and keep
 unverified findings explicit.
 
+There is no GitHub-hosted CI. Before opening or merging a pull request, run
+`node scripts/local-ci.mjs` on Windows and in WSL and paste each summary (it names the
+git HEAD SHA) into the pull request. Opt-in tiers run on demand with
+`--tier keystore|scale|mutation|g3-macos`; see
+[the test strategy](docs/planning/v0.1/09-test-strategy.md) §3.
+
 ## Credits and license
 
 Thanks to the projects making this research possible, especially

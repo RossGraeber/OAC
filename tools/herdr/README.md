@@ -13,7 +13,8 @@ never replaces a supported interface and it decides nothing.
   credentials or edits harness config.
 - Never CI-default. Every run needs a real, logged-in harness, so it is opt-in by
   construction (`docs/planning/v0.1/09-test-strategy.md` §4). The only CI entry point is
-  `ci.mjs`, run by the opt-in workflow on operator-owned runners (K6).
+  `ci.mjs`, run by the opt-in workflow on operator-owned runners (K6), by manual dispatch
+  only since 2026-10-08 (the one workflow left; there is no GitHub-hosted CI).
 - Node built-ins only. No `package.json`.
 - How a scripted run is recorded, what it may conclude, its verification (#252) and verdict
   eligibility: `.claude/skills/oac-gates/references/scripted-runs.md`. Where its evidence
@@ -583,12 +584,13 @@ compares working-tree files with HEAD in git's normalized form, as `git status` 
 **3. Symlinks (self-test only).** `node tools/herdr/run.mjs --self-test` creates symlinks.
 On Windows that needs Developer Mode (Settings > System > For developers) or an elevated
 shell; without it the G1 git test fails with `EPERM` on `symlink`. The lifecycle half of the
-self-test needs POSIX `sh` and is skipped on Windows. CI runs the whole self-test in the
-default tier (#345, `.github/workflows/ci.yml` job `herdr-selftest`, on the ubuntu, macos and
-windows images, under `scripts/loopback-only.sh` on ubuntu), against the test doubles only.
-(macos since #353: its temp directory sits under the symlinked `/var`, which every driver path
-guard now canonicalizes, and the fake Codex daemon's socket lives in a short `/tmp`
-directory.) To loop one lifecycle case (#239), set
+self-test needs POSIX `sh` and is skipped on Windows. `node scripts/local-ci.mjs` runs the
+whole self-test in its default tier (step `herdr-self-test`; under `scripts/loopback-only.sh`
+on Linux), against the test doubles only; run it on Windows and in WSL. Until 2026-10-08 the
+hosted `ci.yml` job `herdr-selftest` ran it on the ubuntu, macos and windows images (#345;
+macos since #353); there is no hosted CI now, so the macOS run happens only on a Mac.
+`node scripts/local-ci.mjs --quick` sets `OAC_HERDR_SELFTEST_UNIT_ONLY=1`, which skips the
+slow lifecycle half; a summary for a PR comes from the full run. To loop one lifecycle case (#239), set
 `OAC_HERDR_SELFTEST_ONLY` to part of its name, e.g.
 `OAC_HERDR_SELFTEST_ONLY='selection does not move' node tools/herdr/run.mjs --self-test`: only
 the matching lifecycle cases run, and a filter that matches none fails.
@@ -626,9 +628,11 @@ as an error. A repository checkout on such a filesystem is refused with that rea
 
 The Linux namespace cases in the self-test need an unprivileged user and mount namespace: the
 bind mount of a home, the overlayfs merged-vs-`lowerdir` case, and the L3 file mounted in from
-a tmpfs. The CI loopback-only sandbox does not allow such a namespace. Where a case is skipped
-under GitHub Actions, the skip is also emitted as a `::warning::` annotation, so it shows on
-the run summary (#357). They run on WSL.
+a tmpfs. The loopback-only sandbox (`local-ci.mjs` on Linux) does not allow such a namespace.
+A skipped case is printed in the self-test's output, so it shows in the `herdr-self-test`
+step of `node scripts/local-ci.mjs` (#357; when `GITHUB_ACTIONS=true` it is also emitted as a
+`::warning::` annotation, but no GitHub-hosted run exists any more). They run on WSL outside
+the sandbox (`node tools/herdr/run.mjs --self-test`).
 
 Residuals the guard cannot close (each but the race needs mount privilege or a hard link
 made by the operator's own account):

@@ -125,8 +125,9 @@ you're doing is actually this, before treating it as a violation.
 `scripts/check-herdr-containment.mjs` (checks 9-10: herdr kept out of product paths, no
 credential access in the herdr driver) and `scripts/check-containment.mjs` (checks 12-13:
 Zenoh containment outside `transports/zenoh/`, test doubles out of product code) are the
-boundary lints; CI runs both via `.github/workflows/boundary-lint.yml`, which also runs
-greps 1, 2, 3, 8 and 11 (11: no Beacon in product paths). The full runnable set, with current pass/pending
+boundary lints; `node scripts/local-ci.mjs` runs both (client-side; there is no
+GitHub-hosted CI since 2026-10-08), and greps 1, 2, 3, 8 and 11 verbatim from
+`.github/local-ci.sh` (11: no Beacon in product paths). The full runnable set, with current pass/pending
 status against this repo, is `references/mechanical-checks.md`. Run it before every
 `type:code`/`type:spec` work item; of the paths it targets (`spec/`, `core/`, `adapters/`,
 `cli/`, `transports/zenoh/`) only `spec/` exists yet, so most checks report a missing-path

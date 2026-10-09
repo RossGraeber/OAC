@@ -24,9 +24,9 @@ by the one agent who needed exactly that fact.
 
 | Thing | Cap | Enforced by |
 |---|---|---|
-| `CLAUDE.md` | 40 lines | `node scripts/check-skills.mjs` (CI once wired) |
-| `description` frontmatter field | 2 lines / 280 chars | `node scripts/check-skills.mjs` (CI once wired) |
-| `SKILL.md` body (after frontmatter) | 200 lines | `node scripts/check-skills.mjs` (CI once wired) |
+| `CLAUDE.md` | 40 lines | `node scripts/check-skills.mjs` (in `local-ci.mjs`) |
+| `description` frontmatter field | 2 lines / 280 chars | `node scripts/check-skills.mjs` (in `local-ci.mjs`) |
+| `SKILL.md` body (after frontmatter) | 200 lines | `node scripts/check-skills.mjs` (in `local-ci.mjs`) |
 | `references/*.md` | none | not size-capped; loaded individually, never wholesale |
 
 Aim well under the cap. A 90-line skill that routes correctly beats a 199-line one.
@@ -125,7 +125,7 @@ description: Trigger-rich one-or-two-line summary naming what it holds and when 
 - **Every** edit under `.claude/skills/` or to `CLAUDE.md`: run
   `node scripts/sync-agents-skills.mjs` to regenerate the Codex copy
   (`.agents/skills/`, `AGENTS.md`) and commit it. Never hand-edit the copy;
-  CI runs `--check` and fails on drift.
+  `node scripts/local-ci.mjs` runs `--check` and fails on drift.
 
 ## 7. Surface skills: the pin section
 
@@ -166,7 +166,7 @@ Stage 0 closes:
 - [ ] Move expensive verbatim detail to `references/` per §4.
 - [ ] Add the skill to the `oac` router's label -> skill table if it's loaded
       by a label.
-- [ ] Run `node scripts/check-skills.mjs` (or wait for CI once wired) before
+- [ ] Run `node scripts/check-skills.mjs` (or `node scripts/local-ci.mjs`) before
       calling it done.
 
 ## 9. Checklist: reviewing an existing skill

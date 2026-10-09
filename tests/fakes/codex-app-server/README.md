@@ -230,7 +230,9 @@ Dev/test only (`docs/planning/v0.1/07-repository-and-dependencies.md` §2, `test
 
 A product path may not *import* code from `tests/fakes/` (spawning it by path from a
 crate's test is the intended use): `scripts/check-containment.mjs` check 13 (#61, F12), the
-check-9 sibling, enforces this in CI.
+check-9 sibling, enforces this in `node scripts/local-ci.mjs`.
 
-Its self-test runs in the `test` job of `.github/workflows/ci.yml` (#61; before that, job
-`fake-codex` of `boundary-lint.yml`), on Linux, Windows and macOS.
+Its self-test runs as step `fake-codex-self-test` of `node scripts/local-ci.mjs`, the
+client-side CI, on Windows and in WSL (under `scripts/loopback-only.sh` on Linux). Until
+2026-10-08 it ran in the `test` job of the hosted `ci.yml` (#61; before that, job
+`fake-codex` of `boundary-lint.yml`) on Linux, Windows and macOS.

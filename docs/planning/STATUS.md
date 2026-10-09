@@ -4,6 +4,52 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
+**Last updated:** 2026-10-09 (**No GitHub-hosted CI: every check runs client-side with
+`node scripts/local-ci.mjs`** (Refs #123). The lead decided on 2026-10-08 that PR checks run
+client-side ("Tests for PR should be done client side"), then that "Anything that has an
+associated cost on the github side needs to go". No gate verdict, pin, spec text, ADR text
+or dependency changes.
+
+- **Workflows.** Deleted, all on GitHub-hosted runners: `ci.yml`, `boundary-lint.yml`,
+  `keystore-optin.yml`, `scale-optin.yml`, `security-mutation-optin.yml` (and its weekly
+  schedule), `g3-macos-hosted.yml`. Kept: `herdr-provider-optin.yml` (operator-owned
+  self-hosted runners, no GitHub minutes), its push-on-PINS.md trigger removed: manual
+  dispatch only.
+- **Runner.** `scripts/local-ci.mjs` runs every step of the deleted workflows: the default
+  tier before every PR and merge, on Windows and in WSL (on Linux the test steps run in
+  `scripts/loopback-only.sh`), with a summary naming the HEAD SHA pasted into the PR; `--quick`
+  skips the herdr self-test's lifecycle half; opt-in tiers `--tier keystore|scale|mutation|
+  g3-macos` on demand. The boundary-lint `rg` commands sit verbatim in `.github/local-ci.sh`.
+  Its `--self-test` maps every deleted workflow step to a local step, runs the plan on three
+  OSes against a stub, checks every script and flag, holds the default tier to the old D2/D3
+  policy, and runs each `rg` check on planted throwaway trees.
+- **Lints.** `scripts/check-workflows.mjs`: new W7 (only `workflow_dispatch`) and W8
+  (self-hosted runners only); W6 (no cargo source override, PR #352) stays, and its policy
+  also holds over `local-ci.mjs`'s steps; D1-D3 retired with the hosted default tier. Check 9:
+  the opt-in workflow's only trigger is `workflow_dispatch`; the #345 self-test-line exemption
+  is retired; no other workflow tracked is ok, not PENDING. `local-ci.mjs` runs PR #352's
+  `check-crate-deps.mjs --adapters-alone`, and names the paths each step depends on for
+  change-scoped runs (#362, not implemented).
+- **Lost coverage.** The macOS legs (the old `ci.yml` macos image, `keystore-optin` Keychain,
+  `g3-macos-hosted`) run only where a Mac is available; the weekly mutation schedule and the
+  push-to-main runs are gone; runs no longer start on a clean hosted image, so cargo config
+  outside the repository (`$CARGO_HOME/config.toml`, an ancestor's `.cargo/config.toml`) can
+  swap a crate's source behind the dependency checks: step `cargo-config` fails on any such
+  file, or untracked repository-local `.cargo/config(.toml)` (a linked `.cargo` followed,
+  a dangling one failing closed), unless `--allow-cargo-config` (PR #365 review B2, B4, B5), and step `environment` fails on an inherited
+  `OAC_HERDR_SELFTEST_*`/`OAC_TEST_*` switch and, unless `--allow-env`, on any `CARGO_*`
+  outside a short allowlist (a `CARGO_ALIAS_CLIPPY` can replace clippy), `NODE_OPTIONS`,
+  `RUSTFLAGS`, `RUSTC_WRAPPER`, `RUSTC_BOOTSTRAP` and the like (B3, B4). Still local trust,
+  unchecked: PATH shims for cargo, rustc, node, bash, git or rg; a toolchain linked under
+  rustup that reports 1.98.1; `RUSTUP_HOME` (only `rustc --version` is checked). The port is frozen as data in `scripts/local-ci.ported.json` (50
+  rows, count and sha256) and `--self-test` compares the live plan with it (review B1). PR
+  #330's candidate required-checks list no longer applies.
+- **Docs.** `oac-testing` §2, `oac-implementation`, `oac-boundaries` and its
+  mechanical-checks reference, `oac-authoring-skills`, 09 §3-4, 07, `herdr-runner.md`, the
+  herdr, security, integration and fake-Codex READMEs; `.agents/` re-synced. The G1 Zenoh
+  transport (#364), the sealing spec (#367) and #355 add no workflow step: their tests run
+  inside the existing `cargo test --workspace` and conformance-runner steps.)
+
 **Last updated:** 2026-10-09 (**Payload sealing: per-recipient encryption of every payload
 on a shared transport, proposed as a minor revision of the frozen specifications for the
 lead's approval** (Refs #62, #64, #7). On 2026-10-09 the lead ruled on PR #364 (G1, review
