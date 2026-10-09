@@ -33,14 +33,19 @@
 // TOML spellings: quoted keys, inline tables, dotted keys) behind check-crate-deps.mjs,
 // --adapters-alone and the licence inventory (G-7 section 5, check-workflows.mjs W6). Hosted
 // runners started clean; a developer machine does not. Step `cargo-config` fails on ANY such
-// file unless --allow-cargo-config; the keys it recognises are reported as information only.
+// file, and on any repository-local `.cargo/config(.toml)` git does not track (root or member
+// directory; an `[alias] clippy = "test --no-run"` there silently replaces a step, PR #365
+// re-review B4), unless --allow-cargo-config; the keys it recognises are information only.
 //
-// Inherited environment (PR #365 re-review B3): step `environment` fails on an inherited
+// Inherited environment (PR #365 re-reviews B3, B4): step `environment` fails on an inherited
 // OAC_HERDR_SELFTEST_* or OAC_TEST_* (each would switch a step off or on unseen; --quick and
 // the keystore tier set theirs for their own child only, and inherited ones are dropped from
-// every child), and, unless --allow-env, on NODE_OPTIONS, RUSTFLAGS, CARGO_ENCODED_RUSTFLAGS,
-// RUSTDOCFLAGS, RUSTC, RUSTC_WRAPPER, RUSTC_WORKSPACE_WRAPPER, CARGO_BUILD_*, CARGO_TARGET_*,
-// CARGO_PROFILE_*, CARGO_SOURCE_* and CARGO_PATCH*. The summary lists them, and CARGO_HOME.
+// every child), and, unless --allow-env, on any CARGO_* outside an allowlist (CARGO_TERM_*,
+// CARGO_HTTP_*, CARGO_NET_*, CARGO_LOG, CARGO_INCREMENTAL; every cargo config key has a
+// CARGO_* form, CARGO_ALIAS_CLIPPY included), `CARGO`, NODE_OPTIONS, RUSTFLAGS, RUSTDOCFLAGS,
+// RUSTC, RUSTDOC, RUSTC_WRAPPER, RUSTC_WORKSPACE_WRAPPER, RUSTC_BOOTSTRAP, and a
+// RUSTUP_TOOLCHAIN other than rust-toolchain.toml's channel. The summary lists them, and
+// CARGO_HOME. The summary's work-tree line counts untracked files too.
 //
 // The default tier keeps the old rules (oac-testing section 2; PLANNING-PROMPT sections 6 and
 // 9.10): no live provider, no API key, no network beyond loopback. The one networked step is
@@ -84,7 +89,7 @@
 
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir, release as osRelease } from 'node:os';
 import { dirname, join, parse as parsePath, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -112,8 +117,8 @@ const OFFLINE = { CARGO_NET_OFFLINE: 'true' };
 const LINUX_ONLY_SANDBOX = 'not Linux: no network namespace; the rule rests on offline cargo and loopback-only fakes, as on the old windows/macos CI legs';
 
 const toolchain = { id: 'toolchain', name: `rustc is the ${TOOLCHAIN} pin (rust-toolchain.toml)`, check: 'toolchain' };
-const cargoConfig = { id: 'cargo-config', name: 'no cargo config file outside the repository (PR #365 B2)', check: 'cargo-config' };
-const environment = { id: 'environment', name: 'no inherited variable switches a step off or changes the build (PR #365 B3)', check: 'environment' };
+const cargoConfig = { id: 'cargo-config', name: 'no cargo config file outside the repository or untracked in it (PR #365 B2, B4)', check: 'cargo-config' };
+const environment = { id: 'environment', name: 'no inherited variable switches a step off or changes the build (PR #365 B3, B4)', check: 'environment' };
 const fetch = { id: 'cargo-fetch', name: 'cargo fetch --locked (the one networked step)', cmd: ['cargo', 'fetch', '--locked'] };
 const loopbackSelect = { id: 'loopback-select', name: 'loopback-only sandbox: select (mandatory on Linux)', check: 'loopback-select', os: ['linux'], osReason: LINUX_ONLY_SANDBOX };
 const loopbackProbe = { id: 'loopback-probe', name: 'loopback-only sandbox: probe (loopback connects, nothing else is reachable)', cmd: ['bash', 'scripts/loopback-only.sh', '--probe'], os: ['linux'], osReason: LINUX_ONLY_SANDBOX };
@@ -398,7 +403,51 @@ const SOURCE_KEYS = [
   [/^\s*patch\s*\./, 'patch.*'],
   [/\breplace-with\s*=/, 'replace-with'],
   [/^\s*paths\s*=/, 'paths'],
+  [/^\s*\[\s*alias\b/, '[alias]'],
+  [/^\s*alias\s*\./, 'alias.*'],
 ];
+// { path, flagged } for one config file, or null when it is not a readable regular file.
+function describeConfig(path) {
+  let text;
+  try {
+    if (!statSync(path).isFile()) return null;
+    text = readFileSync(path, 'utf8');
+  } catch {
+    return null;
+  }
+  // Information only (PR #365 re-review): TOML has too many spellings of a key for a line
+  // match to be a gate. Quotes are dropped and inline tables split before matching.
+  const lines = text.split(/\r?\n/).flatMap((l) => l.replace(/#.*$/, '').replace(/["']/g, '').split(/[{,]/));
+  const flagged = SOURCE_KEYS.filter(([re]) => lines.some((l) => re.test(l) || re.test(`[${l.replace(/^\s*(\w[\w.-]*)\s*=.*$/, '$1')}`))).map(([, what]) => what);
+  return { path, flagged };
+}
+// Repository-local `.cargo/config(.toml)` files git does not track (PR #365 re-review B4), at
+// the root or in any member directory: cargo reads one when it runs there, and an untracked
+// file is no reviewer-visible diff. (A tracked one is a diff, and check-crate-deps.mjs rule 7
+// reads it.) target/, .git/ and node_modules/ are not searched.
+export function repoLocalUntrackedConfigs(root = repoRoot) {
+  const found = [];
+  const walk = (dir, depth) => {
+    let entries;
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      if (!e.isDirectory() || ['target', '.git', 'node_modules'].includes(e.name)) continue;
+      const sub = join(dir, e.name);
+      if (e.name === '.cargo') {
+        for (const f of ['config', 'config.toml']) if (existsSync(join(sub, f))) found.push(join(sub, f));
+      } else if (depth < 12) walk(sub, depth + 1);
+    }
+  };
+  walk(root, 0);
+  if (!found.length) return [];
+  const rel = found.map((p) => p.slice(resolve(root).length + 1).split('\\').join('/'));
+  const tracked = new Set((spawnSync('git', ['ls-files', '-z', '--', ...rel], { cwd: root, encoding: 'utf8' }).stdout ?? '').split('\0').filter(Boolean));
+  return found.filter((_p, i) => !tracked.has(rel[i])).map((p) => ({ ...(describeConfig(p) ?? { path: p, flagged: [] }), local: true }));
+}
 export function cargoConfigFiles({ root = repoRoot, cargoHome = process.env.CARGO_HOME || join(homedir(), '.cargo') } = {}) {
   const candidates = [];
   let dir = dirname(resolve(root));
@@ -409,47 +458,55 @@ export function cargoConfigFiles({ root = repoRoot, cargoHome = process.env.CARG
     dir = dirname(dir);
   }
   candidates.push(join(cargoHome, 'config'), join(cargoHome, 'config.toml'));
-  const out = [];
-  for (const path of [...new Set(candidates)]) {
-    let text;
-    try {
-      if (!statSync(path).isFile()) continue;
-      text = readFileSync(path, 'utf8');
-    } catch {
-      continue;
-    }
-    // Information only (PR #365 re-review): TOML has too many spellings of a key for a line
-    // match to be a gate. Quotes are dropped and inline tables split before matching.
-    const lines = text.split(/\r?\n/).flatMap((l) => l.replace(/#.*$/, '').replace(/["']/g, '').split(/[{,]/));
-    const flagged = SOURCE_KEYS.filter(([re]) => lines.some((l) => re.test(l) || re.test(`[${l.replace(/^\s*(\w[\w.-]*)\s*=.*$/, '$1')}`))).map(([, what]) => what);
-    out.push({ path, flagged });
-  }
-  return out;
+  return [...new Set(candidates)].map(describeConfig).filter(Boolean);
 }
 
-// The gate (PR #365 re-review B2): any cargo config file outside the repository fails, unless
-// --allow-cargo-config. What a file holds is reported, never trusted to decide.
+const allCargoConfigs = () => [...cargoConfigFiles(), ...repoLocalUntrackedConfigs()];
+
+// The gate (PR #365 re-reviews B2, B4): any cargo config file outside the repository, or
+// untracked inside it, fails unless --allow-cargo-config. What a file holds is reported,
+// never trusted to decide.
 export function cargoConfigVerdict(files, allow) {
-  if (!files.length) return { status: 'PASS', note: 'no cargo config outside the repository' };
-  const list = files.map((f) => `${f.path}${f.flagged.length ? ` (holds ${f.flagged.join(', ')})` : ''}`).join('; ');
+  if (!files.length) return { status: 'PASS', note: 'no cargo config outside the repository or untracked in it' };
+  const list = files.map((f) => `${f.path}${f.local ? ' (untracked, in the repository)' : ''}${f.flagged.length ? ` (holds ${f.flagged.join(', ')})` : ''}`).join('; ');
   if (allow) return { status: 'PASS', note: `--allow-cargo-config: ${list}` };
-  return { status: 'FAIL', note: `${list}: cargo reads ${files.length === 1 ? 'it' : 'them'} and any can swap a crate's source behind the dependency checks; move ${files.length === 1 ? 'it' : 'them'} aside or pass --allow-cargo-config` };
+  return { status: 'FAIL', note: `${list}: cargo reads ${files.length === 1 ? 'it' : 'them'} and any can swap a crate's source or alias a step's command (clippy -> test) behind the checks; move ${files.length === 1 ? 'it' : 'them'} aside or pass --allow-cargo-config` };
 }
 
-// Inherited environment (PR #365 re-review B3). A step's own switches (the --quick env, the
-// keystore tier's OAC_TEST_REAL_KEYRING) are set for that child only; inherited ones are
-// refused and never passed on. Variables that change what is built or run fail unless
-// --allow-env; CARGO_HOME is listed only (a relocated cargo home is common and is what
-// step cargo-config reads).
+// Inherited environment (PR #365 re-reviews B3, B4). A step's own switches (the --quick env,
+// the keystore tier's OAC_TEST_REAL_KEYRING) are set for that child only; inherited ones are
+// refused and never passed on. Every config key of cargo has a CARGO_* environment form
+// (CARGO_ALIAS_CLIPPY="test --no-run" turns `cargo clippy -- -D warnings` into a lint-free
+// build), so CARGO_* is an allowlist, not a denylist: only CARGO_TERM_*, CARGO_HTTP_*,
+// CARGO_NET_*, CARGO_LOG and CARGO_INCREMENTAL (which local-ci sets itself) pass, and
+// CARGO_HOME is listed only (a relocated cargo home is common; step cargo-config reads it).
+// Any other CARGO_*, `CARGO` itself, NODE_OPTIONS, the RUSTFLAGS family, RUSTC and its
+// wrappers, RUSTC_BOOTSTRAP, and a RUSTUP_TOOLCHAIN other than rust-toolchain.toml's channel
+// fail unless --allow-env.
 const SWITCH_ENV = /^(?:OAC_HERDR_SELFTEST_|OAC_TEST_)/i;
-const BUILD_ENV = /^(?:NODE_OPTIONS|RUSTFLAGS|CARGO_ENCODED_RUSTFLAGS|RUSTDOCFLAGS|CARGO_ENCODED_RUSTDOCFLAGS|RUSTC_WRAPPER|RUSTC_WORKSPACE_WRAPPER|RUSTC|CARGO_BUILD_\w+|CARGO_TARGET_\w+|CARGO_PROFILE_\w+|CARGO_SOURCE\w*|CARGO_PATCH\w*)$/i;
+const CARGO_ALLOWED = /^CARGO_(?:TERM_\w+|HTTP_\w+|NET_\w+|LOG|INCREMENTAL)$/i;
+const BUILD_ENV = /^(?:NODE_OPTIONS|RUSTFLAGS|RUSTDOCFLAGS|RUSTC|RUSTC_WRAPPER|RUSTC_WORKSPACE_WRAPPER|RUSTC_BOOTSTRAP|RUSTDOC|CARGO)$/i;
 const LISTED_ENV = /^CARGO_HOME$/i;
-export function envReport(env) {
-  const keys = Object.keys(env).sort();
-  return { switches: keys.filter((k) => SWITCH_ENV.test(k)), build: keys.filter((k) => BUILD_ENV.test(k)), listed: keys.filter((k) => LISTED_ENV.test(k)) };
+function toolchainChannel() {
+  try {
+    return /^\s*channel\s*=\s*["']([^"']+)["']/m.exec(readFileSync(join(repoRoot, 'rust-toolchain.toml'), 'utf8'))?.[1] ?? TOOLCHAIN;
+  } catch {
+    return TOOLCHAIN;
+  }
 }
-export function envVerdict(env, allow) {
-  const r = envReport(env);
+export function envReport(env, channel = toolchainChannel()) {
+  const keys = Object.keys(env).sort();
+  const build = keys.filter((k) => {
+    if (SWITCH_ENV.test(k) || LISTED_ENV.test(k)) return false;
+    if (BUILD_ENV.test(k)) return true;
+    if (/^CARGO_/i.test(k)) return !CARGO_ALLOWED.test(k);
+    if (/^RUSTUP_TOOLCHAIN$/i.test(k)) return !(env[k] === channel || String(env[k]).startsWith(`${channel}-`));
+    return false;
+  });
+  return { switches: keys.filter((k) => SWITCH_ENV.test(k)), build, listed: keys.filter((k) => LISTED_ENV.test(k)) };
+}
+export function envVerdict(env, allow, channel) {
+  const r = envReport(env, channel);
   if (r.switches.length) return { status: 'FAIL', note: `inherited ${r.switches.join(', ')}: a switch only a step may set (--quick sets the herdr one for its child); unset ${r.switches.length === 1 ? 'it' : 'them'}` };
   if (r.build.length && !allow) return { status: 'FAIL', note: `inherited ${r.build.join(', ')} change${r.build.length === 1 ? 's' : ''} what is built or run; unset or pass --allow-env` };
   const parts = [...(r.build.length ? [`--allow-env: ${r.build.join(', ')}`] : []), ...(r.listed.length ? [`listed: ${r.listed.join(', ')}`] : [])];
@@ -546,7 +603,7 @@ function run(actions, ctx) {
       continue;
     }
     if (a.check === 'cargo-config') {
-      const files = cargoConfigFiles();
+      const files = allCargoConfigs();
       ctx.cargoConfigs = files;
       for (const f of files) console.log(`${f.path}: ${f.flagged.length ? `holds ${f.flagged.join(', ')} (information only)` : 'no key recognised (information only)'}`);
       const v = cargoConfigVerdict(files, ctx.allowCargoConfig);
@@ -584,16 +641,19 @@ function run(actions, ctx) {
 const fmt = (ms) => (ms < 60000 ? `${(ms / 1000).toFixed(1)}s` : `${Math.floor(ms / 60000)}m${String(Math.round((ms % 60000) / 1000)).padStart(2, '0')}s`);
 
 function cargoConfigLine(ctx) {
-  const files = ctx.cargoConfigs ?? cargoConfigFiles();
+  const files = ctx.cargoConfigs ?? allCargoConfigs();
   if (!files.length) return 'none';
-  const list = files.map((f) => `**\`${f.path}\`**${f.flagged.length ? ` (holds ${f.flagged.join(', ')})` : ''}`).join('; ');
+  const list = files.map((f) => `**\`${f.path}\`**${f.local ? ' (untracked, in the repository)' : ''}${f.flagged.length ? ` (holds ${f.flagged.join(', ')})` : ''}`).join('; ');
   return `${list}${ctx.allowCargoConfig ? ' (--allow-cargo-config)' : ''}`;
 }
 
 function summary(tier, results, ctx, totalMs) {
   const head = git(['rev-parse', 'HEAD']) ?? '(unknown)';
   const branch = git(['rev-parse', '--abbrev-ref', 'HEAD']) ?? '?';
-  const dirty = (git(['status', '--porcelain', '--untracked-files=no']) ?? '').split('\n').filter(Boolean).length;
+  // Untracked files count too (PR #365 re-review B4): an untracked file can change a step.
+  // Ignored files (target/ and the like) do not; step cargo-config covers an ignored
+  // .cargo/config.
+  const dirty = (git(['status', '--porcelain', '--untracked-files=all']) ?? '').split('\n').filter(Boolean).length;
   const n = (s) => results.filter((r) => r.status === s).length;
   const verdict = n('FAIL') ? 'FAIL' : n('NOT RUN') ? 'INCOMPLETE' : 'PASS';
   const rustc = (spawnSync('rustc', ['--version'], { encoding: 'utf8' }).stdout ?? '').trim() || 'rustc not found';
@@ -606,11 +666,11 @@ function summary(tier, results, ctx, totalMs) {
   const lines = [
     `### local-ci: ${verdict} (tier ${tier}${ctx.quick ? ', --quick' : ''}${ctx.only ? ', PARTIAL --only' : ''})`,
     '',
-    `- HEAD: \`${head}\` (${branch}); work tree ${dirty ? `DIRTY (${dirty} tracked file(s) changed): this is not a run of HEAD` : 'clean'}`,
+    `- HEAD: \`${head}\` (${branch}); work tree ${dirty ? `DIRTY (${dirty} file(s) changed or untracked): this is not a run of HEAD` : 'clean'}`,
     `- Platform: ${ctx.platform} ${process.arch}${ctx.wsl ? ' (WSL)' : ''}, OS ${osRelease()}; node ${process.version}; ${rustc}`,
     `- Loopback-only sandbox: ${ctx.platform === 'linux' ? 'used for the sandboxed steps' : 'not available on this OS (as on the old windows/macos CI legs)'}`,
-    `- Inherited environment that switches a step off or changes the build (OAC_HERDR_SELFTEST_*, OAC_TEST_*, NODE_OPTIONS, RUSTFLAGS, RUSTC_WRAPPER, RUSTDOCFLAGS, CARGO_BUILD_*/TARGET_*/PROFILE_*/SOURCE*/PATCH*; CARGO_HOME listed): ${envLine}`,
-    `- Cargo config files outside the repository (any one fails unless --allow-cargo-config): ${cargoConfigLine(ctx)}`,
+    `- Inherited environment that switches a step off or changes the build (OAC_HERDR_SELFTEST_*, OAC_TEST_*; every CARGO_* but TERM_/HTTP_/NET_/LOG/INCREMENTAL, CARGO, NODE_OPTIONS, RUSTFLAGS, RUSTDOCFLAGS, RUSTC(_WRAPPER/_BOOTSTRAP), a RUSTUP_TOOLCHAIN off the pin; CARGO_HOME listed): ${envLine}`,
+    `- Cargo config files outside the repository or untracked in it (any one fails unless --allow-cargo-config): ${cargoConfigLine(ctx)}`,
     `- ${n('PASS')} passed, ${n('FAIL')} failed, ${n('SKIP')} skipped, ${n('NOT RUN')} not run; ${fmt(totalMs)} in all`,
     '',
     '| Step | Result | Time |',
@@ -879,6 +939,36 @@ function selfTest() {
     }
   }
 
+  // 6b. repository-local untracked cargo config (PR #365 re-review B4), in a throwaway git repo
+  {
+    const r = mkdtempSync(join(tmpdir(), 'oac-cargo-local-'));
+    try {
+      const put = (rel, text) => {
+        mkdirSync(dirname(join(r, rel)), { recursive: true });
+        writeFileSync(join(r, rel), text);
+      };
+      spawnSync('git', ['init', '-q'], { cwd: r });
+      put('.cargo/config.toml', '[build]\njobs = 2\n');
+      spawnSync('git', ['add', '.cargo/config.toml'], { cwd: r });
+      const rel = (f) => f.path.slice(r.length + 1).split('\\').join('/');
+      check('repo cargo config: a tracked root .cargo/config.toml is left to check-crate-deps rule 7', repoLocalUntrackedConfigs(r).length === 0);
+      put('adapters/x/.cargo/config.toml', '[alias]\nclippy = "test --no-run"\n');
+      put('cli/.cargo/config', 'alias.clippy = "test --no-run"\n');
+      put('target/debug/.cargo/config.toml', '[alias]\nclippy = "x"\n');
+      const found = repoLocalUntrackedConfigs(r);
+      check("repo cargo config: the review's untracked member [alias] clippy = \"test --no-run\" is found and fails", found.some((f) => rel(f) === 'adapters/x/.cargo/config.toml' && f.flagged.includes('[alias]')) && cargoConfigVerdict(found, false).status === 'FAIL');
+      check('repo cargo config: an untracked legacy member .cargo/config with a dotted alias is found', found.some((f) => rel(f) === 'cli/.cargo/config' && f.flagged.includes('alias.*')));
+      check('repo cargo config: target/ is not searched', !found.some((f) => rel(f).startsWith('target/')));
+      rmSync(join(r, '.cargo'), { recursive: true, force: true });
+      spawnSync('git', ['rm', '-q', '--cached', '.cargo/config.toml'], { cwd: r });
+      put('.cargo/config.toml', '[alias]\nclippy = "test --no-run"\n');
+      const root = repoLocalUntrackedConfigs(r).find((f) => rel(f) === '.cargo/config.toml');
+      check("repo cargo config: the review's untracked root .cargo/config.toml with [alias] is found and fails without --allow-cargo-config", root?.local === true && cargoConfigVerdict([root], false).status === 'FAIL' && cargoConfigVerdict([root], true).status === 'PASS');
+    } finally {
+      rmSync(r, { recursive: true, force: true });
+    }
+  }
+
   // 7. inherited environment (PR #365 re-review B3)
   {
     const base = { PATH: '/bin', HOME: '/h' };
@@ -894,6 +984,17 @@ function selfTest() {
       return v.status === 'PASS' && v.note.includes('CARGO_HOME');
     })());
     check('environment: CARGO_TERM_COLOR and CARGO_NET_OFFLINE are not caught (controls)', envVerdict({ ...base, CARGO_TERM_COLOR: 'always', CARGO_NET_OFFLINE: 'true' }, false).status === 'PASS');
+    // PR #365 re-review B4: CARGO_* is an allowlist; every config key has an env form.
+    for (const k of ['CARGO_ALIAS_CLIPPY', 'CARGO_ALIAS_TEST', 'CARGO_UNSTABLE_BUILD_STD', 'CARGO_REGISTRIES_MIRROR_INDEX', 'CARGO_REGISTRY_DEFAULT', 'CARGO_INSTALL_ROOT', 'CARGO', 'RUSTC_BOOTSTRAP', 'RUSTDOC', 'cargo_alias_clippy']) {
+      check(`environment: inherited ${k} fails without --allow-env (B4)`, envVerdict({ ...base, [k]: 'test --no-run' }, false, '1.98.1').status === 'FAIL' && envVerdict({ ...base, [k]: 'x' }, true, '1.98.1').status === 'PASS');
+    }
+    check('environment: the review\'s CARGO_ALIAS_CLIPPY="test --no-run" names the variable', envVerdict({ ...base, CARGO_ALIAS_CLIPPY: 'test --no-run' }, false, '1.98.1').note.includes('CARGO_ALIAS_CLIPPY'));
+    for (const [k, v] of [['CARGO_TERM_VERBOSE', 'true'], ['CARGO_HTTP_TIMEOUT', '30'], ['CARGO_NET_RETRY', '3'], ['CARGO_LOG', 'info'], ['CARGO_INCREMENTAL', '1']]) {
+      check(`environment: allowlisted ${k} passes (control)`, envVerdict({ ...base, [k]: v }, false, '1.98.1').status === 'PASS');
+    }
+    check('environment: RUSTUP_TOOLCHAIN off the pin fails', envVerdict({ ...base, RUSTUP_TOOLCHAIN: 'nightly' }, false, '1.98.1').status === 'FAIL');
+    check('environment: RUSTUP_TOOLCHAIN at the pin, bare or with a host triple, passes (control)', ['1.98.1', '1.98.1-x86_64-pc-windows-msvc'].every((v) => envVerdict({ ...base, RUSTUP_TOOLCHAIN: v }, false, '1.98.1').status === 'PASS'));
+    check('environment: the pin is read from rust-toolchain.toml', toolchainChannel() === TOOLCHAIN);
     const child = childEnv({ ...base, OAC_HERDR_SELFTEST_ONLY: 'x', OAC_HERDR_SELFTEST_UNIT_ONLY: '1', OAC_TEST_REAL_KEYRING: '1' }, {});
     check('environment: inherited switches never reach a child', !Object.keys(child).some((k) => /^OAC_/.test(k)));
     const quick = plan('default', { platform: 'linux', quick: true, work: '/w' }).find((a) => a.step.id === 'herdr-self-test');
