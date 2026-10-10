@@ -507,38 +507,6 @@ pub(crate) fn check_identifiers(obs: &[SealingObservation], needles: &[Vec<u8>])
     Verdict::Pass("observed identifiers contain no test device/session id (text or octets); arbitrary derivations need binding review".into())
 }
 
-#[cfg(test)]
-mod identifier_tests {
-    use super::*;
-
-    #[test]
-    fn actual_session_octets_and_every_suite_identifier_are_scanned_at_any_frame_size() {
-        let octets = std::array::from_fn(|i| (i as u8).wrapping_mul(17));
-        let d = Destination::Session(SessionId::from_random_octets(octets));
-        assert_eq!(identifier_needles(&d)[1], octets);
-        let destinations: Vec<_> = (1..=3)
-            .map(|n| Destination::Device(key(n)))
-            .chain((1..=15).map(session))
-            .chain([d])
-            .collect();
-        let needles: Vec<_> = destinations.iter().flat_map(identifier_needles).collect();
-        for destination in &destinations {
-            for needle in identifier_needles(destination) {
-                for size in [54, 4401, 65590] {
-                    let mut id = b"prefix/".to_vec();
-                    id.extend(&needle);
-                    id.extend(b"/suffix");
-                    let observation = SealingObservation {
-                        frame: vec![0; size],
-                        accompanying: Vec::new(),
-                        identifiers: vec![id],
-                    };
-                    assert!(check_identifiers(&[observation], &needles).is_fail());
-                }
-            }
-        }
-    }
-}
 pub(crate) fn inbound(h: &dyn TransportHarness) -> Verdict {
     let (m, a, c) = raw(h);
     if !c.sealing {
@@ -597,4 +565,37 @@ pub(crate) fn inbound(h: &dyn TransportHarness) -> Verdict {
     Verdict::Pass(
         "all three kinds arrive as unchanged sealed frames on local device subscription".into(),
     )
+}
+
+#[cfg(test)]
+mod identifier_tests {
+    use super::*;
+
+    #[test]
+    fn actual_session_octets_and_every_suite_identifier_are_scanned_at_any_frame_size() {
+        let octets = std::array::from_fn(|i| (i as u8).wrapping_mul(17));
+        let d = Destination::Session(SessionId::from_random_octets(octets));
+        assert_eq!(identifier_needles(&d)[1], octets);
+        let destinations: Vec<_> = (1..=3)
+            .map(|n| Destination::Device(key(n)))
+            .chain((1..=15).map(session))
+            .chain([d])
+            .collect();
+        let needles: Vec<_> = destinations.iter().flat_map(identifier_needles).collect();
+        for destination in &destinations {
+            for needle in identifier_needles(destination) {
+                for size in [54, 4401, 65590] {
+                    let mut id = b"prefix/".to_vec();
+                    id.extend(&needle);
+                    id.extend(b"/suffix");
+                    let observation = SealingObservation {
+                        frame: vec![0; size],
+                        accompanying: Vec::new(),
+                        identifiers: vec![id],
+                    };
+                    assert!(check_identifiers(&[observation], &needles).is_fail());
+                }
+            }
+        }
+    }
 }
