@@ -21,6 +21,11 @@
 //! the suite run the checks that need a copy to be in flight for a while ([IFC-TRN-034],
 //! [IFC-TRN-035]); without it those parts are reported not applicable, never passed.
 //!
+//! A sealing declaration selects suite-side sealing/opening of the same logical checks.
+//! Only sealed frames cross the tested transport; presence uses `publish` and a device
+//! subscription. Raw sealing checks bypass that helper. [`Medium::sealing_observations`]
+//! is mandatory for that path, and missing observations fail, rather than skip, checks.
+//!
 //! # What it checks
 //!
 //! Every requirement that Appendix C of `spec/interfaces.md` assigns to the `transport`
@@ -28,7 +33,8 @@
 //! [IFC-TRN-026], [IFC-TRN-030], [IFC-TRN-031], [IFC-TRN-033] to [IFC-TRN-036],
 //! [IFC-TRN-040], [IFC-TRN-043], [IFC-TRN-044], [IFC-TRN-050], [IFC-TRN-060],
 //! [IFC-TRN-071], [IFC-TRN-080] and [IFC-NEU-003], plus [IFC-TYP-092] for the transport's
-//! `health` and [IFC-TYP-095]. [`run`] returns one [`Row`] per check; [IFC-TRN-003] passes
+//! `health` and [IFC-TYP-095], plus [IFC-TRN-104], [IFC-TRN-105], [IFC-TRN-107],
+//! [IFC-TRN-108], [IFC-TRN-109] and [IFC-TRN-113] when sealing is declared. [`run`] returns one [`Row`] per check; [IFC-TRN-003] passes
 //! only when no other row failed. The requirements Appendix C gives the `core` are not
 //! this suite's (they need the core's send and receive paths, F6 and F11), and
 //! [IFC-TRN-090] is the binding document's.
@@ -67,6 +73,13 @@ pub trait TransportHarness: Sync {
 /// One medium: the transports made by [`Medium::transport`] and started with
 /// [`Medium::configuration`] reach each other.
 pub trait Medium: Send + Sync {
+    /// Raw carriage captured at the implementation boundary, including headers and link,
+    /// peer, carrier and liveness identifiers. Required for a sealing declaration.
+    /// This is observation, never permission to omit a check. See the suite README.
+    fn sealing_observations(&self) -> Option<Vec<SealingObservation>> {
+        None
+    }
+
     /// A fresh transport that is not started.
     fn transport(&self) -> Box<dyn Transport>;
 
@@ -107,6 +120,18 @@ pub trait Medium: Send + Sync {
     fn health_must_not_contain(&self) -> Vec<String> {
         Vec::new()
     }
+}
+
+/// One raw sealed-frame carriage observation. Opaque link identifiers are allowed;
+/// payload-derived headers and destination/deadline side channels are not.
+#[derive(Clone, Debug)]
+pub struct SealingObservation {
+    /// Frame octets, exactly as carried.
+    pub frame: Vec<u8>,
+    /// All accompanying application values outside the frame (including kind labels).
+    pub accompanying: Vec<Vec<u8>>,
+    /// Raw identifiers of links, peers, carriers and liveness signals, even if opaque in Rust.
+    pub identifiers: Vec<Vec<u8>>,
 }
 
 /// The fate of one payload, for [`FaultControl::next`].
@@ -163,6 +188,7 @@ pub struct Report {
     pub harness: String,
     /// One row per check, in [`CHECKS`] order, then [IFC-TRN-003].
     pub rows: Vec<Row>,
+    sealing: bool,
 }
 
 impl Report {
@@ -188,6 +214,16 @@ impl Report {
     /// Panic, printing the report, when any row failed.
     pub fn assert_conformant(&self) {
         assert!(self.failures().is_empty(), "{self}");
+        if self.sealing {
+            for id in sealed::REQUIRED {
+                assert!(
+                    self.verdicts(id)
+                        .iter()
+                        .any(|v| matches!(v, Verdict::Pass(_))),
+                    "missing mandatory sealing check {id}: {self}"
+                );
+            }
+        }
     }
 }
 
@@ -211,6 +247,28 @@ pub type Check = fn(&dyn TransportHarness) -> Verdict;
 
 /// Every check, as (requirement id, name, check).
 pub const CHECKS: &[(&str, &str, Check)] = &[
+    (
+        "IFC-TRN-113",
+        "rejects-every-plain-kind",
+        sealed::reject_plain,
+    ),
+    ("IFC-TRN-104", "frame-size-cap", sealed::frame_cap),
+    (
+        "IFC-TRN-107",
+        "frame-has-no-accompanying-values",
+        sealed::carriage,
+    ),
+    (
+        "IFC-TRN-108",
+        "identifiers-do-not-name-devices-or-sessions",
+        sealed::identifiers,
+    ),
+    ("IFC-TRN-109", "sealing-payload-floor", sealed::floor),
+    (
+        "IFC-TRN-105",
+        "sealed-to-local-device-subscription",
+        sealed::inbound,
+    ),
     ("IFC-TRN-001", "carries-each-kind", ifc_trn_001),
     ("IFC-TRN-020", "declares-every-capability", ifc_trn_020),
     (
@@ -263,6 +321,8 @@ pub const CHECKS: &[(&str, &str, Check)] = &[
 /// Run every check against `harness`. A check that panics is a [`Verdict::Fail`] with the
 /// panic message; the other checks still run.
 pub fn run(harness: &dyn TransportHarness) -> Report {
+    let sealing =
+        catch_unwind(AssertUnwindSafe(|| World::new(harness).a.caps.sealing)).unwrap_or(false);
     let mut rows = Vec::new();
     for (id, check, f) in CHECKS {
         let verdict = match catch_unwind(AssertUnwindSafe(|| f(harness))) {
@@ -286,6 +346,7 @@ pub fn run(harness: &dyn TransportHarness) -> Report {
         },
     });
     Report {
+        sealing,
         harness: harness.name(),
         rows,
     }
@@ -323,10 +384,11 @@ struct Ep {
     caps: TransportCapabilities,
 }
 
-fn start(m: &dyn Medium, n: u8) -> Result<Ep, TransportError> {
-    let t = m.transport();
+fn start(m: &dyn Medium, n: u8, frames: sealed::FrameBook) -> Result<Ep, TransportError> {
+    let raw = m.transport();
     let key = key(n);
-    let caps = t.start(&key, m.configuration())?;
+    let caps = raw.start(&key, m.configuration())?;
+    let t = sealed::logical(raw, &key, caps, frames);
     Ok(Ep { t, key, caps })
 }
 
@@ -336,18 +398,23 @@ struct World {
     m: Box<dyn Medium>,
     a: Ep,
     b: Option<Ep>,
+    frames: sealed::FrameBook,
 }
 
 impl World {
     fn new(h: &dyn TransportHarness) -> World {
         let m = h.medium();
-        let a = start(&*m, 1).expect("start of the first transport");
+        let frames = sealed::FrameBook::default();
+        let a = start(&*m, 1, frames.clone()).expect("start of the first transport");
         let b = if a.caps.reach == Reach::CrossImplementation {
-            Some(start(&*m, 2).expect("start of a second device on a cross-implementation medium"))
+            Some(
+                start(&*m, 2, frames.clone())
+                    .expect("start of a second device on a cross-implementation medium"),
+            )
         } else {
             None
         };
-        World { m, a, b }
+        World { m, a, b, frames }
     }
 
     /// The receiving side: `b` when there is one, else `a` itself.
@@ -467,6 +534,8 @@ macro_rules! fail_if {
 
 // ---- §6.1, §6.5: carrying the three kinds --------------------------------------------
 
+mod sealed;
+
 /// [IFC-TRN-001]: an envelope to a session, a receipt to a device and a presence record to
 /// a device are each carried.
 pub fn ifc_trn_001(h: &dyn TransportHarness) -> Verdict {
@@ -527,13 +596,14 @@ pub fn ifc_trn_020(h: &dyn TransportHarness) -> Verdict {
     let w = World::new(h);
     let c = w.a.caps;
     Verdict::Pass(format!(
-        "reliability {}, persistence {}, offline_queueing {}, ordering {}, multicast_discovery {}, routing_federation {}",
+        "reliability {}, persistence {}, offline_queueing {}, ordering {}, multicast_discovery {}, routing_federation {}, sealing {}",
         c.reliability,
         c.persistence,
         c.offline_queueing,
         c.ordering,
         c.multicast_discovery,
-        c.routing_federation
+        c.routing_federation,
+        c.sealing
     ))
 }
 
@@ -640,7 +710,14 @@ pub fn ifc_trn_030(h: &dyn TransportHarness) -> Verdict {
     let seen = Seen::default();
     let _s = w.sub(r, &session(3), &seen);
     let every: Vec<u8> = (0..=255).collect();
-    let max = usize::try_from(w.a.caps.max_payload_octets.min(1 << 20)).unwrap_or(1 << 20);
+    let limit = if w.a.caps.sealing {
+        w.a.caps
+            .max_payload_octets
+            .saturating_sub(sealed::LOGICAL_OVERHEAD)
+    } else {
+        w.a.caps.max_payload_octets
+    };
+    let max = usize::try_from(limit.min(1 << 20)).unwrap_or(1 << 20);
     let big: Vec<u8> = (0..max).map(|i| (i % 251) as u8).collect();
     let dl = w.deadline(LONG);
     let mut sent = vec![every.clone(), big.clone()];
@@ -850,6 +927,7 @@ pub fn ifc_trn_035(h: &dyn TransportHarness) -> Verdict {
         again
             .start(&r.key, w.m.configuration())
             .expect("restart of the receiver");
+        let again = sealed::logical(again, &r.key, r.caps, w.frames.clone());
         let after = Seen::default();
         let _s2 = again
             .subscribe(&session(7), after.handler())
@@ -889,6 +967,7 @@ pub fn ifc_trn_035(h: &dyn TransportHarness) -> Verdict {
             again
                 .start(&w.a.key, w.m.configuration())
                 .expect("restart of the sender");
+            let _again = sealed::logical(again, &w.a.key, w.a.caps, w.frames.clone());
             w.m.advance(Duration::from_secs(2));
             w.quiet();
             fail_if!(
@@ -980,7 +1059,7 @@ pub fn ifc_trn_043(h: &dyn TransportHarness) -> Verdict {
         before_health != after_health,
         "the publisher's health changed when the other side subscribed: {before_health:?} then {after_health:?}"
     );
-    let third = start(&*w.m, 3);
+    let third = start(&*w.m, 3, w.frames.clone());
     let refused = match &third {
         Ok(c) => {
             c.t.subscribe(&session(11), Seen::<Inbound>::default().handler())
@@ -1183,7 +1262,7 @@ pub fn ifc_trn_080(h: &dyn TransportHarness) -> Verdict {
             "destination_restricted declared on a one-implementation medium: no other implementation to keep it from".into(),
         );
     };
-    let Ok(c) = start(&*w.m, 3) else {
+    let Ok(c) = start(&*w.m, 3, w.frames.clone()) else {
         return Verdict::NotApplicable("a third implementation could not start".into());
     };
     let (at_b, at_c) = (Seen::default(), Seen::default());
