@@ -77,8 +77,11 @@ struct FromAdapter {
 impl Write for FromAdapter {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         if self.stall.load(Ordering::SeqCst) {
-            let _ = self.hold.lock().unwrap().recv();
-            return Err(io::Error::new(io::ErrorKind::BrokenPipe, "stalled"));
+            self.hold
+                .lock()
+                .unwrap()
+                .recv()
+                .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "stalled"))?;
         }
         self.tx
             .send(buf.to_vec())
@@ -255,12 +258,16 @@ fn wait_for_open(core: &Core) -> Attachment {
 }
 
 fn message(text: &str, reply_to: Option<&str>) -> (ChannelMessage, String) {
+    message_from(text, reply_to, 1)
+}
+
+fn message_from(text: &str, reply_to: Option<&str>, sender: u8) -> (ChannelMessage, String) {
     let me = DeviceIdentity::new(DeviceKey::generate(), Token::parse("alice").unwrap());
     let trusted = TrustedKeySet::new(&me);
     let now = SystemClock.now();
     let mut draft = EnvelopeDraft::new(
         Token::parse("msg-7").unwrap(),
-        SessionId::from_random_octets([1; 16]),
+        SessionId::from_random_octets([sender; 16]),
         SessionId::from_random_octets([2; 16]),
         now.clone(),
         vec![TextPart::new(text).unwrap()],
@@ -595,4 +602,151 @@ fn the_harness_closing_ends_the_attachment() {
         assert!(Instant::now() < end, "no attachment-closed");
         std::thread::sleep(Duration::from_millis(5));
     }
+}
+
+/// [SC-ENV-027], [SC-RCP-051]: equal IDs from distinct senders never choose a destination.
+#[test]
+fn colliding_message_ids_require_an_explicit_reply_destination() {
+    let (a, core) = adapter_with(WAIT);
+    let (mut w, _) = connect(&a);
+    open(&mut w, true);
+    let att = wait_for_open(&core);
+    a.set_binding(&att, Some(SessionId::from_random_octets([2; 16])));
+    for sender in [1, 9] {
+        let (msg, _) = message_from("question", None, sender);
+        assert_eq!(
+            a.deliver(HandOff::new(att.clone(), msg).unwrap()),
+            HandOffOutcome::Completed
+        );
+        w.frame();
+    }
+    let r = tool_call(
+        &mut w,
+        6,
+        "reply",
+        "{\"in_reply_to\":\"msg-7\",\"content\":[{\"type\":\"text\",\"text\":\"private answer to A\"}]}",
+    );
+    assert!(
+        result_text(&r).starts_with("invalid-request"),
+        "ambiguous reply: {r:?}"
+    );
+    assert!(
+        core.sent.lock().unwrap().is_empty(),
+        "no private answer may reach B"
+    );
+    let to = SessionId::from_random_octets([1; 16]);
+    let r = tool_call(
+        &mut w,
+        7,
+        "reply",
+        &format!(
+            "{{\"in_reply_to\":\"msg-7\",\"to\":\"{to}\",\"content\":[{{\"type\":\"text\",\"text\":\"private answer to A\"}}]}}"
+        ),
+    );
+    assert_ne!(
+        get(&r, &["result", "isError"]).and_then(Json::as_bool),
+        Some(true)
+    );
+    assert_eq!(core.sent.lock().unwrap()[0].to, to);
+    a.shutdown();
+}
+
+/// [IFC-ADP-070]: a timed-out write must finish before shutdown can return.
+#[test]
+fn shutdown_waits_for_an_already_stalled_notification() {
+    let (a, core) = adapter_with(Duration::from_millis(300));
+    let (mut w, _) = connect(&a);
+    open(&mut w, true);
+    let att = wait_for_open(&core);
+    a.set_binding(&att, Some(SessionId::from_random_octets([2; 16])));
+    w.stall.store(true, Ordering::SeqCst);
+    let (msg, _) = message("held content", None);
+    assert_eq!(
+        a.deliver(HandOff::new(att, msg).unwrap()),
+        HandOffOutcome::Indeterminate
+    );
+    let (done_tx, done_rx) = mpsc::channel();
+    let stopping = a.clone();
+    let thread = std::thread::spawn(move || {
+        stopping.shutdown();
+        done_tx.send(()).unwrap();
+    });
+    let returned_early = done_rx.recv_timeout(Duration::from_millis(300)).is_ok();
+    w.stall.store(false, Ordering::SeqCst);
+    w._release.send(()).unwrap();
+    // Drain the complete frame before observing shutdown's completion.
+    let frame = w.frame();
+    assert_eq!(
+        text(&frame, &["params", "content"]).as_deref(),
+        Some("held content")
+    );
+    if !returned_early {
+        done_rx
+            .recv_timeout(WAIT)
+            .expect("shutdown completes after write");
+    }
+    thread.join().unwrap();
+    assert!(
+        !returned_early,
+        "shutdown returned while content could still be handed off"
+    );
+    assert!(w.next(Duration::from_millis(200)).is_none());
+    let events = core.events.lock().unwrap();
+    assert_eq!(
+        events
+            .iter()
+            .filter(|e| matches!(e, AdapterEvent::AttachmentClosed { .. }))
+            .count(),
+        1
+    );
+}
+
+/// Eviction must not turn an ambiguous ID back into another sender's unique ID.
+#[test]
+fn evicting_reply_records_cannot_hide_a_sender_collision() {
+    let (a, core) = adapter_with(WAIT);
+    let (mut w, _) = connect(&a);
+    open(&mut w, true);
+    let att = wait_for_open(&core);
+    a.set_binding(&att, Some(SessionId::from_random_octets([2; 16])));
+    let (first, _) = message_from("A", None, 1);
+    assert_eq!(
+        a.deliver(HandOff::new(att.clone(), first).unwrap()),
+        HandOffOutcome::Completed
+    );
+    w.frame();
+    let (second, _) = message_from("B", None, 9);
+    for _ in 0..oac_adapter_claude::adapter::HANDED_KEPT {
+        assert_eq!(
+            a.deliver(HandOff::new(att.clone(), second.clone()).unwrap()),
+            HandOffOutcome::Completed
+        );
+        w.frame();
+    }
+    let r = tool_call(
+        &mut w,
+        6,
+        "reply",
+        "{\"in_reply_to\":\"msg-7\",\"content\":[{\"type\":\"text\",\"text\":\"answer\"}]}",
+    );
+    assert!(result_text(&r).starts_with("invalid-request"));
+    assert!(core.sent.lock().unwrap().is_empty());
+    a.shutdown();
+}
+
+/// Shutdown also stops a connection whose opening is still waiting for harness input.
+#[test]
+fn shutdown_does_not_wait_for_an_unfinished_opening() {
+    let (a, core) = adapter_with(WAIT);
+    let (_wire, _) = connect(&a);
+    let (tx, rx) = mpsc::channel();
+    let stopping = a.clone();
+    let thread = std::thread::spawn(move || {
+        stopping.shutdown();
+        tx.send(()).unwrap();
+    });
+    rx.recv_timeout(WAIT).expect("shutdown stops the opening");
+    thread.join().unwrap();
+    assert!(core.events.lock().unwrap().is_empty());
+    a.shutdown();
 }

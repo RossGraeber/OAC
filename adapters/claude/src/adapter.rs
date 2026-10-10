@@ -58,15 +58,20 @@ struct Att {
     peer: Option<Peer<RoleServer>>,
     runtime: Option<tokio::runtime::Handle>,
     cancel: Option<RunningServiceCancellationToken>,
-    /// Hand-off records for a reply's `to`: message id and sender, for the last
+    /// Hand-off attempts for a reply's `to`: message id, sender and recipient, for the last
     /// [`HANDED_KEPT`] messages this attachment was handed, oldest first. They only find the
-    /// sender for a `reply` that names no `to`; the core still checks every reply target
+    /// sender for a `reply` that names no `to`; ambiguous attempts require `to`.
+    /// Only completed attempts can supply a destination; pending ones can make it ambiguous.
+    /// The core still checks every reply target
     /// against its own records (`spec/session-channels.md` §8.2.2).
-    handed: VecDeque<(String, SessionId)>,
+    handed: VecDeque<(String, SessionId, SessionId, bool)>,
+    /// Once records are evicted, implicit resolution cannot exclude an older collision.
+    reply_records_evicted: bool,
 }
 
 /// How many hand-off records an attachment keeps for `reply`. Older ones are dropped, so a
-/// peer cannot grow the adapter's memory without bound; a reply to a dropped one needs `to`.
+/// peer cannot grow the adapter's memory without bound. After any eviction all replies need
+/// `to`, since a retained id could collide with an evicted sender's id.
 pub const HANDED_KEPT: usize = 1024;
 
 #[derive(Default)]
@@ -74,6 +79,10 @@ struct State {
     handler: Option<AdapterEventHandler>,
     sink: Option<Arc<dyn RequestSink>>,
     attachments: HashMap<Attachment, Att>,
+    connections: Vec<(
+        tokio::sync::watch::Sender<bool>,
+        std::thread::JoinHandle<()>,
+    )>,
 }
 
 /// What every connection thread shares with the adapter.
@@ -84,10 +93,13 @@ pub(crate) struct Inner {
     /// inside the handler (`set_binding`, `capabilities`) takes it.
     events: Mutex<()>,
     /// `true` once `shutdown` has begun. A hand-off or request holds the read side for its
-    /// whole call, so none is in flight when `shutdown` returns ([IFC-ADP-070]).
+    /// whole call. Shutdown also joins connection runtimes, including writes that outlived
+    /// a deliver timeout, before returning ([IFC-ADP-070]).
     down: RwLock<bool>,
     /// How long `deliver` waits for a write ([`HANDOFF_WAIT`] unless set).
     handoff_wait: Duration,
+    /// Serializes shutdown callers through the final connection-thread joins.
+    shutdown: Mutex<()>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -182,11 +194,22 @@ impl Inner {
             let att = st.attachments.get(a);
             let record = match &call {
                 ToolCall::Reply { in_reply_to, .. } => att.and_then(|x| {
-                    x.handed
+                    if x.reply_records_evicted {
+                        return None;
+                    }
+                    let mut senders = x
+                        .handed
                         .iter()
-                        .rev()
-                        .find(|(id, _)| id == in_reply_to)
-                        .map(|(_, from)| from.clone())
+                        .filter(|(id, _, to, _)| id == in_reply_to && Some(to) == x.bound.as_ref())
+                        .map(|(_, from, _, completed)| (from, *completed));
+                    let (first, mut completed) = senders.next()?;
+                    // IDs are unique only per sender [SC-ENV-027]. Never choose the
+                    // newest sender: ambiguity requires an explicit destination.
+                    let unambiguous = senders.all(|(from, handed)| {
+                        completed |= handed;
+                        from == first
+                    });
+                    (unambiguous && completed).then(|| first.clone())
                 }),
                 _ => None,
             };
@@ -264,6 +287,7 @@ impl ClaudeAdapter {
                 events: Mutex::new(()),
                 down: RwLock::new(false),
                 handoff_wait: wait,
+                shutdown: Mutex::new(()),
             }),
         }
     }
@@ -275,6 +299,7 @@ fn serve(
     attachment: Attachment,
     reader: Box<dyn std::io::Read + Send>,
     writer: Box<dyn std::io::Write + Send>,
+    mut stop: tokio::sync::watch::Receiver<bool>,
 ) {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_time()
@@ -292,14 +317,28 @@ fn serve(
                 inner: inner.clone(),
                 attachment: attachment.clone(),
             };
-            if let Ok(running) = rmcp::serve_server(server, transport).await {
+            // A connection can be stopped even while its MCP opening waits for input.
+            let opening = tokio::select! {
+                result = rmcp::serve_server(server, transport) => Some(result),
+                _ = stop.changed() => None,
+            };
+            if let Some(Ok(running)) = opening {
                 inner.running(
                     &attachment,
                     running.peer().clone(),
                     handle,
                     running.cancellation_token(),
                 );
-                let _ = running.waiting().await;
+                let cancel = running.cancellation_token();
+                let waiting = running.waiting();
+                tokio::pin!(waiting);
+                tokio::select! {
+                    _ = &mut waiting => {},
+                    _ = stop.changed() => {
+                        cancel.cancel();
+                        let _ = waiting.await;
+                    }
+                }
             }
         });
     }
@@ -309,11 +348,11 @@ fn serve(
 impl ProviderAdapter for ClaudeAdapter {
     fn take_connection(&self, connection: Connection) {
         let (attachment, reader, writer) = connection.into_parts();
+        let down = self.inner.down.read().unwrap_or_else(|e| e.into_inner());
+        if *down {
+            return;
+        }
         {
-            let down = self.inner.down.read().unwrap_or_else(|e| e.into_inner());
-            if *down {
-                return;
-            }
             lock(&self.inner.state).attachments.insert(
                 attachment.clone(),
                 Att {
@@ -323,16 +362,21 @@ impl ProviderAdapter for ClaudeAdapter {
                     runtime: None,
                     cancel: None,
                     handed: VecDeque::new(),
+                    reply_records_evicted: false,
                 },
             );
         }
         let inner = self.inner.clone();
         let a = attachment.clone();
+        let (stop_tx, stop_rx) = tokio::sync::watch::channel(false);
         let spawned = std::thread::Builder::new()
             .name("oac-claude-channel".into())
-            .spawn(move || serve(inner, a, reader, writer));
-        if spawned.is_err() {
-            lock(&self.inner.state).attachments.remove(&attachment);
+            .spawn(move || serve(inner, a, reader, writer, stop_rx));
+        match spawned {
+            Ok(thread) => lock(&self.inner.state).connections.push((stop_tx, thread)),
+            Err(_) => {
+                lock(&self.inner.state).attachments.remove(&attachment);
+            }
         }
     }
 
@@ -403,6 +447,25 @@ impl ProviderAdapter for ClaudeAdapter {
             CHANNEL_NOTIFICATION,
             Some(Value::from(params)),
         ));
+        // Include indeterminate attempts: their bytes may still reach the harness.
+        {
+            let env = message.envelope();
+            if let Some(att) = lock(&self.inner.state)
+                .attachments
+                .get_mut(hand_off.attachment())
+            {
+                if att.handed.len() >= HANDED_KEPT {
+                    att.handed.pop_front();
+                    att.reply_records_evicted = true;
+                }
+                att.handed.push_back((
+                    env.id().as_str().to_owned(),
+                    env.from().clone(),
+                    env.to().clone(),
+                    false,
+                ));
+            }
+        }
         let (tx, rx) = std::sync::mpsc::channel();
         runtime.spawn(async move {
             let _ = tx.send(peer.send_notification(notification).await.is_ok());
@@ -420,11 +483,11 @@ impl ProviderAdapter for ClaudeAdapter {
                 .attachments
                 .get_mut(hand_off.attachment())
             {
-                if att.handed.len() >= HANDED_KEPT {
-                    att.handed.pop_front();
+                for (id, from, to, completed) in &mut att.handed {
+                    if id == env.id().as_str() && from == env.from() && to == env.to() {
+                        *completed = true;
+                    }
                 }
-                att.handed
-                    .push_back((env.id().as_str().to_owned(), env.from().clone()));
             }
         }
         outcome
@@ -443,10 +506,11 @@ impl ProviderAdapter for ClaudeAdapter {
     }
 
     fn shutdown(&self) {
+        let _shutdown = lock(&self.inner.shutdown);
         let _ev = lock(&self.inner.events);
         let mut down = self.inner.down.write().unwrap_or_else(|e| e.into_inner());
         *down = true;
-        let (h, open, cancels) = {
+        let (h, open, cancels, connections) = {
             let mut st = lock(&self.inner.state);
             let mut open = Vec::new();
             let mut cancels = Vec::new();
@@ -459,15 +523,30 @@ impl ProviderAdapter for ClaudeAdapter {
                     cancels.push(c);
                 }
             }
-            (st.handler.clone(), open, cancels)
+            (
+                st.handler.clone(),
+                open,
+                cancels,
+                std::mem::take(&mut st.connections),
+            )
         };
         drop(down);
+        for (stop, _) in &connections {
+            let _ = stop.send(true);
+        }
         for c in cancels {
             c.cancel();
         }
         for a in open {
             self.inner
                 .emit(h.clone(), AdapterEvent::AttachmentClosed { attachment: a });
+        }
+        // No callback lock may be held while joining: a connection finishes through ended().
+        drop(_ev);
+        // Blocking std::io writes cannot be interrupted. Join the runtime that owns them,
+        // including its pending notification tasks, before shutdown returns [IFC-ADP-070].
+        for (_, thread) in connections {
+            let _ = thread.join();
         }
     }
 }
