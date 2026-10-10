@@ -432,7 +432,7 @@ fn pair(x: &Node, y: &Node, with_statement: bool) {
 }
 
 fn session(n: &Node, seed: u8) -> (Attachment, SessionId) {
-    let conn = Connection::accept(std::io::empty(), std::io::sink());
+    let conn = Connection::accept(Default::default(), Default::default());
     let a = conn.handle().clone();
     n.pipes.connect(n.adapter_id, conn).unwrap();
     let sid = SessionId::from_random_octets([seed; 16]);

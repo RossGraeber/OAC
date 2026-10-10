@@ -16,13 +16,14 @@
 //! the harness, or anything else, for pending messages ([IFC-ADP-040]; no polling of any
 //! kind).
 //!
-//! Known residual (lead decision, 2026-10-10; 11-risks row 82): shutdown waits for
-//! in-flight writes. The frozen `Connection` supplies a blocking `Write` without
-//! cancel/close, so shutdown can block while the harness has stopped reading. Returning
-//! earlier could hand off content after shutdown returns, violating [IFC-ADP-070].
-//! Owner: #376 (the connection-cancellation spec change).
+//! Revision 0.4 closure: shutdown closes every core-issued connection before settling
+//! pending calls. This binding states `shutdown_bound_ms = 1000`; every core connection
+//! must have a closure bound no greater than that budget. Event handlers and request
+//! sinks must return promptly (as local callbacks) and may re-enter shutdown. Closed streams cannot transfer later, including notifications that
+//! outlived a deliver timeout ([IFC-ADP-070..078]; #376).
 
 use std::collections::{HashMap, VecDeque};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::RecvTimeoutError;
 use std::sync::{Arc, Mutex, MutexGuard, RwLock};
 use std::time::Duration;
@@ -46,6 +47,9 @@ use crate::server::{ChannelServer, ChannelTransport};
 
 /// How long `deliver` waits for the notification's write to complete before it reports
 /// `indeterminate` ([IFC-ADP-053]): the write neither completed nor failed in that time.
+/// Binding shutdown bound, including connection closure and pending call settlement.
+pub const SHUTDOWN_BOUND_MS: u64 = 1000;
+
 pub const HANDOFF_WAIT: Duration = Duration::from_secs(10);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -100,15 +104,13 @@ pub(crate) struct Inner {
     /// Held while an event is reported, so that an attachment's `attachment-opened` always
     /// reaches the core before its `attachment-closed`. No operation the core may call from
     /// inside the handler (`set_binding`, `capabilities`) takes it.
-    events: Mutex<()>,
-    /// `true` once `shutdown` has begun. A hand-off or request holds the read side for its
-    /// whole call. Shutdown also joins connection runtimes, including writes that outlived
-    /// a deliver timeout, before returning ([IFC-ADP-070]).
-    down: RwLock<bool>,
+    events: crate::gate::Serial,
+    /// Set under state lock when shutdown begins. New calls refuse; already admitted
+    /// calls settle after stream closure before shutdown returns ([IFC-ADP-070]).
+    down: AtomicBool,
+    calls: RwLock<()>,
     /// How long `deliver` waits for a write ([`HANDOFF_WAIT`] unless set).
     handoff_wait: Duration,
-    /// Serializes shutdown callers through the final connection-thread joins.
-    shutdown: Mutex<()>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -124,9 +126,9 @@ impl Inner {
 
     /// The first `tools/list` answer is written: the attachment is open.
     pub(crate) fn listed(&self, a: &Attachment) {
-        let _ev = lock(&self.events);
+        let _ev = self.events.enter();
         let h = {
-            if *self.down.read().unwrap_or_else(|e| e.into_inner()) {
+            if self.down.load(Ordering::SeqCst) {
                 return;
             }
             let mut st = lock(&self.state);
@@ -150,7 +152,7 @@ impl Inner {
 
     /// The connection ended.
     fn ended(&self, a: &Attachment) {
-        let _ev = lock(&self.events);
+        let _ev = self.events.enter();
         let h = {
             let mut st = lock(&self.state);
             let was_open = st
@@ -193,8 +195,8 @@ impl Inner {
     /// request is labelled with the connection it came on, never with a session the call
     /// claims ([IFC-ADP-031]).
     pub(crate) fn request(&self, a: &Attachment, call: ToolCall) -> CallToolResult {
-        let down = self.down.read().unwrap_or_else(|e| e.into_inner());
-        if *down {
+        let _call = self.calls.read().unwrap_or_else(|e| e.into_inner());
+        if self.down.load(Ordering::SeqCst) {
             // Answered without reaching the core ([IFC-ADP-070]).
             return oac_mcp_tools::refusal(ErrorCode::InternalError);
         }
@@ -264,8 +266,8 @@ impl Inner {
                 }))
             }
             // [MCPB-ATT-002]: no session to name on an unbound attachment. On a bound one
-            // the device fingerprint is not something the frozen adapter interface gives
-            // the adapter; `whoami` waits for session registration (G5, #66).
+            // the identity request path is ready in core; the tool and registration
+            // integration remain #66; `whoami` waits for session registration (G5, #66).
             ToolCall::Whoami => oac_mcp_tools::refusal(if bound.is_none() {
                 ErrorCode::Unauthorized
             } else {
@@ -298,10 +300,10 @@ impl ClaudeAdapter {
         ClaudeAdapter {
             inner: Arc::new(Inner {
                 state: Mutex::default(),
-                events: Mutex::new(()),
-                down: RwLock::new(false),
+                events: crate::gate::Serial::default(),
+                down: AtomicBool::new(false),
+                calls: RwLock::new(()),
                 handoff_wait: wait,
-                shutdown: Mutex::new(()),
             }),
         }
     }
@@ -356,6 +358,7 @@ fn serve(
             }
         });
     }
+    attachment.close();
     inner.ended(&attachment);
 }
 
@@ -383,14 +386,24 @@ fn spawn_runtime(
 }
 
 impl ProviderAdapter for ClaudeAdapter {
+    fn shutdown_bound_ms(&self) -> u64 {
+        SHUTDOWN_BOUND_MS
+    }
+
     fn take_connection(&self, connection: Connection) {
         let (attachment, reader, writer) = connection.into_parts();
-        let down = self.inner.down.read().unwrap_or_else(|e| e.into_inner());
-        if *down {
+        let _call = self.inner.calls.read().unwrap_or_else(|e| e.into_inner());
+        if self.inner.down.load(Ordering::SeqCst) {
+            attachment.close();
             return;
         }
         {
-            lock(&self.inner.state).attachments.insert(
+            let mut state = lock(&self.inner.state);
+            if self.inner.down.load(Ordering::SeqCst) {
+                attachment.close();
+                return;
+            }
+            state.attachments.insert(
                 attachment.clone(),
                 Att {
                     phase: Phase::Opening,
@@ -411,6 +424,7 @@ impl ProviderAdapter for ClaudeAdapter {
         })
         .is_err()
         {
+            attachment.close();
             lock(&self.inner.state).attachments.remove(&attachment);
         }
     }
@@ -444,8 +458,8 @@ impl ProviderAdapter for ClaudeAdapter {
     /// boundary, in order; the adapter neither waits for nor depends on how many it takes
     /// at once (11-risks row 49; `spec/bindings/mcp.md` §8.1).
     fn deliver(&self, hand_off: HandOff) -> HandOffOutcome {
-        let down = self.inner.down.read().unwrap_or_else(|e| e.into_inner());
-        if *down {
+        let _call = self.inner.calls.read().unwrap_or_else(|e| e.into_inner());
+        if self.inner.down.load(Ordering::SeqCst) {
             return HandOffOutcome::Failed;
         }
         let message = hand_off.message();
@@ -502,14 +516,29 @@ impl ProviderAdapter for ClaudeAdapter {
             }
         }
         let (tx, rx) = std::sync::mpsc::channel();
-        runtime.spawn(async move {
-            let _ = tx.send(peer.send_notification(notification).await.is_ok());
-        });
-        let outcome = match rx.recv_timeout(self.inner.handoff_wait) {
-            Ok(true) => HandOffOutcome::Completed,
-            Ok(false) => HandOffOutcome::Failed,
-            Err(RecvTimeoutError::Timeout | RecvTimeoutError::Disconnected) => {
-                HandOffOutcome::Indeterminate
+        {
+            let _st = lock(&self.inner.state);
+            if self.inner.down.load(Ordering::SeqCst) {
+                return HandOffOutcome::Failed;
+            }
+            runtime.spawn(async move {
+                let _ = tx.send(peer.send_notification(notification).await.is_ok());
+            });
+        }
+        let end = std::time::Instant::now() + self.inner.handoff_wait;
+        let outcome = loop {
+            match rx.recv_timeout(Duration::from_millis(1)) {
+                Ok(true) => break HandOffOutcome::Completed,
+                Ok(false) => break HandOffOutcome::Failed,
+                Err(RecvTimeoutError::Disconnected) => break HandOffOutcome::Indeterminate,
+                Err(RecvTimeoutError::Timeout) => {
+                    if self.inner.down.load(Ordering::SeqCst) {
+                        break HandOffOutcome::Indeterminate;
+                    }
+                    if std::time::Instant::now() >= end {
+                        break HandOffOutcome::Indeterminate;
+                    }
+                }
             }
         };
         if outcome == HandOffOutcome::Completed {
@@ -533,7 +562,7 @@ impl ProviderAdapter for ClaudeAdapter {
     }
 
     fn health(&self) -> HealthStatus {
-        if *self.inner.down.read().unwrap_or_else(|e| e.into_inner()) {
+        if self.inner.down.load(Ordering::SeqCst) {
             HealthStatus::new(HealthState::Unavailable)
         } else {
             HealthStatus::new(HealthState::Healthy)
@@ -541,11 +570,26 @@ impl ProviderAdapter for ClaudeAdapter {
     }
 
     fn shutdown(&self) {
-        let _shutdown = lock(&self.inner.shutdown);
-        let _ev = lock(&self.inner.events);
-        let mut down = self.inner.down.write().unwrap_or_else(|e| e.into_inner());
-        *down = true;
-        let (h, open, cancels, connections) = {
+        {
+            let _st = lock(&self.inner.state);
+            self.inner.down.store(true, Ordering::SeqCst);
+        }
+        // Revoke I/O before waiting for calls that might be blocked on it.
+        let handles: Vec<_> = lock(&self.inner.state)
+            .attachments
+            .keys()
+            .cloned()
+            .collect();
+        for h in &handles {
+            h.begin_close();
+        }
+        for h in handles {
+            h.close();
+        }
+        let calls = self.inner.calls.write().unwrap_or_else(|e| e.into_inner());
+        drop(calls);
+        let events = self.inner.events.enter();
+        let (handler, open, cancels, stops) = {
             let mut st = lock(&self.inner.state);
             let mut open = Vec::new();
             let mut cancels = Vec::new();
@@ -562,27 +606,29 @@ impl ProviderAdapter for ClaudeAdapter {
                 st.handler.clone(),
                 open,
                 cancels,
-                std::mem::take(&mut st.connections),
+                st.connections
+                    .values()
+                    .map(|(stop, _)| stop.clone())
+                    .collect::<Vec<_>>(),
             )
         };
-        drop(down);
-        for (stop, _) in connections.values() {
+        for stop in stops {
             let _ = stop.send(true);
         }
-        for c in cancels {
-            c.cancel();
+        for cancel in cancels {
+            cancel.cancel();
         }
-        for a in open {
-            self.inner
-                .emit(h.clone(), AdapterEvent::AttachmentClosed { attachment: a });
+        // No call lock across a callback; handlers may re-enter shutdown.
+        for attachment in open {
+            self.inner.emit(
+                handler.clone(),
+                AdapterEvent::AttachmentClosed { attachment },
+            );
         }
-        // No callback lock may be held while joining: a connection finishes through ended().
-        drop(_ev);
-        // Blocking std::io writes cannot be interrupted. Join the runtime that owns them,
-        // including its pending notification tasks, before shutdown returns [IFC-ADP-070].
-        for (_, thread) in connections.into_values() {
-            let _ = thread.join();
-        }
+        drop(events);
+        // Runtime cleanup may outlive this call, but all byte operations are settled and
+        // revoked. Do not join a runtime from its own event handler, or another runtime
+        // waiting for that handler's event serialization lock.
     }
 }
 

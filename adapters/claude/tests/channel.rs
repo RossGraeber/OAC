@@ -6,8 +6,6 @@
 //! harness (it writes Claude Code's recorded opening frames, D6 lines 3-9, and reads what the
 //! server writes). Each case names the requirement it checks. No live harness, no network.
 
-use std::io::{self, Read, Write};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -46,59 +44,11 @@ const TOOLS_LIST: &str = "{\"method\":\"tools/list\",\"jsonrpc\":\"2.0\",\"id\":
 
 // ---- the wire ---------------------------------------------------------------------------
 
-struct ToAdapter(Receiver<Vec<u8>>, Vec<u8>, usize);
-
-impl Read for ToAdapter {
-    fn read(&mut self, out: &mut [u8]) -> io::Result<usize> {
-        while self.2 >= self.1.len() {
-            match self.0.recv() {
-                Ok(b) => {
-                    self.1 = b;
-                    self.2 = 0;
-                }
-                Err(_) => return Ok(0),
-            }
-        }
-        let n = out.len().min(self.1.len() - self.2);
-        out[..n].copy_from_slice(&self.1[self.2..self.2 + n]);
-        self.2 += n;
-        Ok(n)
-    }
-}
-
-/// The writer the adapter writes to. Once `stall` is set, every write blocks until the
-/// test ends: a harness that stopped reading.
-struct FromAdapter {
-    tx: Sender<Vec<u8>>,
-    stall: Arc<AtomicBool>,
-    hold: Arc<Mutex<Receiver<()>>>,
-}
-
-impl Write for FromAdapter {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        if self.stall.load(Ordering::SeqCst) {
-            self.hold
-                .lock()
-                .unwrap()
-                .recv()
-                .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "stalled"))?;
-        }
-        self.tx
-            .send(buf.to_vec())
-            .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "closed"))?;
-        Ok(buf.len())
-    }
-    fn flush(&mut self) -> io::Result<()> {
-        Ok(())
-    }
-}
-
 struct Wire {
     to_adapter: Option<Sender<Vec<u8>>>,
     from_adapter: Receiver<Vec<u8>>,
     partial: Vec<u8>,
-    stall: Arc<AtomicBool>,
-    _release: Sender<()>,
+    stall: oac_core::connection::WriteControl,
 }
 
 impl Wire {
@@ -198,16 +148,9 @@ fn adapter_with(wait: Duration) -> (Arc<ClaudeAdapter>, Arc<Core>) {
 fn connect(a: &ClaudeAdapter) -> (Wire, Attachment) {
     let (to_tx, to_rx) = mpsc::channel();
     let (from_tx, from_rx) = mpsc::channel();
-    let stall = Arc::new(AtomicBool::new(false));
-    let (release, hold) = mpsc::channel();
-    let conn = Connection::accept(
-        ToAdapter(to_rx, Vec::new(), 0),
-        FromAdapter {
-            tx: from_tx,
-            stall: stall.clone(),
-            hold: Arc::new(Mutex::new(hold)),
-        },
-    );
+    let writer = oac_core::connection::ConnectionWriter::from(from_tx);
+    let stall = writer.control();
+    let conn = Connection::accept(to_rx.into(), writer);
     let h = conn.handle().clone();
     a.take_connection(conn);
     (
@@ -216,7 +159,6 @@ fn connect(a: &ClaudeAdapter) -> (Wire, Attachment) {
             from_adapter: from_rx,
             partial: Vec::new(),
             stall,
-            _release: release,
         },
         h,
     )
@@ -474,7 +416,7 @@ fn a_stalled_write_is_indeterminate() {
     open(&mut w, true);
     let att = wait_for_open(&core);
     a.set_binding(&att, Some(SessionId::from_random_octets([2; 16])));
-    w.stall.store(true, Ordering::SeqCst);
+    w.stall.pause(true);
     let (msg, _) = message("hello", None);
     assert_eq!(
         a.deliver(HandOff::new(att, msg).unwrap()),
@@ -675,15 +617,15 @@ fn colliding_message_ids_require_an_explicit_reply_destination() {
     a.shutdown();
 }
 
-/// [IFC-ADP-070]: a timed-out write must finish before shutdown can return.
+/// [IFC-ADP-070..075]: cancel a timed-out write, with no late hand-off.
 #[test]
-fn shutdown_waits_for_an_already_stalled_notification() {
+fn shutdown_cancels_an_already_stalled_notification() {
     let (a, core) = adapter_with(Duration::from_millis(300));
     let (mut w, _) = connect(&a);
     open(&mut w, true);
     let att = wait_for_open(&core);
     a.set_binding(&att, Some(SessionId::from_random_octets([2; 16])));
-    w.stall.store(true, Ordering::SeqCst);
+    w.stall.pause(true);
     let (msg, _) = message("held content", None);
     assert_eq!(
         a.deliver(HandOff::new(att, msg).unwrap()),
@@ -695,25 +637,11 @@ fn shutdown_waits_for_an_already_stalled_notification() {
         stopping.shutdown();
         done_tx.send(()).unwrap();
     });
-    let returned_early = done_rx.recv_timeout(Duration::from_millis(300)).is_ok();
-    w.stall.store(false, Ordering::SeqCst);
-    w._release.send(()).unwrap();
-    // Drain the complete frame before observing shutdown's completion.
-    let frame = w.frame();
-    assert_eq!(
-        text(&frame, &["params", "content"]).as_deref(),
-        Some("held content")
-    );
-    if !returned_early {
-        done_rx
-            .recv_timeout(WAIT)
-            .expect("shutdown completes after write");
-    }
+    done_rx
+        .recv_timeout(Duration::from_millis(oac_adapter_claude::SHUTDOWN_BOUND_MS))
+        .expect("shutdown cancels the stalled write within its bound");
     thread.join().unwrap();
-    assert!(
-        !returned_early,
-        "shutdown returned while content could still be handed off"
-    );
+    w.stall.pause(false);
     assert!(w.next(Duration::from_millis(200)).is_none());
     let events = core.events.lock().unwrap();
     assert_eq!(
@@ -773,4 +701,87 @@ fn shutdown_does_not_wait_for_an_unfinished_opening() {
     thread.join().unwrap();
     assert!(core.events.lock().unwrap().is_empty());
     a.shutdown();
+}
+
+/// Closure also covers opening connections, which never became attachments.
+#[test]
+fn shutdown_closes_opening_connections_and_double_shutdown_returns() {
+    let (a, _core) = adapter_with(WAIT);
+    let (_wire, h) = connect(&a);
+    let (_wire2, h2) = connect(&a);
+    let (done, rx) = mpsc::channel();
+    let a2 = a.clone();
+    let t = std::thread::spawn(move || {
+        a2.shutdown();
+        done.send(()).unwrap();
+    });
+    a.shutdown();
+    rx.recv_timeout(Duration::from_millis(oac_adapter_claude::SHUTDOWN_BOUND_MS))
+        .unwrap();
+    t.join().unwrap();
+    assert!(h.is_closed() && h2.is_closed());
+    let (_wire3, h3) = connect(&a);
+    assert!(
+        h3.is_closed(),
+        "a connection supplied after shutdown is closed too"
+    );
+}
+
+#[test]
+fn shutdown_from_inside_open_and_closed_handlers_does_not_deadlock() {
+    let a = Arc::new(ClaudeAdapter::new());
+    let weak = Arc::downgrade(&a);
+    let (done, rx) = mpsc::channel();
+    a.watch_attachments(Arc::new(move |e| {
+        if matches!(
+            e,
+            AdapterEvent::AttachmentOpened { .. } | AdapterEvent::AttachmentClosed { .. }
+        ) {
+            weak.upgrade().unwrap().shutdown();
+            let _ = done.send(e);
+        }
+    }));
+    let (mut w, h) = connect(&a);
+    open(&mut w, true);
+    let first = rx
+        .recv_timeout(Duration::from_millis(oac_adapter_claude::SHUTDOWN_BOUND_MS))
+        .unwrap();
+    let second = rx
+        .recv_timeout(Duration::from_millis(oac_adapter_claude::SHUTDOWN_BOUND_MS))
+        .unwrap();
+    assert!(matches!(first, AdapterEvent::AttachmentClosed { .. }));
+    assert!(matches!(second, AdapterEvent::AttachmentOpened { .. }));
+    assert!(h.is_closed());
+}
+
+#[test]
+fn shutdown_settles_an_inflight_deliver_before_return() {
+    let (a, core) = adapter_with(WAIT);
+    let (mut w, h) = connect(&a);
+    open(&mut w, true);
+    let att = wait_for_open(&core);
+    a.set_binding(&att, Some(SessionId::from_random_octets([2; 16])));
+    w.stall.pause(true);
+    let (msg, _) = message("pending notification", None);
+    let (started, start_rx) = mpsc::channel();
+    let (done, done_rx) = mpsc::channel();
+    let a2 = a.clone();
+    let t = std::thread::spawn(move || {
+        started.send(()).unwrap();
+        let result = a2.deliver(HandOff::new(att, msg).unwrap());
+        done.send(result).unwrap();
+    });
+    start_rx.recv().unwrap();
+    std::thread::sleep(Duration::from_millis(50));
+    assert!(done_rx.try_recv().is_err());
+    a.shutdown();
+    assert!(h.is_closed());
+    let outcome = done_rx.recv_timeout(Duration::from_millis(100)).unwrap();
+    assert!(matches!(
+        outcome,
+        HandOffOutcome::Failed | HandOffOutcome::Indeterminate
+    ));
+    t.join().unwrap();
+    w.stall.pause(false);
+    assert!(w.next(Duration::from_millis(100)).is_none());
 }

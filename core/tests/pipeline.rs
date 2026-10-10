@@ -275,6 +275,7 @@ struct TestAdapter {
     on_deliver: Mutex<Option<OnDeliver>>,
     caps: Mutex<AdapterCapabilities>,
     deliver_calls: AtomicUsize,
+    shutdown_bound: AtomicUsize,
     /// Run once at the next `capabilities` call.
     on_capabilities: Mutex<Option<Box<dyn FnOnce() + Send>>>,
     /// Run once at the next `set_binding` that names a session: after the core registered
@@ -304,6 +305,7 @@ impl TestAdapter {
                 max_envelope_octets: None,
             }),
             deliver_calls: AtomicUsize::new(0),
+            shutdown_bound: AtomicUsize::new(1000),
             on_capabilities: Mutex::default(),
             on_set_binding: Mutex::default(),
             on_unset_binding: Mutex::default(),
@@ -345,6 +347,10 @@ impl TestAdapter {
 }
 
 impl ProviderAdapter for TestAdapter {
+    fn shutdown_bound_ms(&self) -> u64 {
+        self.shutdown_bound.load(Ordering::SeqCst) as u64
+    }
+
     fn take_connection(&self, connection: Connection) {
         let (a, _, _) = connection.into_parts();
         if std::mem::take(&mut *self.carrier_next.lock().unwrap()) {
@@ -466,7 +472,7 @@ fn node_on(bus: &Bus, principal: &str, config: PipelineConfig, clock: Arc<dyn Cl
 
 /// A session on `n`: a connection given to its adapter, bound to a fresh session id.
 fn session(n: &Node, seed: u8) -> (Attachment, SessionId) {
-    let conn = Connection::accept(std::io::empty(), std::io::sink());
+    let conn = Connection::accept(Default::default(), Default::default());
     let a = conn.handle().clone();
     n.pipes.connect(n.adapter_id, conn).unwrap();
     let sid = SessionId::from_random_octets([seed; 16]);
@@ -653,14 +659,14 @@ fn refusals_create_no_envelope() {
     local_grant(&n, &sa, &sb);
     // An attachment that is not bound, and one never given to this adapter: unauthorized
     // ([SC-ID-161], [IFC-ADP-031]).
-    let stray = Connection::accept(std::io::empty(), std::io::sink())
+    let stray = Connection::accept(Default::default(), Default::default())
         .handle()
         .clone();
     assert_eq!(
         refused(n.adapter.sink().send(request(&stray, &sb, "x"))),
         ErrorCode::Unauthorized
     );
-    let conn = Connection::accept(std::io::empty(), std::io::sink());
+    let conn = Connection::accept(Default::default(), Default::default());
     let unbound = conn.handle().clone();
     n.pipes.connect(n.adapter_id, conn).unwrap();
     assert_eq!(
@@ -1217,7 +1223,7 @@ fn an_attachment_needs_a_connection_given_to_that_adapter() {
             .unwrap()
     };
     // A handle the core minted but gave to no adapter.
-    let forged = Connection::accept(std::io::empty(), std::io::sink())
+    let forged = Connection::accept(Default::default(), Default::default())
         .handle()
         .clone();
     other.emit(AdapterEvent::AttachmentOpened {
@@ -1229,7 +1235,7 @@ fn an_attachment_needs_a_connection_given_to_that_adapter() {
         Err(PipelineError::UnknownAttachment)
     );
     // A handle given to the first adapter, reported open by the other one.
-    let conn = Connection::accept(std::io::empty(), std::io::sink());
+    let conn = Connection::accept(Default::default(), Default::default());
     let theirs = conn.handle().clone();
     n.pipes.connect(n.adapter_id, conn).unwrap();
     n.pipes.unbind(&theirs);
@@ -1428,7 +1434,7 @@ fn requirements(log: &MemoryBindingLog) -> Vec<&'static str> {
 /// An attachment whose peer was observed with `key`, reporting cross-check value `e`.
 fn observed_attachment(n: &Node, key: &str, e: Option<&str>) -> Attachment {
     *n.adapter.cross_check_next.lock().unwrap() = e.map(str::to_owned);
-    let conn = Connection::accept(std::io::empty(), std::io::sink());
+    let conn = Connection::accept(Default::default(), Default::default());
     let a = conn.handle().clone();
     n.pipes
         .connect_observed(n.adapter_id, conn, observed(key))
@@ -1439,7 +1445,7 @@ fn observed_attachment(n: &Node, key: &str, e: Option<&str>) -> Attachment {
 /// A connection observed with `key` that carries native signals and is no attachment.
 fn carrier(n: &Node, key: &str) -> Attachment {
     *n.adapter.carrier_next.lock().unwrap() = true;
-    let conn = Connection::accept(std::io::empty(), std::io::sink());
+    let conn = Connection::accept(Default::default(), Default::default());
     let c = conn.handle().clone();
     n.pipes
         .connect_observed(n.adapter_id, conn, observed(key))
@@ -1469,7 +1475,7 @@ fn a_native_signal_without_an_observed_key_fails_closed() {
     let bus = Bus::default();
     let n = node(&bus, "device-a", PipelineConfig::default());
     let log = binding_log(&n);
-    let conn = Connection::accept(std::io::empty(), std::io::sink());
+    let conn = Connection::accept(Default::default(), Default::default());
     let a = conn.handle().clone();
     n.pipes.connect(n.adapter_id, conn).unwrap();
     n.adapter.emit(signal(
@@ -1787,7 +1793,7 @@ fn a_flood_cannot_evict_another_keys_queued_signal() {
     let x = observed_attachment(&n, "harness-x", None);
     let victim = carrier(&n, "harness-v");
     let flood = carrier(&n, "harness-f");
-    let bare = Connection::accept(std::io::empty(), std::io::sink());
+    let bare = Connection::accept(Default::default(), Default::default());
     let unkeyed = bare.handle().clone();
     n.pipes.connect(n.adapter_id, bare).unwrap();
     let log = binding_log(&n);
@@ -2079,7 +2085,7 @@ fn an_older_held_signal_does_not_rebind_over_a_newer_one() {
     let (pipes, id, slot) = (n.pipes.clone(), n.adapter_id, opened.clone());
     // During h2's decision: K's attachment opens.
     during_next_decision(&n, move || {
-        let conn = Connection::accept(std::io::empty(), std::io::sink());
+        let conn = Connection::accept(Default::default(), Default::default());
         *slot.lock().unwrap() = Some(conn.handle().clone());
         pipes
             .connect_observed(id, conn, observed("harness-k"))
@@ -2139,7 +2145,7 @@ fn an_older_signal_dropped_after_a_newer_pairing_withholds_nothing() {
     let opened: Arc<Mutex<Option<Attachment>>> = Arc::default();
     let (pipes, id, slot) = (n.pipes.clone(), n.adapter_id, opened.clone());
     during_next_decision(&n, move || {
-        let conn = Connection::accept(std::io::empty(), std::io::sink());
+        let conn = Connection::accept(Default::default(), Default::default());
         *slot.lock().unwrap() = Some(conn.handle().clone());
         pipes
             .connect_observed(id, conn, observed("harness-k"))
@@ -2188,7 +2194,7 @@ fn k_opens_during_h2(
     let opened: Arc<Mutex<Option<Attachment>>> = Arc::default();
     let (pipes, id, slot) = (n.pipes.clone(), n.adapter_id, opened.clone());
     during_next_decision(n, move || {
-        let conn = Connection::accept(std::io::empty(), std::io::sink());
+        let conn = Connection::accept(Default::default(), Default::default());
         *slot.lock().unwrap() = Some(conn.handle().clone());
         pipes
             .connect_observed(id, conn, observed("harness-k"))
@@ -2262,7 +2268,7 @@ fn a_pairing_ends_only_its_own_keys_windows() {
     let other = TestAdapter::new();
     let other_id = n.pipes.add_adapter(other.clone());
     *other.carrier_next.lock().unwrap() = true;
-    let conn = Connection::accept(std::io::empty(), std::io::sink());
+    let conn = Connection::accept(Default::default(), Default::default());
     let q = conn.handle().clone();
     n.pipes
         .connect_observed(other_id, conn, observed("harness-k"))
@@ -2283,7 +2289,7 @@ fn a_pairing_ends_only_its_own_keys_windows() {
         n.pipes.binding(&l).is_some(),
         "another key's signal stayed held"
     );
-    let conn = Connection::accept(std::io::empty(), std::io::sink());
+    let conn = Connection::accept(Default::default(), Default::default());
     let aq = conn.handle().clone();
     n.pipes
         .connect_observed(other_id, conn, observed("harness-k"))
@@ -2361,7 +2367,7 @@ fn a_late_eviction_drop_does_not_withhold_a_newer_binding() {
             }
         }));
         *adapter.cross_check_next.lock().unwrap() = Some("native-2".into());
-        let conn = Connection::accept(std::io::empty(), std::io::sink());
+        let conn = Connection::accept(Default::default(), Default::default());
         *slot.lock().unwrap() = Some(conn.handle().clone());
         pipes
             .connect_observed(id, conn, observed("harness-k"))
@@ -2662,7 +2668,7 @@ fn a_key_is_shared_per_adapter() {
     // The same key, through the other adapter: it holds nothing there, so the heaviest
     // holder (`g`, 2) pays, not this adapter's single `k` signal.
     *other.carrier_next.lock().unwrap() = true;
-    let conn = Connection::accept(std::io::empty(), std::io::sink());
+    let conn = Connection::accept(Default::default(), Default::default());
     let q = conn.handle().clone();
     n.pipes
         .connect_observed(other_id, conn, observed("harness-k"))
@@ -2681,7 +2687,7 @@ fn a_key_is_shared_per_adapter() {
     let other = TestAdapter::new();
     let other_id = n.pipes.add_adapter(other.clone());
     *other.carrier_next.lock().unwrap() = true;
-    let conn = Connection::accept(std::io::empty(), std::io::sink());
+    let conn = Connection::accept(Default::default(), Default::default());
     let q = conn.handle().clone();
     n.pipes
         .connect_observed(other_id, conn, observed("harness-k"))
@@ -2697,7 +2703,7 @@ fn a_key_is_shared_per_adapter() {
     n.adapter
         .emit(signal(Some(&k), "native-k", StartKind::Fresh, None));
     assert_eq!(requirements(&log), ["SC-ID-128"]);
-    let conn = Connection::accept(std::io::empty(), std::io::sink());
+    let conn = Connection::accept(Default::default(), Default::default());
     let aq = conn.handle().clone();
     n.pipes
         .connect_observed(other_id, conn, observed("harness-k"))
@@ -2776,7 +2782,7 @@ fn a_held_signal_pairs_with_an_attachment_opened_during_another_decision() {
     let opened: Arc<Mutex<Option<Attachment>>> = Arc::default();
     let (pipes, id, slot) = (n.pipes.clone(), n.adapter_id, opened.clone());
     during_next_decision(&n, move || {
-        let conn = Connection::accept(std::io::empty(), std::io::sink());
+        let conn = Connection::accept(Default::default(), Default::default());
         *slot.lock().unwrap() = Some(conn.handle().clone());
         pipes
             .connect_observed(id, conn, observed("harness-k"))
@@ -2861,14 +2867,14 @@ fn disconnected_connections_free_their_place() {
     let n = node(&bus, "device-a", config);
     let c1 = carrier(&n, "harness-1");
     let _c2 = carrier(&n, "harness-2");
-    let third = Connection::accept(std::io::empty(), std::io::sink());
+    let third = Connection::accept(Default::default(), Default::default());
     assert_eq!(
         n.pipes.connect(n.adapter_id, third),
         Err(PipelineError::TooManyConnections)
     );
     n.pipes.disconnect(&c1);
     n.pipes.disconnect(&c1);
-    let again = Connection::accept(std::io::empty(), std::io::sink());
+    let again = Connection::accept(Default::default(), Default::default());
     assert_eq!(n.pipes.connect(n.adapter_id, again), Ok(()));
     // A signal on the ended carrier has no observed key any more: it fails closed.
     let log = binding_log(&n);
@@ -2975,4 +2981,198 @@ fn a_disconnect_during_a_bind_leaves_no_session() {
         .iter()
         .any(|e| e.record.requirement == "SC-ID-009" && e.result == BindingResult::FailedClosed);
     assert!(failed, "{:?}", requirements(&log));
+}
+
+// Interfaces 0.4 local identity: attachment ownership and binding captured under one lock.
+#[test]
+fn identity_returns_only_the_current_attachment_binding_and_public_digest() {
+    use oac_core::adapter::{IdentityRequest, IdentityRequestResult, LocalIdentity};
+    let n = node(
+        &Bus::default(),
+        "identity-device",
+        PipelineConfig::default(),
+    );
+    let (a, sa) = session(&n, 41);
+    let (b, sb) = session(&n, 42);
+    let get = |a: &Attachment| {
+        n.adapter.sink().identity(IdentityRequest {
+            attachment: a.clone(),
+        })
+    };
+    let expected = LocalIdentity {
+        session_id: sa.clone(),
+        device_fingerprint: n.pipes.device().key_id().clone(),
+    };
+    assert_eq!(
+        get(&a),
+        IdentityRequestResult::LocalIdentity(expected.clone())
+    );
+    let LocalIdentity {
+        session_id,
+        device_fingerprint,
+    } = expected; // exhaustive: no key members
+    assert_eq!(session_id, sa);
+    assert_eq!(device_fingerprint.as_str().len(), 64);
+    assert!(
+        device_fingerprint
+            .as_str()
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    );
+    assert!(
+        matches!(get(&b), IdentityRequestResult::LocalIdentity(LocalIdentity { session_id, .. }) if session_id == sb)
+    );
+    n.pipes.unbind(&a);
+    assert_eq!(
+        get(&a),
+        IdentityRequestResult::Refused {
+            error: ErrorCode::Unauthorized
+        }
+    );
+    n.adapter.emit(AdapterEvent::AttachmentClosed {
+        attachment: b.clone(),
+    });
+    assert_eq!(
+        get(&b),
+        IdentityRequestResult::Refused {
+            error: ErrorCode::Unauthorized
+        }
+    );
+    let unknown = Connection::accept(Default::default(), Default::default());
+    assert_eq!(
+        get(unknown.handle()),
+        IdentityRequestResult::Refused {
+            error: ErrorCode::Unauthorized
+        }
+    );
+}
+
+#[test]
+fn identity_cannot_select_another_adapters_attachment() {
+    use oac_core::adapter::{IdentityRequest, IdentityRequestResult};
+    let n = node(
+        &Bus::default(),
+        "identity-device",
+        PipelineConfig::default(),
+    );
+    let (a, _) = session(&n, 43);
+    let other = TestAdapter::new();
+    n.pipes.add_adapter(other.clone());
+    assert_eq!(
+        other.sink().identity(IdentityRequest { attachment: a }),
+        IdentityRequestResult::Refused {
+            error: ErrorCode::Unauthorized
+        }
+    );
+}
+
+#[test]
+fn identity_racing_unbind_has_no_stale_fallback() {
+    use oac_core::adapter::{IdentityRequest, IdentityRequestResult, LocalIdentity};
+    let n = node(
+        &Bus::default(),
+        "identity-device",
+        PipelineConfig::default(),
+    );
+    let (a, sa) = session(&n, 44);
+    let sink = n.adapter.sink();
+    let reader = sink.clone();
+    let attachment = a.clone();
+    let fingerprint = n.pipes.device().key_id().clone();
+    let t = std::thread::spawn(move || {
+        for _ in 0..100 {
+            match reader.identity(IdentityRequest {
+                attachment: attachment.clone(),
+            }) {
+                IdentityRequestResult::LocalIdentity(LocalIdentity {
+                    session_id,
+                    device_fingerprint,
+                }) => {
+                    assert_eq!(session_id, sa);
+                    assert_eq!(device_fingerprint, fingerprint);
+                }
+                IdentityRequestResult::Refused { error } => {
+                    assert_eq!(error, ErrorCode::Unauthorized)
+                }
+            }
+        }
+    });
+    n.pipes.unbind(&a);
+    t.join().unwrap();
+    assert_eq!(
+        sink.identity(IdentityRequest { attachment: a }),
+        IdentityRequestResult::Refused {
+            error: ErrorCode::Unauthorized
+        }
+    );
+}
+
+#[test]
+fn a_connection_cannot_exceed_the_adapter_shutdown_budget() {
+    let n = node(&Bus::default(), "budget-device", PipelineConfig::default());
+    n.adapter.shutdown_bound.store(99, Ordering::SeqCst);
+    let c = Connection::accept(Default::default(), Default::default());
+    let h = c.handle().clone();
+    assert!(matches!(
+        n.pipes.connect(n.adapter_id, c),
+        Err(PipelineError::ClosureBound)
+    ));
+    assert!(h.is_closed());
+    assert!(
+        n.adapter.bound.lock().unwrap().is_empty(),
+        "not supplied to the adapter"
+    );
+}
+
+#[test]
+fn identity_refuses_a_withheld_or_closed_attachment_and_uses_a_new_binding() {
+    use oac_core::adapter::{IdentityRequest, IdentityRequestResult, LocalIdentity};
+    let n = node(
+        &Bus::default(),
+        "identity-device",
+        PipelineConfig::default(),
+    );
+    let a = observed_attachment(&n, "harness-identity", None);
+    let s = SessionId::from_random_octets([50; 16]);
+    let record = n
+        .pipes
+        .device()
+        .register(
+            s,
+            Token::parse("test-harness").unwrap(),
+            "native-x",
+            "/work",
+            SystemClock.now(),
+        )
+        .unwrap();
+    n.pipes.bind(&a, &record, None).unwrap();
+    let b = observed_attachment(&n, "harness-identity", None);
+    n.adapter
+        .emit(signal(Some(&b), "native-y", StartKind::Transition, None));
+    let get = || {
+        n.adapter.sink().identity(IdentityRequest {
+            attachment: a.clone(),
+        })
+    };
+    assert_eq!(
+        get(),
+        IdentityRequestResult::Refused {
+            error: ErrorCode::Unauthorized
+        }
+    );
+    n.adapter
+        .emit(AdapterEvent::AttachmentClosed { attachment: b });
+    n.adapter
+        .emit(signal(Some(&a), "native-new", StartKind::Transition, None));
+    let current = n.pipes.binding(&a).unwrap();
+    assert!(
+        matches!(get(), IdentityRequestResult::LocalIdentity(LocalIdentity { session_id, .. }) if session_id == current)
+    );
+    a.close(); // before the eventual attachment-closed callback reaches core
+    assert_eq!(
+        get(),
+        IdentityRequestResult::Refused {
+            error: ErrorCode::Unauthorized
+        }
+    );
 }
