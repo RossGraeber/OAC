@@ -224,6 +224,11 @@ impl WsReader {
                     }
                 },
                 0x8 => {
+                    if payload.len() == 1 {
+                        let e = WsError::Protocol("a one-byte close payload".into());
+                        self.fail(&e);
+                        return Err(e);
+                    }
                     // Echo the status code, as RFC 6455 §5.5.1 asks, then stop.
                     let code: Vec<u8> = payload.iter().take(2).copied().collect();
                     let _ = self.writer.send(0x8, &code);
@@ -390,6 +395,11 @@ pub fn check_upgrade_response(head: &[u8], key: &str) -> Result<(), WsError> {
                     "an extension the client did not offer".into(),
                 ));
             }
+            "sec-websocket-protocol" => {
+                return Err(WsError::Handshake(
+                    "a subprotocol the client did not offer".into(),
+                ));
+            }
             _ => {}
         }
     }
@@ -486,7 +496,7 @@ pub fn sha1(data: &[u8]) -> [u8; 20] {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     #[test]
@@ -529,6 +539,11 @@ mod tests {
         assert_eq!(f, vec![0x81, 0x82, 1, 2, 3, 4, b'h' ^ 1, b'i' ^ 2]);
         let long = encode_frame(0x1, &[0u8; 300], [0; 4]);
         assert_eq!(&long[..4], &[0x81, 0x80 | 126, 1, 44]);
+    }
+
+    pub(crate) fn recording_writer() -> (WsWriter, Arc<Mutex<Vec<u8>>>) {
+        let (reader, out) = reader_over(Vec::new());
+        (reader.writer, out)
     }
 
     fn reader_over(bytes: Vec<u8>) -> (WsReader, Arc<Mutex<Vec<u8>>>) {
@@ -582,15 +597,71 @@ mod tests {
             (vec![0x82, 1, b'x'], "binary"),
             (vec![0x80, 1, b'x'], "lone continuation"),
             (vec![0x09, 0], "fragmented control frame"),
+            (vec![0x88, 1, 0], "one-byte close payload"),
         ] {
             let (mut r, out) = reader_over(bytes);
             assert!(matches!(r.next_text(), Err(WsError::Protocol(_))), "{why}");
-            assert_eq!(out.lock().unwrap()[0], 0x88, "{why}: a close follows");
+            let sent = out.lock().unwrap();
+            assert_eq!(sent[0], 0x88, "{why}: a close follows");
+            assert_eq!(
+                [sent[6] ^ sent[2], sent[7] ^ sent[3]],
+                1002u16.to_be_bytes()
+            );
         }
         let mut big = vec![0x81, 127];
         big.extend_from_slice(&(MAX_MESSAGE as u64 + 1).to_be_bytes());
         let (mut r, _) = reader_over(big);
         assert_eq!(r.next_text(), Err(WsError::TooLarge));
+
+        // Each frame fits, but the cumulative message does not. The last frame is
+        // final so removing the cumulative cap returns text, rather than EOF.
+        let mut fragments = Vec::new();
+        for i in 0..17 {
+            fragments.push(if i == 0 {
+                0x01
+            } else if i == 16 {
+                0x80
+            } else {
+                0x00
+            });
+            fragments.push(127);
+            fragments.extend_from_slice(&(1024u64 * 1024).to_be_bytes());
+            fragments.resize(fragments.len() + 1024 * 1024, b'x');
+        }
+        let (mut r, out) = reader_over(fragments);
+        assert_eq!(r.next_text(), Err(WsError::TooLarge));
+        let sent = out.lock().unwrap();
+        assert_eq!(sent[0], 0x88);
+        assert_eq!(
+            [sent[6] ^ sent[2], sent[7] ^ sent[3]],
+            1009u16.to_be_bytes()
+        );
+        assert_eq!(r.writer.send_text("later"), Err(WsError::Closed));
+    }
+
+    #[test]
+    fn upgrade_headers_are_bounded() {
+        let err = handshake(
+            Box::new(io::Cursor::new(vec![b'x'; MAX_HEAD + 1])),
+            Box::new(io::sink()),
+            "localhost",
+        )
+        .err()
+        .unwrap();
+        assert_eq!(err, WsError::Handshake("response head too long".into()));
+    }
+
+    #[test]
+    fn an_unoffered_subprotocol_is_refused() {
+        let key = "test";
+        let head = format!(
+            "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {}\r\nSec-WebSocket-Protocol: rpc\r\n\r\n",
+            accept_value(key)
+        );
+        assert!(matches!(
+            check_upgrade_response(head.as_bytes(), key),
+            Err(WsError::Handshake(_))
+        ));
     }
 
     #[test]

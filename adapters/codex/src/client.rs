@@ -21,6 +21,12 @@
 //! content, deltas dropped. A server-to-client request (an approval) is never answered:
 //! approving or declining is the harness user's decision, never the adapter's
 //! (`oac-security-work` §3). It is counted in [`Diagnostics`].
+//! Codex sends a thread's tool approval to every subscriber; the first answer resolves
+//! its shared callback. Silence leaves the TUI free to answer. If this carrier is the
+//! only subscriber, the approval waits until another subscriber answers or a turn-state
+//! change aborts it. An adapter decline would decide it instead. This is source-only
+//! evidence at `rust-v0.161.0`; no fixture records an approval request. See
+//! `adapters/codex/README.md`, "Approval evidence", for the source citations.
 //!
 //! **Identity.** The client presents a stable `clientInfo.name`, [`CLIENT_NAME`], so a
 //! test or an operator can tell its calls from other clients' (the fake app-server's call
@@ -73,7 +79,7 @@ pub struct Options {
     /// The `Host` header of the Upgrade. The control socket is a local socket, so any
     /// fixed name serves; the default is `localhost`.
     pub host: String,
-    /// How long a call waits for its response before it is reported as unanswered.
+    /// Deadline for the HTTP Upgrade and for each JSON-RPC response.
     pub call_timeout: Duration,
 }
 
@@ -159,6 +165,8 @@ pub struct Diagnostics {
     pub server_requests: u64,
     /// Responses to no call the client is waiting on (late, after a timeout).
     pub stray_responses: u64,
+    /// Consecutive calls with no answer; a matched response resets this count.
+    pub consecutive_no_answers: u64,
 }
 
 type Reply = Result<Json, (i64, String)>;
@@ -206,16 +214,33 @@ impl CodexClient {
     /// # Errors
     ///
     /// [`ClientError::Connect`] when the Upgrade fails; otherwise the `initialize` call's
-    /// error. The connection is closed on any error.
+    /// error. The Upgrade accepts at most 16 KiB of response headers and waits at most
+    /// `options.call_timeout`. On any error, `cli/` must shut down the underlying stream
+    /// (including its cloned halves) to reclaim a worker blocked in stream I/O. No read
+    /// timeout is installed on the long-lived carrier.
     pub fn connect(
         reader: impl Read + Send + 'static,
         writer: impl Write + Send + 'static,
         options: &Options,
         handler: EventHandler,
     ) -> Result<CodexClient, ClientError> {
-        let (mut ws_reader, ws_writer) =
-            ws::handshake(Box::new(reader), Box::new(writer), &options.host)
-                .map_err(ClientError::Connect)?;
+        let (tx, rx) = mpsc::channel();
+        let host = options.host.clone();
+        std::thread::Builder::new()
+            .name("oac-codex-upgrade".into())
+            .spawn(move || {
+                let result = ws::handshake(Box::new(reader), Box::new(writer), &host);
+                // If connect timed out, dropping the result releases the halves without
+                // initializing or starting a carrier on a late Upgrade.
+                let _ = tx.send(result);
+            })
+            .map_err(|e| ClientError::Connect(WsError::Io(e.to_string())))?;
+        let (mut ws_reader, ws_writer) = rx
+            .recv_timeout(options.call_timeout)
+            .map_err(|_| {
+                ClientError::Connect(WsError::Handshake("no Upgrade answer in time".into()))
+            })?
+            .map_err(ClientError::Connect)?;
         let inner = Arc::new(Inner {
             writer: ws_writer,
             next_id: AtomicU64::new(1),
@@ -483,11 +508,17 @@ impl CodexClient {
             "Codex app-server connected (Codex {version}, {}); {served} thread(s) served",
             shim::SHIM_LABEL
         );
-        let state = if d.schema_drift > 0 || d.malformed > 0 {
+        let state = if d.schema_drift > 0 || d.malformed > 0 || d.consecutive_no_answers >= 3 {
             detail.push_str(&format!(
                 "; {} schema drift, {} malformed message(s)",
                 d.schema_drift, d.malformed
             ));
+            if d.consecutive_no_answers >= 3 {
+                detail.push_str(&format!(
+                    "; {} consecutive unanswered calls",
+                    d.consecutive_no_answers
+                ));
+            }
             HealthState::Degraded
         } else {
             HealthState::Healthy
@@ -546,6 +577,7 @@ impl Inner {
             Ok(Err((code, message))) => Err(ClientError::Refused { code, message }),
             Err(RecvTimeoutError::Timeout) => {
                 lock(&self.pending).remove(&id);
+                lock(&self.stats).consecutive_no_answers += 1;
                 Err(ClientError::NoAnswer)
             }
             Err(RecvTimeoutError::Disconnected) => Err(ClientError::Closed),
@@ -620,6 +652,7 @@ impl Inner {
         };
         match lock(&self.pending).remove(&id) {
             Some(tx) => {
+                lock(&self.stats).consecutive_no_answers = 0;
                 let _ = tx.send(reply);
             }
             None => lock(&self.stats).stray_responses += 1,
@@ -682,6 +715,94 @@ fn random_hex() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn inner_with_recording_writer() -> (CodexClient, Arc<Mutex<Vec<u8>>>) {
+        let (writer, out) = ws::tests::recording_writer();
+        let client = CodexClient {
+            inner: Arc::new(Inner {
+                writer,
+                next_id: AtomicU64::new(1),
+                pending: Mutex::default(),
+                registry: Mutex::default(),
+                handler: Arc::new(|_| panic!("unexpected event")),
+                open: AtomicBool::new(true),
+                down: AtomicBool::new(false),
+                stats: Mutex::default(),
+                codex_version: Mutex::new(None),
+                timeout: Duration::from_millis(1),
+                message_prefix: "test".into(),
+                next_message: AtomicU64::new(1),
+            }),
+        };
+        (client, out)
+    }
+
+    #[test]
+    fn server_requests_are_counted_and_never_answered() {
+        let (client, out) = inner_with_recording_writer();
+        // Parser-level hostile inputs, not a claimed recording of Codex approvals.
+        for id in ["1", "\"approval\""] {
+            client.inner.dispatch(&format!(
+                r#"{{"id":{id},"method":"item/commandExecution/requestApproval","params":{{}}}}"#
+            ));
+        }
+        assert_eq!(client.diagnostics().server_requests, 2);
+        assert!(
+            out.lock().unwrap().is_empty(),
+            "an approval must write no answer"
+        );
+        assert!(lock(&client.inner.pending).is_empty());
+    }
+
+    #[test]
+    fn repeated_unanswered_calls_degrade_health_and_a_response_recovers_it() {
+        let (client, _) = inner_with_recording_writer();
+        for _ in 0..3 {
+            assert_eq!(
+                client.call("thread/resume", "{}"),
+                Err(ClientError::NoAnswer)
+            );
+        }
+        assert_eq!(client.health().state, HealthState::Degraded);
+        let (tx, rx) = mpsc::channel();
+        lock(&client.inner.pending).insert(42, tx);
+        client.inner.dispatch(r#"{"id":42,"result":{}}"#);
+        assert!(rx.recv().unwrap().is_ok());
+        assert_eq!(client.diagnostics().consecutive_no_answers, 0);
+        assert_eq!(client.health().state, HealthState::Healthy);
+    }
+
+    #[test]
+    fn a_silent_upgrade_peer_cannot_hang_connect() {
+        use std::net::{Shutdown, TcpListener, TcpStream};
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let stream = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (mut peer, _) = listener.accept().unwrap();
+        let cleanup = stream.try_clone().unwrap();
+        let (tx, rx) = mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            let result = CodexClient::connect(
+                stream.try_clone().unwrap(),
+                stream,
+                &Options {
+                    call_timeout: Duration::from_millis(50),
+                    ..Options::default()
+                },
+                Arc::new(|_| panic!("no event before Upgrade")),
+            );
+            tx.send(result).unwrap();
+        });
+        // Keep the server silent, even after the deadline, until the assertion is made.
+        let result = rx.recv_timeout(Duration::from_secs(2));
+        cleanup.shutdown(Shutdown::Both).unwrap();
+        let mut request = Vec::new();
+        peer.read_to_end(&mut request).unwrap();
+        worker.join().unwrap();
+        assert!(request.starts_with(b"GET / HTTP/1.1"));
+        assert!(
+            matches!(result.unwrap(), Err(ClientError::Connect(WsError::Handshake(ref why))) if why == "no Upgrade answer in time")
+        );
+    }
 
     #[test]
     fn thread_ids_are_uuid_text_only() {

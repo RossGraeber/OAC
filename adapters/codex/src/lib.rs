@@ -13,6 +13,12 @@
 //!   inside.
 //! - [`events`]: notifications for served threads, with `item/completed` authoritative.
 //!
+//! **Approvals.** Server requests are counted and left unanswered. Another thread
+//! subscriber (the TUI) can answer; the first answer resolves Codex's shared callback.
+//! With this carrier as the only subscriber, a tool approval waits until a subscriber
+//! answers or a turn-state change aborts it. Source-only at `rust-v0.161.0`, with no
+//! approval fixture: see `adapters/codex/README.md`, "Approval evidence".
+//!
 //! **Boundaries ([ADR-001 Boundary]).** The adapter calls no model API, and never reads or
 //! holds a Codex credential (`auth.json`, the keyring) or a rollout file: it speaks only the
 //! documented app-server protocol, over a stream it is handed. No Codex crate is a

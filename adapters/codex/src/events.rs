@@ -19,12 +19,13 @@
 //!   another harness's prompt text (row 43). The client never calls `thread/list`.
 
 use oac_core::json::Json;
+use std::fmt;
 
 use crate::schema::{self, Shape};
 use crate::threads::{NativeRef, Registry, ThreadKey, ThreadState, TurnEnd};
 
 /// What a completed item was, as far as the adapter reads it.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum CompletedItem {
     /// A `userMessage`: the text of its text parts, joined with newlines, and its
     /// `clientId` (the `clientUserMessageId` of a queued add, when it came from one).
@@ -67,8 +68,21 @@ pub enum CompletedItem {
     },
 }
 
+/// Debug reports only the variant: text and tool payloads may contain pairing values.
+impl fmt::Debug for CompletedItem {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let name = match self {
+            Self::UserMessage { .. } => "UserMessage",
+            Self::AgentMessage { .. } => "AgentMessage",
+            Self::McpToolCall { .. } => "McpToolCall",
+            Self::Other { .. } => "Other",
+        };
+        f.debug_struct(name).finish_non_exhaustive()
+    }
+}
+
 /// An event about a served thread.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum CodexEvent {
     /// `thread/status/changed`.
     Status {
@@ -115,6 +129,21 @@ pub enum CodexEvent {
     },
     /// The carrier closed. Nothing more will arrive.
     Closed,
+}
+
+/// Keep every harness-supplied string out of diagnostic formatting.
+impl fmt::Debug for CodexEvent {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let name = match self {
+            Self::Status { .. } => "Status",
+            Self::TurnStarted { .. } => "TurnStarted",
+            Self::TurnCompleted { .. } => "TurnCompleted",
+            Self::ItemStarted { .. } => "ItemStarted",
+            Self::ItemCompleted { .. } => "ItemCompleted",
+            Self::Closed => "Closed",
+        };
+        f.debug_struct(name).finish_non_exhaustive()
+    }
 }
 
 /// Why a notification was not turned into an event.
@@ -294,6 +323,51 @@ fn completed_item(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn debug_hides_content_and_pairing_values() {
+        let secret = "oac-pair-private-content";
+        let id = NativeRef::new(secret);
+        let mut registry = Registry::default();
+        let (thread, _) = registry.serve(secret);
+        for item in [
+            CompletedItem::UserMessage {
+                id: id.clone(),
+                text: secret.into(),
+                client_id: Some(secret.into()),
+            },
+            CompletedItem::AgentMessage {
+                id: id.clone(),
+                text: secret.into(),
+            },
+            CompletedItem::McpToolCall {
+                id: id.clone(),
+                server: secret.into(),
+                tool: secret.into(),
+                arguments: Some(Json::String(secret.into())),
+                result: Some(Json::String(secret.into())),
+            },
+            CompletedItem::Other {
+                id: id.clone(),
+                kind: secret.into(),
+            },
+        ] {
+            assert!(!format!("{item:?}").contains(secret));
+            let event = CodexEvent::ItemCompleted {
+                thread,
+                turn: id.clone(),
+                item,
+            };
+            assert!(!format!("{event:?}").contains(secret));
+        }
+        let started = CodexEvent::ItemStarted {
+            thread,
+            turn: id.clone(),
+            item: id,
+            kind: secret.into(),
+        };
+        assert!(!format!("{started:?}").contains(secret));
+    }
     use oac_core::json::parse;
 
     const T: &str = "01a0e550-1921-7000-93ef-383c5acff39f";
