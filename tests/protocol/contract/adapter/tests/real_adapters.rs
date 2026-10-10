@@ -376,6 +376,59 @@ fn the_forbidden_lists_agree() {
     assert_eq!(js("FORBIDDEN_NAMES"), rs(FORBIDDEN_NAMES));
 }
 
+/// Conservative source guard: contract harnesses must be unconditional default tests.
+/// Reject disabling attributes anywhere in the fixed harness, including crate attributes.
+fn active_contract_harness(text: &str, manifest: &str) -> bool {
+    let compact = |s: &str| s.chars().filter(|c| !c.is_whitespace()).collect::<String>();
+    let source = compact(text);
+    let manifest = compact(manifest);
+    source.contains("#[test]")
+        && !["#[ignore", "#[cfg", "#![cfg", "#![ignore"]
+            .iter()
+            .any(|a| source.contains(a))
+        && ![
+            "test=false",
+            "harness=false",
+            "\"test\"=false",
+            "'test'=false",
+            "autotests=false",
+            "required-features",
+        ]
+        .iter()
+        .any(|a| {
+            manifest
+                .match_indices(a)
+                .any(|(i, _)| i == 0 || !manifest.as_bytes()[i - 1].is_ascii_alphanumeric())
+        })
+}
+
+#[test]
+fn ignored_or_disabled_contract_harnesses_are_rejected() {
+    let active = "#[test] fn contract() { run(&mut h).assert_conformant(); }";
+    assert!(active_contract_harness(active, "[package]"));
+    assert!(active_contract_harness(active, "[lib]\ndoctest = false"));
+    for attr in [
+        "#[ignore]",
+        "#[ignore = \"later\"]",
+        "#[cfg(any())]",
+        "#[cfg_attr(test, ignore)]",
+        "#![cfg(any())]",
+    ] {
+        assert!(
+            !active_contract_harness(&format!("{attr}\n{active}"), "[package]"),
+            "{attr}"
+        );
+    }
+    for disabled in [
+        "test = false",
+        "harness = false",
+        "autotests = false",
+        "required-features = [\"live\"]",
+    ] {
+        assert!(!active_contract_harness(active, disabled), "{disabled}");
+    }
+}
+
 #[test]
 fn every_real_adapter_that_implements_the_trait_runs_the_suite() {
     for dir in scanned() {
@@ -405,6 +458,12 @@ fn every_real_adapter_that_implements_the_trait_runs_the_suite() {
                 harness.display()
             )
         });
+        let manifest = std::fs::read_to_string(dir.join("Cargo.toml")).expect("adapter manifest");
+        assert!(
+            active_contract_harness(&text, &manifest),
+            "{name}: {} is ignored, conditional, disabled, or has no unconditional test",
+            harness.display()
+        );
         for needed in ["oac_contract_adapter", "run(", ".assert_conformant()"] {
             assert!(
                 text.contains(needed),
