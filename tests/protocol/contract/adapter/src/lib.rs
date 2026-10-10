@@ -1754,6 +1754,8 @@ fn scenarios(ctx: &mut Ctx<'_>) -> Result<(), String> {
             .collect()
     };
 
+    let mut shutdown_events = None;
+    let mut shutdown_requests = None;
     // Revision 0.4 factory probe: old checks below remain unchanged. A cancellable
     // backend must not conceal an adapter that waits before closing, or leaves a
     // timed-out write able to hand off later. Only Claude writes on these connections;
@@ -1791,6 +1793,10 @@ fn scenarios(ctx: &mut Ctx<'_>) -> Result<(), String> {
             && done_rx
                 .recv_timeout(Duration::from_millis(bound.min(10_000)))
                 .is_ok();
+        // Keep the existing shutdown assertions at the first return barrier, before
+        // resuming the peer can produce any late event or request.
+        shutdown_events = Some(ctx.core.events());
+        shutdown_requests = Some(ctx.core.requests().len());
         let closed = controls.iter().all(|(h, _)| h.is_closed());
         let terminal_at_return = settle_rx.try_recv().ok();
         // Resume only after observing the barrier, so a detached late writer is exposed.
@@ -1836,8 +1842,10 @@ fn scenarios(ctx: &mut Ctx<'_>) -> Result<(), String> {
     }
 
     // ---- shutdown ([IFC-ADP-071], [IFC-ADP-070]) -------------------------------------------
-    ctx.adapter.shutdown();
-    let ev = ctx.core.events();
+    let ev = shutdown_events.unwrap_or_else(|| {
+        ctx.adapter.shutdown();
+        ctx.core.events()
+    });
     check!(ctx, "IFC-ADP-071", "closes-every-attachment-on-shutdown", {
         let left: Vec<_> = open.iter().filter(|a| !ev.iter().any(|e| matches!(e, AdapterEvent::AttachmentClosed { attachment } if attachment == *a))).collect();
         if left.is_empty() {
@@ -1849,7 +1857,7 @@ fn scenarios(ctx: &mut Ctx<'_>) -> Result<(), String> {
             Verdict::Fail(format!("still open when shutdown returned: {left:?}"))
         }
     });
-    let requests_before = ctx.core.requests().len();
+    let requests_before = shutdown_requests.unwrap_or_else(|| ctx.core.requests().len());
     let (late, out) = ctx.deliver(&mut s1, "after-shutdown");
     let late_req = ctx.h.request(s1.index, &HarnessRequest::Discover);
     std::thread::sleep(Duration::from_millis(200));

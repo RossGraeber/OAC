@@ -729,6 +729,7 @@ impl ProviderAdapter for QueueStandIn {
         // The stand-in's own wiring: the harness names the session's thread on the
         // connection, then holds it open for the session's life.
         let (a, reader, _writer) = connection.into_parts();
+        self.common.lock().unwrap().connections.push(a.clone());
         let (common, threads) = (self.common.clone(), self.threads.clone());
         std::thread::spawn(move || {
             let mut lines = BufReader::new(reader).lines().map_while(Result::ok);

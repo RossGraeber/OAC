@@ -209,7 +209,9 @@ Claude's pipe helpers now take core-owned cancellable halves, replacing arbitrar
 blocking Read/Write. There is no non-cancellable compatibility constructor. Every
 existing check and planted breach remains; the pre-shutdown attachment snapshot stays
 before the new probe, so attachment-closed reporting is still checked at the barrier.
-The stand-ins close their supplied handles before reporting shutdown.
+The stand-ins close their supplied handles before reporting shutdown, including
+Codex native-signal connections. Existing shutdown assertions use the event and request
+snapshots captured at the first return barrier, before the probe resumes the peer.
 
 The added factory probe pauses an admitted write, times shutdown against the binding's
 bound, checks every issued handle is closed at return, then resumes the peer and checks
