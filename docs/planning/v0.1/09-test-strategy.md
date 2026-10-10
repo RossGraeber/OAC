@@ -179,6 +179,11 @@ settings require literal JSON arrays of `tcp/127.0.0.1` or `udp/[::1]` locators 
 protocol with either loopback host). Computed values, including `format!` and `concat!`,
 fail closed. The real configuration's fixed loopback host with formatted u16 ports is
 reviewed by the complete setting expression, so changing its multiline value fails.
+Zenoh Config default constructors are checked through grouped imports, globs, crate/module
+aliases and local type aliases, including typed or ambiguous inferred `Default` calls.
+`Config::from_*` payloads require REVIEWED: the lexical guard cannot prove that a loaded
+configuration supplies loopback endpoints and disables both multicast and gossip.
+The real default-construction allowance is pinned to `config.rs`'s `native()` function.
 
 Session/key and attachment helpers also share the name `bind`; their reviewed sites open
 no socket. Every REVIEWED entry must resolve to exactly one complete line, with no extra
@@ -191,6 +196,7 @@ and endpoint settings are rejected rather than inferred as safe. This lexical ch
 not prove receiver types at reviewed sites or gate-helper semantics. Wrappers renamed to
 other names, generated calls, computed JS properties, template interpolation, computed
 configuration keys and dependency listeners remain source-review responsibilities.
+Cross-file Config reexports and generated aliases also require source review.
 
 On Windows, compiled-tests-self-test uses `%TEMP%\\oac-cts-<pid>`, cleared before its
 step and removed after normal completion. The runner's exit hook is best effort: forced

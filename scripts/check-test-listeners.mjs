@@ -33,8 +33,9 @@
 //   endpoint      unresolved Zenoh listen/connect/endpoints settings, or a Zenoh-style
 //                 locator ("tcp/...", "udp/...", "quic/...", "tls/...") whose
 //                 host is not 127.0.0.1 or [::1].
-//   zenoh-default a raw default Zenoh configuration (zenoh::Config::default): Zenoh's
-//                 defaults listen on the unspecified address and scout by multicast.
+//   zenoh-default default/from_* Config constructors, including imports, aliases and
+//                 typed Default calls. Deserialized configurations require REVIEWED:
+//                 the lint cannot prove that endpoints and scouting are all configured.
 //   multicast     multicast on: scouting/multicast/enabled set true, a 224.x group address,
 //                 join_multicast_v4/v6, dgram addMembership.
 //   js-listen     calls named listen/bind/bind_to, including optional calls and chains.
@@ -64,6 +65,9 @@
 // and listener placement, not the helper's behavior. Static text cannot see runtime
 // addresses; that is why unresolved direct calls/settings fail closed. Those changes
 // require source review.
+// Config imports/type aliases are resolved within each file; cross-file reexports and
+// generated aliases still need source review. Inferred Default calls with Zenoh in scope
+// and from_* payloads require REVIEWED rather than an assumed safe configuration.
 // The runtime evidence is a netstat sample during a run (PR body for this check).
 //
 // Exit codes: 0 = clean; 1 = at least one violation (or a failed self-test case);
@@ -88,7 +92,7 @@ const RULES = [
   { id: 'unspecified', langs: 'all', re: new RegExp(P('\\b0\\.0\\.0', '\\.0\\b|\\[::\\]|\\bUNSPECIFIE', 'D\\b|\\bINADDR_AN', 'Y\\b|\\bin6addr_an', 'y\\b')) },
   { id: 'rust-bind', langs: 'rs' },
   { id: 'endpoint', langs: 'all', re: new RegExp(P('["\'\\[](?:tcp|udp|quic|tls)', '/(?!127\\.0\\.0\\.1:|\\[::1\\]:)')) },
-  { id: 'zenoh-default', langs: 'rs', re: new RegExp(P('\\bzenoh::(?:config::)?Config::defaul', 't\\s*\\(')) },
+  { id: 'zenoh-default', langs: 'rs' },
   { id: 'multicast', langs: 'all' },
   { id: 'js-listen', langs: 'js' },
   { id: 'js-dgram', langs: 'js', re: new RegExp(P('\\bcreate', 'Socket\\s*\\(')) },
@@ -208,15 +212,86 @@ function callAt(view, open) {
   return null;
 }
 
+// Resolve Rust use trees (including grouped/nested imports, self, globs and aliases)
+// and local type aliases to a fixed point. This is name resolution, not type inference;
+// ambiguous inferred Default calls in a Zenoh-config file require review.
+function zenohConfigNames(code) {
+  const aliases = new Map([['zenoh', 'zenoh'], ['Default', 'std::default::Default']]);
+  const imports = [];
+  const expand = (tree, prefix = '') => {
+    let depth = 0, start = 0;
+    for (let i = 0; i <= tree.length; i++) {
+      if (tree[i] === '{') depth++;
+      if (tree[i] === '}') depth--;
+      if (i !== tree.length && (tree[i] !== ',' || depth)) continue;
+      const item = tree.slice(start, i).trim(); start = i + 1;
+      const brace = item.indexOf('{');
+      if (brace !== -1) expand(item.slice(brace + 1, item.lastIndexOf('}')), prefix + item.slice(0, brace));
+      else if (item) {
+        const [path, renamed] = item.split(/\s+as\s+/);
+        const full = (prefix + path).replace(/\s/g, '').replace(/^::/, '');
+        imports.push([renamed?.trim() ?? (path === 'self' ? prefix.split('::').filter(Boolean).at(-1) : path.split('::').at(-1)), full.replace(/::self$/, '')]);
+      }
+    }
+  };
+  for (const m of code.matchAll(/\buse\s+([^;]+);/g)) expand(m[1]);
+  for (const m of code.matchAll(/\bextern\s+crate\s+zenoh\s+as\s+(\w+)\s*;/g)) imports.push([m[1], 'zenoh']);
+  for (const m of code.matchAll(/\btype\s+(\w+)\s*=\s*([\w\s:]+);/g)) imports.push([m[1], m[2].replace(/\s/g, '')]);
+  const resolveName = (path) => {
+    const parts = path.replace(/\s/g, '').replace(/^::/, '').split('::');
+    return [aliases.get(parts[0]) ?? parts[0], ...parts.slice(1)].join('::');
+  };
+  for (let pass = 0; pass <= imports.length; pass++) {
+    let changed = false;
+    for (const [name, path] of imports) {
+      const resolved = resolveName(path);
+      const target = name === '*' && /^(?:zenoh|zenoh::config)$/.test(resolved) ? 'Config' : name;
+      const value = name === '*' ? `${resolved}::Config` : resolved;
+      if (value === target || aliases.get(target) === value) continue;
+      aliases.set(target, value); changed = true;
+    }
+    if (!changed) break;
+  }
+  return { isConfig: (path) => /^(?:zenoh::(?:config::)?Config|Config)$/.test(resolveName(path)),
+    isDefault: (path) => /^(?:std|core)::default::Default$/.test(resolveName(path)),
+    hasConfig: /\bzenoh\b/.test(code) || [...aliases.values()].some((v) => /::Config$/.test(v)) };
+}
+
 function sourceHits(source, lang) {
   const view = sourceView(source, lang);
   const hits = [];
   const add = (rule, offset, end = offset + 1) => hits.push({ rule, offset, end, line: source.slice(0, offset).split('\n').length - 1 });
   for (const offset of view.errors) add('unresolved source quoting (fails closed)', offset);
   for (const r of RULES) {
-    if (['rust-bind', 'js-listen', 'js-dgram', 'multicast'].includes(r.id)) continue;
+    if (['rust-bind', 'js-listen', 'js-dgram', 'multicast', 'zenoh-default'].includes(r.id)) continue;
     if (r.langs !== 'all' && r.langs !== lang) continue;
     for (const m of view.text.matchAll(new RegExp(r.re.source, 'g'))) add(r.id, m.index, m.index + m[0].length);
+  }
+  if (lang === 'rs') {
+    const { isConfig, isDefault, hasConfig } = zenohConfigNames(view.code);
+    const constructors = /((?:::)?\b\w+(?:\s*::\s*\w+)*)\s*::\s*(default|from_\w+)\s*\(/g;
+    for (const m of view.code.matchAll(constructors)) {
+      const receiver = m[1].replace(/\s/g, '');
+      const traitDefault = isDefault(receiver) && m[2] === 'default';
+      // Explicitly unrelated annotations are controls; unresolved/inferred types fail
+      // closed when Zenoh is in scope, including open(Default::default()).
+      const before = view.code.slice(0, m.index);
+      const annotation = /\blet\s+(?:mut\s+)?(?:\w+|\[[^\]]+\]|\([^)]*\))\s*:\s*([^=]+)=\s*$/.exec(before);
+      const configType = annotation && [...annotation[1].matchAll(/\w+(?:\s*::\s*\w+)*/g)].some((t) => isConfig(t[0]));
+      if (!isConfig(receiver) && !(traitDefault && (annotation ? configType : hasConfig))) continue;
+      const call = callAt(view, m.index + m[0].length - 1);
+      hits.push({ rule: 'zenoh-default', offset: m.index, end: call?.end ?? view.code.length,
+        line: source.slice(0, m.index).split('\n').length - 1, listener: true,
+        callText: view.text.slice(m.index, call?.end ?? view.code.length).trim() });
+    }
+    // Qualified trait syntax: <Config as Default>::default().
+    for (const m of view.code.matchAll(/<\s*([\w\s:]+?)(?:\s+as\s+[\w\s:]+)?\s*>\s*::\s*default\s*\(/g)) {
+      if (!isConfig(m[1])) continue;
+      const call = callAt(view, m.index + m[0].length - 1);
+      hits.push({ rule: 'zenoh-default', offset: m.index, end: call?.end ?? view.code.length,
+        line: source.slice(0, m.index).split('\n').length - 1, listener: true,
+        callText: view.text.slice(m.index, call?.end ?? view.code.length).trim() });
+    }
   }
   // Identify the name first, then read its call suffix. Receiver spelling is irrelevant.
   // Unknown overloads, spreads and generic suffixes never provide evidence of safety.
@@ -323,7 +398,7 @@ export const REVIEWED = [
   { path: "tests/protocol/runner/stages-sc.mjs", rule: "js-listen", line: P("bin", "d();"), next: P("", "}"), prev: "if (differs) records.push('diagnostic'); // [SC-ID-142]", why: "Conformance runner local closure updates attachment binding; no socket" },
   { path: "transports/zenoh/src/config.rs", rule: "endpoint", line: P("\"listen/e", "ndpoints\","), call: P("(\n            \"listen/endpoints\",\n            forma", "t!(r#\"[\"tcp/127.0.0.1:{listen_port}\"]\"#),\n        )"), why: "native() fixes tcp/127.0.0.1; only the u16 port is formatted, asserted by its configuration tests" },
   { path: "transports/zenoh/src/config.rs", rule: "endpoint", line: P("\"connect/e", "ndpoints\","), call: P("(\n                \"connect/endpoints\",\n                fo", "rmat!(r#\"[\"tcp/127.0.0.1:{}\"]\"#, self.port),\n            )"), why: "native() fixes tcp/127.0.0.1; only the u16 port is formatted, asserted by its configuration tests" },
-  { path: 'transports/zenoh/src/config.rs', rule: 'zenoh-default', line: P('let mut c = zenoh::Config::defaul', 't();'), why: 'native(): then sets listen/connect to tcp/127.0.0.1 and multicast scouting and gossip off; its unit tests assert all three' },
+  { path: 'transports/zenoh/src/config.rs', rule: 'zenoh-default', fn: 'native', line: P('let mut c = zenoh::Config::defaul', 't();'), why: 'native(): then sets listen/connect to tcp/127.0.0.1 and multicast scouting and gossip off; its unit tests assert all three' },
   { path: 'transports/zenoh/tests/contract.rs', rule: 'multicast', line: P('v.push("224.0.0', '.224".into());'), why: 'health_must_not_contain: a string a health detail must not hold; nothing joins the group' },
   { path: 'tests/fakes/codex-app-server/lib/ws.mjs', rule: 'js-listen', line: P('server.liste', 'n(port, host, () => {'), why: 'host comes from parseLoopbackUrl, which refuses anything but 127.0.0.1 and ::1' },
   { path: 'tools/herdr/test/fake-codex.mjs', rule: 'js-listen', line: P('}).liste', 'n(SOCK);'), why: 'SOCK is a Unix socket path (the POSIX lifecycle half), not a network address' },
@@ -442,6 +517,7 @@ export function check(root, { optIn = OPT_IN, reviewed = REVIEWED } = {}) {
       if (!h.listener && seen.has(key)) continue;
       seen.add(key);
       const rev = reviewed.findIndex((x) => x.path === e.path && x.rule === h.rule && l.trim() === x.line &&
+        (x.fn === undefined || (() => { const range = fnRange(lines, x.fn); return range && i > range[0] && i < range[1]; })()) &&
         (x.next === undefined || lines[i + 1]?.trim() === x.next) &&
         (x.prev === undefined || lines[i - 1]?.trim() === x.prev) &&
         (x.call === undefined || h.callText === x.call) &&
@@ -602,6 +678,47 @@ function runSelfTest() {
     if (!ok) failed++;
   }
   for (const [name, plant, expect] of CASES) run(name, { ...BASE, ...plant }, expect);
+  for (const body of [
+    'use zenoh::Config; let c = Config::default();',
+    'use zenoh::{Config, Wait}; let c = Config::default();',
+    'let c = zenoh::config::Config::default();',
+    'let c = ::zenoh :: Config :: default ();',
+    'use zenoh::config::{Config as Z}; let c = Z::default();',
+    'use zenoh::{config::{Config as Z}, Wait}; let c = Z::default();',
+    'use zenoh::config as cfg; let c = cfg::Config::default();',
+    'use zenoh as z; let c = z::config::Config::default();',
+    'extern crate zenoh as z; let c = z::Config::default();',
+    'use zenoh::{self as z}; let c = z::Config::default();',
+    'use zenoh::*; let c = Config::default();',
+    'use zenoh::config::*; let c = Config::default();',
+    'type Z = zenoh::Config; type C = Z; let c = C::default();',
+    'use zenoh::Config as Z; use Z as C; let c = C::default();',
+    'let c: zenoh::Config = Default::default();',
+    'let c: zenoh::config::Config = std::default::Default::default();',
+    'use zenoh::Config as C; let c: C = Default::default();',
+    'use std::default::Default as D; let c: zenoh::Config = D::default();',
+    'let [c]: [zenoh::Config; 1] = Default::default();',
+    'use zenoh::Config; fn config() -> Config { Default::default() }',
+    'let c = <zenoh::Config as Default>::default();',
+    'let c = <zenoh::Config>::default();',
+    'use zenoh::Config as C; let c = <C as std::default::Default>::default();',
+    'let c = zenoh::open(Default::default());',
+    'let c = zenoh::Config::from_file(path);',
+    'use zenoh::Config; let c = Config::from_json5("{}");',
+    'use zenoh::config::Config as C; let c = C::from_json5(text);',
+    'type C = zenoh::Config; let c = C::from_env();',
+  ]) run('round 3: Config construction fails closed', { ...BASE, 'transports/x/tests/r.rs': body }, ['zenoh-default']);
+  run('round 3 control: unrelated defaults and builder result', { ...BASE, 'transports/x/tests/r.rs':
+    'use zenoh::Config; let c: u16 = Default::default(); let c = PeerConfiguration::default().native(); let text = "Config::default()"; // Config::default()\n' }, []);
+  run('round 3 control: unrelated imported Config', { ...BASE, 'transports/x/tests/r.rs':
+    'use unrelated::Config; let c = Config::default(); let n: u16 = Default::default();' }, []);
+  run('round 3 control: unrelated destructured typed default with Zenoh in scope', { ...BASE, 'transports/x/tests/r.rs':
+    'use zenoh::Config; let [a, b]: [Got; 2] = Default::default();' }, []);
+  const configLine = 'let c = zenoh::Config::default();';
+  const configRev = [{ path: 'transports/x/src/config.rs', rule: 'zenoh-default', fn: 'native', line: configLine, why: 'planted reviewed builder' }];
+  run('round 3 control: reviewed native builder', { ...BASE, 'transports/x/src/config.rs': `fn native() {\n${configLine}\n}` }, [], { optIn: TEST_OPT_IN, reviewed: configRev });
+  run('round 3: reviewed construction moved outside native fails', { ...BASE, 'transports/x/src/config.rs': `fn native() {}\nfn other() {\n${configLine}\n}` }, ['zenoh-default', 'stale REVIEWED entry (zenoh-default: line not found)'], { optIn: TEST_OPT_IN, reviewed: configRev });
+  run('round 3: extra construction on reviewed line fails', { ...BASE, 'transports/x/src/config.rs': `fn native() {\n${configLine} let d = zenoh::Config::default();\n}` }, ['zenoh-default', 'zenoh-default', 'stale REVIEWED entry (zenoh-default: line not found)'], { optIn: TEST_OPT_IN, reviewed: configRev });
   for (const body of [
     P('server.liste', "n(port); // expected host '127.0.0.1'\n"),
     P('server.liste', "n(port, host, () => console.log('127.0.0.1'));\n"),
