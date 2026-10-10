@@ -36,12 +36,14 @@
 //!
 //! # The stand-in provenance mapping
 //!
-//! No adapter exists yet, so nothing in the repository turns a verified message into the
-//! Claude channel `meta` map. [`stand_in_provenance`] does it here, from the verified members
-//! only (`spec/security.md` §12.1, [SEC-PRV-002]), so that the harness facts can feed the fake
-//! a realistic channel notification. It is a stand-in for the G4 adapter (#65), not that
-//! adapter: a test that runs through it says nothing about G4's own mapping, which
-//! [`THREATS`] lists as gated, and the tests that use it are listed as facts, not proofs.
+//! [`stand_in_provenance`] turns a verified message into a Claude channel `meta` map from the
+//! verified members only (`spec/security.md` §12.1, [SEC-PRV-002]), so that the harness facts
+//! can feed the fake a realistic channel notification with no adapter in between. It is a
+//! stand-in, not the G4 adapter (#65): a test that runs through it says nothing about the
+//! adapter's own mapping, and the tests that use it are listed as facts, not proofs. The
+//! adapter's mapping is proven by the `row11_`, `row15_` and `row16_the_claude_adapter_*`
+//! tests in `tests/provenance.rs`, which drive the real adapter (a dev-dependency of this
+//! suite only) into the fake.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -617,10 +619,10 @@ const H2: &str = "#74";
 /// every gated test is ignored with its issue and panics, and that the table in
 /// `09-test-strategy.md` §12 is this map.
 ///
-/// Un-gating a G4, G7 or G8 placeholder means running it against a real adapter. The crate
-/// rule (`scripts/check-crate-deps.mjs`, `tests/security` kind) does not let this suite reach
-/// an adapter today; that rule must then admit `adapters/*` (as a dev-dependency), or the
-/// test must move into the adapter's own crate.
+/// Un-gating a G7 or G8 placeholder means running it against a real adapter. The crate rule
+/// (`scripts/check-crate-deps.mjs` rule 5, `tests/security` kind) admits `adapters/*` as a
+/// dev-dependency of this suite since G4 (#65), whose three placeholders (rows 11, 15 and
+/// 16) now run against the Claude adapter in `tests/provenance.rs`.
 pub const THREATS: &[Threat] = &[
     Threat {
         row: "06-1",
@@ -787,15 +789,12 @@ pub const THREATS: &[Threat] = &[
             "row11_relay_is_off_by_default_even_with_a_device_wide_grant",
             "row11_relay_is_enabled_for_one_session_only_by_the_operator",
             "row11_a_deliver_permit_never_permits_relay",
-            "gated_row11_adapter_never_relays_without_a_relay_permit",
+            "row11_the_claude_adapter_declares_no_permission_relay",
         ],
         facts: &[],
         core_tests: &[],
         status: Status::Proven,
-        gated: &[Gate {
-            issue: G4,
-            what: "the Claude adapter's permission relay surface stays off (gated_row11_adapter_never_relays_without_a_relay_permit)",
-        }],
+        gated: &[],
     },
     Threat {
         row: "06-12",
@@ -847,14 +846,11 @@ pub const THREATS: &[Threat] = &[
         row: "06-15",
         attack: "A silently dropped meta key leaves provenance unlabelled",
         spec13: &["Silently dropped provenance field"],
-        tests: &["gated_row15_adapter_refuses_a_partial_provenance_set"],
+        tests: &["row15_the_claude_adapter_refuses_a_partial_provenance_set"],
         facts: &["row15_the_harness_drops_unsafe_keys_so_provenance_keys_must_be_safe"],
         core_tests: &[],
-        status: Status::Gated,
-        gated: &[Gate {
-            issue: G4,
-            what: "the mitigation (const key table, partial provenance detected before send, message refused) is the Claude adapter's (gated_row15_adapter_refuses_a_partial_provenance_set)",
-        }],
+        status: Status::Proven,
+        gated: &[],
     },
     Threat {
         row: "06-16",
@@ -866,7 +862,7 @@ pub const THREATS: &[Threat] = &[
         tests: &[
             "row16_content_claiming_another_sender_does_not_change_provenance",
             "row16_a_line_break_in_a_provenance_value_cannot_pass_the_envelope_stage",
-            "gated_row16_adapter_takes_provenance_only_from_verified_members",
+            "row16_the_claude_adapter_takes_provenance_only_from_verified_members",
         ],
         facts: &[
             "row16_forged_channel_tag_in_content_adds_no_attribute",
@@ -878,7 +874,7 @@ pub const THREATS: &[Threat] = &[
         status: Status::Proven,
         gated: &[Gate {
             issue: G4,
-            what: "the G4 adapter's own meta mapping (gated_row16_adapter_takes_provenance_only_from_verified_members); the exact text of a sender-written `<\\/channel>` is a RenderGap until a capture records it",
+            what: "the exact text of a sender-written `<\\/channel>` is a RenderGap until the Claude adapter's opt-in live leg (wave 4) captures it",
         }],
     },
     Threat {

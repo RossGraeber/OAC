@@ -4,6 +4,11 @@
 # docs/planning/decisions/G-7-stage4-dependencies.md section 4). Not an adapter: it has its
 # own module kind in scripts/check-crate-deps.mjs. It depends on core/ only; adapters/* and
 # cli/ may depend on it; it never depends on an adapter, a transport or cli/ (07 section 3).
+#
+# rmcp is the MCP server side of both adapters (G-7 section 3.1; 11-risks row 16), pinned
+# exactly, default features off, `server` and `transport-async-rw` only: never `macros`.
+# The adapter static scan vets this line by identity, pin and features
+# (tests/protocol/contract/adapter/src/source.rs VETTED_DEPENDENCIES).
 
 [package]
 name = "oac-mcp-tools"
@@ -15,5 +20,11 @@ license.workspace = true
 repository.workspace = true
 publish.workspace = true
 
+# No doctests: the adapter scan holds this crate to the adapters' rules
+# (tests/protocol/contract/adapter/tests/harness_location.rs).
+[lib]
+doctest = false
+
 [dependencies]
 oac-core.workspace = true
+rmcp = { version = "=3.4.0", default-features = false, features = ["server", "transport-async-rw"] }

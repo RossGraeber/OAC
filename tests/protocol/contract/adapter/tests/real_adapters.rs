@@ -11,13 +11,19 @@
 //! `src_path`, the build script included) and everything under `src/`, and the manifest
 //! is checked for keys that move a target or switch its discovery and for unvetted
 //! dependencies (`source::package_sources`). Their sources are parsed and every path
-//! resolved through its imports (`source`). The behavioural suite cannot run yet: on this
-//! revision neither crate implements `ProviderAdapter`; both are F1 scaffolds, and the
-//! adapters are Epic G (G4 to G8). The last test keeps that fact checked rather than
-//! assumed. It fails as soon as an adapter implements the trait, under any alias or import
-//! style, and the task that adds the implementation replaces it with a run of
-//! `oac_contract_adapter::run` against the fakes (`claude::ClaudeHarness` under both
-//! `MidTurnRelease` settings; a harness over `codex::CodexFake`).
+//! resolved through its imports (`source`). The behavioural suite runs from each adapter's
+//! one harness file, `adapters/<name>/tests/contract.rs` (README, "Where a harness lives"),
+//! never from here. The last test keeps that tied to the code: an adapter that implements
+//! `ProviderAdapter`, under any alias or import style, must have that file, and it must
+//! reach `oac_contract_adapter::run` and assert the report conformant. An adapter that does
+//! not implement the trait yet (an F1 scaffold) needs none.
+//!
+//! *Dated note, 2026-10-09 (#65, G4):* until G4 the last test failed as soon as any adapter
+//! implemented the trait, and said that the task adding the implementation replaces it
+//! "with a run of `oac_contract_adapter::run` against the fakes". Since #351 that run may
+//! live only in the adapter's `tests/contract.rs` (`tests/harness_location.rs`), so G4
+//! replaced it with the check above, which holds every adapter, the Codex one included,
+//! to the same rule.
 
 use std::path::{Path, PathBuf};
 
@@ -370,23 +376,224 @@ fn the_forbidden_lists_agree() {
     assert_eq!(js("FORBIDDEN_NAMES"), rs(FORBIDDEN_NAMES));
 }
 
+/// Conservative source guard: contract harnesses must be unconditional default tests.
+/// Reject disabling attributes anywhere in the fixed harness, including crate attributes.
+fn active_contract_harness(text: &str, manifest: &str) -> bool {
+    use syn::ext::IdentExt;
+    use syn::visit::Visit;
+
+    #[derive(Default)]
+    struct Attributes {
+        test: bool,
+        disabled: bool,
+    }
+    impl<'ast> Visit<'ast> for Attributes {
+        fn visit_attribute(&mut self, attr: &'ast syn::Attribute) {
+            if let Some(ident) = attr.path().get_ident() {
+                let name = ident.unraw().to_string();
+                self.test |= name == "test";
+                self.disabled |= ["ignore", "cfg", "cfg_attr"].contains(&name.as_str());
+            }
+            syn::visit::visit_attribute(self, attr);
+        }
+    }
+    // Parse actual attributes, including inner attributes and name-value forms.
+    // Comments between tokens are legal; malformed Rust fails closed.
+    let Ok(file) = syn::parse_file(text) else {
+        return false;
+    };
+    let mut attrs = Attributes::default();
+    attrs.visit_file(&file);
+    let compact = |s: &str| s.chars().filter(|c| !c.is_whitespace()).collect::<String>();
+    let manifest = compact(manifest);
+    attrs.test
+        && !attrs.disabled
+        && ![
+            "test=false",
+            "harness=false",
+            "\"test\"=false",
+            "'test'=false",
+            "autotests=false",
+            "required-features",
+        ]
+        .iter()
+        .any(|a| {
+            manifest
+                .match_indices(a)
+                .any(|(i, _)| i == 0 || !manifest.as_bytes()[i - 1].is_ascii_alphanumeric())
+        })
+}
+
 #[test]
-fn no_real_adapter_implements_the_trait_yet() {
+fn ignored_or_disabled_contract_harnesses_are_rejected() {
+    let active = "#[test] fn contract() { run(&mut h).assert_conformant(); }";
+    assert!(active_contract_harness(active, "[package]"));
+    assert!(active_contract_harness(active, "[lib]\ndoctest = false"));
+    assert!(active_contract_harness(
+        &format!("// ignore claimed identities\n{active}"),
+        "[package]"
+    ));
+    assert!(!active_contract_harness("#[ignore", "[package]"));
+    for attr in [
+        "#[ignore]",
+        "#[r#ignore]",
+        "#[r#ignore = \"later\"]",
+        "#[ignore = \"later\"]",
+        "#[/* review syntax */ignore]",
+        "#[/* nested /* comment */ */ ignore = \"later\"]",
+        "#[ // line comment\n ignore = \"later\"]",
+        "#![/* comment */ignore]",
+        "#[/* comment */cfg_attr(test, ignore = \"later\")]",
+        "#[cfg(any())]",
+        "#[r#cfg(any())]",
+        "#[r#cfg_attr(test, ignore)]",
+        "#[cfg_attr(test, ignore)]",
+        "#![cfg(any())]",
+    ] {
+        assert!(
+            !active_contract_harness(&format!("{attr}\n{active}"), "[package]"),
+            "{attr}"
+        );
+    }
+    for disabled in [
+        "test = false",
+        "harness = false",
+        "autotests = false",
+        "required-features = [\"live\"]",
+    ] {
+        assert!(!active_contract_harness(active, disabled), "{disabled}");
+    }
+}
+
+/// Check libtest's compiled inventory as well as source spelling. Listing never runs
+/// the tests or a live harness; both Cargo invocations are offline and locked.
+fn compiled_contract_harness(dir: &Path) -> Result<(), String> {
+    let list = |ignored: bool| -> Result<usize, String> {
+        let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+        let mut command = std::process::Command::new(cargo);
+        command
+            .current_dir(dir)
+            .args(["test", "--offline", "--locked", "--test", "contract", "--"])
+            .args(["--list", "--format", "terse"]);
+        if ignored {
+            command.arg("--ignored");
+        }
+        let out = command
+            .output()
+            .map_err(|e| format!("contract inventory: {e}"))?;
+        if !out.status.success() {
+            return Err(format!(
+                "contract inventory failed ({}): {}",
+                out.status,
+                String::from_utf8_lossy(&out.stderr)
+            ));
+        }
+        let stdout = String::from_utf8(out.stdout)
+            .map_err(|e| format!("contract inventory is not UTF-8: {e}"))?;
+        Ok(stdout
+            .lines()
+            .filter(|line| line.ends_with(": test"))
+            .count())
+    };
+    let all = list(false)?;
+    let ignored = list(true)?;
+    if ignored != 0 {
+        return Err(format!("contract inventory lists {ignored} ignored tests"));
+    }
+    if all == 0 {
+        return Err("contract inventory lists zero active tests".to_owned());
+    }
+    Ok(())
+}
+
+#[test]
+fn compiled_contract_inventory_rejects_ignored_and_empty_targets() {
+    let dir = std::env::temp_dir().join(format!("oac-contract-inventory-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("tests")).unwrap();
+    std::fs::write(
+        dir.join("Cargo.toml"),
+        "[workspace]\n[package]\nname = \"planted-contract-inventory\"\nversion = \"0.0.0\"\nedition = \"2024\"\n",
+    )
+    .unwrap();
+    std::fs::write(dir.join("tests/contract.rs"), "#[test] fn active() {}\n").unwrap();
+    let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+    let lock = std::process::Command::new(cargo)
+        .current_dir(&dir)
+        .args(["generate-lockfile", "--offline"])
+        .output()
+        .unwrap();
+    assert!(
+        lock.status.success(),
+        "{}",
+        String::from_utf8_lossy(&lock.stderr)
+    );
+    for (source, expected) in [
+        ("#[test] fn active() {}", None),
+        ("#[test] #[ignore] fn ignored() {}", Some("ignored tests")),
+        ("#[test] #[r#ignore] fn ignored() {}", Some("ignored tests")),
+        (
+            "#[test] fn active() {} #[test] #[r#ignore] fn ignored() {}",
+            Some("ignored tests"),
+        ),
+        ("fn no_tests() {}", Some("zero active tests")),
+    ] {
+        std::fs::write(dir.join("tests/contract.rs"), source).unwrap();
+        let result = compiled_contract_harness(&dir);
+        match expected {
+            None => assert!(result.is_ok(), "{result:?}"),
+            Some(reason) => assert!(
+                result.as_ref().is_err_and(|e| e.contains(reason)),
+                "{source}: expected {reason}, got {result:?}"
+            ),
+        }
+    }
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn every_real_adapter_that_implements_the_trait_runs_the_suite() {
     for dir in scanned() {
         let name = dir.display();
         let s = package_sources(&dir);
         // A manifest the checks cannot read fails closed here too (its IFC-ADP-010 row).
-        let mut found: Vec<_> = s
+        let unreadable: Vec<_> = s
             .findings
             .into_iter()
             .filter(|f| f.requirement == "IFC-ADP-010")
             .collect();
-        found.extend(implements_provider_adapter(&s.built));
+        assert!(unreadable.is_empty(), "{name}: {}", listed(&unreadable));
+        let implements = implements_provider_adapter(&s.built);
+        if implements.is_empty() {
+            continue;
+        }
         assert!(
-            found.is_empty(),
-            "{name} implements ProviderAdapter ({}): run the adapter contract suite \
-             against it through the fakes, and replace this test (see this file's docs)",
-            listed(&found)
+            !dir.ends_with("mcp-tools"),
+            "{name} is the shared tool crate, not an adapter, and implements ProviderAdapter ({})",
+            listed(&implements)
         );
+        let harness = dir.join("tests").join("contract.rs");
+        let text = std::fs::read_to_string(&harness).unwrap_or_else(|e| {
+            panic!(
+                "{name} implements ProviderAdapter ({}) but has no harness file {}: {e}",
+                listed(&implements),
+                harness.display()
+            )
+        });
+        let manifest = std::fs::read_to_string(dir.join("Cargo.toml")).expect("adapter manifest");
+        assert!(
+            active_contract_harness(&text, &manifest),
+            "{name}: {} is ignored, conditional, disabled, or has no unconditional test",
+            harness.display()
+        );
+        for needed in ["oac_contract_adapter", "run(", ".assert_conformant()"] {
+            assert!(
+                text.contains(needed),
+                "{name} implements ProviderAdapter ({}), and its harness file {} does not \
+                 run the adapter contract suite (no `{needed}`)",
+                listed(&implements),
+                harness.display()
+            );
+        }
+        compiled_contract_harness(&dir).unwrap_or_else(|e| panic!("{name}: {e}"));
     }
 }

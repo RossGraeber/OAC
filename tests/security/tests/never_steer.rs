@@ -3,7 +3,9 @@
 //! Permission relay and steering (06 rows 11 and 12; `spec/security.md` §9.6): a delivery
 //! permit authorizes delivery into the session's input and nothing else. Relaying a
 //! permission answer is a decision of its own, off unless an operator turns it on for one
-//! session, and no decision of any kind enables steering a running turn.
+//! session, and no decision of any kind enables steering a running turn. The Claude
+//! adapter's half of row 11 (it declares no permission relay) is in `provenance.rs`, with
+//! the other tests that drive that adapter.
 
 use oac_core::adapter::HandOffOutcome;
 use oac_core::authorization::OperatorConfirmed;
@@ -157,21 +159,11 @@ fn row12_hand_off_is_made_at_most_once_and_no_outcome_steers() {
     }
 }
 
-/// 06 row 11, adapter half (H2: "Permission relay is confirmed off"): the Claude adapter
-/// never answers a permission request on a peer message's behalf without a
-/// `relay-permission` permit. Gated: the adapter is G4. Un-gating it needs the crate rule to
-/// admit `adapters/claude` as this suite's dev-dependency (`scripts/check-crate-deps.mjs`,
-/// `tests/security` kind), or the test moved into the adapter's crate.
-#[test]
-#[ignore = "GATED on #65 (G4, Claude adapter): the permission-relay surface is the adapter's"]
-fn gated_row11_adapter_never_relays_without_a_relay_permit() {
-    std::panic!("GATED on #65: drive a permission request through the Claude adapter and the fake");
-}
-
 /// 06 row 12, adapter half ([SEC-AUZ-025] to [SEC-AUZ-027]): the Codex adapter hands off
 /// queue-only whenever a turn may be running, calls no steering method, and never falls
-/// back to one; the fake app-server's call log flags every steering call. Gated: G7, with
-/// the same crate-rule note as `gated_row11_*` (`adapters/codex`).
+/// back to one; the fake app-server's call log flags every steering call. Gated: G7. This
+/// suite may take an adapter as a dev-dependency since #65 (`scripts/check-crate-deps.mjs`
+/// rule 5), as `provenance.rs` does for the Claude adapter's row 11 half.
 #[test]
 #[ignore = "GATED on #68 (G7, Codex adapter inbound injection): queue-only hand-off is the adapter's"]
 fn gated_row12_codex_hand_off_is_queue_only() {
