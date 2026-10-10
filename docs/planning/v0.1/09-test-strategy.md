@@ -169,20 +169,28 @@ deleted workflow ran it as a tier of its own. The default-tier step `test-listen
 bind, unspecified address, non-loopback Zenoh locator, raw default Zenoh configuration or
 multicast in product or test code outside its stale-checked allowlists.
 
-The guard reads complete listener calls and multicast settings across lines, masking
-comments and string delimiters. Node's positional host must itself be a loopback literal;
-Rust associated and instance `bind` calls, including renamed socket types, fail closed
-unless their own address is literal loopback or the exact site is reviewed. Session/key
-and attachment binding methods share the name `bind`: their reviewed lines open no socket.
-Every REVIEWED entry must resolve to exactly one complete line, with no extra listener;
-repeated session-binding lines also pin the following line. OPT_IN requires the complete
-opening negated gate call and return block, with every listener after it. A disabled
-condition such as `&& false` fails.
+The guard detects listener names (`bind`, `bind_to`, `listen`, socket constructors,
+`createSocket` and multicast joins) before reading the call suffix: paths, bare functions,
+methods, turbofish, optional calls and multiline chains are checked. Node positional
+listeners require a literal numeric port and a literal loopback host. A port variable may
+instead hold an options object; options objects and spreads therefore require explicit
+review. Rust calls require their own literal loopback address. Zenoh listen/connect/endpoint
+settings require literal JSON arrays of `tcp/127.0.0.1` or `udp/[::1]` locators (either
+protocol with either loopback host). Computed values, including `format!` and `concat!`,
+fail closed. The real configuration's fixed loopback host with formatted u16 ports is
+reviewed by the complete setting expression, so changing its multiline value fails.
 
-This lexical check does not prove receiver types at reviewed sites or gate-helper
-semantics. Wrappers, renamed bind functions, generated calls, computed JS properties,
-template interpolation and dependency listeners remain source-review responsibilities.
-Computed addresses at direct Rust binds are rejected rather than inferred as safe.
+Session/key and attachment helpers also share the name `bind`; their reviewed sites open
+no socket. Every REVIEWED entry must resolve to exactly one complete line, with no extra
+listener; repeated lines pin adjacent lines, and computed endpoint entries pin the entire
+call. OPT_IN requires the complete opening negated gate call and return block, with every
+listener after it. A disabled condition such as `&& false` fails.
+
+Static text cannot see runtime-computed addresses; that is why unresolved direct calls
+and endpoint settings are rejected rather than inferred as safe. This lexical check does
+not prove receiver types at reviewed sites or gate-helper semantics. Wrappers renamed to
+other names, generated calls, computed JS properties, template interpolation, computed
+configuration keys and dependency listeners remain source-review responsibilities.
 
 On Windows, compiled-tests-self-test uses `%TEMP%\\oac-cts-<pid>`, cleared before its
 step and removed after normal completion. The runner's exit hook is best effort: forced
