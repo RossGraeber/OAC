@@ -379,13 +379,33 @@ fn the_forbidden_lists_agree() {
 /// Conservative source guard: contract harnesses must be unconditional default tests.
 /// Reject disabling attributes anywhere in the fixed harness, including crate attributes.
 fn active_contract_harness(text: &str, manifest: &str) -> bool {
+    use syn::visit::Visit;
+
+    #[derive(Default)]
+    struct Attributes {
+        test: bool,
+        disabled: bool,
+    }
+    impl<'ast> Visit<'ast> for Attributes {
+        fn visit_attribute(&mut self, attr: &'ast syn::Attribute) {
+            self.test |= attr.path().is_ident("test");
+            self.disabled |= ["ignore", "cfg", "cfg_attr"]
+                .iter()
+                .any(|name| attr.path().is_ident(name));
+            syn::visit::visit_attribute(self, attr);
+        }
+    }
+    // Parse actual attributes, including inner attributes and name-value forms.
+    // Comments between tokens are legal; malformed Rust fails closed.
+    let Ok(file) = syn::parse_file(text) else {
+        return false;
+    };
+    let mut attrs = Attributes::default();
+    attrs.visit_file(&file);
     let compact = |s: &str| s.chars().filter(|c| !c.is_whitespace()).collect::<String>();
-    let source = compact(text);
     let manifest = compact(manifest);
-    source.contains("#[test]")
-        && !["#[ignore", "#[cfg", "#![cfg", "#![ignore"]
-            .iter()
-            .any(|a| source.contains(a))
+    attrs.test
+        && !attrs.disabled
         && ![
             "test=false",
             "harness=false",
@@ -407,9 +427,19 @@ fn ignored_or_disabled_contract_harnesses_are_rejected() {
     let active = "#[test] fn contract() { run(&mut h).assert_conformant(); }";
     assert!(active_contract_harness(active, "[package]"));
     assert!(active_contract_harness(active, "[lib]\ndoctest = false"));
+    assert!(active_contract_harness(
+        &format!("// ignore claimed identities\n{active}"),
+        "[package]"
+    ));
+    assert!(!active_contract_harness("#[ignore", "[package]"));
     for attr in [
         "#[ignore]",
         "#[ignore = \"later\"]",
+        "#[/* review syntax */ignore]",
+        "#[/* nested /* comment */ */ ignore = \"later\"]",
+        "#[ // line comment\n ignore = \"later\"]",
+        "#![/* comment */ignore]",
+        "#[/* comment */cfg_attr(test, ignore = \"later\")]",
         "#[cfg(any())]",
         "#[cfg_attr(test, ignore)]",
         "#![cfg(any())]",
