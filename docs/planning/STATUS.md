@@ -7,18 +7,22 @@ verdict, or when a pin moves.
 **Last updated:** 2026-10-10 (**Spec-driven transport contract-suite revision,
 lead-approved 2026-10-10, before #374; Refs #59, #62, #370, #374**). The shared
 `tests/protocol/contract/transport` suite now selects sealing from the transport's
-actual `start` declaration. Every existing delivery, ordering, expiry, restart and
+actual `start` declaration, cross-checked against the harness's independently reviewed
+binding expectation (IFC-TRN-110). Every existing delivery, ordering, expiry, restart and
 presence check uses core HPKE frames on that path; the non-sealing path retains its
 original assertions, payloads and operations. New mandatory checks cover IFC-TRN-113
 plain-kind refusal through both send operations, IFC-TRN-105 unchanged frames on the
 local device subscription, IFC-TRN-107/108 carriage observations, IFC-TRN-109's floor,
 and the frame cap/54-octet overhead relevant to the core-owned IFC-TRN-104. Missing
-observations and missing mandatory sealing report rows fail conformance. A test-only
+observations and missing mandatory sealing report rows fail conformance. Run-wide
+metadata audits cover every frame size/world; shutdown counts raw callbacks before
+filtering. Encrypted expiry controls model SEC-SEL-036 receiver drops, permitting
+late sealing-network arrivals while raw sender tests retain IFC-TRN-034 obligations. A test-only
 sealing stand-in passes the complete suite with ordered/no-fault and scripted-fault
 media; planted breaches prove the new checks. Product transports and frozen spec text
 are unchanged.
 
-**New Gate S4 transport contract-suite baseline:** `631a0d686ac958daf73c6b4e52710b9572c20153`
+**New Gate S4 transport contract-suite baseline:** `abcf654b15f72edbb6b4fc81d8b1903ce6405603`
 (the implementation commit; this documentation records it in a following commit).
 S4 evidence for sealing transports must cite this baseline or a descendant and run
 all checks. This is the approved spec-driven suite revision, not a gate verdict.
