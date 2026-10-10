@@ -230,7 +230,7 @@ function zenohConfigNames(code) {
       else if (item) {
         const [path, renamed] = item.split(/\s+as\s+/);
         const full = (prefix + path).replace(/\s/g, '').replace(/^::/, '');
-        imports.push([renamed?.trim() ?? (path === 'self' ? prefix.split('::').filter(Boolean).at(-1) : path.split('::').at(-1)), full.replace(/::self$/, '')]);
+        imports.push([renamed?.trim() ?? (path === 'self' ? prefix.split('::').filter(Boolean).at(-1)?.trim() : path.split('::').at(-1)?.trim()), full.replace(/::self$/, '')]);
       }
     }
   };
@@ -284,8 +284,8 @@ function sourceHits(source, lang) {
         line: source.slice(0, m.index).split('\n').length - 1, listener: true,
         callText: view.text.slice(m.index, call?.end ?? view.code.length).trim() });
     }
-    // Qualified trait syntax: <Config as Default>::default().
-    for (const m of view.code.matchAll(/<\s*([\w\s:]+?)(?:\s+as\s+[\w\s:]+)?\s*>\s*::\s*default\s*\(/g)) {
+    // Qualified syntax: <Config as Default>::default(), <Config>::from_*().
+    for (const m of view.code.matchAll(/<\s*([\w\s:]+?)(?:\s+as\s+[\w\s:]+)?\s*>\s*::\s*(?:default|from_\w+)\s*\(/g)) {
       if (!isConfig(m[1])) continue;
       const call = callAt(view, m.index + m[0].length - 1);
       hits.push({ rule: 'zenoh-default', offset: m.index, end: call?.end ?? view.code.length,
@@ -686,6 +686,7 @@ function runSelfTest() {
     'use zenoh::config::{Config as Z}; let c = Z::default();',
     'use zenoh::{config::{Config as Z}, Wait}; let c = Z::default();',
     'use zenoh::config as cfg; let c = cfg::Config::default();',
+    'use zenoh :: config ; let c = config::Config::default();',
     'use zenoh as z; let c = z::config::Config::default();',
     'extern crate zenoh as z; let c = z::Config::default();',
     'use zenoh::{self as z}; let c = z::Config::default();',
@@ -707,6 +708,7 @@ function runSelfTest() {
     'use zenoh::Config; let c = Config::from_json5("{}");',
     'use zenoh::config::Config as C; let c = C::from_json5(text);',
     'type C = zenoh::Config; let c = C::from_env();',
+    'let c = <zenoh::config::Config>::from_json5("{}");',
   ]) run('round 3: Config construction fails closed', { ...BASE, 'transports/x/tests/r.rs': body }, ['zenoh-default']);
   run('round 3 control: unrelated defaults and builder result', { ...BASE, 'transports/x/tests/r.rs':
     'use zenoh::Config; let c: u16 = Default::default(); let c = PeerConfiguration::default().native(); let text = "Config::default()"; // Config::default()\n' }, []);
