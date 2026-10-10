@@ -341,7 +341,7 @@ mod tests {
         let w = ConnectionWriter::from(tx);
         let flow = w.control();
         flow.pause_after(8192);
-        let c = Connection::accept(Default::default(), w);
+        let c = Connection::accept(ConnectionReader::default(), w);
         let (h, _, mut w) = c.into_streams();
         let t = std::thread::spawn(move || w.transfer(&[7; 16384]));
         assert_eq!(rx.recv_timeout(Duration::from_secs(5)).unwrap().len(), 8192);
@@ -353,7 +353,7 @@ mod tests {
         flow.pause_after(usize::MAX);
         assert!(rx.try_recv().is_err());
         let (tx, _rx) = mpsc::channel();
-        let c = Connection::accept(Default::default(), tx.into());
+        let c = Connection::accept(ConnectionReader::default(), tx.into());
         let (h, _, mut w) = c.into_streams();
         assert_eq!(
             w.transfer(b"complete").unwrap(),
@@ -378,8 +378,8 @@ mod tests {
 
     #[test]
     fn concurrent_close_and_stream_halves_share_one_barrier_only() {
-        let c = Connection::accept(Default::default(), Default::default());
-        let other = Connection::accept(Default::default(), Default::default());
+        let c = Connection::accept(ConnectionReader::default(), ConnectionWriter::default());
+        let other = Connection::accept(ConnectionReader::default(), ConnectionWriter::default());
         let (h, r, w) = c.into_streams();
         let h2 = h.clone();
         let a = std::thread::spawn(move || h2.close());
@@ -396,7 +396,7 @@ mod tests {
     fn close_racing_a_write_has_only_a_definite_terminal_result() {
         for _ in 0..50 {
             let (tx, rx) = mpsc::channel();
-            let c = Connection::accept(Default::default(), tx.into());
+            let c = Connection::accept(ConnectionReader::default(), tx.into());
             let (h, _, mut w) = c.into_streams();
             let t = std::thread::spawn(move || w.transfer(b"race"));
             h.close();
@@ -418,7 +418,7 @@ mod barrier_tests {
     #[test]
     fn closure_begun_refuses_new_operations_even_before_close_waits() {
         let (tx, rx) = mpsc::channel();
-        let c = Connection::accept(Default::default(), tx.into());
+        let c = Connection::accept(ConnectionReader::default(), tx.into());
         let (h, mut r, mut w) = c.into_streams();
         h.begin_close();
         assert_eq!(
@@ -431,7 +431,7 @@ mod barrier_tests {
     }
     #[test]
     fn an_io_failure_before_close_retains_its_failure() {
-        let c = Connection::accept(Default::default(), Default::default());
+        let c = Connection::accept(ConnectionReader::default(), ConnectionWriter::default());
         let (h, _, mut w) = c.into_streams();
         let error = w.transfer(b"gone").unwrap_err();
         h.close();
@@ -447,7 +447,7 @@ mod barrier_tests {
     }
     #[test]
     fn previously_issued_halves_cannot_change_their_closure_state() {
-        let c = Connection::accept(Default::default(), Default::default());
+        let c = Connection::accept(ConnectionReader::default(), ConnectionWriter::default());
         let (h, r, w) = c.into_streams();
         assert!(
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| Connection::accept(r, w)))

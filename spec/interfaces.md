@@ -1646,13 +1646,13 @@ the requirement whose fixtures exercise it. Appendix C gives each requirement's 
 | IFC-ADP-057 | MUST | 5.5 | TODO(fixture): F10 adapter suite against the F9 fake; G7 (#68) |
 | IFC-ADP-060 | MUST | 5.6 | TODO(fixture): F10 adapter suite |
 | IFC-ADP-062 | MAY | 5.6 | none (MAY) |
-| IFC-ADP-070 | MUST NOT | 5.7 | `adapters/claude/tests/channel.rs`: `shutdown_cancels_an_already_stalled_notification`, `shutdown_settles_an_inflight_deliver_before_return`; adapter contract suite `nothing-after-shutdown` and `stalled-write-has-no-late-hand-off` |
+| IFC-ADP-070 | MUST NOT | 5.7 | Adapter channel tests (risk register `docs/planning/v0.1/11-risks.md` row 82): `shutdown_cancels_an_already_stalled_notification`, `shutdown_settles_an_inflight_deliver_before_return`; adapter contract suite `nothing-after-shutdown` and `stalled-write-has-no-late-hand-off` |
 | IFC-ADP-071 | MUST | 5.7 | TODO(fixture): F10 adapter suite |
 | IFC-ADP-072 | MUST | 5.7 | TODO(fixture): owner F10 (#59) with G4 (#65), race shutdown with new delivery and harness requests; no new hand-off begins |
-| IFC-ADP-073 | MUST | 5.7 | `adapters/claude/tests/channel.rs`: `shutdown_closes_opening_connections_and_double_shutdown_returns`; adapter contract suite `closes-all-core-connections` |
-| IFC-ADP-074 | MUST | 5.7 | `adapters/claude/tests/channel.rs`: `shutdown_cancels_an_already_stalled_notification`, `shutdown_closes_opening_connections_and_double_shutdown_returns`; adapter contract suite `stalled-shutdown-is-bounded` and its `WaitsBeforeClose` plant |
-| IFC-ADP-075 | MUST | 5.7 | `adapters/claude/tests/channel.rs`: `shutdown_settles_an_inflight_deliver_before_return`, `shutdown_cancels_an_already_stalled_notification` |
-| IFC-ADP-076 | MUST | 5.7 | Claude binding supplement `adapters/claude/src/adapter.rs`: `shutdown_bound_ms = 1000`; Codex ProviderAdapter binding remains G7 (#68) |
+| IFC-ADP-073 | MUST | 5.7 | Adapter channel tests (risk register `docs/planning/v0.1/11-risks.md` row 82): `shutdown_closes_opening_connections_and_double_shutdown_returns`; adapter contract suite `closes-all-core-connections` |
+| IFC-ADP-074 | MUST | 5.7 | Adapter channel tests (risk register `docs/planning/v0.1/11-risks.md` row 82): `shutdown_cancels_an_already_stalled_notification`, `shutdown_closes_opening_connections_and_double_shutdown_returns`; adapter contract suite `stalled-shutdown-is-bounded` and its `WaitsBeforeClose` plant |
+| IFC-ADP-075 | MUST | 5.7 | Adapter channel tests (risk register `docs/planning/v0.1/11-risks.md` row 82): `shutdown_settles_an_inflight_deliver_before_return`, `shutdown_cancels_an_already_stalled_notification` |
+| IFC-ADP-076 | MUST | 5.7 | Adapter binding supplement (risk register `docs/planning/v0.1/11-risks.md` row 82): `shutdown_bound_ms = 1000`; second ProviderAdapter binding remains G7 (#68) |
 | IFC-ADP-077 | MUST | 5.7 | `core/tests/pipeline.rs`: `a_connection_cannot_exceed_the_adapter_shutdown_budget` |
 | IFC-ADP-078 | MUST | 5.7 | TODO(fixture): owner F10 (#59) with G4 (#65), race shutdown with new harness requests; no new request is accepted |
 | IFC-ADP-080 | MUST | 5.8 | TODO(fixture): document review at each adapter's task; G4-G8 |

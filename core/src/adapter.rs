@@ -620,9 +620,12 @@ mod tests {
         // [IFC-TYP-090]: this exhaustive pattern stops compiling if a member is added, so a
         // member naming the requesting session cannot appear unnoticed.
         let r = SendRequest {
-            attachment: Connection::accept(Default::default(), Default::default())
-                .handle()
-                .clone(),
+            attachment: Connection::accept(
+                crate::connection::ConnectionReader::default(),
+                crate::connection::ConnectionWriter::default(),
+            )
+            .handle()
+            .clone(),
             to: SessionId::from_random_octets([3; 16]),
             content: vec![],
             requested_target: None,
@@ -642,9 +645,12 @@ mod tests {
     #[test]
     fn hand_off_needs_a_verified_message() {
         // [IFC-TYP-091].
-        let a = Connection::accept(Default::default(), Default::default())
-            .handle()
-            .clone();
+        let a = Connection::accept(
+            crate::connection::ConnectionReader::default(),
+            crate::connection::ConnectionWriter::default(),
+        )
+        .handle()
+        .clone();
         assert!(HandOff::new(a.clone(), message(false)).is_none());
         let h = HandOff::new(a.clone(), message(true)).unwrap();
         assert!(h.message().verified_by().is_some());
@@ -653,8 +659,14 @@ mod tests {
 
     #[test]
     fn every_connection_gets_a_fresh_handle() {
-        let a = Connection::accept(Default::default(), Default::default());
-        let b = Connection::accept(Default::default(), Default::default());
+        let a = Connection::accept(
+            crate::connection::ConnectionReader::default(),
+            crate::connection::ConnectionWriter::default(),
+        );
+        let b = Connection::accept(
+            crate::connection::ConnectionReader::default(),
+            crate::connection::ConnectionWriter::default(),
+        );
         assert_ne!(a.handle(), b.handle());
         assert_eq!(a.handle().clone(), *a.handle());
         assert!(format!("{a:?}").starts_with("Connection { handle: ConnectionHandle(#"));
