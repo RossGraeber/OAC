@@ -66,6 +66,7 @@ struct SealState {
     fail_subscribe: bool,
     fail_watch: bool,
     shutdown_calls: usize,
+    publish_calls: usize,
     held: Vec<Vec<u8>>,
 }
 
@@ -163,6 +164,7 @@ impl Transport for SealEndpoint {
         payload: Payload,
         _deadline: Deadline,
     ) -> PublishResult {
+        self.bus.0.lock().unwrap().publish_calls += 1;
         let Some(me) = self.key.lock().unwrap().clone() else {
             return PublishResult::NotTaken;
         };
@@ -1145,16 +1147,22 @@ fn seal_failure_passes_nothing_to_the_transport() {
     let st = bus.0.lock().unwrap();
     assert!(st.refused.is_empty(), "no plain payload was offered");
     assert_eq!(st.send_presence_calls, 0);
+    assert_eq!(st.publish_calls, 0);
 }
 
 /// Without a transport declaration, even authorized announcements are not passed.
 #[test]
 fn unknown_capabilities_pass_nothing() {
     let t = three(true);
+    sent(
+        t.x.adapter
+            .send(request(&t.xa, &t.sy, "establish announcement")),
+    );
     {
         let mut st = t.bus.0.lock().unwrap();
         st.fail_watch = true;
         st.log.clear();
+        st.publish_calls = 0;
     }
     assert!(t.x.pipes.start(TransportConfiguration::new(())).is_err());
     *t.x.adapter.max_envelope_octets.lock().unwrap() = Some(70_000);
@@ -1166,6 +1174,7 @@ fn unknown_capabilities_pass_nothing() {
     assert!(st.log.is_empty());
     assert!(st.refused.is_empty());
     assert_eq!(st.send_presence_calls, 0);
+    assert_eq!(st.publish_calls, 0);
 }
 
 /// Each failure after transport startup shuts it down. Existing authorized sends
@@ -1180,6 +1189,7 @@ fn start_failures_shutdown_and_refuse_sends() {
             st.fail_subscribe = failure == 1;
             st.fail_watch = failure == 2;
             st.log.clear();
+            st.publish_calls = 0;
         }
         assert!(matches!(
             t.x.pipes.start(TransportConfiguration::new(())),
@@ -1197,5 +1207,6 @@ fn start_failures_shutdown_and_refuse_sends() {
         assert!(st.log.is_empty());
         assert!(st.refused.is_empty());
         assert_eq!(st.send_presence_calls, 0);
+        assert_eq!(st.publish_calls, 0);
     }
 }
