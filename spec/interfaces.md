@@ -2,10 +2,12 @@
 
 **Document:** `spec/interfaces.md`, the normative interface contracts of OAC Session
 Channels: the core neutral types, the provider adapter contract and the transport contract.
-**Revision:** 0.3, a minor revision of the 0.1 frozen at Gate S2 (signed off 2026-10-06, in
+**Revision:** 0.4 (proposed; lead PR approval pending), a minor revision of the 0.1 frozen
+at Gate S2 (signed off 2026-10-06, in
 force from the merge of PR #276; E7, #47), made under
-`docs/planning/decisions/E7-interface-freeze.md` §7: 0.2 (issue #69, PR #350) and 0.3
-(sealing transports, §6.10; the lead's ruling of 2026-10-09 on PR #364). Written by #273.
+`docs/planning/decisions/E7-interface-freeze.md` §7: 0.2 (issue #69, PR #350), 0.3
+(sealing transports, §6.10; the lead's ruling of 2026-10-09 on PR #364), and 0.4
+(bounded connection closure and local identity requests, #376 and #66). Written by #273.
 Appendix B records the changes.
 **Companion documents:** `spec/session-channels.md` (the protocol), `spec/security.md` (the
 security model) and `spec/bindings/mcp.md` (the MCP binding). This document does not restate
@@ -440,6 +442,13 @@ authenticated the process at the other end ([IFC-ADP-012]). An **attachment**
 (`spec/session-channels.md` §6.7.1) is a `Connection` that the adapter reports as one
 (§5.4); an `Attachment` is the `Connection` handle of an attachment.
 
+A `Connection` also supplies its local byte stream, a `close` operation callable by the
+core or adapter independently of a blocked stream operation, and `close_bound_ms`, a
+finite positive integer giving the maximum elapsed milliseconds for `close` to return.
+Closing ends both directions of this connection; it does not change its handle or close
+another connection. All copies of its handle and all stream halves refer to the same
+closure state. Section 5.2 defines the closure barrier.
+
 **`NativeSignal`** — what an adapter observed at one native signal
 (`spec/session-channels.md` §6.7.1):
 
@@ -481,6 +490,15 @@ uncorrelated ([SC-RCP-050] to [SC-RCP-052]).
 
 **`DiscoveryRequest`** — a harness's request for a discovery result: `attachment`.
 
+**`IdentityRequest`** — a harness's request for its own local identity: `attachment`,
+with the same attribution as a `DiscoveryRequest`. It has no caller-supplied session id,
+fingerprint, principal or key member.
+
+**`LocalIdentity`** — `session_id`, a `SessionIdentity`, and `device_fingerprint`, the
+public device signing-key id of `spec/security.md` §5.2 (the full lower-case hexadecimal
+SHA-256 digest, 64 digits). These are local result members, not additions to `SessionIdentity` or
+to any peer payload. This record holds no key material, including public key bytes.
+
 **`RequestResult`** — the core's answer to a request. For a `SendRequest`, it is one of three:
 
 | Outcome | Members | When (`spec/bindings/mcp.md` §5.3 gives the same split) |
@@ -491,6 +509,9 @@ uncorrelated ([SC-RCP-050] to [SC-RCP-052]).
 
 For a `DiscoveryRequest`: the discovery result (an array of `SessionDescriptor`), or
 `refused` with an `ErrorCode` and, as for a `SendRequest`, optionally a `pairing_value`.
+
+For an `IdentityRequest`: a `LocalIdentity`, or `refused` with an `ErrorCode` and,
+as for a `SendRequest`, optionally a `pairing_value`. It creates no envelope or receipt.
 
 **`ProvenanceSet`** — the provenance set of `spec/security.md` §12.1: sender, device,
 session, message id and reply target.
@@ -608,6 +629,37 @@ process, is the pairing key of [SC-ID-121].
 which the core process received the request, never with a value that a harness-side process
 sent.
 
+**Connection closure.** A write settled by closure has a terminal result: `completed` if all requested
+octets were transferred, or `closed` if closure stopped it, with the exact number of octets
+already transferred (possibly zero). A partial transfer is not a successful harness input
+call. The byte-stream result establishes only what the stream transferred; it does not
+establish what the harness accepted. A harness-level outcome that remains unknowable is
+still `indeterminate` under [IFC-ADP-053], with no retry ([IFC-ADP-057]).
+
+[IFC-ADP-014] The core MUST supply every `Connection` with the closure operation and bound
+defined in §4.10.
+
+[IFC-ADP-015] The core's `Connection.close` MUST return within its `close_bound_ms` even
+when the peer stops reading or writing.
+
+[IFC-ADP-016] The core's `Connection.close` MUST settle every pending stream operation
+before it returns.
+
+Settled writes have the terminal results defined above; settled reads report end-of-stream.
+An ordinary I/O failure that preceded closure retains its failure result.
+
+[IFC-ADP-017] The core's `Connection` MUST NOT transfer further octets after `close` returns.
+
+[IFC-ADP-018] The core's `Connection` MUST refuse every stream operation started after
+closure begins, without transferring octets.
+
+[IFC-ADP-019] The core's `Connection.close` MUST be idempotent across all handles and stream
+halves of that connection.
+
+Completed transfers preceding the closure barrier stay completed. Closure cannot recall
+content the harness already holds. A timeout that leaves a writer running, or merely
+dropping one stream half while another still writes, does not satisfy this barrier.
+
 A harness-side process can name a session, an attachment or a harness-native id in what it
 sends. Each such value is a claim. None of them selects the attachment of a request, and none
 is used as a pairing key ([SC-ID-121], [SC-ID-162]).
@@ -623,7 +675,7 @@ Table 5.2. `ProviderAdapter`.
 | `set_binding` | core | an `Attachment`; a `SessionIdentity`, or none | none |
 | `capabilities` | core | an `Attachment` | `AdapterCapabilities` |
 | `deliver` | core | a `HandOff` | a `HandOffOutcome` |
-| `accept_requests` | core | a request sink: an operation that takes a `SendRequest` or a `DiscoveryRequest` and returns a `RequestResult` | none |
+| `accept_requests` | core | a request sink: an operation that takes a `SendRequest`, a `DiscoveryRequest` or an `IdentityRequest` and returns a `RequestResult` | none |
 | `health` | core | none | `HealthStatus` |
 | `shutdown` | core | none | none |
 
@@ -796,6 +848,32 @@ with its outcome and its `ErrorCode` unchanged.
 An adapter binding document says how the harness's surface carries the result; the meaning
 does not change on the way.
 
+**Local identity.** The identity request is the contract path for returning the caller's
+own session id and public device fingerprint, including the result required by
+`spec/bindings/mcp.md` [MCPB-TOOL-006]. It does not authorize delivery or any action.
+Authenticated peer messages remain untrusted instructions (§8; `spec/security.md` §1.2).
+
+[IFC-ADP-094] An adapter MUST obtain the identity it returns to a harness through an
+`IdentityRequest` attributed to that harness's attachment.
+
+[IFC-ADP-095] The core MUST refuse an `IdentityRequest` with `unauthorized` unless it
+currently serves a bound session on the request's attachment.
+
+[IFC-ADP-096] The core MUST construct a successful identity result from the session binding
+and its local device signing-key fingerprint at one instant during the request.
+
+[IFC-ADP-097] The core MUST return a successful identity result with exactly the two
+`LocalIdentity` members defined in §4.10.
+
+[IFC-ADP-098] The core MUST NOT expose key material through the identity request or result.
+
+The session id and fingerprint describe the same binding at that instant; a subsequent
+unbinding does not retroactively change an already returned result. There is no fallback
+to a previous binding, content, a display form, or a harness-provided identity claim.
+The fingerprint is a public digest, never the device's signing or agreement key bytes,
+private seed, credential, or a capability to read those values. Existing request refusal
+and confirmation rules still apply, including [IFC-ADP-092].
+
 **Pairing values.** An adapter binding document can make the harness's own report of a
 refused request a native signal, by having the refusal carry a value the core issued on that
 attachment (for one v0.1 harness, `spec/bindings/mcp.md` §4.5). The core issues the value in
@@ -813,6 +891,37 @@ and the harness sees only `accepted-by-adapter`.
 ### 5.7 `health` and `shutdown`
 
 `health` returns a `HealthStatus` ([IFC-TYP-092]).
+
+The adapter binding document states `shutdown_bound_ms`, a finite positive integer bounding
+elapsed milliseconds from entry to return of `shutdown`. The bound covers connection
+closure, pending call settlement and attachment-closed reporting; it is independent of
+whether the harness reads or responds. The core supplies connections whose closure bounds
+fit that shutdown bound. Closing independent connections concurrently is an implementation
+choice, not a relaxation of the bound.
+
+[IFC-ADP-072] An adapter MUST stop starting new hand-off calls when `shutdown` begins.
+
+[IFC-ADP-078] An adapter MUST stop accepting new harness requests when `shutdown` begins.
+
+[IFC-ADP-073] An adapter MUST close every `Connection` it received before its `shutdown`
+returns.
+
+[IFC-ADP-074] An adapter MUST return from `shutdown` within its binding's
+`shutdown_bound_ms`.
+
+[IFC-ADP-075] An adapter MUST settle every in-flight hand-off call
+before its `shutdown` returns.
+
+[IFC-ADP-076] An adapter binding document MUST state the finite positive
+`shutdown_bound_ms` defined above.
+
+[IFC-ADP-077] The core MUST supply an adapter only connections whose `close_bound_ms`
+does not exceed that adapter binding's `shutdown_bound_ms`.
+
+Closing connections precedes waiting for workers that might be blocked on their streams.
+Pending `deliver` calls return one outcome under §5.5; cancellation is not evidence of
+successful hand-off. Already completed input held by the harness remains the harness's
+([IFC-ADP-056]). A detached writer that could finish after return violates [IFC-ADP-070].
 
 [IFC-ADP-071] An adapter MUST report `attachment-closed` for each attachment still open before
 its `shutdown` returns.
@@ -1346,6 +1455,42 @@ wire form takes the version `spec/session-channels.md` §5.2-§5.3 assign to it.
 touches no wire form, such as renaming an operation or moving a requirement to another owner
 in Appendix C, takes a minor version under the same extension identifier.
 
+### 7.1 Revision 0.4 classification and implementation work
+
+Both changes in 0.4 touch only the local adapter contract:
+
+| Change | Classification against `spec/session-channels.md` §5.2 / §5.3 |
+|---|---|
+| Connection closure barrier and bounded adapter shutdown (#376) | Minor interface revision under E7 §7 item 2's no-wire-form rule. This is not a §5.2 item 9 optional wire capability: closure is required of every updated local implementation. No peer envelope, delivery state, error code, signature scope or verification procedure changes (§5.3 items 1-10); §5.3 item 11 would make a new obligation on an older **wire** implementation breaking, but E7 explicitly assigns local contract changes a minor bump. |
+| Identity request/result through the core sink (#66) | Minor interface revision under the same E7 rule. The new local request kind requires sink implementations to change; it is not a negotiated peer capability under §5.2 item 9. The harness-facing session id and fingerprint already exist under [MCPB-TOOL-006], so no binding wire form changes. No §5.3 wire-breaking case is introduced. |
+
+**These are breaking changes to the local implementation API/contract**: an old plain
+blocking stream or a sink supporting only send/discovery does not implement revision 0.4.
+They are **not breaking protocol changes** and need no new major version or extension
+identifier. An earlier peer still observes the existing protocol outcomes. Revision 0.4
+does not assert that existing code already meets the new local obligations.
+
+Implementation work after lead approval (outside this spec-only change):
+
+- Core connection constructors and all stream backends: independently callable closure,
+  shared closure state, terminal write results and bounded read/write settlement (#376,
+  G9 #70); extend the F10 (#59) fakes and common adapter contract suite first.
+- Adapter shutdown paths: stop new work, close connections before waiting for blocked
+  workers, settle in-flight hand-offs and report attachment closure within the declared
+  bound; update each adapter binding's bound. G4 #65 owns the stalled-write regression
+  and removal of its residual risk only once this behaviour is proven.
+- Core request sink and all sink implementations: attachment-attributed identity requests,
+  atomic binding/fingerprint snapshots, default-deny refusals and public-digest-only results.
+  G5 #66 and G8 #69 map the result to the existing identity tool, using existing confirmation
+  rules; F10 #59 and F11 #60 prove the cases in Appendix A.
+
+Issue #375 is deferred in full to a separate frozen-spec PR: binding an agreement statement
+or its sequence into pairing changes the pairing commitment/verification procedure
+(`spec/session-channels.md` §5.3 item 6), requiring its own compatibility classification.
+That PR also owns the related §5.2 item 9 definition of equal obligation, maximum-sequence
+re-pairing wording/integer spelling, and the security §13 evidence rows. Nothing in 0.4
+changes pairing or claims those risks are resolved.
+
 ---
 
 ## 8. Security considerations
@@ -1477,6 +1622,12 @@ the requirement whose fixtures exercise it. Appendix C gives each requirement's 
 | IFC-ADP-011 | MUST | 3.3 | TODO(fixture): each assigned requirement's own fixtures, run against the core; F12 |
 | IFC-ADP-012 | MUST | 5.2 | TODO(fixture): needs the platform facilities; G9, F11 |
 | IFC-ADP-013 | MUST NOT | 5.2 | TODO(fixture): F10 adapter suite; F11 |
+| IFC-ADP-014 | MUST | 5.2 | TODO(fixture): owner F10 (#59) with G9 (#70), every supplied connection exposes independent close and a finite positive bound |
+| IFC-ADP-015 | MUST | 5.2 | TODO(fixture): owner F10 (#59) with G9 (#70), block the peer's reads and writes; close returns by the declared bound on a scripted clock |
+| IFC-ADP-016 | MUST | 5.2 | TODO(fixture): owner F10 (#59) with G9 (#70), race close with zero/partial/full writes and blocked reads; all pending operations terminate before close returns, writes report exact transferred counts |
+| IFC-ADP-017 | MUST NOT | 5.2 | TODO(fixture): owner F10 (#59) with G9 (#70), release a stalled peer after close returns; its transferred-octet count never increases |
+| IFC-ADP-018 | MUST | 5.2 | TODO(fixture): owner F10 (#59) with G9 (#70), new read/write begun during and after close is refused without transfer |
+| IFC-ADP-019 | MUST | 5.2 | TODO(fixture): owner F10 (#59) with G9 (#70), repeated/concurrent close through copies and split halves preserves one terminal state and leaves another connection open |
 | IFC-ADP-020 | MUST | 5.4 | TODO(fixture): F10 adapter suite against the fakes (F8, F9); G4-G8 |
 | IFC-ADP-022 | MUST | 5.4 | TODO(fixture): F10 adapter suite |
 | IFC-ADP-030 | MUST NOT | 5.4 | TODO(fixture): F10 adapter suite |
@@ -1495,13 +1646,25 @@ the requirement whose fixtures exercise it. Appendix C gives each requirement's 
 | IFC-ADP-057 | MUST | 5.5 | TODO(fixture): F10 adapter suite against the F9 fake; G7 (#68) |
 | IFC-ADP-060 | MUST | 5.6 | TODO(fixture): F10 adapter suite |
 | IFC-ADP-062 | MAY | 5.6 | none (MAY) |
-| IFC-ADP-070 | MUST NOT | 5.7 | TODO(fixture): F10 adapter suite |
+| IFC-ADP-070 | MUST NOT | 5.7 | TODO(fixture): owner F10 (#59) with G4 (#65), stalled write races shutdown; releasing the peer after shutdown returns causes no late hand-off or request passed to the core |
 | IFC-ADP-071 | MUST | 5.7 | TODO(fixture): F10 adapter suite |
+| IFC-ADP-072 | MUST | 5.7 | TODO(fixture): owner F10 (#59) with G4 (#65), race shutdown with new delivery and harness requests; no new hand-off begins |
+| IFC-ADP-073 | MUST | 5.7 | TODO(fixture): owner F10 (#59) with G4 (#65), shutdown closes every supplied connection, including native-signal-only connections |
+| IFC-ADP-074 | MUST | 5.7 | TODO(fixture): owner F10 (#59) with G4 (#65), permanently stalled peer and multiple connections; shutdown returns within the binding's declared bound |
+| IFC-ADP-075 | MUST | 5.7 | TODO(fixture): owner F10 (#59) with G4 (#65), blocked delivery races shutdown; one truthful outcome precedes shutdown return; releasing peer afterwards cannot complete a late hand-off |
+| IFC-ADP-076 | MUST | 5.7 | TODO(fixture): owner G4 (#65) with G7 (#68), binding document review checks a finite positive bound covering all shutdown work |
+| IFC-ADP-077 | MUST | 5.7 | TODO(fixture): owner F10 (#59) with G9 (#70), a connection whose close bound exceeds the adapter's shutdown bound is never supplied |
+| IFC-ADP-078 | MUST | 5.7 | TODO(fixture): owner F10 (#59) with G4 (#65), race shutdown with new harness requests; no new request is accepted |
 | IFC-ADP-080 | MUST | 5.8 | TODO(fixture): document review at each adapter's task; G4-G8 |
 | IFC-ADP-090 | MUST | 5.6 | TODO(fixture): randomness is not decided by a data fixture; G8 (#69) review of the core's source of pairing values. The value's form is fixtured under `spec/bindings/mcp.md` [MCPB-ATT-005] |
 | IFC-ADP-091 | MUST | 5.4 | TODO(fixture): F10 adapter suite with G8 (#69): a request that fails confirmation → the event is reported before the request reaches the sink |
 | IFC-ADP-092 | MUST | 5.4 | TODO(fixture): F10 with G8 (#69): after the event, requests from the attachment are refused with `unauthorized` and nothing is handed off to it, until a paired native signal |
 | IFC-ADP-093 | MUST | 5.4 | TODO(fixture): F10 with G8 (#69): the event → one finding |
+| IFC-ADP-094 | MUST | 5.6 | TODO(fixture): owner F10 (#59) with G5 (#66) and G8 (#69), identity tool invokes sink with the actual attachment; injected identity claims are not used |
+| IFC-ADP-095 | MUST | 5.6 | TODO(fixture): owner F10 (#59) with F11 (#60), unbound/closed/unconfirmed attachments get unauthorized and no identity; rebinding never returns the previous session |
+| IFC-ADP-096 | MUST | 5.6 | TODO(fixture): owner F10 (#59) with G5 (#66), identity request races rebind/revoke; successful session and local signing fingerprint belong to one current binding snapshot |
+| IFC-ADP-097 | MUST | 5.6 | TODO(fixture): owner F10 (#59) with G5 (#66), successful result has exactly session_id and the public fingerprint in security §5.2's form |
+| IFC-ADP-098 | MUST NOT | 5.6 | TODO(fixture): owner F11 (#60) with G5 (#66), synthetic signing/agreement key sentinels never appear in identity requests/results; only the digest is exposed |
 | IFC-TRN-001 | MUST | 6.1 | TODO(fixture): F10 transport suite against F7, then G1-G2 |
 | IFC-TRN-002 | MAY | 6.1 | none (MAY) |
 | IFC-TRN-003 | MUST | 3.3 | TODO(fixture): each assigned requirement's own tests, run against a transport; F10 |
@@ -1573,6 +1736,7 @@ a frame, so the id was reused for the rule it holds now and is not retired.
 | 0.1 | 2026-10-06 | Frozen at Gate S2 (E7, #47): signed off on this date, in force from the merge of PR #276. |
 | 0.2 | 2026-10-08 | #69, PR #350, with `spec/bindings/mcp.md` 0.2 (the issued-value pairing for one v0.1 harness, §4.5 there): `NativeSignal` gains `revealed` and a `refused` result gains `pairing_value` (§4.10); the `attachment-unconfirmed` event (§5.4); IFC-ADP-090 (pairing values drawn from a secure random source), IFC-ADP-091 (the event comes before the request), IFC-ADP-092 and IFC-ADP-093 (the core stops serving the attachment until it is paired again, and records a finding); Appendix C gives owners to the `MUST` and `MUST NOT` requirements among MCPB-ATT-004 to MCPB-ATT-026, and to MCPB-CDX-006. Minor revision under `docs/planning/decisions/E7-interface-freeze.md` §7: no wire form changes, the added members are optional, and every new `MUST` binds only an implementation that issues pairing values or receives the new event, so an implementation conformant to 0.1 stays conformant. |
 | 0.3 | 2026-10-09 | Sealing transports, with `spec/security.md` 0.3 (payload sealing, §14 there), on the lead's ruling of 2026-10-09 on PR #364 (review finding 2): `Payload` gains the kind `sealed` (§4.11, Table 6.1); `TransportCapabilities` gains `sealing` (Table 6.3); §6.10 adds IFC-TRN-100 to IFC-TRN-104 (the core passes and takes only sealed payloads on a sealing transport, addressed to the recipient device, with room for the frame's overhead), IFC-TRN-105 to IFC-TRN-110 and IFC-TRN-113 (the transport hands sealed payloads to the local device's subscription, shows no destination, carries nothing beside a frame, deadline included, shows no device key id or session id, declares a size floor of 65590, declares the `sealing` value its binding states, and refuses any other payload kind), IFC-TRN-111 (`SHOULD`: seal on every unrestricted cross-implementation transport) and IFC-TRN-112 (the binding document states what travels beside a frame); [IFC-TRN-034] no longer binds a sealing transport's receiving end, in the rule's own text, and the receiving core drops late payloads in its place; [IFC-TRN-081] admits a sealing transport as a second way across implementations, with a dated note; §6.2, §6.4 and §8 updated; Appendix C gives owners to the new `MUST` and `MUST NOT` requirements and to those of SEC-SEL-001 to SEC-SEL-043. Minor revision under `docs/planning/decisions/E7-interface-freeze.md` §7 and `spec/session-channels.md` §5.2 item 9: the relaxed [IFC-TRN-081] forbids nothing it allowed, and every new `MUST`, and the narrower reach of [IFC-TRN-034], whose obligation moves to the receiving core, binds only a transport that declares `sealing` or a core that uses one, which no earlier revision defined. |
+| 0.4 (proposed; lead approval pending) | 2026-10-10 | Refs #376, Refs #66, Refs #375. Adds Connection.close and close_bound_ms with a terminal write/closure barrier (IFC-ADP-014 to IFC-ADP-019); bounded shutdown using closure (IFC-ADP-072 to IFC-ADP-078); IdentityRequest and LocalIdentity through the core request sink (IFC-ADP-094 to IFC-ADP-098), with only the public signing-key fingerprint exposed. Appendix A records owned TODO(fixture) cells and Appendix C assigns owners. §7.1 classifies both as minor no-wire-form amendments under E7 §7 item 2, explicitly breaking for local implementations but not for the protocol, lists implementation work, and defers all #375 items to a separate security amendment. No binding revision is required. |
 
 ## Appendix C. Owner index
 
@@ -1617,9 +1781,9 @@ carries the requirement out.
 | MCPB-FBK | adapter | 001 |
 | MCPB-CLD | adapter | 001, 002, 003 |
 | MCPB-CDX | adapter | 001, 002, 003, 004, 005, 006 |
-| IFC-ADP | adapter | 001, 002, 003, 004, 005, 006, 007, 010, 013, 020, 022, 030, 031, 040, 041, 043, 050, 051, 052, 053, 054, 056, 057, 060, 070, 071, 091 |
-| IFC-ADP | core | 011, 012, 042, 055, 090, 092, 093 |
-| IFC-ADP | binding | 080 |
+| IFC-ADP | adapter | 001, 002, 003, 004, 005, 006, 007, 010, 013, 020, 022, 030, 031, 040, 041, 043, 050, 051, 052, 053, 054, 056, 057, 060, 070, 071, 072, 073, 074, 075, 078, 091, 094 |
+| IFC-ADP | core | 011, 012, 014, 015, 016, 017, 018, 019, 042, 055, 077, 090, 092, 093, 095, 096, 097, 098 |
+| IFC-ADP | binding | 076, 080 |
 | IFC-TRN | core | 010, 011, 012, 013, 022, 024, 025, 032, 037, 041, 042, 051, 062, 081, 100, 101, 102, 103, 104 |
 | IFC-TRN | transport | 001, 003, 020, 021, 023, 026, 030, 031, 033, 034, 035, 036, 040, 043, 044, 050, 060, 071, 080, 105, 106, 107, 108, 109, 110, 113 |
 | IFC-TRN | binding | 090, 112 |
