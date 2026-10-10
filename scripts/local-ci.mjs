@@ -125,7 +125,9 @@ const TOOLCHAIN = '1.98.1'; // rust-toolchain.toml; docs/planning/PINS.md
 // (CARGO_NET_OFFLINE=true), os (only on these platforms; elsewhere SKIP with osReason),
 // needs (programs that must be on PATH, else NOT RUN), quickEnv (env added under --quick),
 // paths (set from PATHS below: what the step depends on), winWorkDir (on Windows, pass
-// `--work-dir <os.tmpdir()>/<winWorkDir>`: a short path, under MAX_PATH) }.
+// `--work-dir <os.tmpdir()>/<winWorkDir>-<run id>`: a short path, under MAX_PATH, of this
+// run's own; the run id is this process's pid, so two overlapping runs, from one checkout or
+// two, never share it. It is removed before the step and after it) }.
 // `node` means this Node; `bash` means Git Bash on Windows.
 
 const OFFLINE = { CARGO_NET_OFFLINE: 'true' };
@@ -597,7 +599,7 @@ const git = (args) => {
 // ---- the plan -------------------------------------------------------------------------
 
 // The concrete action for each step on `platform`: { step, skip?, notRun?, argv?, env, bash? }.
-export function plan(tier, { platform, quick, work, only = null }) {
+export function plan(tier, { platform, quick, work, only = null, runId = process.pid }) {
   const steps = TIERS[tier];
   // --only keeps the loopback sandbox steps whenever it keeps a sandboxed step: on Linux a
   // sandboxed step never runs without them.
@@ -614,7 +616,12 @@ export function plan(tier, { platform, quick, work, only = null }) {
       let argv = s.cmd.map((a) => a.replace('<work>', work));
       // A short work dir on Windows: a deep checkout plus target/<copy>/target/... overruns
       // MAX_PATH (PR #365 review).
-      if (s.winWorkDir && platform === 'win32') argv = [...argv, '--work-dir', join(tmpdir(), s.winWorkDir)];
+      // One per run: a fixed %TEMP%\oac-cts was shared by overlapping runs, which then failed
+      // ("could not find Cargo.toml", EPERM removing the copy).
+      if (s.winWorkDir && platform === 'win32') {
+        const workDir = join(tmpdir(), `${s.winWorkDir}-${runId}`);
+        return { step: s, argv: [...argv, '--work-dir', workDir], env, workDir };
+      }
       if (s.sandbox && platform === 'linux') argv = ['bash', 'scripts/loopback-only.sh', ...argv];
       return { step: s, argv, env };
     });
@@ -639,8 +646,15 @@ function bashFile(bodyText) {
   }
   return bashFiles.get(text);
 }
+// A run's own winWorkDir directories still present (the run was interrupted mid-step).
+const workDirs = new Set();
 process.on('exit', () => {
   for (const f of bashFiles.values()) rmSync(dirname(f), { recursive: true, force: true });
+  for (const d of workDirs) {
+    try {
+      rmSync(d, { recursive: true, force: true });
+    } catch {}
+  }
 });
 export function bashArgs(section, bodyText = readFileSync(join(repoRoot, BASH_BODIES), 'utf8')) {
   return ['--noprofile', '--norc', '-eo', 'pipefail', bashFile(bodyText), section];
@@ -693,6 +707,18 @@ function run(actions, ctx) {
       done('FAIL', 'loopback-only sandbox unavailable (loopback-select failed or did not run)');
       continue;
     }
+    // A run's own work dir (winWorkDir): cleared first (a pid reused after a crashed run) and
+    // removed afterwards, also if the step fails.
+    const clearWorkDir = () => {
+      if (!a.workDir) return;
+      try {
+        rmSync(a.workDir, { recursive: true, force: true, maxRetries: 3 });
+      } catch (e) {
+        console.log(`local-ci: could not remove ${a.workDir}: ${e.message}`);
+      }
+    };
+    clearWorkDir();
+    if (a.workDir) workDirs.add(a.workDir);
     let r;
     if (a.bash) {
       r = spawnSync(ctx.bash, bashArgs(a.bash), { cwd: repoRoot, env, stdio: ['ignore', 'inherit', 'inherit'] });
@@ -702,6 +728,8 @@ function run(actions, ctx) {
       const nodeArgs = args.map((x) => (x === 'node' ? process.execPath : x));
       r = spawnSync(program, nodeArgs, { cwd: repoRoot, env, stdio: 'inherit' });
     }
+    clearWorkDir();
+    workDirs.delete(a.workDir);
     if (r.error) done('FAIL', r.error.message);
     else if (a.step.notRunElsewhere && r.status === 3) done('NOT RUN', 'the script reported it cannot run here');
     else done(r.status === 0 ? 'PASS' : 'FAIL', r.status === 0 ? '' : `exit ${r.status ?? r.signal}`);
@@ -891,6 +919,25 @@ function selfTest() {
   check('plan: --only a sandboxed step keeps the guards and the loopback select and probe steps', JSON.stringify(plan('default', { platform: 'linux', work: '/w', only: ['herdr-self-test'] }).map((a) => a.step.id)) === '["cargo-config","environment","loopback-select","loopback-probe","herdr-self-test"]');
   check('plan: --only an unsandboxed step runs it with the guards only', JSON.stringify(plan('default', { platform: 'linux', work: '/w', only: ['skills'] }).map((a) => a.step.id)) === '["cargo-config","environment","skills"]');
   check('plan: g3-macos is NOT RUN off macOS and runs on macOS', plan('g3-macos', { platform: 'linux', work: '/w' })[0].notRun && plan('g3-macos', { platform: 'darwin', work: '/w' })[0].bash === 'g3-macos');
+  // Overlapping runs never share a Windows work dir (a fixed %TEMP%\oac-cts did).
+  {
+    const cts = (runId, platform = 'win32') => plan('default', { platform, work: '/w', runId }).find((a) => a.step.id === 'compiled-tests-self-test');
+    const a = cts(111);
+    const want = join(tmpdir(), 'oac-cts-111');
+    check('plan: on Windows compiled-tests-self-test gets a work dir of its run\'s own (oac-cts-<pid>)', a.workDir === want && JSON.stringify(a.argv.slice(-2)) === JSON.stringify(['--work-dir', want]));
+    check('plan: two overlapping runs get two different work dirs', cts(111).workDir !== cts(222).workDir);
+    check('plan: the run id defaults to this process\'s pid', plan('default', { platform: 'win32', work: '/w' }).find((x) => x.step.id === 'compiled-tests-self-test').workDir === join(tmpdir(), `oac-cts-${process.pid}`));
+    check('plan: off Windows there is no work dir', ['linux', 'darwin'].every((p) => !cts(111, p).workDir && !cts(111, p).argv.includes('--work-dir')));
+    check('plan: no step of any tier passes a fixed directory under the temp dir on Windows', Object.keys(TIERS).every((t) => plan(t, { platform: 'win32', work: '/w', runId: 333 }).every((x) => (x.argv ?? []).every((arg) => !arg.startsWith(tmpdir()) || arg.endsWith('-333')))));
+    // The runner clears a stale work dir before the step and removes it after.
+    const dir = join(tmpdir(), `oac-local-ci-wd-${process.pid}`);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'stale'), 'from a crashed run');
+    const script = "const fs=require('fs');const d=process.argv[1];if(fs.existsSync(d+'/stale'))process.exit(1);fs.mkdirSync(d,{recursive:true});fs.writeFileSync(d+'/f','x')";
+    const [res] = run([{ step: { id: 'work-dir-probe', name: 'work dir probe' }, argv: ['node', '-e', script, dir], env: {}, workDir: dir }], { platform: 'win32', bash: null });
+    check('run: a run\'s work dir is cleared before its step and removed after it', res.status === 'PASS' && !existsSync(dir), `${res.status} exists=${existsSync(dir)}`);
+    rmSync(dir, { recursive: true, force: true });
+  }
   check('plan: mutation runs in the loopback wrapper on Linux, with a work dir', plan('mutation', { platform: 'linux', work: '/w' }).find((a) => a.step.id === 'mutation-check').argv.join(' ') === 'bash scripts/loopback-only.sh node tests/security/mutation-check.mjs --work-dir /w/security-mutation');
 
   // 3. commands: every script exists, every flag is in it
