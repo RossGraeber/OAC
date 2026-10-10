@@ -182,7 +182,6 @@ impl Transport for Logical {
     }
     fn shutdown(&self) {
         self.raw.shutdown();
-        self.watches.lock().unwrap().clear();
     }
 }
 

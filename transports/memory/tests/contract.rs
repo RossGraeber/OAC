@@ -562,6 +562,7 @@ enum SealBreach {
     OverCap,
     LowFloor,
     AlterFrame,
+    IgnoresShutdown,
 }
 struct SealingHarness(SealBreach, bool);
 struct SealingMedium {
@@ -731,7 +732,9 @@ impl Transport for SealingTransport {
         self.inner.health()
     }
     fn shutdown(&self) {
-        self.inner.shutdown()
+        if self.breach != SealBreach::IgnoresShutdown {
+            self.inner.shutdown();
+        }
     }
 }
 #[test]
@@ -775,6 +778,7 @@ fn sealing_plants_are_caught_under_their_requirement_ids() {
         (SealBreach::OverCap, "IFC-TRN-104"),
         (SealBreach::LowFloor, "IFC-TRN-109"),
         (SealBreach::AlterFrame, "IFC-TRN-105"),
+        (SealBreach::IgnoresShutdown, "IFC-TRN-071"),
     ] {
         let report = run(&SealingHarness(breach, true));
         assert!(report.failed(id), "{breach:?} not caught as {id}: {report}");
