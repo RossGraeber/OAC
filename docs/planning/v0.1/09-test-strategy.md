@@ -143,7 +143,7 @@ side needs to go". Every workflow on a GitHub-hosted runner was deleted (`ci.yml
 above is its default run: before a PR is opened or merged it runs on Windows and in WSL,
 and each run's summary (git HEAD SHA, every step's result) is pasted into the PR; on Linux
 the test steps run inside `scripts/loopback-only.sh`, as on the old ubuntu image. The
-opt-in tiers run locally on demand (`--tier keystore|scale|mutation|g3-macos`). PR #330's
+opt-in tiers run locally on demand (`--tier keystore|scale|mutation|g3-macos|lan`). PR #330's
 candidate required-checks list no longer applies: no GitHub check exists to require.
 The port is frozen as data in `scripts/local-ci.ported.json`, which `--self-test` compares
 with the live plan; any diff to that file must be justified in its PR against the deleted
@@ -151,6 +151,60 @@ workflow YAML at `c8497d6` (`git show c8497d6:.github/workflows/<name>`) or a ne
 check. What
 the local run cannot reproduce is listed as lost coverage in this note's PR (the macOS legs
 without a Mac, and a hosted runner's clean image).
+
+*Dated note, 2026-10-09 (refs #7): every listener in the default tier binds loopback.*
+The Windows firewall does not filter `127.0.0.1` or `::1`, but it prompts for any program
+that listens on another address, and each cargo rebuild makes new test executables, so
+each rebuild prompted again. A test that listens beyond loopback on purpose is opt-in: it
+reads an `OAC_TEST_*` switch before it binds anything and prints SKIPPED without it, and a
+local-ci tier of the runner's own sets the switch for its child only (local-ci refuses an
+inherited one). The one such test is the Zenoh LAN probe
+(`transports/zenoh/tests/peer_transport.rs` `local_mode_reaches_nothing_beyond_loopback`,
+the evidence for C7 §5's local mode), run by `node scripts/local-ci.mjs --tier lan` with
+`OAC_TEST_LAN=1`. That is a **deliberate opt-in, not lost coverage**: on Linux the default
+tier ran it inside the loopback-only sandbox, where it always skipped; opted in, a host with
+no LAN address fails it. The `lan` tier has no row in `scripts/local-ci.ported.json`: no
+deleted workflow ran it as a tier of its own. The default-tier step `test-listeners`
+(`scripts/check-test-listeners.mjs`, with planted self-test cases) fails any non-loopback
+bind, unspecified address, non-loopback Zenoh locator, raw default Zenoh configuration or
+multicast in product or test code outside its stale-checked allowlists.
+
+The guard detects listener names (`bind`, `bind_to`, `listen`, socket constructors,
+`createSocket` and multicast joins) before reading the call suffix: paths, bare functions,
+methods, turbofish, optional calls and multiline chains are checked. Node positional
+listeners require a literal numeric port and a literal loopback host. A port variable may
+instead hold an options object; options objects and spreads therefore require explicit
+review. Rust calls require their own literal loopback address. Zenoh listen/connect/endpoint
+settings require literal JSON arrays of `tcp/127.0.0.1` or `udp/[::1]` locators (either
+protocol with either loopback host). Computed values, including `format!` and `concat!`,
+fail closed. The real configuration's fixed loopback host with formatted u16 ports is
+reviewed by the complete setting expression, so changing its multiline value fails.
+Zenoh Config default constructors are checked through grouped imports, globs, crate/module
+aliases and local type aliases, including typed or ambiguous inferred `Default` calls.
+`Config::from_*` payloads require REVIEWED: the lexical guard cannot prove that a loaded
+configuration supplies loopback endpoints and disables both multicast and gossip.
+The real default-construction allowance is pinned to `config.rs`'s `native()` function.
+
+Session/key and attachment helpers also share the name `bind`; their reviewed sites open
+no socket. Every REVIEWED entry must resolve to exactly one complete line, with no extra
+listener; repeated lines pin adjacent lines, and computed endpoint entries pin the entire
+call. OPT_IN requires the complete opening negated gate call and return block, with every
+listener after it. A disabled condition such as `&& false` fails.
+
+Static text cannot see runtime-computed addresses; that is why unresolved direct calls
+and endpoint settings are rejected rather than inferred as safe. This lexical check does
+not prove receiver types at reviewed sites or gate-helper semantics. Wrappers renamed to
+other names, generated calls, computed JS properties, template interpolation, computed
+configuration keys and dependency listeners remain source-review responsibilities.
+Cross-file Config reexports and generated aliases also require source review.
+
+On Windows, compiled-tests-self-test uses `%TEMP%\\oac-cts-<pid>`, cleared before its
+step and removed after normal completion. The runner's exit hook is best effort: forced
+termination, crashes and locked child files can leave it behind. In particular, a Windows
+`child.kill('SIGINT')` probe does not establish graceful console cancellation. Console
+cancellation cleanup remains unverified; the existing self-test proves normal cleanup and
+stale-directory removal, not interruption cleanup. A reused PID clears its stale directory
+before the step; other PID directories are untouched.
 
 ---
 

@@ -72,6 +72,15 @@
 //! with the stable configuration (see `config.rs`), so it is not used. Only the
 //! `transport_tcp` link is compiled in. No `unstable` or `shared-memory` feature is used.
 //!
+//! The evidence that local mode reaches nothing beyond loopback is
+//! `tests/peer_transport.rs` `local_mode_reaches_nothing_beyond_loopback`: a LAN-address
+//! probe with multicast scouting on hears nothing and is never linked. The probe itself
+//! listens beyond loopback, so the test is a **deliberate opt-in**, not lost coverage: it
+//! runs with `OAC_TEST_LAN=1` (`node scripts/local-ci.mjs --tier lan`, which sets it for its
+//! own child) and prints SKIPPED otherwise. The default tier's listeners are loopback only,
+//! which `scripts/check-test-listeners.mjs` enforces; on Windows a non-loopback listener
+//! raises a firewall prompt for every rebuilt test executable.
+//!
 //! **Addressing.** A `Destination` maps to the key expression `oac/1/<partition>/<digest>`
 //! (`addressing.rs`). `<digest>` is 128 bits of SHA-256 over a kind tag and the session id
 //! or key id, as 32 hex digits. It is one-way: a key expression on the wire, in a log or in

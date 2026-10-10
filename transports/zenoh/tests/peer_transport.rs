@@ -4,6 +4,7 @@
 //! binding's errors (`oac_core::transport::TransportError`), the `not-taken` cases of
 //! Table 6.1, and the neutral public surface (C7 §2).
 
+use std::io::Write;
 use std::net::{IpAddr, Ipv4Addr, TcpListener, UdpSocket};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -187,31 +188,56 @@ fn the_local_default_is_the_loopback_rendezvous_in_the_default_partition() {
     assert_eq!(c.rendezvous_port(), DEFAULT_RENDEZVOUS_PORT);
 }
 
-/// A non-loopback IPv4 address of this host, or why there is none. Connecting a UDP socket
-/// sends nothing; it only asks the OS which source address it would use.
-fn lan_address() -> Result<Ipv4Addr, String> {
-    let s = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0)).map_err(|e| e.to_string())?;
-    s.connect(("192.0.2.1", 9))
-        .map_err(|e| format!("no route off the host: {e}"))?;
-    match s.local_addr().map_err(|e| e.to_string())?.ip() {
-        IpAddr::V4(a) if !a.is_loopback() && !a.is_unspecified() => Ok(a),
-        other => Err(format!("the only source address is {other}")),
+/// The opt-in switch for tests that listen beyond loopback on purpose. Every other test in
+/// the default tier binds loopback only, so a default run starts no listener the host
+/// firewall filters (on Windows, each rebuilt test executable that listens on a LAN
+/// address raises a firewall prompt). `node scripts/local-ci.mjs --tier lan` sets it for
+/// its own child; `scripts/check-test-listeners.mjs` allows a non-loopback bind only in a
+/// test that checks this switch first.
+const LAN_OPT_IN: &str = "OAC_TEST_LAN";
+
+/// True when [`LAN_OPT_IN`] is `1`. Otherwise writes a SKIPPED line straight to the
+/// process's stderr, past the test harness's output capture, so a default run shows it.
+fn lan_opt_in(test: &str) -> bool {
+    if std::env::var(LAN_OPT_IN).as_deref() == Ok("1") {
+        return true;
     }
+    let _ = writeln!(
+        std::io::stderr(),
+        "SKIPPED {test}: listens beyond loopback on purpose; opt-in only \
+         ({LAN_OPT_IN}=1, set by `node scripts/local-ci.mjs --tier lan`)"
+    );
+    false
 }
 
 /// PR #364 review, blocking finding 1: local mode never reaches beyond loopback. A plain
 /// Zenoh peer listening on this host's LAN address, with multicast scouting on (interface
 /// "auto"), gossip on and a subscriber on every key, receives none of the frames two local
 /// transports exchange, and is never linked to either of them.
+///
+/// Opt-in ([`LAN_OPT_IN`]): the probe is a LAN listener and a multicast scout by design.
+/// When opted in, a host with no LAN address fails the test rather than skipping it, so an
+/// opt-in run never passes without having probed.
 #[test]
 fn local_mode_reaches_nothing_beyond_loopback() {
-    let lan = match lan_address() {
-        Ok(a) => a,
-        Err(why) => {
-            eprintln!("SKIPPED: this host has no non-loopback interface to probe from ({why})");
-            return;
+    if !lan_opt_in("local_mode_reaches_nothing_beyond_loopback") {
+        return;
+    }
+    /// A non-loopback IPv4 address of this host, or why there is none. Connecting a UDP
+    /// socket sends nothing; it only asks the OS which source address it would use. Kept
+    /// inside the opt-in test, after its gate: it binds the unspecified address.
+    fn lan_address() -> Result<Ipv4Addr, String> {
+        let s = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0)).map_err(|e| e.to_string())?;
+        s.connect(("192.0.2.1", 9))
+            .map_err(|e| format!("no route off the host: {e}"))?;
+        match s.local_addr().map_err(|e| e.to_string())?.ip() {
+            IpAddr::V4(a) if !a.is_loopback() && !a.is_unspecified() => Ok(a),
+            other => Err(format!("the only source address is {other}")),
         }
-    };
+    }
+    let lan = lan_address().unwrap_or_else(|why| {
+        panic!("{LAN_OPT_IN}=1 but this host has no non-loopback interface to probe from ({why})")
+    });
     let mut probe_conf = zenoh::Config::default();
     for (k, v) in [
         ("mode", r#""peer""#.to_owned()),
@@ -221,13 +247,9 @@ fn local_mode_reaches_nothing_beyond_loopback() {
     ] {
         probe_conf.insert_json5(k, &v).unwrap();
     }
-    let probe = match zenoh::open(probe_conf).wait() {
-        Ok(p) => p,
-        Err(e) => {
-            eprintln!("SKIPPED: the probe cannot listen on {lan}: {e}");
-            return;
-        }
-    };
+    let probe = zenoh::open(probe_conf)
+        .wait()
+        .unwrap_or_else(|e| panic!("{LAN_OPT_IN}=1 but the probe cannot listen on {lan}: {e}"));
     let heard = Arc::new(AtomicUsize::new(0));
     let h = heard.clone();
     let _all = probe
