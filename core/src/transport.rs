@@ -45,6 +45,10 @@ pub enum PayloadKind {
     Presence,
     /// `receipt`: the serialized authenticated receipt.
     Receipt,
+    /// `sealed`: a sealed frame holding one payload of one of the three kinds above
+    /// (`spec/security.md` §14.4). Only a transport that declares `sealing` carries it
+    /// ([IFC-TRN-102]), and it carries no other kind ([IFC-TRN-100], [IFC-TRN-113]).
+    Sealed,
 }
 
 impl PayloadKind {
@@ -54,17 +58,19 @@ impl PayloadKind {
             PayloadKind::Envelope => "envelope",
             PayloadKind::Presence => "presence",
             PayloadKind::Receipt => "receipt",
+            PayloadKind::Sealed => "sealed",
         }
     }
 
     /// True when Table 6.1 sends a payload of this kind to `destination`'s kind:
-    /// `envelope` to a `session`, `presence` and `receipt` to a `device`.
+    /// `envelope` to a `session`, `presence`, `receipt` and `sealed` to a `device`.
     pub fn fits(self, destination: &Destination) -> bool {
         matches!(
             (self, destination),
             (PayloadKind::Envelope, Destination::Session(_))
                 | (PayloadKind::Presence, Destination::Device(_))
                 | (PayloadKind::Receipt, Destination::Device(_))
+                | (PayloadKind::Sealed, Destination::Device(_))
         )
     }
 }
@@ -225,6 +231,10 @@ impl Reach {
 /// The floor of `max_payload_octets` ([IFC-TRN-023]).
 pub const MIN_MAX_PAYLOAD_OCTETS: u64 = 65536;
 
+/// The floor of `max_payload_octets` for a sealing transport: 65536 plus the 54 octets of a
+/// frame's overhead ([IFC-TRN-109]).
+pub const MIN_SEALING_MAX_PAYLOAD_OCTETS: u64 = 65590;
+
 /// `TransportCapabilities` of `spec/interfaces.md` §4.11: the declaration of §6.3, Table
 /// 6.3, that `start` returns.
 ///
@@ -249,14 +259,20 @@ pub struct TransportCapabilities {
     pub reach: Reach,
     /// `destination_restricted` ([IFC-TRN-080]).
     pub destination_restricted: bool,
-    /// `max_payload_octets`, at least [`MIN_MAX_PAYLOAD_OCTETS`] ([IFC-TRN-023]).
+    /// `max_payload_octets`, at least [`MIN_MAX_PAYLOAD_OCTETS`] ([IFC-TRN-023]), and at
+    /// least [`MIN_SEALING_MAX_PAYLOAD_OCTETS`] for a sealing transport ([IFC-TRN-109]).
     pub max_payload_octets: u64,
+    /// `sealing`: the transport takes and yields only payloads of kind `sealed`
+    /// (`spec/interfaces.md` §6.10). A declaration made under a revision before 0.3 has no
+    /// such member, and is read as `false`.
+    pub sealing: bool,
 }
 
 impl TransportCapabilities {
-    /// The requirement ids of `spec/interfaces.md` §6.3 that this declaration breaks on its
-    /// face: [IFC-TRN-026] (persistence or offline queueing present) and [IFC-TRN-023]
-    /// (`max_payload_octets` below the floor). Empty when it breaks none. Whether a
+    /// The requirement ids of `spec/interfaces.md` §6.3 and §6.10 that this declaration
+    /// breaks on its face: [IFC-TRN-026] (persistence or offline queueing present),
+    /// [IFC-TRN-023] (`max_payload_octets` below the floor) and [IFC-TRN-109] (a sealing
+    /// transport's `max_payload_octets` below 65590). Empty when it breaks none. Whether a
     /// capability declared present is really provided ([IFC-TRN-021]) is a question about
     /// the transport's behaviour, not about the declaration.
     pub fn contract_violations(&self) -> Vec<&'static str> {
@@ -266,6 +282,9 @@ impl TransportCapabilities {
         }
         if self.max_payload_octets < MIN_MAX_PAYLOAD_OCTETS {
             v.push("IFC-TRN-023");
+        }
+        if self.sealing && self.max_payload_octets < MIN_SEALING_MAX_PAYLOAD_OCTETS {
+            v.push("IFC-TRN-109");
         }
         v
     }
@@ -402,7 +421,8 @@ pub trait Transport: Send + Sync {
         configuration: TransportConfiguration,
     ) -> Result<TransportCapabilities, TransportError>;
 
-    /// `publish`: carry a payload of kind `envelope` or `receipt` to `destination`, with
+    /// `publish`: carry a payload of kind `envelope` or `receipt`, or of kind `sealed` on a
+    /// sealing transport (`spec/interfaces.md` §6.10), to `destination`, with
     /// no copy delivered at or after `deadline`. The result never depends on whether the
     /// destination is subscribed ([IFC-TRN-044]).
     fn publish(
@@ -478,6 +498,9 @@ mod tests {
         assert!(!PayloadKind::Presence.fits(&s));
         assert!(PayloadKind::Receipt.fits(&k));
         assert!(!PayloadKind::Receipt.fits(&s));
+        assert!(PayloadKind::Sealed.fits(&k));
+        assert!(!PayloadKind::Sealed.fits(&s));
+        assert_eq!(PayloadKind::Sealed.as_str(), "sealed");
         assert_eq!(PayloadKind::Envelope.as_str(), "envelope");
         assert_eq!(PayloadKind::Presence.as_str(), "presence");
         assert_eq!(PayloadKind::Receipt.as_str(), "receipt");
@@ -532,8 +555,27 @@ mod tests {
             reach: Reach::LocalOnly,
             destination_restricted: false,
             max_payload_octets: MIN_MAX_PAYLOAD_OCTETS,
+            sealing: false,
         };
         assert!(ok.contract_violations().is_empty());
+        // [IFC-TRN-109]: a sealing transport carries a default-limit envelope in one frame.
+        assert_eq!(
+            TransportCapabilities {
+                sealing: true,
+                ..ok
+            }
+            .contract_violations(),
+            ["IFC-TRN-109"]
+        );
+        assert!(
+            TransportCapabilities {
+                sealing: true,
+                max_payload_octets: MIN_SEALING_MAX_PAYLOAD_OCTETS,
+                ..ok
+            }
+            .contract_violations()
+            .is_empty()
+        );
         assert_eq!(
             TransportCapabilities {
                 persistence: true,

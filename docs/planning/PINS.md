@@ -54,7 +54,12 @@ Full policy: `docs/planning/gates/README.md`.
 This file is the single source of truth for pinned versions. `docs/planning/STATUS.md`
 carries only a summary pointer back here — see its `## Pins` section.
 
-**Last updated:** 2026-10-08 (issue #7, decision record
+**Last updated:** 2026-10-09 (issue #369, the lead's approval of 2026-10-09: added row
+`hpke` (payload sealing, RFC 9180), a fixed pin at `0.12.0`, `Gates affected: none` (an
+implementation dependency of `core/`). The pin-move checklist was executed in the same
+commit: a row was added, but it names no gate, so no `G<n>-result.md` `Pin rows relied on`
+field or `docs/planning/STATUS.md` `Pins relied on` cell changes, and no verdict is
+invalidated.) Previously 2026-10-08 (issue #7, decision record
 `docs/planning/decisions/G-7-stage4-dependencies.md`: added rows `tokio`, `rcgen`,
 `windows-sys` and `libc`, fixed pins for Stage 4, each `Gates affected: none`
 (implementation dependencies). The pin-move checklist was executed in the same commit: rows
@@ -136,6 +141,8 @@ signature) and `serde_jcs` (canonical serialization) pin rows, see
 | `interprocess` (IPC crate, candidate) | supported | `2.4.4` | not stated on source page | https://crates.io/api/v1/crates/interprocess; https://raw.githubusercontent.com/kotauskas/interprocess/main/Cargo.toml | 2026-09-17 | none directly (implementation dependency — see note) |
 | `age` (encrypted-file key-storage fallback) | supported | `0.12.1` | 2026-07-14 | https://crates.io/api/v1/crates/age; https://raw.githubusercontent.com/str4d/rage/v0.12.1/age/Cargo.toml | 2026-09-17 | none directly (implementation dependency — see note) |
 | `ed25519-dalek` (envelope signature) | supported | `3.0.0` | not stated on source page | https://crates.io/api/v1/crates/ed25519-dalek; https://raw.githubusercontent.com/dalek-cryptography/curve25519-dalek/main/ed25519-dalek/Cargo.toml | 2026-09-17 | none directly (implementation dependency — see note) |
+| `x25519-dalek` (X25519 secret drop erasure) | supported | `2.0.1` (`=2.0.1`; defaults off, `zeroize`) | not stated on source page | https://github.com/dalek-cryptography/x25519-dalek/tree/2.0.1; locked registry source and feature tree | 2026-10-09 | none directly (implementation dependency) |
+| `hpke` (payload sealing, RFC 9180) | supported | `0.12.0` (`=0.12.0`; `default-features = false`, features `alloc` and `x25519`) | not stated on source page | the published crate manifest, as `Cargo.lock` locks it (checksum `4917627a14198c3603282c5158b815ad5534795451d3c074b53cf3cee0960b11`); https://github.com/rozbb/rust-hpke | 2026-10-09 | none directly (implementation dependency — see note) |
 | `serde_jcs` (canonical serialization, RFC 8785 JCS) | supported | `0.2.0` | 2026-03-25 | https://crates.io/api/v1/crates/serde_jcs; https://docs.rs/serde_jcs/0.2.0/serde_jcs/ | 2026-09-17 | none directly (implementation dependency — see note) |
 | Zenoh | supported | `1.10.1` | 2026-09-07 | https://github.com/eclipse-zenoh/zenoh/releases | 2026-09-16 | G3 |
 | `tokio` (async runtime) | supported | `1.53.2` | 2026-10-03 | https://crates.io/api/v1/crates/tokio/1.53.2 | 2026-10-08 | none directly (implementation dependency — see note) |
@@ -692,6 +699,35 @@ semver, and are recorded verbatim — never reformatted.
   2026-09-17. Full analysis: `docs/planning/decisions/C5-envelope-auth.md` §2.
 - **Gates affected: none directly** — implementation dependency (Stage 3+ envelope
   signing/verification crate), not a gate-spike dependency.
+
+### `hpke` (payload sealing, RFC 9180)
+
+- Surface label: **supported** — a general-purpose cryptography crate, not a
+  preview/experimental provider surface.
+- Pinned crate version: `0.12.0`, exactly (`=0.12.0`), with `default-features = false` and
+  the features `alloc` and `x25519` only. Approved by the lead as a direct `core/`
+  dependency on 2026-10-09:
+  https://github.com/RossGraeber/OAC/issues/369#issuecomment-6088166109. It was already in
+  `Cargo.lock` under `age`, so adding it downloaded nothing; the `x25519` feature adds only
+  the edge to `x25519-dalek` `2.0.1`, also already locked.
+- License: `MIT/Apache-2.0` as the manifest spells it (MIT OR Apache-2.0); OAC elects the
+  Apache-2.0 arm. Source: the crate's published `Cargo.toml` (`license`, `repository =
+  "https://github.com/rozbb/rust-hpke"`), the registry copy `Cargo.lock` locks by checksum,
+  read 2026-10-09. Its suite crates are `x25519-dalek` `2.0.1` (BSD-3-Clause, already on the
+  accepted list), `chacha20poly1305` `0.10.1` (Apache-2.0 OR MIT) and `hkdf` `0.12.4` (MIT
+  OR Apache-2.0), each read the same way.
+- Use: HPKE base mode, single-shot, DHKEM(X25519, HKDF-SHA256), HKDF-SHA256,
+  ChaCha20Poly1305, `info` `oac-seal-v1` (`spec/security.md` §14.4), through
+  `single_shot_seal_in_place_detached` and `single_shot_open_in_place_detached` only.
+  `spec/security.md` §14.10's reference note records that every sealed fixture frame was
+  opened by a program on this crate at this version.
+- X25519 drop erasure: the lead approved the direct core dependency
+  `x25519-dalek = { version = "=2.0.1", default-features = false, features = ["zeroize"] }`
+  on 2026-10-09 (PR #370 review round 1). Feature unification enables zeroizing drops
+  for hpke's `StaticSecret`, `EphemeralSecret` and `SharedSecret`. Verified with
+  `cargo tree -e features -i x25519-dalek` on 2026-10-09; no new locked package.
+- **Gates affected: none directly** — implementation dependency (payload sealing in the
+  core, #369), not a gate-spike dependency.
 
 ### `serde_jcs` (canonical serialization, RFC 8785 JCS)
 
