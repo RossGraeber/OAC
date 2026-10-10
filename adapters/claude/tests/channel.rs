@@ -545,6 +545,7 @@ fn tool_calls_reach_the_core_or_are_refused_as_the_binding_says() {
         "{r:?}"
     );
 
+    a.set_binding(&att, Some(SessionId::from_random_octets([2; 16])));
     let r = tool_call(
         &mut w,
         5,
@@ -580,6 +581,29 @@ fn tool_calls_reach_the_core_or_are_refused_as_the_binding_says() {
     assert_eq!(last.to, SessionId::from_random_octets([1; 16]));
     assert_eq!(last.requested_target.as_deref(), Some("msg-7"));
     drop(sent);
+    // Native-signal suspension/unbinding must refuse attribution before lookup,
+    // even though this connection previously received the reply target.
+    a.set_binding(&att, None);
+    let r = tool_call(
+        &mut w,
+        7,
+        "reply",
+        "{\"in_reply_to\":\"msg-7\",\"content\":[{\"type\":\"text\",\"text\":\"private answer\"}]}",
+    );
+    assert_eq!(
+        get(&r, &["result", "isError"]).and_then(Json::as_bool),
+        Some(true)
+    );
+    assert!(result_text(&r).starts_with("unauthorized"), "{r:?}");
+    assert_eq!(
+        text(&r, &["result", "structuredContent", "error"]).as_deref(),
+        Some("unauthorized")
+    );
+    assert_eq!(
+        core.sent.lock().unwrap().len(),
+        1,
+        "unbound reply reached core"
+    );
     a.shutdown();
 }
 

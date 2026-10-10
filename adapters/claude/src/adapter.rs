@@ -15,6 +15,12 @@
 //! on the connection, and hand-offs are notifications the server writes. Nothing here asks
 //! the harness, or anything else, for pending messages ([IFC-ADP-040]; no polling of any
 //! kind).
+//!
+//! Known residual (lead decision, 2026-10-10; 11-risks row 82): shutdown waits for
+//! in-flight writes. The frozen `Connection` supplies a blocking `Write` without
+//! cancel/close, so shutdown can block while the harness has stopped reading. Returning
+//! earlier could hand off content after shutdown returns, violating [IFC-ADP-070].
+//! Owner: #TBD-connection-cancel (the connection-cancellation spec change, to be filed).
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::mpsc::RecvTimeoutError;
@@ -79,10 +85,13 @@ struct State {
     handler: Option<AdapterEventHandler>,
     sink: Option<Arc<dyn RequestSink>>,
     attachments: HashMap<Attachment, Att>,
-    connections: Vec<(
-        tokio::sync::watch::Sender<bool>,
-        std::thread::JoinHandle<()>,
-    )>,
+    connections: HashMap<
+        std::thread::ThreadId,
+        (
+            tokio::sync::watch::Sender<bool>,
+            std::thread::JoinHandle<()>,
+        ),
+    >,
 }
 
 /// What every connection thread shares with the adapter.
@@ -236,6 +245,11 @@ impl Inner {
                 to,
                 content,
             } => {
+                // Attribution refusal precedes implicit destination resolution
+                // [MCPB-ATT-002], [SC-RCP-090]. Explicit requests still go to the core.
+                if to.is_none() && bound.is_none() {
+                    return oac_mcp_tools::refusal(ErrorCode::Unauthorized);
+                }
                 match to.or(record) {
                     Some(to) => oac_mcp_tools::send_result(&sink.send(
                         oac_mcp_tools::reply_request(a.clone(), to, content, in_reply_to),
@@ -345,6 +359,29 @@ fn serve(
     inner.ended(&attachment);
 }
 
+/// Register before running, then release the handle only after all runtime work ends.
+fn spawn_runtime(
+    inner: Arc<Inner>,
+    stop: tokio::sync::watch::Sender<bool>,
+    run: impl FnOnce() + Send + 'static,
+) -> std::io::Result<()> {
+    // Immediate EOF must not finish before its handle is registered.
+    let mut st = lock(&inner.state);
+    let completing = inner.clone();
+    let thread = std::thread::Builder::new()
+        .name("oac-claude-channel".into())
+        .spawn(move || {
+            run();
+            // Runtime, writes and ended() are finished. Shutdown joins any runtime
+            // it took first; otherwise release our own registry entry now.
+            lock(&completing.state)
+                .connections
+                .remove(&std::thread::current().id());
+        })?;
+    st.connections.insert(thread.thread().id(), (stop, thread));
+    Ok(())
+}
+
 impl ProviderAdapter for ClaudeAdapter {
     fn take_connection(&self, connection: Connection) {
         let (attachment, reader, writer) = connection.into_parts();
@@ -369,14 +406,12 @@ impl ProviderAdapter for ClaudeAdapter {
         let inner = self.inner.clone();
         let a = attachment.clone();
         let (stop_tx, stop_rx) = tokio::sync::watch::channel(false);
-        let spawned = std::thread::Builder::new()
-            .name("oac-claude-channel".into())
-            .spawn(move || serve(inner, a, reader, writer, stop_rx));
-        match spawned {
-            Ok(thread) => lock(&self.inner.state).connections.push((stop_tx, thread)),
-            Err(_) => {
-                lock(&self.inner.state).attachments.remove(&attachment);
-            }
+        if spawn_runtime(self.inner.clone(), stop_tx, move || {
+            serve(inner, a, reader, writer, stop_rx);
+        })
+        .is_err()
+        {
+            lock(&self.inner.state).attachments.remove(&attachment);
         }
     }
 
@@ -531,7 +566,7 @@ impl ProviderAdapter for ClaudeAdapter {
             )
         };
         drop(down);
-        for (stop, _) in &connections {
+        for (stop, _) in connections.values() {
             let _ = stop.send(true);
         }
         for c in cancels {
@@ -545,8 +580,50 @@ impl ProviderAdapter for ClaudeAdapter {
         drop(_ev);
         // Blocking std::io writes cannot be interrupted. Join the runtime that owns them,
         // including its pending notification tasks, before shutdown returns [IFC-ADP-070].
-        for (_, thread) in connections {
+        for (_, thread) in connections.into_values() {
             let _ = thread.join();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn completed_runtimes_release_their_registry_entries_without_shutdown() {
+        let adapter = ClaudeAdapter::new();
+        let (release, held) = std::sync::mpsc::channel();
+        let (stop, _rx) = tokio::sync::watch::channel(false);
+        spawn_runtime(adapter.inner.clone(), stop, move || {
+            held.recv().unwrap();
+        })
+        .unwrap();
+        assert_eq!(
+            lock(&adapter.inner.state).connections.len(),
+            1,
+            "unfinished runtime must remain available to shutdown"
+        );
+        release.send(()).unwrap();
+        for _ in 0..100 {
+            let (stop, _rx) = tokio::sync::watch::channel(false);
+            spawn_runtime(adapter.inner.clone(), stop, || {}).unwrap();
+        }
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        loop {
+            let st = lock(&adapter.inner.state);
+            if st.attachments.is_empty() && st.connections.is_empty() {
+                break;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "{} attachments and {} runtime entries retained",
+                st.attachments.len(),
+                st.connections.len()
+            );
+            drop(st);
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        adapter.shutdown();
     }
 }
