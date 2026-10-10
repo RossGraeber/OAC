@@ -219,6 +219,6 @@ its fake observations for late input. The planted WaitsBeforeClose and LateHandO
 adapters fail these checks; WorksAfterShutdown and KeepsAttachmentsAtShutdown retain
 their original failures. No real harness runs or gate verdicts change.
 
-Gate S4 suite baseline: `f77a3a3082a45e554719a7d059e0c8ab4b1fdaa2` (2026-10-10).
+Gate S4 suite baseline: `ad107f6e82e69ed02701c7e167c214a69d3ab540` (2026-10-10).
 The same pin is recorded in docs/planning/STATUS.md.
 `adapters/claude/tests/contract.rs` remains unchanged.
