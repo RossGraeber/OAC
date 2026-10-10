@@ -5,7 +5,7 @@ use super::*;
 
 pub(crate) struct Harness<'a> {
     pub inner: &'a dyn TransportHarness,
-    media: Mutex<Vec<Arc<AuditedMedium>>>,
+    media: Mutex<Vec<Arc<Record>>>,
 }
 impl<'a> Harness<'a> {
     pub fn new(inner: &'a dyn TransportHarness) -> Self {
@@ -55,23 +55,19 @@ impl<'a> Harness<'a> {
     }
     pub fn observations(&self) -> Result<Vec<SealingObservation>, Verdict> {
         let mut all = Vec::new();
-        for m in self.media.lock().unwrap().iter() {
-            let declarations = m.declarations.lock().unwrap();
-            if !self.inner.binding_sealing() && !declarations.iter().any(|&s| s) {
+        for record in self.media.lock().unwrap().iter() {
+            if !self.inner.binding_sealing()
+                && !record.declarations.lock().unwrap().iter().any(|&s| s)
+            {
                 continue;
             }
-            let Some(obs) = m.inner.sealing_observations() else {
+            let capture = record.capture.lock().unwrap();
+            let Some(obs) = capture.as_ref() else {
                 return Err(Verdict::Fail(
-                    "an exercised medium omitted raw carriage observations".into(),
+                    "an exercised medium did not finish its carriage audit".into(),
                 ));
             };
-            let sent = m.sent.lock().unwrap();
-            if sent.iter().any(|f| !obs.iter().any(|o| &o.frame == f)) {
-                return Err(Verdict::Fail(
-                    "capture omitted or changed an exercised taken frame".into(),
-                ));
-            }
-            all.extend(obs);
+            all.extend(obs.as_ref().map_err(Clone::clone)?.iter().cloned());
         }
         Ok(all)
     }
@@ -84,27 +80,70 @@ impl TransportHarness for Harness<'_> {
         self.inner.name()
     }
     fn medium(&self) -> Box<dyn Medium> {
-        let m = Arc::new(AuditedMedium {
-            inner: self.inner.medium(),
+        let record = Arc::new(Record {
             declarations: Mutex::default(),
-            sent: Arc::default(),
-            late: Arc::default(),
+            sent: Mutex::default(),
+            late: AtomicUsize::default(),
+            capture: Mutex::default(),
         });
-        self.media.lock().unwrap().push(m.clone());
-        Box::new(m)
+        self.media.lock().unwrap().push(record.clone());
+        Box::new(Arc::new(AuditedMedium {
+            inner: self.inner.medium(),
+            record,
+            expected: self.inner.binding_sealing(),
+        }))
     }
+}
+struct Record {
+    declarations: Mutex<Vec<bool>>,
+    sent: Mutex<Vec<Vec<u8>>>,
+    late: AtomicUsize,
+    capture: Mutex<Option<Result<Vec<SealingObservation>, Verdict>>>,
 }
 struct AuditedMedium {
     inner: Box<dyn Medium>,
-    declarations: Mutex<Vec<bool>>,
-    sent: Arc<Mutex<Vec<Vec<u8>>>>,
-    late: Arc<AtomicUsize>,
+    record: Arc<Record>,
+    expected: bool,
 }
+impl Drop for AuditedMedium {
+    fn drop(&mut self) {
+        if !self.expected && !self.record.declarations.lock().unwrap().iter().any(|&s| s) {
+            return;
+        }
+        let capture = match catch_unwind(AssertUnwindSafe(|| self.inner.sealing_observations())) {
+            Ok(Some(obs)) => {
+                if self
+                    .record
+                    .sent
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .any(|f| !obs.iter().any(|o| &o.frame == f))
+                {
+                    Err(Verdict::Fail(
+                        "capture omitted or changed an exercised taken frame".into(),
+                    ))
+                } else {
+                    Ok(obs)
+                }
+            }
+            Ok(None) => Err(Verdict::Fail(
+                "an exercised medium omitted raw carriage observations".into(),
+            )),
+            Err(p) => Err(Verdict::Fail(format!(
+                "carriage capture panicked: {}",
+                panic_text(&p)
+            ))),
+        };
+        *self.record.capture.lock().unwrap() = Some(capture);
+    }
+}
+
 impl Medium for Arc<AuditedMedium> {
     fn transport(&self) -> Box<dyn Transport> {
         Box::new(Raw {
             inner: self.inner.transport(),
-            medium: self.clone(),
+            record: self.record.clone(),
             down: Mutex::new(Arc::default()),
         })
     }
@@ -135,13 +174,13 @@ impl Medium for Arc<AuditedMedium> {
 }
 struct Raw {
     inner: Box<dyn Transport>,
-    medium: Arc<AuditedMedium>,
+    record: Arc<Record>,
     down: Mutex<Arc<AtomicBool>>,
 }
 impl Raw {
     fn record(&self, p: &Payload, r: PublishResult) -> PublishResult {
         if p.kind() == PayloadKind::Sealed && r == PublishResult::Taken {
-            self.medium.sent.lock().unwrap().push(p.octets().to_vec());
+            self.record.sent.lock().unwrap().push(p.octets().to_vec());
         }
         r
     }
@@ -153,7 +192,7 @@ impl Transport for Raw {
         c: TransportConfiguration,
     ) -> Result<TransportCapabilities, TransportError> {
         let caps = self.inner.start(k, c)?;
-        self.medium.declarations.lock().unwrap().push(caps.sealing);
+        self.record.declarations.lock().unwrap().push(caps.sealing);
         let mut down = self.down.lock().unwrap();
         if down.load(Ordering::SeqCst) {
             *down = Arc::default();
@@ -173,22 +212,22 @@ impl Transport for Raw {
         d: &Destination,
         h: InboundHandler,
     ) -> Result<Subscription, TransportError> {
-        let (down, late) = (self.down.lock().unwrap().clone(), self.medium.late.clone());
+        let (down, late) = (self.down.lock().unwrap().clone(), self.record.clone());
         self.inner.subscribe(
             d,
             Arc::new(move |i| {
                 if down.load(Ordering::SeqCst) {
-                    late.fetch_add(1, Ordering::SeqCst);
+                    late.late.fetch_add(1, Ordering::SeqCst);
                 }
                 h(i);
             }),
         )
     }
     fn watch_presence(&self, h: PresenceHandler) -> Result<(), TransportError> {
-        let (down, late) = (self.down.lock().unwrap().clone(), self.medium.late.clone());
+        let (down, late) = (self.down.lock().unwrap().clone(), self.record.clone());
         self.inner.watch_presence(Arc::new(move |e| {
             if down.load(Ordering::SeqCst) {
-                late.fetch_add(1, Ordering::SeqCst);
+                late.late.fetch_add(1, Ordering::SeqCst);
             }
             h(e);
         }))
