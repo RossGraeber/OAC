@@ -22,7 +22,7 @@ sealing stand-in passes the complete suite with ordered/no-fault and scripted-fa
 media; planted breaches prove the new checks. Product transports and frozen spec text
 are unchanged.
 
-**New Gate S4 transport contract-suite baseline:** `90877c575de8dc43aaffdc9b7ec1d47afd663050`
+**New Gate S4 transport contract-suite baseline:** `e7d55d59a84bea587e992da5b680be9569336fcd`
 (the implementation commit; this documentation records it in a following commit).
 PR #379 review round 2: the run-wide identifier audit collects every actual start key
 and every raw/logical destination, including the type-only session control. It checks

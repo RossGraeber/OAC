@@ -12,7 +12,7 @@ transport and the loopback reference transport.
 
 The lead approved this suite revision before PR #374, against `spec/interfaces.md`
 revision 0.3 §6.10 and `spec/security.md` revision 0.3 §14. It establishes a new
-Gate S4 contract-suite baseline: **90877c575de8dc43aaffdc9b7ec1d47afd663050** (implementation commit;
+Gate S4 contract-suite baseline: **e7d55d59a84bea587e992da5b680be9569336fcd** (implementation commit;
 `docs/planning/STATUS.md` records the same baseline). This changes the suite rather
 than requirement text. Refs #59, #370, #374 and #62.
 
