@@ -2,7 +2,7 @@
 
 //! The transport contract suite (#59, F10): one suite, written against
 //! `dyn oac_core::transport::Transport`, that every transport runs unchanged
-//! (`spec/interfaces.md` §6, Table 6.4; frozen at revision 0.1).
+//! (`spec/interfaces.md` §6, Table 6.4; revision 0.3 sealing extension).
 //!
 //! # What an implementation supplies
 //!
@@ -34,14 +34,15 @@
 //! [IFC-TRN-040], [IFC-TRN-043], [IFC-TRN-044], [IFC-TRN-050], [IFC-TRN-060],
 //! [IFC-TRN-071], [IFC-TRN-080] and [IFC-NEU-003], plus [IFC-TYP-092] for the transport's
 //! `health` and [IFC-TYP-095], plus [IFC-TRN-104], [IFC-TRN-105], [IFC-TRN-107],
-//! [IFC-TRN-108], [IFC-TRN-109] and [IFC-TRN-113] when sealing is declared. [`run`] returns one [`Row`] per check; [IFC-TRN-003] passes
-//! only when no other row failed. The requirements Appendix C gives the `core` are not
+//! [IFC-TRN-108], [IFC-TRN-109] and [IFC-TRN-113] when sealing is declared. [`run`]
+//! returns one [`Row`] per check; [IFC-TRN-003] passes only when no other row failed. The requirements Appendix C gives the `core` are not
 //! this suite's (they need the core's send and receive paths, F6 and F11), and
 //! [IFC-TRN-090] is the binding document's.
 //!
-//! A check that the implementation's declaration or medium makes moot (a capability
+//! An existing check that the implementation's declaration or medium makes moot (a capability
 //! declared absent, a single-implementation medium for a two-sided check, no fault control)
-//! is [`Verdict::NotApplicable`] with the reason, never a pass.
+//! is [`Verdict::NotApplicable`] with the reason, never a pass. The new sealing rows
+//! explicitly report absence when sealing is false; they claim no sealing evidence.
 
 use std::fmt;
 use std::panic::{AssertUnwindSafe, catch_unwind};
