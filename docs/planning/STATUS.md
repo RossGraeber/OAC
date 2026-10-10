@@ -4,6 +4,33 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
+**Last updated:** 2026-10-10 (**Interfaces 0.4 implemented; #376, Refs #66:**
+`core/src/connection.rs` supplies core-owned cancellable relay halves, a 100 ms close
+bound, exact zero/partial/full transfer outcomes, and one closure state shared by
+handles and halves. No arbitrary blocking-stream compatibility constructor remains.
+`Pipelines::connect_observed` refuses a closure bound outside the adapter's budget.
+Claude's binding supplement (`adapters/claude/src/adapter.rs`) states a 1000 ms shutdown
+bound and closes all streams before settling pending hand-offs; handler re-entry and
+concurrent shutdown are supported. Runtime cleanup can finish later, with all streams
+revoked and no writer capable of further transfer. Row 82 of 11-risks is closed with
+named proving tests. OS-authenticated IPC integration remains G9 (#70).
+
+The core request sink answers attachment-attributed IdentityRequest from one current
+binding snapshot and the public device signing-key digest only. It refuses unknown,
+foreign-adapter, unbound, withheld and closed attachments; no envelope or receipt is
+created. Tests cover cross-adapter selection, revocation races, a new binding and the
+exact result members. The whoami tool and registration integration remain #66. The
+revision's minor/no-wire classification is already merged in PR #378; only proven
+Appendix A evidence cells change here. No requirement text, dependency, pin or gate
+verdict changes beyond the spec-driven Gate S4 suite baseline below.)
+
+**Last updated:** 2026-10-10 (**Interfaces 0.4, #376:** spec-driven adapter suite
+connection-factory revision, authorized by the lead on 2026-10-10. Arbitrary blocking
+Read/Write factories are replaced by core-owned cancellable halves; no compatibility
+constructor. Existing checks and planted breaches are retained, with new stalled-write
+and late-hand-off plants. Gate S4 suite baseline: `14dfb4d9f15307d36f66552916bf05ea492673fc`
+(latest dedicated suite revision commit; initial factory migration `f77a3a3`). No gate verdict changes.)
+
 **Last updated:** 2026-10-09 (**PR #370 review round 1:** trusted-other-device
 pairing and seal-failure paths have mutation-backed tests; unknown transport
 capabilities refuse sends and startup failures shut down the transport. The reference

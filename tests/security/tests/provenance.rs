@@ -22,7 +22,6 @@
 //! a [`RenderGap`], and the test asserts the gap instead of a guess; the attribute set is
 //! evidenced either way.
 
-use std::io::{self, Read, Write};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -381,46 +380,6 @@ fn row22_a_cited_memory_reference_is_never_provenance_or_authority() {
 // it. The fake opens the server itself, with the recorded opening.
 
 /// The harness's bytes into the adapter.
-struct ToAdapter {
-    rx: Receiver<Vec<u8>>,
-    buf: Vec<u8>,
-    pos: usize,
-}
-
-impl Read for ToAdapter {
-    fn read(&mut self, out: &mut [u8]) -> io::Result<usize> {
-        while self.pos >= self.buf.len() {
-            match self.rx.recv() {
-                Ok(b) => {
-                    self.buf = b;
-                    self.pos = 0;
-                }
-                Err(_) => return Ok(0),
-            }
-        }
-        let n = out.len().min(self.buf.len() - self.pos);
-        out[..n].copy_from_slice(&self.buf[self.pos..self.pos + n]);
-        self.pos += n;
-        Ok(n)
-    }
-}
-
-/// The adapter's bytes to the harness.
-struct FromAdapter(Sender<Vec<u8>>);
-
-impl Write for FromAdapter {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.0
-            .send(buf.to_vec())
-            .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "closed"))?;
-        Ok(buf.len())
-    }
-    fn flush(&mut self) -> io::Result<()> {
-        Ok(())
-    }
-}
-
-/// The real Claude adapter with one live session on the fake, opened and bound.
 struct Live {
     adapter: Arc<ClaudeAdapter>,
     attachment: Attachment,
@@ -467,14 +426,7 @@ fn live(release: MidTurnRelease) -> Live {
     adapter.watch_attachments(Arc::new(move |e| seen.lock().unwrap().push(e)));
     let (to_adapter, rx) = mpsc::channel();
     let (tx, from_adapter) = mpsc::channel();
-    let conn = Connection::accept(
-        ToAdapter {
-            rx,
-            buf: Vec::new(),
-            pos: 0,
-        },
-        FromAdapter(tx),
-    );
+    let conn = Connection::accept(rx.into(), tx.into());
     let attachment = conn.handle().clone();
     adapter.take_connection(conn);
     let mut l = Live {

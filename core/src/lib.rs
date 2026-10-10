@@ -83,6 +83,7 @@ mod base64url;
 pub mod canonical;
 pub mod capabilities;
 pub mod clock;
+pub mod connection;
 pub mod delivery;
 pub mod envelope;
 pub mod health;

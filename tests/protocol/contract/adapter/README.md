@@ -201,3 +201,24 @@ to these rules, not an exception to them.
 
 An adapter's `tests/` directory is checked for the `TEST-PLANT` row only. Its tests may do
 what adapter code may not, such as make a connection or define a test macro.
+
+## Interfaces 0.4 connection factory revision (2026-10-10)
+
+The lead authorized this spec-driven suite revision for #376. CoreSide::accept and
+Claude's pipe helpers now take core-owned cancellable halves, replacing arbitrary
+blocking Read/Write. There is no non-cancellable compatibility constructor. Every
+existing check and planted breach remains; the pre-shutdown attachment snapshot stays
+before the new probe, so attachment-closed reporting is still checked at the barrier.
+The stand-ins close their supplied handles before reporting shutdown, including
+Codex native-signal connections. Existing shutdown assertions use the event and request
+snapshots captured at the first return barrier, before the probe resumes the peer.
+
+The added factory probe pauses an admitted write, times shutdown against the binding's
+bound, checks every issued handle is closed at return, then resumes the peer and checks
+its fake observations for late input. The planted WaitsBeforeClose and LateHandOff
+adapters fail these checks; WorksAfterShutdown and KeepsAttachmentsAtShutdown retain
+their original failures. No real harness runs or gate verdicts change.
+
+Gate S4 suite baseline: `14dfb4d9f15307d36f66552916bf05ea492673fc` (2026-10-10).
+The same pin is recorded in docs/planning/STATUS.md.
+`adapters/claude/tests/contract.rs` remains unchanged.

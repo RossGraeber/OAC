@@ -124,9 +124,9 @@ pub mod codex;
 pub mod plant;
 pub mod source;
 
+use oac_core::connection::{ConnectionReader, ConnectionWriter};
 use std::collections::VecDeque;
 use std::fmt;
-use std::io::{Read, Write};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -438,6 +438,7 @@ pub struct CoreSide {
     identity: DeviceIdentity,
     trusted: TrustedKeySet,
     issued: Mutex<Vec<ConnectionHandle>>,
+    controls: Mutex<Vec<(ConnectionHandle, oac_core::connection::WriteControl)>>,
     events: Mutex<Vec<AdapterEvent>>,
     changed: Condvar,
     requests: Mutex<Vec<RecordedRequest>>,
@@ -457,6 +458,7 @@ impl CoreSide {
             identity,
             trusted,
             issued: Mutex::default(),
+            controls: Mutex::default(),
             events: Mutex::default(),
             changed: Condvar::new(),
             requests: Mutex::default(),
@@ -467,12 +469,10 @@ impl CoreSide {
 
     /// Accept a local connection, as the core does after authenticating its peer
     /// ([IFC-ADP-012]), and record its handle as issued.
-    pub fn accept(
-        &self,
-        reader: impl Read + Send + 'static,
-        writer: impl Write + Send + 'static,
-    ) -> Connection {
+    pub fn accept(&self, reader: ConnectionReader, writer: ConnectionWriter) -> Connection {
+        let control = writer.control();
         let c = Connection::accept(reader, writer);
+        lock(&self.controls).push((c.handle().clone(), control));
         lock(&self.issued).push(c.handle().clone());
         c
     }
@@ -1747,15 +1747,105 @@ fn scenarios(ctx: &mut Ctx<'_>) -> Result<(), String> {
         "by construction: HandOff::new refuses a message without verified_by; every hand-off here was verified".into()
     ));
 
-    // ---- shutdown ([IFC-ADP-071], [IFC-ADP-070]) -------------------------------------------
     let open: Vec<Attachment> = {
         let ev = ctx.core.events();
         ev.iter().filter_map(|e| match e { AdapterEvent::AttachmentOpened { attachment, .. } => Some(attachment.clone()), _ => None })
             .filter(|a| !ev.iter().any(|e| matches!(e, AdapterEvent::AttachmentClosed { attachment } if attachment == a)))
             .collect()
     };
-    ctx.adapter.shutdown();
-    let ev = ctx.core.events();
+
+    let mut shutdown_events = None;
+    let mut shutdown_requests = None;
+    // Revision 0.4 factory probe: old checks below remain unchanged. A cancellable
+    // backend must not conceal an adapter that waits before closing, or leaves a
+    // timed-out write able to hand off later. Only Claude writes on these connections;
+    // the Codex fake's input uses its separate app-server link.
+    if profile.name == claude::PROFILE.name {
+        let controls = lock(&ctx.core.controls).clone();
+        for (_, control) in &controls {
+            control.pause(true);
+        }
+        let text = ctx.text("stalled-at-shutdown");
+        let message = ctx.core.message(
+            &SessionId::from_random_octets([222; 16]),
+            &s1.session,
+            &text,
+        );
+        let hand_off = HandOff::new(s1.attachment.clone(), message).expect("verified");
+        let adapter = ctx.adapter.clone();
+        let (settled, settle_rx) = std::sync::mpsc::channel();
+        let delivering = std::thread::spawn(move || {
+            let _ = settled.send(adapter.deliver(hand_off));
+        });
+        let end = Instant::now() + WAIT;
+        while !controls.iter().any(|(_, c)| c.pending_transfers() != 0) && Instant::now() < end {
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        let stalled = controls.iter().any(|(_, c)| c.pending_transfers() != 0);
+        let adapter = ctx.adapter.clone();
+        let bound = adapter.shutdown_bound_ms();
+        let (done, done_rx) = std::sync::mpsc::channel();
+        let stopping = std::thread::spawn(move || {
+            adapter.shutdown();
+            let _ = done.send(());
+        });
+        let returned = bound != 0
+            && done_rx
+                .recv_timeout(Duration::from_millis(bound.min(10_000)))
+                .is_ok();
+        // Keep the existing shutdown assertions at the first return barrier, before
+        // resuming the peer can produce any late event or request.
+        shutdown_events = Some(ctx.core.events());
+        shutdown_requests = Some(ctx.core.requests().len());
+        let closed = controls.iter().all(|(h, _)| h.is_closed());
+        let terminal_at_return = settle_rx.try_recv().ok();
+        // Resume only after observing the barrier, so a detached late writer is exposed.
+        for (_, c) in &controls {
+            c.pause(false);
+        }
+        let terminal = terminal_at_return.or_else(|| settle_rx.recv_timeout(WAIT).ok());
+        if !returned {
+            let _ = done_rx.recv_timeout(WAIT);
+        }
+        let _ = stopping.join();
+        let _ = delivering.join();
+        std::thread::sleep(Duration::from_millis(50));
+        let observed = ctx.h.observe(s1.index);
+        check!(ctx, "IFC-ADP-074", "stalled-shutdown-is-bounded", {
+            if stalled && returned {
+                Verdict::Pass(format!("stalled peer: shutdown returned within {bound} ms"))
+            } else {
+                Verdict::Fail(format!(
+                    "stalled={stalled}, returned-within-bound={returned}, bound={bound}"
+                ))
+            }
+        });
+        check!(ctx, "IFC-ADP-073", "closes-all-core-connections", {
+            if closed {
+                Verdict::Pass("every supplied connection closed before return".into())
+            } else {
+                Verdict::Fail("a supplied connection remained open at return".into())
+            }
+        });
+        check!(ctx, "IFC-ADP-070", "stalled-write-has-no-late-hand-off", {
+            if calls_with(&observed, &text).is_empty()
+                && !took(&observed, &text)
+                && terminal.is_some_and(|x| x != HandOffOutcome::Completed)
+            {
+                Verdict::Pass("resuming the peer after return transferred no pending input".into())
+            } else {
+                Verdict::Fail(format!(
+                    "late hand-off or successful stalled input: {terminal:?}"
+                ))
+            }
+        });
+    }
+
+    // ---- shutdown ([IFC-ADP-071], [IFC-ADP-070]) -------------------------------------------
+    let ev = shutdown_events.unwrap_or_else(|| {
+        ctx.adapter.shutdown();
+        ctx.core.events()
+    });
     check!(ctx, "IFC-ADP-071", "closes-every-attachment-on-shutdown", {
         let left: Vec<_> = open.iter().filter(|a| !ev.iter().any(|e| matches!(e, AdapterEvent::AttachmentClosed { attachment } if attachment == *a))).collect();
         if left.is_empty() {
@@ -1767,7 +1857,7 @@ fn scenarios(ctx: &mut Ctx<'_>) -> Result<(), String> {
             Verdict::Fail(format!("still open when shutdown returned: {left:?}"))
         }
     });
-    let requests_before = ctx.core.requests().len();
+    let requests_before = shutdown_requests.unwrap_or_else(|| ctx.core.requests().len());
     let (late, out) = ctx.deliver(&mut s1, "after-shutdown");
     let late_req = ctx.h.request(s1.index, &HarnessRequest::Discover);
     std::thread::sleep(Duration::from_millis(200));

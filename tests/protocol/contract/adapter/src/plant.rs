@@ -33,7 +33,7 @@ use crate::{BINDINGS, Gap, Profile, Step};
 
 /// A handle the core never issued.
 pub fn forged_attachment() -> Attachment {
-    Connection::accept(std::io::empty(), std::io::sink())
+    Connection::accept(Default::default(), Default::default())
         .handle()
         .clone()
 }

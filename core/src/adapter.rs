@@ -23,7 +23,6 @@
 //! (G9).
 
 use std::fmt;
-use std::io::{Read, Write};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::Receiver;
@@ -43,8 +42,8 @@ use crate::receipt::DeliveryReceipt;
 /// ([IFC-ADP-012]). Each call issues a handle never issued before in this process; there is
 /// no constructor from a value, and no operation changes a handle ([IFC-ADP-013]). Cloning
 /// copies the same handle.
-#[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct ConnectionHandle(u64);
+#[derive(Clone)]
+pub struct ConnectionHandle(u64, pub(crate) Arc<crate::connection::Closure>);
 
 impl fmt::Debug for ConnectionHandle {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -62,42 +61,111 @@ static NEXT_CONNECTION: AtomicU64 = AtomicU64::new(1);
 /// adapter, which reads the harness's traffic on it (§5.4).
 pub struct Connection {
     handle: ConnectionHandle,
-    reader: Box<dyn Read + Send>,
-    writer: Box<dyn Write + Send>,
+    reader: crate::connection::ConnectionReader,
+    writer: crate::connection::ConnectionWriter,
 }
 
 impl Connection {
-    /// For the core only: a connection over `reader` and `writer`, with a fresh handle.
-    ///
-    /// [IFC-ADP-012]: the core calls this in the core process, for a local connection whose
-    /// peer it has authenticated with an operating-system facility (G9). [IFC-ADP-013]: an
-    /// adapter never calls it; the adapter contract suite fails an adapter that reports a
-    /// handle the core did not give it.
+    /// For the core only, after OS peer authentication ([IFC-ADP-012]).
+    /// Only core-owned cancellable stream halves are accepted; arbitrary blocking I/O
+    /// cannot satisfy revision 0.4's closure barrier. G9 must relay authenticated IPC
+    /// through these halves or add a concrete OS backend with the same barrier.
     pub fn accept(
-        reader: impl Read + Send + 'static,
-        writer: impl Write + Send + 'static,
+        mut reader: crate::connection::ConnectionReader,
+        mut writer: crate::connection::ConnectionWriter,
     ) -> Connection {
+        assert!(
+            !reader.attached && !writer.attached,
+            "connection halves cannot be reissued"
+        );
+        reader.attached = true;
+        writer.attached = true;
+        let closure = Arc::new(crate::connection::Closure::default());
+        reader.closure = closure.clone();
+        writer.closure = closure.clone();
         Connection {
-            handle: ConnectionHandle(NEXT_CONNECTION.fetch_add(1, Ordering::Relaxed)),
-            reader: Box::new(reader),
-            writer: Box::new(writer),
+            handle: ConnectionHandle(NEXT_CONNECTION.fetch_add(1, Ordering::Relaxed), closure),
+            reader,
+            writer,
         }
     }
 
-    /// The handle.
+    /// The immutable handle, including access to the shared closure barrier.
     pub fn handle(&self) -> &ConnectionHandle {
         &self.handle
     }
 
-    /// The handle and the two halves of the byte stream.
+    /// Maximum closure duration in milliseconds ([IFC-ADP-014]).
+    pub fn close_bound_ms(&self) -> u64 {
+        self.handle.close_bound_ms()
+    }
+
+    /// Close both directions and settle pending operations ([IFC-ADP-015..019]).
+    pub fn close(&self) {
+        self.handle.close();
+    }
+
+    /// The handle and cancellable stream halves. All share one closure state.
     pub fn into_parts(
         self,
     ) -> (
         ConnectionHandle,
-        Box<dyn Read + Send>,
-        Box<dyn Write + Send>,
+        Box<dyn std::io::Read + Send>,
+        Box<dyn std::io::Write + Send>,
+    ) {
+        (self.handle, Box::new(self.reader), Box::new(self.writer))
+    }
+
+    /// Concrete halves, including the explicit terminal transfer operation.
+    pub fn into_streams(
+        self,
+    ) -> (
+        ConnectionHandle,
+        crate::connection::ConnectionReader,
+        crate::connection::ConnectionWriter,
     ) {
         (self.handle, self.reader, self.writer)
+    }
+}
+
+impl ConnectionHandle {
+    /// Begin closure without waiting; useful for revoking several connections together.
+    pub fn begin_close(&self) {
+        self.1.begin_close();
+    }
+
+    /// Close both directions, independently of any blocked read or write.
+    pub fn close(&self) {
+        self.1.close();
+    }
+    /// The finite positive closure bound, independent of peer progress.
+    pub fn close_bound_ms(&self) -> u64 {
+        crate::connection::CLOSE_BOUND_MS
+    }
+    /// Whether closure has begun.
+    pub fn is_closed(&self) -> bool {
+        self.1.is_closed()
+    }
+}
+impl PartialEq for ConnectionHandle {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+impl Eq for ConnectionHandle {}
+impl std::hash::Hash for ConnectionHandle {
+    fn hash<H: std::hash::Hasher>(&self, h: &mut H) {
+        self.0.hash(h);
+    }
+}
+impl PartialOrd for ConnectionHandle {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+impl Ord for ConnectionHandle {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.0.cmp(&other.0)
     }
 }
 
@@ -215,6 +283,34 @@ pub struct DiscoveryRequest {
     pub attachment: Attachment,
 }
 
+/// A request for this attachment's local identity; no caller-supplied identity claims.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct IdentityRequest {
+    /// The attachment on which the request arrived.
+    pub attachment: Attachment,
+}
+
+/// Exactly the two local result members of interfaces 0.4 section 4.10; no key bytes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LocalIdentity {
+    /// The currently served session.
+    pub session_id: SessionId,
+    /// The public signing-key digest (64 lower-case hexadecimal digits).
+    pub device_fingerprint: crate::ids::KeyId,
+}
+
+/// The local identity or the ordinary request refusal. Creates no envelope or receipt.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum IdentityRequestResult {
+    /// Identity captured at one instant during the request.
+    LocalIdentity(LocalIdentity),
+    /// No currently served binding on this attachment.
+    Refused {
+        /// Request-scope error code.
+        error: ErrorCode,
+    },
+}
+
 /// Whether a reply was correlated (`spec/session-channels.md` [SC-RCP-055]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Correlation {
@@ -323,7 +419,7 @@ pub enum DiscoveryRequestResult {
 }
 
 /// The request sink of `accept_requests` (Table 5.2): "an operation that takes a
-/// `SendRequest` or a `DiscoveryRequest` and returns a `RequestResult`". In this binding it
+/// `SendRequest`, `DiscoveryRequest` or `IdentityRequest` and returns a `RequestResult`". In this binding it
 /// is one method per kind of request, each returning that kind's result
 /// ([IFC-ADP-003], [IFC-ADP-060]).
 pub trait RequestSink: Send + Sync {
@@ -332,6 +428,14 @@ pub trait RequestSink: Send + Sync {
 
     /// Take a `DiscoveryRequest`.
     fn discover(&self, request: DiscoveryRequest) -> DiscoveryRequestResult;
+
+    /// Take an attachment-attributed identity request. A sink serving no bound session
+    /// refuses; it must never substitute an adapter's cached identity.
+    fn identity(&self, _request: IdentityRequest) -> IdentityRequestResult {
+        IdentityRequestResult::Refused {
+            error: ErrorCode::Unauthorized,
+        }
+    }
 }
 
 /// `HandOff` of `spec/interfaces.md` §4.10: what the core gives an adapter to hand off.
@@ -438,6 +542,12 @@ pub type AdapterEventHandler = Arc<dyn Fn(AdapterEvent) + Send + Sync>;
 /// ([IFC-ADP-080]). The adapter contract suite (`tests/protocol/contract/adapter/`, F10)
 /// runs against any implementation of this trait.
 pub trait ProviderAdapter: Send + Sync {
+    /// Finite positive bound stated by the adapter binding document, in milliseconds.
+    /// The default binding budget is 1000 ms; adapters with a different budget override it.
+    fn shutdown_bound_ms(&self) -> u64 {
+        1000
+    }
+
     /// `take_connection`: one local connection that the core accepted and authenticated
     /// (§5.4).
     fn take_connection(&self, connection: Connection);
@@ -510,9 +620,12 @@ mod tests {
         // [IFC-TYP-090]: this exhaustive pattern stops compiling if a member is added, so a
         // member naming the requesting session cannot appear unnoticed.
         let r = SendRequest {
-            attachment: Connection::accept(std::io::empty(), std::io::sink())
-                .handle()
-                .clone(),
+            attachment: Connection::accept(
+                crate::connection::ConnectionReader::default(),
+                crate::connection::ConnectionWriter::default(),
+            )
+            .handle()
+            .clone(),
             to: SessionId::from_random_octets([3; 16]),
             content: vec![],
             requested_target: None,
@@ -532,9 +645,12 @@ mod tests {
     #[test]
     fn hand_off_needs_a_verified_message() {
         // [IFC-TYP-091].
-        let a = Connection::accept(std::io::empty(), std::io::sink())
-            .handle()
-            .clone();
+        let a = Connection::accept(
+            crate::connection::ConnectionReader::default(),
+            crate::connection::ConnectionWriter::default(),
+        )
+        .handle()
+        .clone();
         assert!(HandOff::new(a.clone(), message(false)).is_none());
         let h = HandOff::new(a.clone(), message(true)).unwrap();
         assert!(h.message().verified_by().is_some());
@@ -543,8 +659,14 @@ mod tests {
 
     #[test]
     fn every_connection_gets_a_fresh_handle() {
-        let a = Connection::accept(std::io::empty(), std::io::sink());
-        let b = Connection::accept(std::io::empty(), std::io::sink());
+        let a = Connection::accept(
+            crate::connection::ConnectionReader::default(),
+            crate::connection::ConnectionWriter::default(),
+        );
+        let b = Connection::accept(
+            crate::connection::ConnectionReader::default(),
+            crate::connection::ConnectionWriter::default(),
+        );
         assert_ne!(a.handle(), b.handle());
         assert_eq!(a.handle().clone(), *a.handle());
         assert!(format!("{a:?}").starts_with("Connection { handle: ConnectionHandle(#"));

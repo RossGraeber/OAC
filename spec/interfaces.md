@@ -1622,12 +1622,12 @@ the requirement whose fixtures exercise it. Appendix C gives each requirement's 
 | IFC-ADP-011 | MUST | 3.3 | TODO(fixture): each assigned requirement's own fixtures, run against the core; F12 |
 | IFC-ADP-012 | MUST | 5.2 | TODO(fixture): needs the platform facilities; G9, F11 |
 | IFC-ADP-013 | MUST NOT | 5.2 | TODO(fixture): F10 adapter suite; F11 |
-| IFC-ADP-014 | MUST | 5.2 | TODO(fixture): owner F10 (#59) with G9 (#70), every supplied connection exposes independent close and a finite positive bound |
-| IFC-ADP-015 | MUST | 5.2 | TODO(fixture): owner F10 (#59) with G9 (#70), block the peer's reads and writes; close returns by the declared bound on a scripted clock |
-| IFC-ADP-016 | MUST | 5.2 | TODO(fixture): owner F10 (#59) with G9 (#70), race close with zero/partial/full writes and blocked reads; all pending operations terminate before close returns, writes report exact transferred counts |
-| IFC-ADP-017 | MUST NOT | 5.2 | TODO(fixture): owner F10 (#59) with G9 (#70), release a stalled peer after close returns; its transferred-octet count never increases |
-| IFC-ADP-018 | MUST | 5.2 | TODO(fixture): owner F10 (#59) with G9 (#70), new read/write begun during and after close is refused without transfer |
-| IFC-ADP-019 | MUST | 5.2 | TODO(fixture): owner F10 (#59) with G9 (#70), repeated/concurrent close through copies and split halves preserves one terminal state and leaves another connection open |
+| IFC-ADP-014 | MUST | 5.2 | `core/src/adapter.rs` Connection and handle closure API; `core/src/connection.rs`: `concurrent_close_and_stream_halves_share_one_barrier_only` |
+| IFC-ADP-015 | MUST | 5.2 | `core/src/connection.rs`: `stalled_read_and_write_settle_within_bound_and_never_transfer_later` (100 ms bound, stalled peer in both directions) |
+| IFC-ADP-016 | MUST | 5.2 | `core/src/connection.rs`: `stalled_read_and_write_settle_within_bound_and_never_transfer_later`, `partial_and_completed_transfers_keep_the_exact_count`, `an_io_failure_before_close_retains_its_failure`, `close_racing_a_write_has_only_a_definite_terminal_result` |
+| IFC-ADP-017 | MUST NOT | 5.2 | `core/src/connection.rs`: `stalled_read_and_write_settle_within_bound_and_never_transfer_later`, `partial_and_completed_transfers_keep_the_exact_count` (resuming the peer cannot increase the count) |
+| IFC-ADP-018 | MUST | 5.2 | `core/src/connection.rs`: `closure_begun_refuses_new_operations_even_before_close_waits` |
+| IFC-ADP-019 | MUST | 5.2 | `core/src/connection.rs`: `concurrent_close_and_stream_halves_share_one_barrier_only`, `previously_issued_halves_cannot_change_their_closure_state` |
 | IFC-ADP-020 | MUST | 5.4 | TODO(fixture): F10 adapter suite against the fakes (F8, F9); G4-G8 |
 | IFC-ADP-022 | MUST | 5.4 | TODO(fixture): F10 adapter suite |
 | IFC-ADP-030 | MUST NOT | 5.4 | TODO(fixture): F10 adapter suite |
@@ -1646,14 +1646,14 @@ the requirement whose fixtures exercise it. Appendix C gives each requirement's 
 | IFC-ADP-057 | MUST | 5.5 | TODO(fixture): F10 adapter suite against the F9 fake; G7 (#68) |
 | IFC-ADP-060 | MUST | 5.6 | TODO(fixture): F10 adapter suite |
 | IFC-ADP-062 | MAY | 5.6 | none (MAY) |
-| IFC-ADP-070 | MUST NOT | 5.7 | TODO(fixture): owner F10 (#59) with G4 (#65), stalled write races shutdown; releasing the peer after shutdown returns causes no late hand-off or request passed to the core |
+| IFC-ADP-070 | MUST NOT | 5.7 | Adapter channel tests (risk register `docs/planning/v0.1/11-risks.md` row 82): `shutdown_cancels_an_already_stalled_notification`, `shutdown_settles_an_inflight_deliver_before_return`; adapter contract suite `nothing-after-shutdown` and `stalled-write-has-no-late-hand-off` |
 | IFC-ADP-071 | MUST | 5.7 | TODO(fixture): F10 adapter suite |
 | IFC-ADP-072 | MUST | 5.7 | TODO(fixture): owner F10 (#59) with G4 (#65), race shutdown with new delivery and harness requests; no new hand-off begins |
-| IFC-ADP-073 | MUST | 5.7 | TODO(fixture): owner F10 (#59) with G4 (#65), shutdown closes every supplied connection, including native-signal-only connections |
-| IFC-ADP-074 | MUST | 5.7 | TODO(fixture): owner F10 (#59) with G4 (#65), permanently stalled peer and multiple connections; shutdown returns within the binding's declared bound |
-| IFC-ADP-075 | MUST | 5.7 | TODO(fixture): owner F10 (#59) with G4 (#65), blocked delivery races shutdown; one truthful outcome precedes shutdown return; releasing peer afterwards cannot complete a late hand-off |
-| IFC-ADP-076 | MUST | 5.7 | TODO(fixture): owner G4 (#65) with G7 (#68), binding document review checks a finite positive bound covering all shutdown work |
-| IFC-ADP-077 | MUST | 5.7 | TODO(fixture): owner F10 (#59) with G9 (#70), a connection whose close bound exceeds the adapter's shutdown bound is never supplied |
+| IFC-ADP-073 | MUST | 5.7 | Adapter channel tests (risk register `docs/planning/v0.1/11-risks.md` row 82): `shutdown_closes_opening_connections_and_double_shutdown_returns`; adapter contract suite `closes-all-core-connections` |
+| IFC-ADP-074 | MUST | 5.7 | Adapter channel tests (risk register `docs/planning/v0.1/11-risks.md` row 82): `shutdown_cancels_an_already_stalled_notification`, `shutdown_closes_opening_connections_and_double_shutdown_returns`; adapter contract suite `stalled-shutdown-is-bounded` and its `WaitsBeforeClose` plant |
+| IFC-ADP-075 | MUST | 5.7 | Adapter channel tests (risk register `docs/planning/v0.1/11-risks.md` row 82): `shutdown_settles_an_inflight_deliver_before_return`, `shutdown_cancels_an_already_stalled_notification` |
+| IFC-ADP-076 | MUST | 5.7 | Adapter binding supplement (risk register `docs/planning/v0.1/11-risks.md` row 82): `shutdown_bound_ms = 1000`; second ProviderAdapter binding remains G7 (#68) |
+| IFC-ADP-077 | MUST | 5.7 | `core/tests/pipeline.rs`: `a_connection_cannot_exceed_the_adapter_shutdown_budget` |
 | IFC-ADP-078 | MUST | 5.7 | TODO(fixture): owner F10 (#59) with G4 (#65), race shutdown with new harness requests; no new request is accepted |
 | IFC-ADP-080 | MUST | 5.8 | TODO(fixture): document review at each adapter's task; G4-G8 |
 | IFC-ADP-090 | MUST | 5.6 | TODO(fixture): randomness is not decided by a data fixture; G8 (#69) review of the core's source of pairing values. The value's form is fixtured under `spec/bindings/mcp.md` [MCPB-ATT-005] |
@@ -1661,10 +1661,10 @@ the requirement whose fixtures exercise it. Appendix C gives each requirement's 
 | IFC-ADP-092 | MUST | 5.4 | TODO(fixture): F10 with G8 (#69): after the event, requests from the attachment are refused with `unauthorized` and nothing is handed off to it, until a paired native signal |
 | IFC-ADP-093 | MUST | 5.4 | TODO(fixture): F10 with G8 (#69): the event → one finding |
 | IFC-ADP-094 | MUST | 5.6 | TODO(fixture): owner F10 (#59) with G5 (#66) and G8 (#69), identity tool invokes sink with the actual attachment; injected identity claims are not used |
-| IFC-ADP-095 | MUST | 5.6 | TODO(fixture): owner F10 (#59) with F11 (#60), unbound/closed/unconfirmed attachments get unauthorized and no identity; rebinding never returns the previous session |
-| IFC-ADP-096 | MUST | 5.6 | TODO(fixture): owner F10 (#59) with G5 (#66), identity request races rebind/revoke; successful session and local signing fingerprint belong to one current binding snapshot |
-| IFC-ADP-097 | MUST | 5.6 | TODO(fixture): owner F10 (#59) with G5 (#66), successful result has exactly session_id and the public fingerprint in security §5.2's form |
-| IFC-ADP-098 | MUST NOT | 5.6 | TODO(fixture): owner F11 (#60) with G5 (#66), synthetic signing/agreement key sentinels never appear in identity requests/results; only the digest is exposed |
+| IFC-ADP-095 | MUST | 5.6 | `core/tests/pipeline.rs`: `identity_returns_only_the_current_attachment_binding_and_public_digest`, `identity_cannot_select_another_adapters_attachment`, `identity_refuses_a_withheld_or_closed_attachment_and_uses_a_new_binding` |
+| IFC-ADP-096 | MUST | 5.6 | `core/tests/pipeline.rs`: `identity_racing_unbind_has_no_stale_fallback`, `identity_refuses_a_withheld_or_closed_attachment_and_uses_a_new_binding`; one core lock protects the snapshot |
+| IFC-ADP-097 | MUST | 5.6 | `core/tests/pipeline.rs`: `identity_returns_only_the_current_attachment_binding_and_public_digest` (exhaustive LocalIdentity pattern and 64 lower-case hexadecimal digits) |
+| IFC-ADP-098 | MUST NOT | 5.6 | `core/src/adapter.rs`: IdentityRequest has only Attachment; LocalIdentity has only SessionId and KeyId; exhaustive result pattern in `core/tests/pipeline.rs`: `identity_returns_only_the_current_attachment_binding_and_public_digest` |
 | IFC-TRN-001 | MUST | 6.1 | TODO(fixture): F10 transport suite against F7, then G1-G2 |
 | IFC-TRN-002 | MAY | 6.1 | none (MAY) |
 | IFC-TRN-003 | MUST | 3.3 | TODO(fixture): each assigned requirement's own tests, run against a transport; F10 |

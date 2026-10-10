@@ -292,6 +292,8 @@ pub enum PipelineError {
     Declaration(Vec<&'static str>),
     /// No adapter with that id.
     UnknownAdapter,
+    /// Connection closure cannot fit the adapter binding budget ([IFC-ADP-077]).
+    ClosureBound,
     /// [`PipelineConfig::max_connections`] connections are taken.
     TooManyConnections,
     /// The attachment is not open, or was reported by no adapter it was given to.
@@ -319,6 +321,9 @@ impl fmt::Display for PipelineError {
             PipelineError::Transport(e) => write!(f, "transport: {e}"),
             PipelineError::Declaration(ids) => {
                 write!(f, "transport declaration breaks {}", ids.join(", "))
+            }
+            PipelineError::ClosureBound => {
+                f.write_str("connection closure exceeds adapter shutdown bound")
             }
             PipelineError::UnknownAdapter => f.write_str("unknown adapter"),
             PipelineError::TooManyConnections => f.write_str("too many connections"),
@@ -777,6 +782,10 @@ impl Pipelines {
                 .get(adapter.0)
                 .cloned()
                 .ok_or(PipelineError::UnknownAdapter)?;
+            if a.shutdown_bound_ms() == 0 || connection.close_bound_ms() > a.shutdown_bound_ms() {
+                connection.close();
+                return Err(PipelineError::ClosureBound);
+            }
             if core.connections.len() >= self.inner.config.max_connections {
                 return Err(PipelineError::TooManyConnections);
             }
@@ -1189,6 +1198,28 @@ struct Sink {
 }
 
 impl RequestSink for Sink {
+    fn identity(
+        &self,
+        request: crate::adapter::IdentityRequest,
+    ) -> crate::adapter::IdentityRequestResult {
+        use crate::adapter::{IdentityRequestResult, LocalIdentity};
+        let Some(inner) = self.inner.upgrade() else {
+            return IdentityRequestResult::Refused {
+                error: ErrorCode::Unauthorized,
+            };
+        };
+        let core = inner.lock();
+        match Inner::requester(&core, self.adapter, &request.attachment) {
+            Some(session_id) => IdentityRequestResult::LocalIdentity(LocalIdentity {
+                session_id,
+                device_fingerprint: inner.identity.key_id().clone(),
+            }),
+            None => IdentityRequestResult::Refused {
+                error: ErrorCode::Unauthorized,
+            },
+        }
+    }
+
     fn send(&self, request: SendRequest) -> SendRequestResult {
         match self.inner.upgrade() {
             Some(inner) => inner.send(self.adapter, request),
@@ -1295,7 +1326,7 @@ impl Inner {
     fn requester(core: &Core, adapter: AdapterId, attachment: &Attachment) -> Option<SessionId> {
         core.attachments
             .get(attachment)
-            .filter(|e| e.adapter == adapter && e.open && !e.withheld)
+            .filter(|e| e.adapter == adapter && e.open && !e.withheld && !attachment.is_closed())
             .and_then(|e| e.session.clone())
     }
 
@@ -2698,8 +2729,8 @@ mod tests {
         let key = |s: &str| PairingKey::from_observation(s.as_bytes().to_vec());
         let (p, q) = (AdapterId(0), AdapterId(1));
         let of = |k: Option<&PairingKey>, c| SignalHolder::of(p, k, c);
-        let c1 = Connection::accept(std::io::empty(), std::io::sink());
-        let c2 = Connection::accept(std::io::empty(), std::io::sink());
+        let c1 = Connection::accept(Default::default(), Default::default());
+        let c2 = Connection::accept(Default::default(), Default::default());
         let (c1, c2) = (c1.handle(), c2.handle());
         let k = key("k");
         assert!(
