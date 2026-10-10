@@ -43,6 +43,8 @@ pub enum WsError {
     Handshake(String),
     /// The peer broke the framing rules (why).
     Protocol(String),
+    /// The peer supplied a close reason that is not UTF-8.
+    InvalidPayload,
     /// A message was larger than [`MAX_MESSAGE`].
     TooLarge,
     /// The peer closed the connection, or the stream ended.
@@ -55,6 +57,7 @@ impl fmt::Display for WsError {
             WsError::Io(e) => write!(f, "stream error: {e}"),
             WsError::Handshake(e) => write!(f, "WebSocket upgrade refused: {e}"),
             WsError::Protocol(e) => write!(f, "WebSocket protocol error: {e}"),
+            WsError::InvalidPayload => f.write_str("WebSocket close reason is not UTF-8"),
             WsError::TooLarge => write!(f, "WebSocket message over {MAX_MESSAGE} bytes"),
             WsError::Closed => f.write_str("WebSocket closed"),
         }
@@ -188,7 +191,8 @@ impl WsReader {
     ///
     /// [`WsError::Closed`] at a close frame (answered) or the end of the stream; any other
     /// variant for a broken peer, after which the connection is unusable. A protocol error
-    /// is answered with a close frame (1002, or 1009 for a message over the cap).
+    /// is answered with a close frame (1002, 1007 for an invalid UTF-8 close reason,
+    /// or 1009 for a message over the cap).
     pub fn next_text(&mut self) -> Result<String, WsError> {
         let mut message: Option<Vec<u8>> = None;
         loop {
@@ -229,6 +233,20 @@ impl WsReader {
                         self.fail(&e);
                         return Err(e);
                     }
+                    if payload.len() >= 2 {
+                        let code = u16::from_be_bytes([payload[0], payload[1]]);
+                        // RFC 6455 §§7.4.1-7.4.2: only its sendable defined codes
+                        // and application/private codes; no extension is negotiated.
+                        if !matches!(code, 1000..=1003 | 1007..=1011 | 3000..=4999) {
+                            let e = WsError::Protocol("an invalid close status code".into());
+                            self.fail(&e);
+                            return Err(e);
+                        }
+                        if std::str::from_utf8(&payload[2..]).is_err() {
+                            self.fail(&WsError::InvalidPayload);
+                            return Err(WsError::InvalidPayload);
+                        }
+                    }
                     // Echo the status code, as RFC 6455 §5.5.1 asks, then stop.
                     let code: Vec<u8> = payload.iter().take(2).copied().collect();
                     let _ = self.writer.send(0x8, &code);
@@ -265,6 +283,7 @@ impl WsReader {
         let code: u16 = match e {
             WsError::TooLarge => 1009,
             WsError::Protocol(_) => 1002,
+            WsError::InvalidPayload => 1007,
             _ => return,
         };
         let _ = self.writer.send(0x8, &code.to_be_bytes());
@@ -666,10 +685,80 @@ pub(crate) mod tests {
 
     #[test]
     fn a_close_is_echoed_and_ends_the_stream() {
-        let (mut r, out) = reader_over(vec![0x88, 2, 0x03, 0xe8]);
-        assert_eq!(r.next_text(), Err(WsError::Closed));
-        assert_eq!(out.lock().unwrap()[0], 0x88);
-        let w = r.writer.clone();
-        assert_eq!(w.send_text("x"), Err(WsError::Closed));
+        let mut payloads = vec![Vec::new()];
+        for code in [
+            1000u16, 1001, 1002, 1003, 1007, 1008, 1009, 1010, 1011, 3000, 3999, 4000, 4999,
+        ] {
+            payloads.push(code.to_be_bytes().to_vec());
+            let mut with_reason = code.to_be_bytes().to_vec();
+            with_reason.extend_from_slice("done ✓".as_bytes());
+            payloads.push(with_reason);
+        }
+        for payload in payloads {
+            let (mut r, out) = close_reader(&payload);
+            assert_eq!(r.next_text(), Err(WsError::Closed));
+            assert_close_reply(&out, &payload[..payload.len().min(2)]);
+            assert_eq!(r.writer.send_text("x"), Err(WsError::Closed));
+        }
+    }
+
+    fn close_reader(payload: &[u8]) -> (WsReader, Arc<Mutex<Vec<u8>>>) {
+        let mut frame = vec![0x88, u8::try_from(payload.len()).unwrap()];
+        frame.extend_from_slice(payload);
+        reader_over(frame)
+    }
+
+    fn assert_close_reply(out: &Arc<Mutex<Vec<u8>>>, payload: &[u8]) {
+        let sent = out.lock().unwrap();
+        assert_eq!(sent[0], 0x88);
+        assert_eq!(sent[1], 0x80 | u8::try_from(payload.len()).unwrap());
+        assert_eq!(sent.len(), 6 + payload.len(), "exactly one close frame");
+        let decoded: Vec<u8> = sent[6..]
+            .iter()
+            .enumerate()
+            .map(|(i, b)| b ^ sent[2 + (i & 3)])
+            .collect();
+        assert_eq!(decoded, payload);
+    }
+
+    #[test]
+    fn invalid_close_codes_fail_with_protocol_error() {
+        // Exhaust every reserved/unassigned range, not just its endpoints.
+        for code in (0u16..=999)
+            .chain([1004, 1005, 1006])
+            .chain(1012..=2999)
+            .chain(5000..=u16::MAX)
+        {
+            let (mut r, out) = close_reader(&code.to_be_bytes());
+            assert!(
+                matches!(r.next_text(), Err(WsError::Protocol(_))),
+                "code {code}"
+            );
+            assert_close_reply(&out, &1002u16.to_be_bytes());
+            assert_eq!(r.writer.send_text("later"), Err(WsError::Closed));
+        }
+        let (mut r, out) = close_reader(&[0]);
+        assert!(matches!(r.next_text(), Err(WsError::Protocol(_))));
+        assert_close_reply(&out, &1002u16.to_be_bytes());
+        assert_eq!(r.writer.send_text("later"), Err(WsError::Closed));
+    }
+
+    #[test]
+    fn invalid_close_reasons_fail_with_invalid_payload_data() {
+        for reason in [
+            &b"\xff"[..],             // Invalid leading byte.
+            &b"\xc3"[..],             // Truncated sequence.
+            &b"\xc0\xaf"[..],         // Overlong sequence.
+            &b"\xed\xa0\x80"[..],     // Surrogate.
+            &b"\xf4\x90\x80\x80"[..], // Beyond Unicode.
+            &b"valid prefix\xff"[..],
+        ] {
+            let mut payload = 1000u16.to_be_bytes().to_vec();
+            payload.extend_from_slice(reason);
+            let (mut r, out) = close_reader(&payload);
+            assert_eq!(r.next_text(), Err(WsError::InvalidPayload));
+            assert_close_reply(&out, &1007u16.to_be_bytes());
+            assert_eq!(r.writer.send_text("later"), Err(WsError::Closed));
+        }
     }
 }
