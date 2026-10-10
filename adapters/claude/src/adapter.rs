@@ -20,7 +20,7 @@
 //! in-flight writes. The frozen `Connection` supplies a blocking `Write` without
 //! cancel/close, so shutdown can block while the harness has stopped reading. Returning
 //! earlier could hand off content after shutdown returns, violating [IFC-ADP-070].
-//! Owner: #TBD-connection-cancel (the connection-cancellation spec change, to be filed).
+//! Owner: #376 (the connection-cancellation spec change).
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::mpsc::RecvTimeoutError;
