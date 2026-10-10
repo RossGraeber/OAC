@@ -12,7 +12,7 @@ transport and the loopback reference transport.
 
 The lead approved this suite revision before PR #374, against `spec/interfaces.md`
 revision 0.3 §6.10 and `spec/security.md` revision 0.3 §14. It establishes a new
-Gate S4 contract-suite baseline: **70cee96f922a886c8ecc096ce892b65edf887b21** (implementation commit;
+Gate S4 contract-suite baseline: **90877c575de8dc43aaffdc9b7ec1d47afd663050** (implementation commit;
 `docs/planning/STATUS.md` records the same baseline). This changes the suite rather
 than requirement text. Refs #59, #370, #374 and #62.
 
@@ -74,7 +74,10 @@ and the capture location in the transport binding/harness documentation (IFC-TRN
 Each isolated medium snapshots its carriage capture on drop; `run` retains only
 those audit records, preserving transport/medium lifetimes. A missing hook, empty capture
 where frames were taken, or omitted/changed taken frame fails IFC-TRN-107/108. All
-captured values are checked, not only the small metadata controls. A
+captured values are checked, not only the small metadata controls. The run-wide
+identifier needles come from every actual `start` key and every raw/logical destination,
+including the suite's type-only session control. Text and decoded raw octets are checked
+against every captured identifier across all worlds and frame sizes. A
 capability declaration alone cannot establish sealing conformance. `assert_conformant`
 also refuses a report missing any mandatory sealing row, or having that row only as
 `NotApplicable`. Always run the entire suite, not selected exported checks.
@@ -99,7 +102,8 @@ despite `NotTaken`, kind/destination/deadline side values, device/session identi
 leaks, missing/empty observations, acceptance over the frame cap, a below-floor cap,
 changed inbound frames, ignored shutdown, deadline leaks only above 4096 octets,
 false non-sealing declarations with plain delegation, malformed raw callbacks after
-normal shutdown, and sender retention beyond expiry. A positive late-network control
+normal shutdown, sender retention beyond expiry, and text/raw-octet disclosures of the
+actual third device's start key (with the small metadata controls staying clean). A positive late-network control
 proves that expired frames really reach the raw receiver, then disappear before the
 logical callback, with no accompanying deadline. Each is caught under its requirement id and IFC-TRN-003.
 Deleting each mandatory sealing row from an otherwise passing report is also caught.

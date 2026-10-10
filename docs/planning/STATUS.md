@@ -22,8 +22,14 @@ sealing stand-in passes the complete suite with ordered/no-fault and scripted-fa
 media; planted breaches prove the new checks. Product transports and frozen spec text
 are unchanged.
 
-**New Gate S4 transport contract-suite baseline:** `70cee96f922a886c8ecc096ce892b65edf887b21`
+**New Gate S4 transport contract-suite baseline:** `90877c575de8dc43aaffdc9b7ec1d47afd663050`
 (the implementation commit; this documentation records it in a following commit).
+PR #379 review round 2: the run-wide identifier audit collects every actual start key
+and every raw/logical destination, including the type-only session control. It checks
+text and decoded octets across every captured world/frame size; selective text and
+raw-octet disclosures of the third device's actual start key fail IFC-TRN-108 and
+IFC-TRN-003, while the small metadata controls stay clean. The original non-sealing
+assertions, payloads, operations and limits remain unchanged.
 S4 evidence for sealing transports must cite this baseline or a descendant and run
 all checks. This is the approved spec-driven suite revision, not a gate verdict.
 The [suite README](../../tests/protocol/contract/transport/README.md) records the
