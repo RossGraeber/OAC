@@ -217,6 +217,9 @@ impl Shared {
 
     pub(crate) fn capabilities(&self) -> TransportCapabilities {
         TransportCapabilities {
+            // The in-memory transport carries the three kinds unsealed (#369: the core seals
+            // only for a transport that declares `sealing`).
+            sealing: false,
             // No retransmission: a copy is handed over once or dropped.
             reliability: false,
             // Required absent ([IFC-TRN-026]); nothing outlives an endpoint.

@@ -41,6 +41,10 @@ fn kind_octet(k: PayloadKind) -> u8 {
         PayloadKind::Envelope => 1,
         PayloadKind::Presence => 2,
         PayloadKind::Receipt => 3,
+        // Never encoded: this transport does not declare `sealing`, and `put` refuses a
+        // sealed payload before it builds a frame. 0 is no kind: `decode` refuses it. The
+        // sealed framing is G1's follow-up (#62).
+        PayloadKind::Sealed => 0,
     }
 }
 

@@ -70,6 +70,11 @@
 //! signals (`spec/session-channels.md` §6.7), which [`pipeline`] applies to each
 //! `native-signal` event.
 //!
+//! Added by #369, against `spec/security.md` revision 0.3 §14 and `spec/interfaces.md`
+//! revision 0.3 §6.10: [`sealing`], the per-device agreement key, agreement statements, and
+//! the sealed frame; [`pipeline`] seals every payload it passes to, and opens every payload
+//! it takes from, a transport that declares `sealing`.
+//!
 //! Requirement ids in square brackets name the requirement a rule implements.
 
 pub mod adapter;
@@ -95,6 +100,7 @@ pub mod registration;
 pub mod registry;
 pub mod replay;
 pub mod reply;
+pub mod sealing;
 pub mod sender;
 pub mod session_binding;
 pub mod signing;

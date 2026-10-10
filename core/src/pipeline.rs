@@ -119,6 +119,33 @@
 //! [`Pipelines::connect`] has none, so until one is, every native signal fails closed with
 //! a finding ([SC-ID-125], [SC-ID-129]).
 //!
+//! # Sealing transports (#369)
+//!
+//! On a transport that declares `sealing` (`spec/interfaces.md` §6.10), every payload is
+//! signed, then sealed to its recipient device's agreement key (`spec/security.md` §14.4):
+//! an envelope to the key its `to` is bound to, an announcement or withdrawal to its
+//! `audience`, a receipt to the key that verified the envelope. Each goes through `publish`
+//! with that device as its destination, as kind `sealed`; `send_presence` is not called
+//! ([IFC-TRN-100], [IFC-TRN-101]). The agreement key comes only from the statement the
+//! engine holds for that device ([SEC-SEL-023]). With none, nothing is passed, sealed or
+//! in the clear, and an envelope is `not-passed` with `transport-failure` ([SEC-SEL-024]).
+//! The device needs its own agreement keys ([`Pipelines::set_agreement_keys`]) before
+//! `start` ([SEC-SEL-001]), and holds its own statement as admitted ([SEC-SEL-016]).
+//!
+//! Inbound, the core takes payloads from its device subscription only, discards any of a
+//! kind other than `sealed` ([IFC-TRN-103]), and opens each frame under its agreement keys,
+//! newest first ([SEC-SEL-037]). A frame that does not open is discarded with no receipt,
+//! no finding and nothing logged but an aggregate count ([SEC-SEL-030], [SEC-SEL-031],
+//! [SEC-SEL-038]; [`Pipelines::discarded_frames`]). An opened payload is processed as the
+//! kind its kind octet names ([SEC-SEL-032]): first discarded silently when it names another
+//! device as its recipient ([SEC-SEL-035]), then when its deadline has passed on this
+//! device's clock ([SEC-SEL-036]), and otherwise put through every check a payload of its
+//! kind meets without sealing ([SEC-SEL-033]). That a frame opened proves nothing about its
+//! sender ([SEC-SEL-034]).
+//!
+//! On a transport that does not declare `sealing`, none of this applies, and nothing above
+//! changes ([IFC-TRN-102]).
+//!
 //! # What is not here
 //!
 //! Accepting and authenticating local connections, observing their peers, and observing
@@ -127,7 +154,7 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::fmt;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{SyncSender, sync_channel};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 use std::time::{Duration, Instant};
@@ -146,8 +173,9 @@ use crate::clock::Clock;
 use crate::delivery::{DeliveryState, ErrorCode};
 use crate::envelope::{ChannelMessage, Envelope, EnvelopeLimits, receive_envelope};
 use crate::ids::{EXTENSION_ID_V0, IMPLEMENTED_VERSION, KeyId, SessionId, Token};
-use crate::json;
+use crate::json::{self, Json};
 use crate::keys::DeviceIdentity;
+use crate::pairing::PairingStore;
 use crate::presence_auth::{AuthenticatedPresenceRecord, accept_authenticated_record};
 use crate::receipt::DeliveryReceipt;
 use crate::receipt_auth::{AuthenticatedReceipt, accept_receipt};
@@ -157,7 +185,11 @@ use crate::receiver::{
 };
 use crate::registration::RegistrationRecord;
 use crate::registry::{CROSS_IMPLEMENTATION_PRESENCE_CAP_MS, PresenceIssuer, PresenceRegistry};
-use crate::replay::{DuplicateStore, HandOffDeadline};
+use crate::replay::{DuplicateStore, HandOffDeadline, REPLAY_WINDOW_MS};
+use crate::sealing::{
+    AgreementKeys, AgreementPublicKey, AgreementStatement, FRAME_OVERHEAD, HeldStatement,
+    Recipient, StatementRefusal, recipient_of, sent_record_for_receipt,
+};
 use crate::sender::{EnvelopeTracker, ObservedReceipt, prepare_send};
 use crate::session_binding::{
     AttachmentState, BindingAction, BindingDecision, BindingLog, BindingLogEntry, BindingRecord,
@@ -270,11 +302,20 @@ pub enum PipelineError {
     InvalidRegistration,
     /// The adapter's capabilities give no valid declaration ([SC-ID-063], [SC-ID-066]).
     InvalidCapabilities,
+    /// The transport declares `sealing`, and this device holds no agreement key
+    /// ([SEC-SEL-001]; [`Pipelines::set_agreement_keys`]). The transport was shut down.
+    NoAgreementKey,
+    /// This device's own agreement statement was refused ([SEC-SEL-016]).
+    OwnStatement(StatementRefusal),
 }
 
 impl fmt::Display for PipelineError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            PipelineError::NoAgreementKey => {
+                f.write_str("the transport seals payloads, and no agreement key is held")
+            }
+            PipelineError::OwnStatement(e) => write!(f, "own agreement statement: {e}"),
             PipelineError::Transport(e) => write!(f, "transport: {e}"),
             PipelineError::Declaration(ids) => {
                 write!(f, "transport declaration breaks {}", ids.join(", "))
@@ -452,6 +493,20 @@ struct Inner {
     repair_needed: AtomicBool,
     /// Where the findings and diagnostics of §6.7 go.
     binding_log: Mutex<Box<dyn BindingLog>>,
+    /// This device's agreement keys, for a sealing transport (`spec/security.md` §14.2). No
+    /// lock is held across a transport or adapter call while it is held.
+    agreement: Mutex<Option<AgreementKeys>>,
+    /// Frames discarded because they opened under no agreement key held ([SEC-SEL-038]).
+    discarded_frames: AtomicU64,
+}
+
+/// How one payload goes to the transport (`spec/interfaces.md` §6.10).
+#[derive(Clone, Copy, Debug)]
+enum Carriage {
+    /// As it is: the transport does not declare `sealing`.
+    Plain,
+    /// Sealed to this agreement key, in a frame of at most this many octets.
+    Sealed(AgreementPublicKey, u64),
 }
 
 /// The send and receive pipelines of one device (see the module documentation). Cloning
@@ -521,8 +576,78 @@ impl Pipelines {
                 binding_turn: Mutex::new(()),
                 repair_needed: AtomicBool::new(false),
                 binding_log: Mutex::new(Box::new(MemoryBindingLog::new(1024))),
+                agreement: Mutex::new(None),
+                discarded_frames: AtomicU64::new(0),
             }),
         }
+    }
+
+    /// Gives the pipelines this device's agreement keys (`spec/security.md` §14.2), which a
+    /// sealing transport needs ([SEC-SEL-001]), and holds the current key's statement as
+    /// admitted for this device's own key ([SEC-SEL-016]), so that payloads between two own
+    /// sessions are sealed to it like any other. Call it before [`Pipelines::start`], and
+    /// again after [`AgreementKeys::replace`] or [`AgreementKeys::erase_replaced`].
+    ///
+    /// # Errors
+    ///
+    /// [`PipelineError::OwnStatement`] when the statement is refused (another device's
+    /// keys, or a `seq` lower than the one held); nothing changes then.
+    pub fn set_agreement_keys(&self, keys: AgreementKeys) -> Result<(), PipelineError> {
+        self.inner
+            .lock()
+            .engine
+            .admit_own_statement(keys.statement())
+            .map_err(PipelineError::OwnStatement)?;
+        *self
+            .inner
+            .agreement
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = Some(keys);
+        Ok(())
+    }
+
+    /// This device's current agreement statement, to give a peer at pairing or over a later
+    /// channel (`spec/security.md` §14.3, "Pairing"); `None` with no agreement keys.
+    pub fn agreement_statement(&self) -> Option<AgreementStatement> {
+        self.inner
+            .agreement
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .as_ref()
+            .map(|k| k.statement().clone())
+    }
+
+    /// Admits a peer's agreement statement that reached this device over a later channel
+    /// (`spec/security.md` §14.3), saving it to `store` ([SEC-SEL-041]), then announces each
+    /// own session again to that device, where its release is authorized ([SC-DLV-051]): on
+    /// a sealing transport no announcement could reach it before.
+    ///
+    /// # Errors
+    ///
+    /// [`StatementRefusal`]; nothing changes then.
+    pub fn admit_statement(
+        &self,
+        statement: &AgreementStatement,
+        store: &dyn PairingStore,
+    ) -> Result<HeldStatement, StatementRefusal> {
+        let (held, sessions) = {
+            let mut core = self.inner.lock();
+            let held = core.engine.admit_statement(statement, store)?.clone();
+            let sessions: Vec<SessionId> = core.sessions.keys().cloned().collect();
+            (held, sessions)
+        };
+        if held.key_id() != self.inner.identity.key_id() {
+            for s in sessions {
+                self.inner.announce_to(&s, held.key_id(), true);
+            }
+        }
+        Ok(held)
+    }
+
+    /// How many frames from a sealing transport opened under no agreement key held, and were
+    /// discarded ([SEC-SEL-038]). The count names no sender, session or frame.
+    pub fn discarded_frames(&self) -> u64 {
+        self.inner.discarded_frames.load(Ordering::Relaxed)
     }
 
     /// Starts the transport for this device and subscribes to what it carries for it:
@@ -539,15 +664,38 @@ impl Pipelines {
     ) -> Result<TransportCapabilities, PipelineError> {
         let inner = &self.inner;
         let own = inner.identity.key_id().clone();
-        let caps = inner
-            .transport
-            .start(&own, configuration)
-            .map_err(PipelineError::Transport)?;
+        inner.lock().transport_caps = None;
+        let caps = inner.transport.start(&own, configuration).map_err(|e| {
+            inner.lock().transport_caps = None;
+            inner.transport.shutdown();
+            PipelineError::Transport(e)
+        })?;
         let violations = caps.contract_violations();
         if !violations.is_empty() {
             inner.transport.shutdown();
             return Err(PipelineError::Declaration(violations));
         }
+        if caps.sealing {
+            // [SEC-SEL-001]: no sealing transport without an agreement key, so nothing can go
+            // out, or come in, unsealed for want of one.
+            let held = inner
+                .agreement
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .is_some();
+            if !held {
+                inner.transport.shutdown();
+                return Err(PipelineError::NoAgreementKey);
+            }
+        }
+        // Known before any payload can arrive, so the first one is taken as the declaration
+        // says ([IFC-TRN-103]).
+        inner.lock().transport_caps = Some(caps);
+        let failed = |e| {
+            inner.lock().transport_caps = None;
+            inner.transport.shutdown();
+            PipelineError::Transport(e)
+        };
         let weak = Arc::downgrade(inner);
         let sub = inner
             .transport
@@ -559,7 +707,7 @@ impl Pipelines {
                     }
                 }),
             )
-            .map_err(PipelineError::Transport)?;
+            .map_err(failed)?;
         let weak = Arc::downgrade(inner);
         inner
             .transport
@@ -568,10 +716,8 @@ impl Pipelines {
                     inner.on_presence(e);
                 }
             }))
-            .map_err(PipelineError::Transport)?;
-        let mut core = inner.lock();
-        core.transport_caps = Some(caps);
-        core.device_subscription = Some(sub);
+            .map_err(failed)?;
+        inner.lock().device_subscription = Some(sub);
         Ok(caps)
     }
 
@@ -741,7 +887,7 @@ impl Inner {
     ) -> Result<(), PipelineError> {
         let inner = self;
         let sid = record.session_id().clone();
-        let adapter = {
+        let (adapter, caps) = {
             let core = inner.lock();
             let entry = core
                 .attachments
@@ -751,21 +897,34 @@ impl Inner {
             if entry.session.is_some() || core.sessions.contains_key(&sid) {
                 return Err(PipelineError::AlreadyBound);
             }
-            core.adapters[entry.adapter.0].clone()
+            (core.adapters[entry.adapter.0].clone(), core.transport_caps)
         };
-        let descriptor = descriptor_for(&*adapter, attachment, record, display_name)?;
-        let weak = Arc::downgrade(inner);
-        let sub = inner
-            .transport
-            .subscribe(
-                &Destination::Session(sid.clone()),
-                Arc::new(move |i: Inbound| {
-                    if let Some(inner) = weak.upgrade() {
-                        inner.on_envelope(i);
-                    }
-                }),
-            )
-            .map_err(PipelineError::Transport)?;
+        let descriptor = descriptor_for(
+            &*adapter,
+            attachment,
+            record,
+            display_name,
+            envelope_limit(caps),
+        )?;
+        let sub = if caps.is_some_and(|c| c.sealing) {
+            // A sealing transport hands every frame to the device subscription
+            // ([IFC-TRN-105]); the core takes payloads from nowhere else, so it subscribes
+            // to no session.
+            Subscription::new(|| {})
+        } else {
+            let weak = Arc::downgrade(inner);
+            inner
+                .transport
+                .subscribe(
+                    &Destination::Session(sid.clone()),
+                    Arc::new(move |i: Inbound| {
+                        if let Some(inner) = weak.upgrade() {
+                            inner.on_envelope(i);
+                        }
+                    }),
+                )
+                .map_err(PipelineError::Transport)?
+        };
         let withheld = {
             let mut core = inner.lock();
             let still_open = core
@@ -920,6 +1079,7 @@ fn descriptor_for(
     attachment: &Attachment,
     record: &RegistrationRecord,
     display_name: Option<&str>,
+    limit: Option<u64>,
 ) -> Result<SessionDescriptor, PipelineError> {
     let caps = adapter.capabilities(attachment);
     let mut entry = CapabilitiesEntry::new(IMPLEMENTED_VERSION, caps.active_inbound);
@@ -928,7 +1088,7 @@ fn descriptor_for(
             .with_content_types(caps.content_types)
             .ok_or(PipelineError::InvalidCapabilities)?;
     }
-    if let Some(m) = caps.max_envelope_octets {
+    if let Some(m) = declared_limit(caps.max_envelope_octets, limit) {
         entry = entry
             .with_max_envelope_octets(m)
             .ok_or(PipelineError::InvalidCapabilities)?;
@@ -942,6 +1102,25 @@ fn descriptor_for(
         Some(record.harness_label()),
     )
     .ok_or(PipelineError::InvalidCapabilities)
+}
+
+/// The largest `max_envelope_octets` the core may declare for a session over a transport
+/// with the declaration `caps`: on a sealing transport, its `max_payload_octets` less the 54
+/// octets of a frame's overhead ([IFC-TRN-104]). `None` on any other transport, whose
+/// declarations this change leaves as they were.
+fn envelope_limit(caps: Option<TransportCapabilities>) -> Option<u64> {
+    caps.filter(|c| c.sealing)
+        .map(|c| c.max_payload_octets.saturating_sub(FRAME_OVERHEAD as u64))
+}
+
+/// The `max_envelope_octets` to declare: the adapter's, lowered to `limit` when it is
+/// above it ([IFC-TRN-104]). A sealing transport's limit is at least the default 65536
+/// ([IFC-TRN-109]), so an adapter that states none keeps the default.
+fn declared_limit(stated: Option<u64>, limit: Option<u64>) -> Option<u64> {
+    match (stated, limit) {
+        (Some(m), Some(l)) => Some(m.min(l)),
+        (m, _) => m,
+    }
 }
 
 /// A fresh envelope `id`: 16 octets of the operating system's random number generator,
@@ -1054,6 +1233,62 @@ impl Inner {
         Deadline::at((self.monotonic)() + self.config.control_ttl)
     }
 
+    /// Whether the transport declared `sealing` (`spec/interfaces.md` §6.10).
+    fn sealing(&self) -> bool {
+        self.lock().transport_caps.is_some_and(|c| c.sealing)
+    }
+
+    /// How a payload for the device `device` goes to the transport: unchanged on a
+    /// transport that does not declare `sealing`; on one that does, sealed to the agreement
+    /// key of the statement the engine holds for `device`, its only source ([SEC-SEL-023]).
+    /// `None` when capabilities are unknown, or a sealing transport holds no statement
+    /// for `device`: the payload is
+    /// then not passed at all, sealed or in the clear ([SEC-SEL-024]).
+    fn carriage(core: &Core, device: &KeyId) -> Option<Carriage> {
+        match core.transport_caps {
+            Some(c) if c.sealing => core
+                .engine
+                .held_statement(device)
+                .map(|h| Carriage::Sealed(*h.agreement_key(), c.max_payload_octets)),
+            Some(_) => Some(Carriage::Plain),
+            None => None,
+        }
+    }
+
+    /// Passes one payload for the device `device` to the transport, as `carriage` says.
+    ///
+    /// Plain: a presence record through `send_presence`, anything else through `publish`,
+    /// to `destination`, as before sealing existed. Sealed: the payload, as signed and
+    /// serialized, sealed to `device` ([SEC-SEL-020], [SEC-SEL-022]) and passed through
+    /// `publish` as kind `sealed` with the `device` destination and the payload's own
+    /// deadline ([IFC-TRN-100], [IFC-TRN-101]). A payload that cannot be sealed is not
+    /// passed: `not-taken`.
+    fn pass(
+        &self,
+        carriage: Carriage,
+        device: &KeyId,
+        destination: &Destination,
+        payload: Payload,
+        deadline: Deadline,
+    ) -> PublishResult {
+        match carriage {
+            Carriage::Plain if payload.kind() == PayloadKind::Presence => {
+                self.transport.send_presence(destination, payload, deadline)
+            }
+            Carriage::Plain => self.transport.publish(destination, payload, deadline),
+            Carriage::Sealed(key, max) => {
+                match crate::sealing::seal(&key, payload.kind(), payload.octets(), max) {
+                    Ok(frame) => self.transport.publish(
+                        &Destination::Device(device.clone()),
+                        Payload::new(PayloadKind::Sealed, frame),
+                        deadline,
+                    ),
+                    Err(_) => PublishResult::NotTaken,
+                }
+            }
+        }
+    }
+
     /// The session bound to `attachment`, when the request came from the adapter that
     /// reported it and it is open (attribution, [SC-ID-160], [IFC-ADP-031]), and its send
     /// requests are not withheld ([SC-ID-154]).
@@ -1117,6 +1352,15 @@ impl Inner {
                 };
             }
         };
+        // [SEC-SEL-024]: on a sealing transport, with no statement held for the recipient's
+        // device, nothing is passed, sealed or in the clear: `transport-failure`, and nothing
+        // is recorded, since no copy exists.
+        let Some(carriage) = Inner::carriage(core, &to_key) else {
+            return SendRequestResult::NotPassed {
+                id,
+                error: ErrorCode::TransportFailure,
+            };
+        };
         // [SEC-PRS-010]: the sender's announcement goes to the recipient's device first.
         let announcement = if &to_key == self.identity.key_id() {
             None
@@ -1138,9 +1382,13 @@ impl Inner {
         );
         drop(guard);
         if let Some((destination, payload)) = announcement {
-            let result =
-                self.transport
-                    .send_presence(&destination, payload, self.control_deadline());
+            let result = self.pass(
+                carriage,
+                &to_key,
+                &destination,
+                payload,
+                self.control_deadline(),
+            );
             self.announcement_taken(env.from(), &to_key, mono, result);
             if result == PublishResult::NotTaken {
                 // [SEC-PRS-010]: the announcement was not issued, so the envelope is not
@@ -1154,7 +1402,9 @@ impl Inner {
             }
         }
         let deadline = self.deadline_at(HandOffDeadline::of(&env).unix_nanos());
-        let result = self.transport.publish(
+        let result = self.pass(
+            carriage,
+            &to_key,
             &Destination::Session(env.to().clone()),
             Payload::new(PayloadKind::Envelope, env.octets().to_vec()),
             deadline,
@@ -1210,8 +1460,9 @@ impl Inner {
 
     /// The announcement of the own session `session` for `device`, issued now when the
     /// release is authorized ([SEC-AUZ-011]), the transport may carry presence to another
-    /// implementation ([IFC-TRN-081]), and none was issued to that device within the
-    /// refresh interval (or `refresh` is set).
+    /// implementation ([IFC-TRN-081]: `cross-implementation`, and `destination_restricted`
+    /// or `sealing`), and none was issued to that device within the refresh interval (or
+    /// `refresh` is set).
     fn announcement(
         &self,
         core: &mut Core,
@@ -1221,7 +1472,9 @@ impl Inner {
         refresh: bool,
     ) -> Option<(Destination, Payload)> {
         let caps = core.transport_caps?;
-        if caps.reach != Reach::CrossImplementation || !caps.destination_restricted {
+        if caps.reach != Reach::CrossImplementation
+            || !(caps.destination_restricted || caps.sealing)
+        {
             return None;
         }
         let pair = (session.clone(), device.clone());
@@ -1289,14 +1542,25 @@ impl Inner {
 
     fn announce_to(&self, session: &SessionId, device: &KeyId, refresh: bool) {
         let mono = (self.monotonic)();
-        let payload = {
+        let next = {
             let mut core = self.lock();
-            self.announcement(&mut core, session, device, mono, refresh)
+            // [SEC-SEL-024]: no statement for the device on a sealing transport, no
+            // announcement, and none is recorded as issued.
+            match Inner::carriage(&core, device) {
+                Some(c) => self
+                    .announcement(&mut core, session, device, mono, refresh)
+                    .map(|p| (p, c)),
+                None => None,
+            }
         };
-        if let Some((destination, payload)) = payload {
-            let result =
-                self.transport
-                    .send_presence(&destination, payload, self.control_deadline());
+        if let Some(((destination, payload), carriage)) = next {
+            let result = self.pass(
+                carriage,
+                device,
+                &destination,
+                payload,
+                self.control_deadline(),
+            );
             self.announcement_taken(session, device, mono, result);
         }
     }
@@ -1347,16 +1611,29 @@ impl Inner {
     // ---- receive path -----------------------------------------------------------------
 
     fn on_envelope(&self, inbound: Inbound) {
-        if inbound.payload.kind() != PayloadKind::Envelope {
+        // [IFC-TRN-103]: from a sealing transport, only sealed payloads, on the device
+        // subscription.
+        if inbound.payload.kind() != PayloadKind::Envelope || self.sealing() {
             return;
         }
+        self.receive_envelope_octets(inbound.payload.octets(), false);
+    }
+
+    /// The receive path for one envelope's octets; `opened` when they came out of a sealed
+    /// frame, after the recipient check ([SEC-SEL-035]).
+    fn receive_envelope_octets(&self, octets: &[u8], opened: bool) {
         let limits = self.receiver_limits();
         let now = self.clock.now();
         // Envelope stage: a refused copy is reported with no `verified_by`, so no receipt
         // follows ([SC-RCP-041]).
-        let Ok(msg) = receive_envelope(inbound.payload.octets(), &limits, &now) else {
+        let Ok(msg) = receive_envelope(octets, &limits, &now) else {
             return;
         };
+        // [SEC-SEL-036]: an opened envelope at or after its hand-off deadline, on this
+        // device's clock, is dropped silently: no receipt, no finding.
+        if opened && HandOffDeadline::of(msg.envelope()).passed_at(&now) {
+            return;
+        }
         let env = msg.envelope().clone();
         let steps = security_steps(msg, &mut self.lock().engine, &*self.clock);
         match steps {
@@ -1554,15 +1831,24 @@ impl Inner {
             }
             return;
         }
+        // [SEC-SEL-024]: on a sealing transport, no receipt without a statement for the
+        // device that verified the envelope.
+        let Some(carriage) = Inner::carriage(&core, &device) else {
+            return;
+        };
         drop(core);
         let Ok(receipt) = report.receipt(env, observed_at) else {
             return;
         };
         let (destination, payload) =
-            AuthenticatedReceipt::issue(&self.identity, &receipt, env).to_payload(device);
-        let _ = self
-            .transport
-            .publish(&destination, payload, self.control_deadline());
+            AuthenticatedReceipt::issue(&self.identity, &receipt, env).to_payload(device.clone());
+        let _ = self.pass(
+            carriage,
+            &device,
+            &destination,
+            payload,
+            self.control_deadline(),
+        );
     }
 
     /// A receiver-observed state for an envelope this device sent: into its tracker, and
@@ -1581,10 +1867,20 @@ impl Inner {
     }
 
     fn on_device_payload(&self, inbound: Inbound) {
+        if self.sealing() {
+            self.on_sealed(inbound);
+            return;
+        }
         if inbound.payload.kind() != PayloadKind::Receipt {
             return;
         }
-        let Some(ar) = json::parse(inbound.payload.octets())
+        self.accept_receipt_octets(inbound.payload.octets());
+    }
+
+    /// An authenticated receipt's octets, through [SEC-RCT-003], into its envelope's
+    /// tracker.
+    fn accept_receipt_octets(&self, octets: &[u8]) {
+        let Some(ar) = json::parse(octets)
             .ok()
             .as_ref()
             .and_then(AuthenticatedReceipt::from_json)
@@ -1597,10 +1893,97 @@ impl Inner {
         }
     }
 
+    /// A payload from a sealing transport's device subscription (see the module
+    /// documentation, "Sealing transports").
+    fn on_sealed(&self, inbound: Inbound) {
+        // [IFC-TRN-103].
+        if inbound.payload.kind() != PayloadKind::Sealed {
+            return;
+        }
+        // [SEC-SEL-030], [SEC-SEL-037]: under the keys held, newest first.
+        let opened = self
+            .agreement
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .as_ref()
+            .and_then(|k| k.open(inbound.payload.octets()));
+        let Some(opened) = opened else {
+            // [SEC-SEL-031]: no receipt and no finding; [SEC-SEL-038]: an aggregate count.
+            self.discarded_frames.fetch_add(1, Ordering::Relaxed);
+            return;
+        };
+        // [SEC-SEL-035], before every other check: an opened payload for another device is
+        // dropped silently.
+        let recipient = recipient_of(opened.kind, &opened.payload, &self.lock().engine);
+        if recipient == Recipient::Another {
+            return;
+        }
+        // [SEC-SEL-032]: processed only as the kind its kind octet names. [SEC-SEL-034]:
+        // nothing below treats it as authenticated because it opened.
+        match opened.kind {
+            PayloadKind::Envelope => self.receive_envelope_octets(&opened.payload, true),
+            PayloadKind::Presence => self.on_opened_presence(&opened.payload, inbound.carrier),
+            PayloadKind::Receipt => self.on_opened_receipt(&opened.payload),
+            PayloadKind::Sealed => {}
+        }
+    }
+
+    /// An opened authenticated presence record, for this device: [SEC-SEL-036] (the end of
+    /// the replay window for its `issued_at`), then the checks of `spec/security.md` §11, as
+    /// for a record from `watch_presence` ([SEC-SEL-033]).
+    fn on_opened_presence(&self, octets: &[u8], carrier: crate::transport::CarrierHandle) {
+        let Some(rec) = json::parse(octets)
+            .ok()
+            .as_ref()
+            .and_then(AuthenticatedPresenceRecord::from_json)
+        else {
+            return;
+        };
+        let o = rec.as_json();
+        let issued = o
+            .get("record")
+            .and_then(Json::as_object)
+            .and_then(|r| r.get("issued_at"))
+            .and_then(Json::as_str)
+            .and_then(crate::ids::Timestamp::parse);
+        let window = i128::from(REPLAY_WINDOW_MS) * 1_000_000;
+        if issued.is_some_and(|t| self.clock.now().unix_nanos() >= t.unix_nanos() + window) {
+            return;
+        }
+        self.accept_presence(&rec, carrier);
+    }
+
+    /// An opened authenticated receipt, for this device: [SEC-SEL-036] (the hand-off
+    /// deadline of the envelope it describes, which this device sent), then [SEC-RCT-003] in
+    /// full ([SEC-SEL-033]).
+    fn on_opened_receipt(&self, octets: &[u8]) {
+        let deadline = sent_record_for_receipt(octets, &self.lock().engine)
+            .map(|r| r.handoff_deadline_unix_nanos());
+        // No sent record: not this device's receipt, already dropped under [SEC-SEL-035].
+        let Some(deadline) = deadline else { return };
+        if self.clock.now().unix_nanos() >= deadline {
+            return;
+        }
+        self.accept_receipt_octets(octets);
+    }
+
+    fn accept_presence(
+        &self,
+        rec: &AuthenticatedPresenceRecord,
+        carrier: crate::transport::CarrierHandle,
+    ) {
+        let mono = (self.monotonic)();
+        let mut guard = self.lock();
+        let core = &mut *guard;
+        accept_authenticated_record(rec, &mut core.engine, &mut core.registry, carrier, mono);
+    }
+
     fn on_presence(&self, event: PresenceEvent) {
         match event {
             PresenceEvent::Record { payload, carrier } => {
-                if payload.kind() != PayloadKind::Presence {
+                // [IFC-TRN-103]: a sealing transport carries presence records only inside
+                // sealed frames, on the device subscription.
+                if payload.kind() != PayloadKind::Presence || self.sealing() {
                     return;
                 }
                 let Some(rec) = json::parse(payload.octets())
@@ -1610,16 +1993,7 @@ impl Inner {
                 else {
                     return;
                 };
-                let mono = (self.monotonic)();
-                let mut guard = self.lock();
-                let core = &mut *guard;
-                accept_authenticated_record(
-                    &rec,
-                    &mut core.engine,
-                    &mut core.registry,
-                    carrier,
-                    mono,
-                );
+                self.accept_presence(&rec, carrier);
             }
             PresenceEvent::CarrierLoss { carrier } => {
                 self.lock().registry.carrier_loss(&carrier);
@@ -2170,7 +2544,7 @@ impl Inner {
     }
 
     fn capabilities_changed(&self, adapter: AdapterId, attachment: &Attachment) {
-        let (a, session, descriptor) = {
+        let (a, session, descriptor, limit) = {
             let core = self.lock();
             let Some(e) = core
                 .attachments
@@ -2183,7 +2557,12 @@ impl Inner {
             let Some(d) = core.registry.own_descriptor(&s).cloned() else {
                 return;
             };
-            (core.adapters[adapter.0].clone(), s, d)
+            (
+                core.adapters[adapter.0].clone(),
+                s,
+                d,
+                envelope_limit(core.transport_caps),
+            )
         };
         let caps = a.capabilities(attachment);
         let mut entry = CapabilitiesEntry::new(IMPLEMENTED_VERSION, caps.active_inbound);
@@ -2193,7 +2572,7 @@ impl Inner {
                 None => return,
             }
         }
-        if let Some(m) = caps.max_envelope_octets {
+        if let Some(m) = declared_limit(caps.max_envelope_octets, limit) {
             match entry.with_max_envelope_octets(m) {
                 Some(e) => entry = e,
                 None => return,
@@ -2255,13 +2634,17 @@ impl Inner {
                 .collect();
             core.announced.retain(|(s, _), _| s != &session);
             let now = self.clock.now();
-            let withdrawals: Vec<(Destination, Payload)> =
+            let withdrawals: Vec<(KeyId, Carriage, Destination, Payload)> =
                 match core.issuer.withdraw(&session, now, true) {
                     Some(record) => devices
                         .iter()
                         .filter_map(|d| {
-                            AuthenticatedPresenceRecord::issue(&self.identity, &record, d)
-                                .to_payload()
+                            // [SEC-SEL-024]: none for a device with no statement held.
+                            let carriage = Inner::carriage(&core, d)?;
+                            let (destination, payload) =
+                                AuthenticatedPresenceRecord::issue(&self.identity, &record, d)
+                                    .to_payload()?;
+                            Some((d.clone(), carriage, destination, payload))
                         })
                         .collect(),
                     None => Vec::new(),
@@ -2271,10 +2654,14 @@ impl Inner {
         if let Some(s) = sub {
             s.end();
         }
-        for (destination, payload) in withdrawals {
-            let _ = self
-                .transport
-                .send_presence(&destination, payload, self.control_deadline());
+        for (device, carriage, destination, payload) in withdrawals {
+            let _ = self.pass(
+                carriage,
+                &device,
+                &destination,
+                payload,
+                self.control_deadline(),
+            );
         }
     }
 }

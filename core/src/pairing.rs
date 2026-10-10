@@ -80,6 +80,15 @@
 //! ([`PairedPeer::by_key_id_comparison`]): the key id is the device's fingerprint
 //! (`spec/security.md` §5.2), so this is the file-exchange form of [SEC-KEY-032].
 //!
+//! # Agreement statements
+//!
+//! When either device uses a sealing transport, each gives the other its current agreement
+//! statement (`spec/security.md` §14.3, "Pairing"): beside its public key in the
+//! [`PairingOffer`] and the [`PairingResponse`], and beside the key file in the key-id
+//! comparison flow ([`PairedPeer::with_agreement_statement`]). The statement does not enter
+//! the commitment or the code: its signature already binds it to the key the code confirms,
+//! and [`crate::authorization::AuthorizationEngine::pair`] admits it only under that key.
+//!
 //! # The pairing store
 //!
 //! [`PairingStore`] keeps the paired keys, the grants and the relay settings across
@@ -91,6 +100,7 @@
 use crate::authorization::{Grant, OperatorConfirmed};
 use crate::ids::{KeyId, SessionId, Timestamp, Token};
 use crate::keys::{DeviceIdentity, PublicKey, random_octets};
+use crate::sealing::{AgreementStatement, HeldStatement};
 use sha2::{Digest, Sha256};
 use std::fmt;
 use std::sync::Mutex;
@@ -164,6 +174,9 @@ pub struct PairingOffer {
     pub public_key: PublicKey,
     /// The commitment to the initiator's nonce.
     pub commitment: [u8; 32],
+    /// The initiator's current agreement statement, when it gives one (`spec/security.md`
+    /// §14.3, "Pairing"). Not committed to: its signature binds it to `public_key`.
+    pub agreement_statement: Option<AgreementStatement>,
 }
 
 /// Step 2, responder to initiator.
@@ -175,6 +188,9 @@ pub struct PairingResponse {
     pub public_key: PublicKey,
     /// The responder's nonce.
     pub nonce: PairingNonce,
+    /// The responder's current agreement statement, when it gives one (`spec/security.md`
+    /// §14.3, "Pairing").
+    pub agreement_statement: Option<AgreementStatement>,
 }
 
 /// Step 3, initiator to responder.
@@ -280,6 +296,7 @@ impl PairingInitiator {
             principal: own.principal().clone(),
             public_key: *own.public_key(),
             commitment: commitment(own.principal(), own.public_key(), &nonce),
+            agreement_statement: None,
         };
         (
             PairingInitiator {
@@ -313,7 +330,8 @@ impl PairingInitiator {
             (&response.principal, &response.public_key, &response.nonce),
         );
         Ok((
-            PairingSession::new(response.principal, response.public_key, code, self.started),
+            PairingSession::new(response.principal, response.public_key, code, self.started)
+                .with_peer_statement(response.agreement_statement),
             PairingReveal { nonce: self.nonce },
         ))
     }
@@ -364,6 +382,7 @@ impl PairingResponder {
             principal: own.principal().clone(),
             public_key: *own.public_key(),
             nonce,
+            agreement_statement: None,
         };
         Ok((
             PairingResponder {
@@ -399,7 +418,8 @@ impl PairingResponder {
             self.offer.public_key,
             code,
             self.started,
-        ))
+        )
+        .with_peer_statement(self.offer.agreement_statement))
     }
 }
 
@@ -582,6 +602,7 @@ pub struct PairingSession {
     code: String,
     started: Timestamp,
     state: SessionState,
+    peer_statement: Option<AgreementStatement>,
 }
 
 impl PairingSession {
@@ -599,7 +620,13 @@ impl PairingSession {
             state: SessionState::Open {
                 attempts_left: PAIRING_MAX_ATTEMPTS,
             },
+            peer_statement: None,
         }
+    }
+
+    fn with_peer_statement(mut self, statement: Option<AgreementStatement>) -> PairingSession {
+        self.peer_statement = statement;
+        self
     }
 
     /// The six-digit code to show the operator.
@@ -636,6 +663,7 @@ impl PairingSession {
                 public_key: self.peer_public_key,
                 paired_at: now.clone(),
             },
+            statement: self.peer_statement.take(),
         }
     }
 
@@ -688,6 +716,7 @@ impl PairingSession {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PairedPeer {
     record: PairingRecord,
+    statement: Option<AgreementStatement>,
 }
 
 impl PairedPeer {
@@ -707,7 +736,16 @@ impl PairedPeer {
                 public_key,
                 paired_at: now,
             },
+            statement: None,
         })
+    }
+
+    /// The same pairing, carrying the peer's agreement statement, read beside its key file
+    /// (`spec/security.md` §14.3, "Pairing"). It adds no trust: the engine admits it only if
+    /// it verifies under the key being paired.
+    pub fn with_agreement_statement(mut self, statement: AgreementStatement) -> PairedPeer {
+        self.statement = Some(statement);
+        self
     }
 
     #[cfg(test)]
@@ -718,7 +756,13 @@ impl PairedPeer {
                 public_key,
                 paired_at: now,
             },
+            statement: None,
         }
+    }
+
+    /// The agreement statement the pairing carried, if any.
+    pub fn agreement_statement(&self) -> Option<&AgreementStatement> {
+        self.statement.as_ref()
     }
 
     /// The peer's principal label.
@@ -731,8 +775,8 @@ impl PairedPeer {
         self.record.key_id()
     }
 
-    pub(crate) fn into_record(self) -> PairingRecord {
-        self.record
+    pub(crate) fn into_parts(self) -> (PairingRecord, Option<AgreementStatement>) {
+        (self.record, self.statement)
     }
 }
 
@@ -783,9 +827,10 @@ impl PairingRecord {
     }
 }
 
-/// What a [`PairingStore`] keeps: the paired keys, the grants and the sessions for which an
-/// operator enabled permission relay. The binding table and the sent and hand-off records
-/// are not kept: they live in memory (`spec/security.md` §11.3, §9.5).
+/// What a [`PairingStore`] keeps: the paired keys, the grants, the sessions for which an
+/// operator enabled permission relay, and the agreement statements held for paired keys,
+/// as durably as the keys ([SEC-SEL-041]). The binding table and the sent and hand-off
+/// records are not kept: they live in memory (`spec/security.md` §11.3, §9.5).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct PairingSnapshot {
     /// The paired keys.
@@ -794,6 +839,9 @@ pub struct PairingSnapshot {
     pub grants: Vec<Grant>,
     /// The sessions with permission relay enabled ([SEC-AUZ-021]).
     pub relay_enabled: Vec<SessionId>,
+    /// The agreement statement held for each paired key that has one (`spec/security.md`
+    /// §14.3).
+    pub agreement_statements: Vec<HeldStatement>,
 }
 
 /// Why a [`PairingStore`] could not read or write.
@@ -943,6 +991,7 @@ mod tests {
                     principal: b.principal().clone(),
                     public_key: *b.public_key(),
                     nonce: [1; 32],
+                    agreement_statement: None,
                 },
                 &at(2_000),
             )
