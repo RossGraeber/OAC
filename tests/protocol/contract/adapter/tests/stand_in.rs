@@ -469,6 +469,12 @@ impl ProviderAdapter for ChannelStandIn {
             // Planted inversion: acquiring this waits on the stalled transfer.
             drop(self.writers.lock().unwrap());
         }
+        // Report while the live list is still ours, before stream closure can wake a
+        // reader that removes it. The handler does not wait on the stalled writer.
+        Common::shutdown(
+            &self.common,
+            self.breach != ChannelBreach::KeepsAttachmentsAtShutdown,
+        );
         if !matches!(
             self.breach,
             ChannelBreach::WorksAfterShutdown
@@ -483,10 +489,6 @@ impl ProviderAdapter for ChannelStandIn {
                 h.close();
             }
         }
-        Common::shutdown(
-            &self.common,
-            self.breach != ChannelBreach::KeepsAttachmentsAtShutdown,
-        );
     }
 }
 
@@ -853,11 +855,11 @@ impl ProviderAdapter for QueueStandIn {
     }
 
     fn shutdown(&self) {
+        Common::shutdown(&self.common, true);
         let handles = self.common.lock().unwrap().connections.clone();
         for h in handles {
             h.close();
         }
-        Common::shutdown(&self.common, true);
     }
 }
 
