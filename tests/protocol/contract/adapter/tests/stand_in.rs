@@ -71,6 +71,7 @@ struct Common {
     sink: Option<Arc<dyn RequestSink>>,
     bound: HashMap<Attachment, Option<SessionId>>,
     open: Vec<Attachment>,
+    connections: Vec<Attachment>,
     down: bool,
     last_tool_use: Option<String>,
 }
@@ -158,6 +159,10 @@ enum ChannelBreach {
     RewritesContent,
     /// Keeps handing off after shutdown ([IFC-ADP-070]).
     WorksAfterShutdown,
+    /// Waits for a stalled writer before closing its connection.
+    WaitsBeforeClose,
+    /// Reports shutdown complete but leaves an admitted write able to finish.
+    LateHandOff,
     /// Declares an MCP `resources` capability, an inbox the session could read
     /// ([IFC-ADP-040]; [MCPB-DLV-002]).
     DeclaresResources,
@@ -367,6 +372,7 @@ impl ChannelStandIn {
 impl ProviderAdapter for ChannelStandIn {
     fn take_connection(&self, connection: Connection) {
         let (a, reader, writer) = connection.into_parts();
+        self.common.lock().unwrap().connections.push(a.clone());
         self.writers.lock().unwrap().insert(a.clone(), writer);
         let (common, writers, breach) = (self.common.clone(), self.writers.clone(), self.breach);
         std::thread::spawn(move || {
@@ -459,6 +465,24 @@ impl ProviderAdapter for ChannelStandIn {
     }
 
     fn shutdown(&self) {
+        if self.breach == ChannelBreach::WaitsBeforeClose {
+            // Planted inversion: acquiring this waits on the stalled transfer.
+            drop(self.writers.lock().unwrap());
+        }
+        if !matches!(
+            self.breach,
+            ChannelBreach::WorksAfterShutdown
+                | ChannelBreach::LateHandOff
+                | ChannelBreach::KeepsAttachmentsAtShutdown
+        ) {
+            let handles = self.common.lock().unwrap().connections.clone();
+            for h in &handles {
+                h.begin_close();
+            }
+            for h in handles {
+                h.close();
+            }
+        }
         Common::shutdown(
             &self.common,
             self.breach != ChannelBreach::KeepsAttachmentsAtShutdown,
@@ -828,6 +852,10 @@ impl ProviderAdapter for QueueStandIn {
     }
 
     fn shutdown(&self) {
+        let handles = self.common.lock().unwrap().connections.clone();
+        for h in handles {
+            h.close();
+        }
         Common::shutdown(&self.common, true);
     }
 }
@@ -1329,5 +1357,17 @@ fn the_binding_is_identified_by_its_surface_not_by_the_harness() {
             oac_fake_claude::CHANNEL_NOTIFICATION
         ])
         .is_err()
+    );
+}
+
+#[test]
+fn the_suite_still_catches_stalled_shutdown_and_late_hand_off_after_factory_migration() {
+    let stalled = channel_report(ChannelBreach::WaitsBeforeClose, MidTurnRelease::default());
+    assert_caught(&stalled, "wait before connection close", &["IFC-ADP-074"]);
+    let late = channel_report(ChannelBreach::LateHandOff, MidTurnRelease::default());
+    assert_caught(
+        &late,
+        "admitted write completes after shutdown",
+        &["IFC-ADP-073", "IFC-ADP-070"],
     );
 }

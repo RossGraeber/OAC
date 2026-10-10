@@ -15,10 +15,10 @@
 //! content carries the code, or the message id and `accepted-by-adapter`
 //! ([MCPB-TOOL-006], [MCPB-TOOL-008], [MCPB-TOOL-010], [MCPB-TOOL-011]).
 
-use std::io::{self, Read, Write};
+use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::time::{Duration, Instant};
 
 use oac_core::adapter::{Connection, ProviderAdapter};
@@ -87,59 +87,9 @@ pub fn json_string(s: &str) -> String {
 
 // ---- an in-process byte pipe ------------------------------------------------------------
 
-/// The writing end of a pipe.
-pub struct PipeWriter(Sender<Vec<u8>>);
-
-impl Write for PipeWriter {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.0
-            .send(buf.to_vec())
-            .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "pipe closed"))?;
-        Ok(buf.len())
-    }
-    fn flush(&mut self) -> io::Result<()> {
-        Ok(())
-    }
-}
-
-/// The reading end of a pipe. It blocks until bytes arrive, and reads end of file once
-/// the writer is gone.
-pub struct PipeReader {
-    rx: Receiver<Vec<u8>>,
-    buf: Vec<u8>,
-    pos: usize,
-}
-
-impl Read for PipeReader {
-    fn read(&mut self, out: &mut [u8]) -> io::Result<usize> {
-        while self.pos >= self.buf.len() {
-            match self.rx.recv() {
-                Ok(b) => {
-                    self.buf = b;
-                    self.pos = 0;
-                }
-                Err(_) => return Ok(0),
-            }
-        }
-        let n = out.len().min(self.buf.len() - self.pos);
-        out[..n].copy_from_slice(&self.buf[self.pos..self.pos + n]);
-        self.pos += n;
-        Ok(n)
-    }
-}
-
-/// A pipe: what is written to the writer is read from the reader.
-pub fn pipe() -> (PipeWriter, PipeReader) {
-    let (tx, rx) = mpsc::channel();
-    (
-        PipeWriter(tx),
-        PipeReader {
-            rx,
-            buf: Vec::new(),
-            pos: 0,
-        },
-    )
-}
+pub use oac_core::connection::{
+    ConnectionReader as PipeReader, ConnectionWriter as PipeWriter, pipe,
+};
 
 // ---- the harness --------------------------------------------------------------------------
 
@@ -293,7 +243,7 @@ impl AdapterHarness for ClaudeHarness {
             .with_release(self.release);
         let (to_adapter, adapter_reads) = pipe();
         let (adapter_writes, from_adapter) = mpsc::channel();
-        let conn = core.accept(adapter_reads, PipeWriter(adapter_writes));
+        let conn = core.accept(adapter_reads, PipeWriter::from(adapter_writes));
         let mut s = ClaudeSession {
             fake: FakeClaude::new(config),
             to_adapter: Some(to_adapter),

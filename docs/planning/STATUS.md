@@ -4,6 +4,13 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
+**Last updated:** 2026-10-10 (**Interfaces 0.4, #376:** spec-driven adapter suite
+connection-factory revision, authorized by the lead on 2026-10-10. Arbitrary blocking
+Read/Write factories are replaced by core-owned cancellable halves; no compatibility
+constructor. Existing checks and planted breaches are retained, with new stalled-write
+and late-hand-off plants. Gate S4 baseline: the dedicated suite revision commit, to be
+pinned immediately after commit creation. No gate verdict changes.)
+
 **Last updated:** 2026-10-09 (**PR #370 review round 1:** trusted-other-device
 pairing and seal-failure paths have mutation-backed tests; unknown transport
 capabilities refuse sends and startup failures shut down the transport. The reference
