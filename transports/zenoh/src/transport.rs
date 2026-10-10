@@ -179,6 +179,9 @@ impl Inbox {
         match kind {
             PayloadKind::Presence => digest == &self.local_digest,
             PayloadKind::Envelope | PayloadKind::Receipt => self.subs.wants(digest, kind),
+            // `frame::decode` never yields it: this transport does not carry sealed frames
+            // yet (G1's follow-up, #62).
+            PayloadKind::Sealed => false,
         }
     }
 }
@@ -244,6 +247,8 @@ fn dispatch_loop(
             PayloadKind::Envelope | PayloadKind::Receipt => inbox
                 .subs
                 .dispatch(&gate, &r.digest, r.kind, r.octets, &r.link),
+            // Never queued: `Inbox::wants` refuses it.
+            PayloadKind::Sealed => {}
         }
     }
 }
@@ -458,6 +463,10 @@ impl Transport for PeerTransport {
             reach: Reach::CrossImplementation,
             destination_restricted: false,
             max_payload_octets: MAX_PAYLOAD_OCTETS,
+            // Not yet: declaring `sealing`, and the frame changes that go with it, are G1's
+            // follow-up (#62). Until then the core never passes it a sealed payload
+            // ([IFC-TRN-102]), and `publish` refuses one as an unlisted kind.
+            sealing: false,
         })
     }
 
