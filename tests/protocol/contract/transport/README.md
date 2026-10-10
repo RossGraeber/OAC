@@ -12,7 +12,7 @@ transport and the loopback reference transport.
 
 The lead approved this suite revision before PR #374, against `spec/interfaces.md`
 revision 0.3 §6.10 and `spec/security.md` revision 0.3 §14. It establishes a new
-Gate S4 contract-suite baseline: **abcf654b15f72edbb6b4fc81d8b1903ce6405603** (implementation commit;
+Gate S4 contract-suite baseline: **70cee96f922a886c8ecc096ce892b65edf887b21** (implementation commit;
 `docs/planning/STATUS.md` records the same baseline). This changes the suite rather
 than requirement text. Refs #59, #370, #374 and #62.
 
@@ -71,7 +71,8 @@ Transport-owned framing constants may be excluded from application values only w
 independent of payload, destination, deadline, device and session. Explain that mapping
 and the capture location in the transport binding/harness documentation (IFC-TRN-112).
 
-`run` retains each isolated medium for a final audit. A missing hook, empty capture
+Each isolated medium snapshots its carriage capture on drop; `run` retains only
+those audit records, preserving transport/medium lifetimes. A missing hook, empty capture
 where frames were taken, or omitted/changed taken frame fails IFC-TRN-107/108. All
 captured values are checked, not only the small metadata controls. A
 capability declaration alone cannot establish sealing conformance. `assert_conformant`
