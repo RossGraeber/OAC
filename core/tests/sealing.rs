@@ -61,6 +61,11 @@ struct SealState {
     next_link: u8,
     /// Frames from this device are taken and logged, but held instead of delivered.
     hold: Option<KeyId>,
+    max_frame: Option<u64>,
+    fail_start: bool,
+    fail_subscribe: bool,
+    fail_watch: bool,
+    shutdown_calls: usize,
     held: Vec<Vec<u8>>,
 }
 
@@ -135,6 +140,9 @@ impl Transport for SealEndpoint {
         _configuration: TransportConfiguration,
     ) -> Result<TransportCapabilities, TransportError> {
         *self.key.lock().unwrap() = Some(local_device.clone());
+        if self.bus.0.lock().unwrap().fail_start {
+            return Err(TransportError::NotStarted);
+        }
         Ok(TransportCapabilities {
             reliability: false,
             persistence: false,
@@ -144,7 +152,7 @@ impl Transport for SealEndpoint {
             routing_federation: false,
             reach: Reach::CrossImplementation,
             destination_restricted: false,
-            max_payload_octets: MAX_FRAME,
+            max_payload_octets: self.bus.0.lock().unwrap().max_frame.unwrap_or(MAX_FRAME),
             sealing: true,
         })
     }
@@ -191,6 +199,9 @@ impl Transport for SealEndpoint {
         destination: &Destination,
         handler: InboundHandler,
     ) -> Result<Subscription, TransportError> {
+        if self.bus.0.lock().unwrap().fail_subscribe {
+            return Err(TransportError::NotStarted);
+        }
         let me = self
             .key
             .lock()
@@ -219,6 +230,9 @@ impl Transport for SealEndpoint {
     }
 
     fn watch_presence(&self, handler: PresenceHandler) -> Result<(), TransportError> {
+        if self.bus.0.lock().unwrap().fail_watch {
+            return Err(TransportError::NotStarted);
+        }
         let me = self
             .key
             .lock()
@@ -234,6 +248,7 @@ impl Transport for SealEndpoint {
     }
 
     fn shutdown(&self) {
+        self.bus.0.lock().unwrap().shutdown_calls += 1;
         if let Some(me) = self.key.lock().unwrap().take() {
             let mut st = self.bus.0.lock().unwrap();
             st.devices.retain(|(k, _)| k != &me);
@@ -252,6 +267,7 @@ struct TestAdapter {
     texts: Mutex<Vec<String>>,
     deliver_calls: AtomicUsize,
     max_envelope_octets: Mutex<Option<u64>>,
+    content_types: Mutex<Vec<String>>,
 }
 
 impl TestAdapter {
@@ -296,7 +312,7 @@ impl ProviderAdapter for TestAdapter {
     fn capabilities(&self, _attachment: &Attachment) -> AdapterCapabilities {
         AdapterCapabilities {
             active_inbound: true,
-            content_types: Vec::new(),
+            content_types: self.content_types.lock().unwrap().clone(),
             max_envelope_octets: *self.max_envelope_octets.lock().unwrap(),
         }
     }
@@ -1082,6 +1098,9 @@ fn pairing_takes_only_the_paired_keys_statement() {
         node(&bus, "device-y"),
         node(&bus, "device-z"),
     );
+    // z is already trusted, but has no held statement yet: its valid signature
+    // must not authorize storing its agreement key under y.
+    pair(&x, &z, false);
     let peer = PairedPeer::by_key_id_comparison(
         y.pipes.device().principal().clone(),
         *y.pipes.device().public_key(),
@@ -1102,4 +1121,81 @@ fn pairing_takes_only_the_paired_keys_statement() {
     )
     .unwrap();
     assert_eq!(back, st);
+}
+
+/// A presence declaration can exceed the frame limit even when envelopes are capped.
+/// A failed seal must never offer the original payload to the transport.
+#[test]
+fn seal_failure_passes_nothing_to_the_transport() {
+    let bus = SealBus::default();
+    bus.0.lock().unwrap().max_frame = Some(65_590);
+    let (x, y) = (node(&bus, "device-x"), node(&bus, "device-y"));
+    pair(&x, &y, true);
+    *x.adapter.content_types.lock().unwrap() =
+        (0..5000).map(|i| format!("org.example/type-{i}")).collect();
+    grant(
+        &x,
+        Grant::Inbound {
+            writer: PeerSide::device(y.key()),
+            target: LocalSide::Session(SessionId::from_random_octets([1; 16])),
+        },
+    );
+    session(&x, 1);
+    assert!(bus.log().is_empty(), "no frame was published");
+    let st = bus.0.lock().unwrap();
+    assert!(st.refused.is_empty(), "no plain payload was offered");
+    assert_eq!(st.send_presence_calls, 0);
+}
+
+/// Without a transport declaration, even authorized announcements are not passed.
+#[test]
+fn unknown_capabilities_pass_nothing() {
+    let t = three(true);
+    {
+        let mut st = t.bus.0.lock().unwrap();
+        st.fail_watch = true;
+        st.log.clear();
+    }
+    assert!(t.x.pipes.start(TransportConfiguration::new(())).is_err());
+    *t.x.adapter.max_envelope_octets.lock().unwrap() = Some(70_000);
+    let handler = t.x.adapter.events.lock().unwrap().clone().unwrap();
+    handler(AdapterEvent::CapabilitiesChanged {
+        attachment: t.xa.clone(),
+    });
+    let st = t.bus.0.lock().unwrap();
+    assert!(st.log.is_empty());
+    assert!(st.refused.is_empty());
+    assert_eq!(st.send_presence_calls, 0);
+}
+
+/// Each failure after transport startup shuts it down. Existing authorized sends
+/// report not-passed/transport-failure without offering a plain payload.
+#[test]
+fn start_failures_shutdown_and_refuse_sends() {
+    for failure in 0..3 {
+        let t = three(true);
+        {
+            let mut st = t.bus.0.lock().unwrap();
+            st.fail_start = failure == 0;
+            st.fail_subscribe = failure == 1;
+            st.fail_watch = failure == 2;
+            st.log.clear();
+        }
+        assert!(matches!(
+            t.x.pipes.start(TransportConfiguration::new(())),
+            Err(PipelineError::Transport(_))
+        ));
+        assert_eq!(t.bus.0.lock().unwrap().shutdown_calls, 1);
+        assert!(matches!(
+            t.x.adapter.send(request(&t.xa, &t.sy, "refuse")),
+            SendRequestResult::NotPassed {
+                error: ErrorCode::TransportFailure,
+                ..
+            }
+        ));
+        let st = t.bus.0.lock().unwrap();
+        assert!(st.log.is_empty());
+        assert!(st.refused.is_empty());
+        assert_eq!(st.send_presence_calls, 0);
+    }
 }

@@ -2206,7 +2206,7 @@ requirement whose fixtures exercise it.
 | SEC-SEL-002 | MUST | 14.2 | tested, no fixture (randomness of key generation, #369): 32 octets from the operating system's random number generator, two keys differ, `core` test `sealing::tests::agreement_key_is_separate_from_and_not_derived_from_the_device_key` |
 | SEC-SEL-003 | MUST NOT | 14.2 | tested, no fixture (review of key generation, #369): drawn independently of the device key, and neither the device key's Montgomery form nor its key, `core` test `sealing::tests::agreement_key_is_separate_from_and_not_derived_from_the_device_key` |
 | SEC-SEL-004 | MUST NOT | 14.2 | tested, no fixture (secret handling, #369): no type prints a private key and copies are zeroized, `core` test `sealing::tests::no_type_prints_a_private_key` |
-| SEC-SEL-010 | MUST | 14.3 | `sec-sel/SEC-SEL-010.n01`, `.n02`; positive: `sec-sel/SEC-SEL-011.p01` |
+| SEC-SEL-010 | MUST | 14.3 | `sec-sel/SEC-SEL-010.n01`, `.n02`, `.n03`, `.n04`; positive: `sec-sel/SEC-SEL-011.p01` |
 | SEC-SEL-011 | MUST | 14.3 | `sec-sel/SEC-SEL-011.p01` |
 | SEC-SEL-012 | MUST NOT | 14.3 | `sec-sel/SEC-SEL-012.n01`, `.n02`, `.n03` |
 | SEC-SEL-013 | MUST NOT | 14.3 | `sec-sel/SEC-SEL-013.n01` to `.n04` |

@@ -2132,6 +2132,7 @@ dependencies = [
  "serde_jcs",
  "sha2 0.11.0",
  "subtle",
+ "x25519-dalek",
  "zeroize",
 ]
 

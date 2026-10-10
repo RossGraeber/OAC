@@ -141,6 +141,7 @@ signature) and `serde_jcs` (canonical serialization) pin rows, see
 | `interprocess` (IPC crate, candidate) | supported | `2.4.4` | not stated on source page | https://crates.io/api/v1/crates/interprocess; https://raw.githubusercontent.com/kotauskas/interprocess/main/Cargo.toml | 2026-09-17 | none directly (implementation dependency — see note) |
 | `age` (encrypted-file key-storage fallback) | supported | `0.12.1` | 2026-07-14 | https://crates.io/api/v1/crates/age; https://raw.githubusercontent.com/str4d/rage/v0.12.1/age/Cargo.toml | 2026-09-17 | none directly (implementation dependency — see note) |
 | `ed25519-dalek` (envelope signature) | supported | `3.0.0` | not stated on source page | https://crates.io/api/v1/crates/ed25519-dalek; https://raw.githubusercontent.com/dalek-cryptography/curve25519-dalek/main/ed25519-dalek/Cargo.toml | 2026-09-17 | none directly (implementation dependency — see note) |
+| `x25519-dalek` (X25519 secret drop erasure) | supported | `2.0.1` (`=2.0.1`; defaults off, `zeroize`) | not stated on source page | https://github.com/dalek-cryptography/x25519-dalek/tree/2.0.1; locked registry source and feature tree | 2026-10-09 | none directly (implementation dependency) |
 | `hpke` (payload sealing, RFC 9180) | supported | `0.12.0` (`=0.12.0`; `default-features = false`, features `alloc` and `x25519`) | not stated on source page | the published crate manifest, as `Cargo.lock` locks it (checksum `4917627a14198c3603282c5158b815ad5534795451d3c074b53cf3cee0960b11`); https://github.com/rozbb/rust-hpke | 2026-10-09 | none directly (implementation dependency — see note) |
 | `serde_jcs` (canonical serialization, RFC 8785 JCS) | supported | `0.2.0` | 2026-03-25 | https://crates.io/api/v1/crates/serde_jcs; https://docs.rs/serde_jcs/0.2.0/serde_jcs/ | 2026-09-17 | none directly (implementation dependency — see note) |
 | Zenoh | supported | `1.10.1` | 2026-09-07 | https://github.com/eclipse-zenoh/zenoh/releases | 2026-09-16 | G3 |
@@ -720,10 +721,11 @@ semver, and are recorded verbatim — never reformatted.
   `single_shot_seal_in_place_detached` and `single_shot_open_in_place_detached` only.
   `spec/security.md` §14.10's reference note records that every sealed fixture frame was
   opened by a program on this crate at this version.
-- Known limitation: with default features off, `hpke` builds `x25519-dalek` without its
-  `zeroize` feature, so the crate's own copy of a private key (`StaticSecret`) is not
-  zeroized on drop. `core/src/sealing.rs` keeps one such copy per held agreement key and its
-  own copies in zeroizing buffers (#369).
+- X25519 drop erasure: the lead approved the direct core dependency
+  `x25519-dalek = { version = "=2.0.1", default-features = false, features = ["zeroize"] }`
+  on 2026-10-09 (PR #370 review round 1). Feature unification enables zeroizing drops
+  for hpke's `StaticSecret`, `EphemeralSecret` and `SharedSecret`. Verified with
+  `cargo tree -e features -i x25519-dalek` on 2026-10-09; no new locked package.
 - **Gates affected: none directly** — implementation dependency (payload sealing in the
   core, #369), not a gate-spike dependency.
 

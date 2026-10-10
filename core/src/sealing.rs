@@ -38,10 +38,8 @@
 //! buffers are zeroized when dropped. [`open`] fails closed: any failing check of §14.5 is
 //! `None`, with nothing said about which.
 //!
-//! > The `hpke` crate is built with `x25519-dalek`'s `zeroize` feature off (its own
-//! > dependency line turns default features off), so its in-memory copy of a private key is
-//! > not zeroized when dropped. This module keeps one such copy per held agreement key, for
-//! > that key's lifetime, and its own copies in zeroizing buffers.
+//! The direct `x25519-dalek` dependency enables `zeroize` for hpke's internal
+//! `StaticSecret`, `EphemeralSecret` and `SharedSecret` drops.
 
 use std::fmt;
 use std::sync::Mutex;

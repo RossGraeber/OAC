@@ -4,6 +4,14 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
+**Last updated:** 2026-10-09 (**PR #370 review round 1:** trusted-other-device
+pairing and seal-failure paths have mutation-backed tests; unknown transport
+capabilities refuse sends and startup failures shut down the transport. The reference
+runner checks raw `seq` spellings; two signed negative fixtures bring sealing coverage
+to 38 fixtures. Lead-approved direct `x25519-dalek =2.0.1` with `zeroize` enables
+hpke's internal secret drop erasure; the former PINS.md residual is closed. No gate
+verdict or spec requirement text changes.)
+
 **Last updated:** 2026-10-09 (**#369: the core seals payloads** (Closes #369 on merge; Refs
 #62, #7). `core/src/sealing.rs`: the per-device X25519 agreement key and its store seam,
 agreement statements (`oac-agreement-v1`, signed `seq` counted and kept by the issuer, held

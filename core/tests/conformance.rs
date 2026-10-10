@@ -1066,7 +1066,7 @@ fn sealing_fixtures() {
 }
 
 /// The `oac-sealing-fixture/1` fixtures under `tests/protocol/sec-sel/` at revision 0.3.
-const SEALING_FIXTURES: usize = 36;
+const SEALING_FIXTURES: usize = 38;
 
 /// `spec/security.md` §6.3 states that `VerifyingKey::verify_strict` of `ed25519-dalek`
 /// 3.0.0 meets [SEC-SIG-020] to [SEC-SIG-024] on every `sec-sig` fixture, UNVERIFIED until a

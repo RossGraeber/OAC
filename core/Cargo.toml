@@ -30,6 +30,9 @@ subtle = "=2.6.1"
 # Cargo.lock under age. Inventory: 07 section 5.
 hpke = { version = "=0.12.0", default-features = false, features = ["alloc", "x25519"] }
 
+# Enable zeroizing drops for hpke's internal X25519 secrets (lead approved 2026-10-09).
+x25519-dalek = { version = "=2.0.1", default-features = false, features = ["zeroize"] }
+
 [dev-dependencies]
 # Scalar arithmetic for constructing malleable and small-order signatures in signing.rs's
 # tests; already in the graph as ed25519-dalek's curve crate, same version.

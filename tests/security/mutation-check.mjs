@@ -277,6 +277,20 @@ export const MUTATIONS = [
   // #369, payload sealing (spec/security.md §14): the agreement-key checks of [SEC-SEL-013],
   // the statement rules, and the sealing transport's send and receive paths.
   {
+    name: 'S13 sealing: pairing accepts another trusted signer (SEC-SEL-012)',
+    file: 'core/src/authorization.rs',
+    from: '                .filter(|h| h.key_id() == &key_id)',
+    to: '',
+    coreOnly: 'tests/sealing.rs::pairing_takes_only_the_paired_keys_statement',
+  },
+  {
+    name: 'S13 sealing: seal failure publishes clear text (SEC-SEL-022)',
+    file: 'core/src/pipeline.rs',
+    from: 'Err(_) => PublishResult::NotTaken,',
+    to: 'Err(_) => self.transport.publish(destination, payload, deadline),',
+    coreOnly: 'tests/sealing.rs::seal_failure_passes_nothing_to_the_transport',
+  },
+  {
     name: 'S13 sealing: an agreement key with its high bit set is accepted (SEC-SEL-013)',
     file: 'core/src/sealing.rs',
     from: '    if octets[31] & 0x80 != 0 {\n        return false;\n    }\n',

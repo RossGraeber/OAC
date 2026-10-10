@@ -664,10 +664,12 @@ impl Pipelines {
     ) -> Result<TransportCapabilities, PipelineError> {
         let inner = &self.inner;
         let own = inner.identity.key_id().clone();
-        let caps = inner
-            .transport
-            .start(&own, configuration)
-            .map_err(PipelineError::Transport)?;
+        inner.lock().transport_caps = None;
+        let caps = inner.transport.start(&own, configuration).map_err(|e| {
+            inner.lock().transport_caps = None;
+            inner.transport.shutdown();
+            PipelineError::Transport(e)
+        })?;
         let violations = caps.contract_violations();
         if !violations.is_empty() {
             inner.transport.shutdown();
@@ -691,6 +693,7 @@ impl Pipelines {
         inner.lock().transport_caps = Some(caps);
         let failed = |e| {
             inner.lock().transport_caps = None;
+            inner.transport.shutdown();
             PipelineError::Transport(e)
         };
         let weak = Arc::downgrade(inner);
@@ -1238,7 +1241,8 @@ impl Inner {
     /// How a payload for the device `device` goes to the transport: unchanged on a
     /// transport that does not declare `sealing`; on one that does, sealed to the agreement
     /// key of the statement the engine holds for `device`, its only source ([SEC-SEL-023]).
-    /// `None` on a sealing transport that holds no statement for `device`: the payload is
+    /// `None` when capabilities are unknown, or a sealing transport holds no statement
+    /// for `device`: the payload is
     /// then not passed at all, sealed or in the clear ([SEC-SEL-024]).
     fn carriage(core: &Core, device: &KeyId) -> Option<Carriage> {
         match core.transport_caps {
@@ -1246,7 +1250,8 @@ impl Inner {
                 .engine
                 .held_statement(device)
                 .map(|h| Carriage::Sealed(*h.agreement_key(), c.max_payload_octets)),
-            _ => Some(Carriage::Plain),
+            Some(_) => Some(Carriage::Plain),
+            None => None,
         }
     }
 
