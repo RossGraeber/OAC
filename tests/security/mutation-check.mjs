@@ -274,6 +274,131 @@ export const MUTATIONS = [
     to: '',
     coreOnly: 'pairing::tests::substituted_key_or_nonce_changes_the_code_or_fails',
   },
+  // #369, payload sealing (spec/security.md §14): the agreement-key checks of [SEC-SEL-013],
+  // the statement rules, and the sealing transport's send and receive paths.
+  {
+    name: 'S13 sealing: pairing accepts another trusted signer (SEC-SEL-012)',
+    file: 'core/src/authorization.rs',
+    from: '                .filter(|h| h.key_id() == &key_id)',
+    to: '',
+    coreOnly: 'tests/sealing.rs::pairing_takes_only_the_paired_keys_statement',
+  },
+  {
+    name: 'S13 sealing: seal failure publishes clear text (SEC-SEL-022)',
+    file: 'core/src/pipeline.rs',
+    from: 'Err(_) => PublishResult::NotTaken,',
+    to: 'Err(_) => self.transport.publish(destination, payload, deadline),',
+    coreOnly: 'tests/sealing.rs::seal_failure_passes_nothing_to_the_transport',
+  },
+  {
+    name: 'S13 sealing: an agreement key with its high bit set is accepted (SEC-SEL-013)',
+    file: 'core/src/sealing.rs',
+    from: '    if octets[31] & 0x80 != 0 {\n        return false;\n    }\n',
+    to: '',
+  },
+  {
+    name: 'S13 sealing: an agreement key not below p is accepted (SEC-SEL-013)',
+    file: 'core/src/sealing.rs',
+    from: 'if octets[31] == 0x7f && octets[1..31].iter().all(|&b| b == 0xff) && octets[0] >= 0xed {',
+    to: 'if false {',
+  },
+  {
+    name: 'S13 sealing: a small-order agreement key is accepted (SEC-SEL-013)',
+    file: 'core/src/sealing.rs',
+    from: '    !bool::from(small)\n',
+    to: '    let _ = small;\n    true\n',
+  },
+  {
+    name: 'S13 sealing: one small-order value missing from the list (SEC-SEL-013)',
+    file: 'core/src/sealing.rs',
+    from: '    for s in &SMALL_ORDER {\n        small |= s.ct_eq(octets);',
+    to: '    for s in &SMALL_ORDER[..4] {\n        small |= s.ct_eq(octets);',
+    // The recorded fixtures carry one order-8 value, and no device key signs a statement for
+    // a weak key through the public API; the cited core test checks every listed value.
+    coreOnly: 'sealing::tests::small_order_list_is_exactly_the_torsion',
+  },
+  {
+    name: 'S13 sealing: a statement with the held seq replaces it (SEC-SEL-014, >= for >)',
+    file: 'core/src/sealing.rs',
+    from: 'if held(&key_id).is_some_and(|h| h.seq >= seq) {',
+    to: 'if held(&key_id).is_some_and(|h| h.seq > seq) {',
+  },
+  {
+    name: 'S13 sealing: statements ordered by issued_at, not seq (SEC-SEL-014)',
+    file: 'core/src/sealing.rs',
+    from: 'if held(&key_id).is_some_and(|h| h.seq >= seq) {',
+    to: 'if held(&key_id).is_some_and(|h| h.issued_at.unix_nanos() >= issued_at.unix_nanos()) {',
+  },
+  {
+    name: 'S13 sealing: a statement from the future is admitted (SEC-SEL-042)',
+    file: 'core/src/sealing.rs',
+    from: 'if issued_at.unix_nanos() >= now.unix_nanos() + WINDOW_NANOS {',
+    to: 'if false {',
+  },
+  {
+    name: 'S13 sealing: statements verified under another domain string (SEC-SEL-012)',
+    file: 'core/src/sealing.rs',
+    from: 'let key_id = match verify_signed(trusted, SigningDomain::Agreement, o) {',
+    to: 'let key_id = match verify_signed(trusted, SigningDomain::Presence, o) {',
+  },
+  {
+    name: 'S13 sealing: a payload passed unsealed when no statement is held (SEC-SEL-024)',
+    file: 'core/src/pipeline.rs',
+    from: '.map(|h| Carriage::Sealed(*h.agreement_key(), c.max_payload_octets)),',
+    to: '.map(|h| Carriage::Sealed(*h.agreement_key(), c.max_payload_octets))\n                .or(Some(Carriage::Plain)),',
+  },
+  {
+    name: 'S13 sealing: a forwarded payload is not dropped (SEC-SEL-035)',
+    file: 'core/src/pipeline.rs',
+    from: 'if recipient == Recipient::Another {\n            return;\n        }',
+    to: 'let _ = recipient;',
+  },
+  {
+    name: 'S13 sealing: an unsealed presence record from a sealing transport is taken (IFC-TRN-103)',
+    file: 'core/src/pipeline.rs',
+    from: 'if payload.kind() != PayloadKind::Presence || self.sealing() {',
+    to: 'if payload.kind() != PayloadKind::Presence {',
+  },
+  {
+    name: 'S13 sealing: removing a key keeps its agreement statement (SEC-SEL-015)',
+    file: 'core/src/authorization.rs',
+    from: 'let agreement_statement = self.agreements.remove(key_id);',
+    to: 'let agreement_statement = self.agreements.get(key_id).cloned();',
+  },
+  {
+    name: 'S13 sealing: held statements are not saved with the paired keys (SEC-SEL-041)',
+    file: 'core/src/authorization.rs',
+    from: '                .filter(|h| h.key_id() != &self.own_key)\n                .cloned()\n                .collect(),',
+    to: '                .filter(|_| false)\n                .cloned()\n                .collect(),',
+  },
+  {
+    name: 'S13 sealing: a late opened envelope is not dropped (SEC-SEL-036)',
+    file: 'core/src/pipeline.rs',
+    from: 'if opened && HandOffDeadline::of(msg.envelope()).passed_at(&now) {',
+    to: 'if false && opened {',
+    coreOnly: 'tests/sealing.rs::late_opened_payloads_are_dropped_without_a_receipt',
+  },
+  {
+    name: 'S13 sealing: a late opened receipt is not dropped (SEC-SEL-036)',
+    file: 'core/src/pipeline.rs',
+    from: 'if self.clock.now().unix_nanos() >= deadline {\n            return;\n        }\n        self.accept_receipt_octets(octets);',
+    to: 'let _ = deadline;\n        self.accept_receipt_octets(octets);',
+    coreOnly: 'tests/sealing.rs::late_opened_payloads_are_dropped_without_a_receipt',
+  },
+  {
+    name: 'S13 sealing: agreement keys tried oldest first (SEC-SEL-037)',
+    file: 'core/src/sealing.rs',
+    from: '            b.issued_at\n                .unix_nanos()\n                .cmp(&a.issued_at.unix_nanos())\n                .then(b.seq.cmp(&a.seq))',
+    to: '            a.issued_at\n                .unix_nanos()\n                .cmp(&b.issued_at.unix_nanos())\n                .then(a.seq.cmp(&b.seq))',
+    coreOnly: 'sealing::tests::keys_are_tried_newest_first',
+  },
+  {
+    name: 'S13 sealing: a replacement reuses the highest seq (SEC-SEL-040)',
+    file: 'core/src/sealing.rs',
+    from: 'Some(h) => Ok(h + 1),',
+    to: 'Some(h) => Ok(h),',
+    coreOnly: 'sealing::tests::issuer_seq_rises_and_survives_a_restart',
+  },
 ];
 
 const EXCLUDE_TOP = new Set(['.git', 'target', 'node_modules', '.claude', '.agents']);

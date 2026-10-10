@@ -51,9 +51,10 @@ use std::fmt;
 pub fn security_members(domain: SigningDomain) -> &'static [&'static str] {
     match domain {
         SigningDomain::Envelope => &["principal", "key_id", "nonce", "signature"],
-        SigningDomain::Registration | SigningDomain::Receipt | SigningDomain::Presence => {
-            &["principal", "key_id", "signature"]
-        }
+        SigningDomain::Registration
+        | SigningDomain::Receipt
+        | SigningDomain::Presence
+        | SigningDomain::Agreement => &["principal", "key_id", "signature"],
     }
 }
 
@@ -453,6 +454,7 @@ mod tests {
                 SigningDomain::Registration,
                 SigningDomain::Receipt,
                 SigningDomain::Presence,
+                SigningDomain::Agreement,
             ] {
                 assert_eq!(
                     verify_signed(&keys, domain, obj.as_object().unwrap()),
@@ -477,7 +479,11 @@ mod tests {
         sec.insert("signature", sig.as_str().into());
         obj.insert("security", Json::Object(sec));
         assert!(verify_signed(&keys, SigningDomain::Receipt, &obj).is_ok());
-        for other in [SigningDomain::Registration, SigningDomain::Presence] {
+        for other in [
+            SigningDomain::Registration,
+            SigningDomain::Presence,
+            SigningDomain::Agreement,
+        ] {
             assert_eq!(
                 verify_signed(&keys, other, &obj),
                 Err(VerifyError::SignatureInvalid)

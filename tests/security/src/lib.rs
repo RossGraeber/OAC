@@ -71,6 +71,7 @@ use oac_core::replay::DuplicateStore;
 use oac_fake_claude::{Config, FakeClaude, MidTurnRelease, Phase};
 
 pub mod pipeline;
+pub mod sealing;
 
 /// The instant every test starts at.
 pub const T0: &str = "2026-10-07T12:00:00Z";
@@ -1153,13 +1154,32 @@ pub const THREATS: &[Threat] = &[
             "Agreement-key substitution",
             "Clear-text fallback",
         ],
-        tests: &["gated_s13_payloads_on_a_sealing_transport_open_only_for_their_recipient"],
+        tests: &[
+            "s13_only_the_recipient_device_opens_a_frame",
+            "s13_a_payload_forwarded_to_a_third_device_is_dropped",
+            "s13_nothing_crosses_unsealed_without_a_statement",
+            "s13_an_unsealed_payload_from_a_sealing_transport_is_not_taken",
+            "s13_removing_a_key_removes_its_statement",
+            "s13_agreement_statements_are_admitted_only_by_their_rules",
+            "s13_a_restart_does_not_readmit_an_older_statement",
+        ],
         facts: &[],
-        core_tests: &[],
-        status: Status::Gated,
+        core_tests: &[
+            "sealing::tests::acceptability_refuses_the_high_bit_and_values_not_below_p",
+            "sealing::tests::small_order_list_is_exactly_the_torsion",
+            "sealing::tests::issuer_seq_rises_and_survives_a_restart",
+            "sealing::tests::keys_are_tried_newest_first",
+            "tests/sealing.rs::late_opened_payloads_are_dropped_without_a_receipt",
+            "tests/sealing.rs::pairing_takes_only_the_paired_keys_statement",
+            "tests/sealing.rs::seal_failure_passes_nothing_to_the_transport",
+            "tests/sealing.rs::unknown_capabilities_pass_nothing",
+            "tests/sealing.rs::start_failures_shutdown_and_refuse_sends",
+            "tests/conformance.rs::sealing_fixtures",
+        ],
+        status: Status::Proven,
         gated: &[Gate {
             issue: G1_G3,
-            what: "the core's payload sealing (spec/security.md §14) and a sealing transport (spec/interfaces.md §6.10); the sec-sel fixtures prove the format through the reference runner only (gated_s13_payloads_on_a_sealing_transport_open_only_for_their_recipient)",
+            what: "the reference transport declaring `sealing` and carrying only frames, with no destination, kind, deadline or device key id beside them (spec/interfaces.md [IFC-TRN-105] to [IFC-TRN-108], [IFC-TRN-113]): G1's follow-up, and across hosts G3; the core side is proven here over a test bus",
         }],
     },
     Threat {

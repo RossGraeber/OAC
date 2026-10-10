@@ -1,7 +1,7 @@
 // Fixture stages of spec/security.md §14.10 (payload sealing), fixture format
 // `oac-sealing-fixture/1`: `agreement` (§14.3), `seal` (§14.4) and `open` (§14.5).
 
-import { isObj, isStr, toPlain } from './json.mjs';
+import { isObj, isStr, isPlainInt, toPlain } from './json.mjs';
 import { signingInput } from './jcs.mjs';
 import { verify } from './ed25519.mjs';
 import { isToken, isKeyId, isSignatureForm, b64urlDecode, parseTimestamp, REPLAY_WINDOW_NS } from './core.mjs';
@@ -42,6 +42,7 @@ export function admits(trusted, held, st, now) {
 }
 
 export function agreement(fx) {
+  if (!isObj(fx.input?.statement) || !isPlainInt(fx.input.statement.seq, 0, 9007199254740991)) return { result: 'refused' };
   const c = toPlain(fx.context);
   const now = parseTimestamp(c.consumer_time);
   if (now === null) throw new Error('context.consumer_time is not a timestamp');

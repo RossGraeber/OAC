@@ -132,6 +132,8 @@ impl Transport for Endpoint {
             reach: Reach::CrossImplementation,
             destination_restricted: !unrestricted,
             max_payload_octets: 65_536 * 4,
+            // Payload sealing is tested over a sealing transport in tests/sealing.rs.
+            sealing: false,
         })
     }
 
@@ -1006,6 +1008,13 @@ fn two_devices_exchange_a_message_and_a_correlated_reply() {
     assert_eq!(
         back.0.recv_timeout(WAIT).unwrap().state(),
         DeliveryState::HandedToHarness
+    );
+    // [IFC-TRN-102]: a transport that does not declare `sealing` is never passed a sealed
+    // payload, and every payload crosses as before (#369).
+    assert!(
+        bus.log().iter().all(|(_, k, _)| *k != PayloadKind::Sealed),
+        "{:?}",
+        bus.log()
     );
     // An uncorrelated message from y to x needs a grant y does not have: x refuses it
     // ([SEC-AUZ-014]), and y's tracker reads the receiver's `rejected`.

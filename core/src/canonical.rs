@@ -31,6 +31,9 @@ pub enum SigningDomain {
     Receipt,
     /// `oac-presence-v1`, an authenticated presence record (`spec/security.md` §11).
     Presence,
+    /// `oac-agreement-v1`, an agreement statement (`spec/security.md` §14.3,
+    /// [SEC-SEL-011]).
+    Agreement,
 }
 
 impl SigningDomain {
@@ -41,6 +44,7 @@ impl SigningDomain {
             SigningDomain::Registration => "oac-registration-v1",
             SigningDomain::Receipt => "oac-receipt-v1",
             SigningDomain::Presence => "oac-presence-v1",
+            SigningDomain::Agreement => "oac-agreement-v1",
         }
     }
 }
@@ -218,6 +222,7 @@ mod tests {
                 SigningDomain::Registration,
                 SigningDomain::Receipt,
                 SigningDomain::Presence,
+                SigningDomain::Agreement,
             ] {
                 assert_eq!(
                     signing_input(domain, obj.as_object().unwrap()),
