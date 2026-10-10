@@ -18,7 +18,7 @@ sealing stand-in passes the complete suite with ordered/no-fault and scripted-fa
 media; planted breaches prove the new checks. Product transports and frozen spec text
 are unchanged.
 
-**New Gate S4 transport contract-suite baseline:** `f89526e957fb880a31e64052fa0d730d9ae77ae9`
+**New Gate S4 transport contract-suite baseline:** `631a0d686ac958daf73c6b4e52710b9572c20153`
 (the implementation commit; this documentation records it in a following commit).
 S4 evidence for sealing transports must cite this baseline or a descendant and run
 all checks. This is the approved spec-driven suite revision, not a gate verdict.

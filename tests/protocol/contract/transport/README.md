@@ -11,8 +11,8 @@ transport and the loopback reference transport.
 ## Spec-driven sealing revision, 2026-10-10
 
 The lead approved this suite revision before PR #374, against `spec/interfaces.md`
-revision 0.3 ง6.10 and `spec/security.md` revision 0.3 ง14. It establishes a new
-Gate S4 contract-suite baseline: **f89526e957fb880a31e64052fa0d730d9ae77ae9** (implementation commit;
+revision 0.3 ยง6.10 and `spec/security.md` revision 0.3 ยง14. It establishes a new
+Gate S4 contract-suite baseline: **631a0d686ac958daf73c6b4e52710b9572c20153** (implementation commit;
 `docs/planning/STATUS.md` records the same baseline). This changes the suite rather
 than requirement text. Refs #59, #370, #374 and #62.
 
@@ -81,7 +81,7 @@ transport declares a new capability as a result of this revision.
 The stand-in plants acceptance of each plain kind and plain `send_presence`, delivery
 despite `NotTaken`, kind/destination/deadline side values, device/session identifier
 leaks, missing/empty observations, acceptance over the frame cap, a below-floor cap,
-and changed inbound frames. Each is caught under its requirement id and IFC-TRN-003.
+changed inbound frames, and ignored shutdown. Each is caught under its requirement id and IFC-TRN-003.
 Deleting each mandatory sealing row from an otherwise passing report is also caught.
 Existing memory breach tests still run unchanged.
 
