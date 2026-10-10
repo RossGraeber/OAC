@@ -11,6 +11,7 @@
 //! means something.
 
 use std::collections::HashSet;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -52,6 +53,10 @@ impl FaultControl for Faults {
 }
 
 impl TransportHarness for MemoryHarness {
+    fn binding_sealing(&self) -> bool {
+        false
+    }
+
     fn name(&self) -> String {
         format!(
             "memory ({}, {})",
@@ -353,6 +358,10 @@ struct BrokenMedium {
 }
 
 impl TransportHarness for BrokenHarness {
+    fn binding_sealing(&self) -> bool {
+        false
+    }
+
     fn name(&self) -> String {
         format!("{:?} over {}", self.breach, self.base.name())
     }
@@ -492,6 +501,10 @@ struct LazyMedium {
 }
 
 impl TransportHarness for LazyHarness {
+    fn binding_sealing(&self) -> bool {
+        false
+    }
+
     fn name(&self) -> String {
         format!("asynchronous subscriptions over {}", self.0.name())
     }
@@ -563,19 +576,54 @@ enum SealBreach {
     LowFloor,
     AlterFrame,
     IgnoresShutdown,
+    LargeDeadline,
+    FalseDeclaration,
+    MalformedAfterShutdown,
+    LateNetwork,
+    SenderRetention,
 }
-struct SealingHarness(SealBreach, bool);
+struct SealingHarness(SealBreach, bool, Option<Arc<AtomicUsize>>);
+struct SealingFaults {
+    inner: Faults,
+    hold: Arc<AtomicBool>,
+}
+impl FaultControl for SealingFaults {
+    fn next(&self, fate: Fate) {
+        self.hold.store(false, Ordering::SeqCst);
+        self.inner.next(fate);
+    }
+    fn next_sender_hold(&self, by: Duration) -> bool {
+        self.hold.store(true, Ordering::SeqCst);
+        self.inner.next(Fate::Delay(by));
+        true
+    }
+}
+type SentDeadlines = Arc<Mutex<Vec<(Vec<u8>, Deadline)>>>;
 struct SealingMedium {
     inner: MemoryMedium,
     breach: SealBreach,
     observations: Arc<Mutex<Vec<oac_contract_transport::SealingObservation>>>,
+    pending: Arc<Mutex<Vec<Pending>>>,
+    faults: Option<SealingFaults>,
+    late: Option<Arc<AtomicUsize>>,
+    deadlines: SentDeadlines,
 }
 struct SealingTransport {
     inner: MemoryTransport,
     breach: SealBreach,
     observations: Arc<Mutex<Vec<oac_contract_transport::SealingObservation>>>,
+    pending: Arc<Mutex<Vec<Pending>>>,
+    handlers: Mutex<Vec<InboundHandler>>,
+    network: MemoryNetwork,
+    hold: Arc<AtomicBool>,
+    late: Option<Arc<AtomicUsize>>,
+    deadlines: SentDeadlines,
 }
 impl TransportHarness for SealingHarness {
+    fn binding_sealing(&self) -> bool {
+        true
+    }
+
     fn name(&self) -> String {
         format!("sealing stand-in {:?}", self.0)
     }
@@ -590,13 +638,21 @@ impl TransportHarness for SealingHarness {
         } else {
             builder.faults(NoFaults).build()
         };
+        let hold = Arc::default();
         Box::new(SealingMedium {
             inner: MemoryMedium {
                 network,
-                faults: self.1.then_some(Faults(faults)),
+                faults: None,
             },
             breach: self.0,
             observations: Arc::default(),
+            pending: Arc::default(),
+            late: self.2.clone(),
+            deadlines: Arc::default(),
+            faults: self.1.then_some(SealingFaults {
+                inner: Faults(faults),
+                hold,
+            }),
         })
     }
 }
@@ -606,6 +662,16 @@ impl Medium for SealingMedium {
             inner: MemoryTransport::new(),
             breach: self.breach,
             observations: self.observations.clone(),
+            pending: self.pending.clone(),
+            handlers: Mutex::default(),
+            late: self.late.clone(),
+            deadlines: self.deadlines.clone(),
+            network: self.inner.network.clone(),
+            hold: self
+                .faults
+                .as_ref()
+                .map(|f| f.hold.clone())
+                .unwrap_or_default(),
         })
     }
     fn configuration(&self) -> TransportConfiguration {
@@ -618,10 +684,14 @@ impl Medium for SealingMedium {
         self.inner.advance(by)
     }
     fn settle(&self) {
-        self.inner.settle()
+        self.inner.settle();
+        let tasks = std::mem::take(&mut *self.pending.lock().unwrap());
+        for task in tasks {
+            task();
+        }
     }
     fn faults(&self) -> Option<&dyn FaultControl> {
-        self.inner.faults()
+        self.faults.as_ref().map(|f| f as &dyn FaultControl)
     }
     fn sealing_observations(&self) -> Option<Vec<oac_contract_transport::SealingObservation>> {
         match self.breach {
@@ -638,6 +708,9 @@ impl Transport for SealingTransport {
         c: TransportConfiguration,
     ) -> Result<TransportCapabilities, TransportError> {
         let mut caps = self.inner.start(k, c)?;
+        if self.breach == SealBreach::FalseDeclaration {
+            return Ok(caps);
+        }
         caps.sealing = true;
         caps.max_payload_octets = if self.breach == SealBreach::LowFloor {
             65536
@@ -648,6 +721,9 @@ impl Transport for SealingTransport {
     }
     fn publish(&self, d: &Destination, p: Payload, dl: Deadline) -> PublishResult {
         use oac_core::transport::PayloadKind;
+        if self.breach == SealBreach::FalseDeclaration {
+            return self.inner.publish(d, p, dl);
+        }
         if p.kind() != PayloadKind::Sealed {
             let accepts = self.breach == SealBreach::Plain
                 || (self.breach == SealBreach::PlainReceipt && p.kind() == PayloadKind::Receipt)
@@ -669,6 +745,7 @@ impl Transport for SealingTransport {
             SealBreach::Kind => vec![b"sealed".to_vec()],
             SealBreach::Destination => vec![format!("{d:?}").into_bytes()],
             SealBreach::Deadline => vec![format!("{dl:?}").into_bytes()],
+            SealBreach::LargeDeadline if p.len() > 4096 => vec![format!("{dl:?}").into_bytes()],
             _ => Vec::new(),
         };
         let identifiers = match self.breach {
@@ -683,7 +760,24 @@ impl Transport for SealingTransport {
             }
             _ => vec![b"opaque-test-link".to_vec()],
         };
-        let r = self.inner.publish(d, p.clone(), dl);
+        // Simulate a frame handed off before expiry, arriving later at a receiver
+        // that has no transport deadline. The capture still has no side values.
+        let carrier_deadline = if matches!(
+            self.breach,
+            SealBreach::LateNetwork | SealBreach::SenderRetention
+        ) && !dl.has_passed_at(self.network.now())
+            && (self.breach == SealBreach::SenderRetention
+                || !self.hold.swap(false, Ordering::SeqCst))
+        {
+            Deadline::at(dl.instant() + Duration::from_secs(60))
+        } else {
+            dl
+        };
+        self.deadlines
+            .lock()
+            .unwrap()
+            .push((p.octets().to_vec(), dl));
+        let r = self.inner.publish(d, p.clone(), carrier_deadline);
         if r == PublishResult::Taken {
             self.observations
                 .lock()
@@ -701,6 +795,22 @@ impl Transport for SealingTransport {
         d: &Destination,
         h: InboundHandler,
     ) -> Result<Subscription, TransportError> {
+        if self.breach == SealBreach::MalformedAfterShutdown {
+            self.handlers.lock().unwrap().push(h.clone());
+        }
+        let h = if let Some(late) = self.late.clone() {
+            let (deadlines, network) = (self.deadlines.clone(), self.network.clone());
+            Arc::new(move |i: oac_core::transport::Inbound| {
+                if deadlines.lock().unwrap().iter().any(|(frame, dl)| {
+                    frame == i.payload.octets() && dl.has_passed_at(network.now())
+                }) {
+                    late.fetch_add(1, Ordering::SeqCst);
+                }
+                h(i);
+            }) as InboundHandler
+        } else {
+            h
+        };
         if self.breach == SealBreach::AlterFrame {
             self.inner.subscribe(
                 d,
@@ -716,6 +826,9 @@ impl Transport for SealingTransport {
         }
     }
     fn send_presence(&self, d: &Destination, p: Payload, dl: Deadline) -> PublishResult {
+        if self.breach == SealBreach::FalseDeclaration {
+            return self.inner.send_presence(d, p, dl);
+        }
         if matches!(
             self.breach,
             SealBreach::Plain | SealBreach::PlainSendPresence
@@ -735,12 +848,27 @@ impl Transport for SealingTransport {
         if self.breach != SealBreach::IgnoresShutdown {
             self.inner.shutdown();
         }
+        if self.breach == SealBreach::MalformedAfterShutdown {
+            for h in std::mem::take(&mut *self.handlers.lock().unwrap()) {
+                self.pending.lock().unwrap().push(Box::new(move || {
+                    h(oac_core::transport::Inbound {
+                        payload: Payload::new(
+                            oac_core::transport::PayloadKind::Sealed,
+                            vec![0; 54],
+                        ),
+                        carrier: oac_core::transport::CarrierHandle::from_opaque(
+                            b"test-link".to_vec(),
+                        ),
+                    })
+                }));
+            }
+        }
     }
 }
 #[test]
 fn sealing_stand_in_passes_every_shared_check() {
-    run(&SealingHarness(SealBreach::None, false)).assert_conformant();
-    let report = run(&SealingHarness(SealBreach::None, true));
+    run(&SealingHarness(SealBreach::None, false, None)).assert_conformant();
+    let report = run(&SealingHarness(SealBreach::None, true, None));
     println!("{report}");
     report.assert_conformant();
     for id in [
@@ -750,6 +878,7 @@ fn sealing_stand_in_passes_every_shared_check() {
         "IFC-TRN-108",
         "IFC-TRN-109",
         "IFC-TRN-113",
+        "IFC-TRN-110",
     ] {
         assert!(
             report
@@ -779,15 +908,49 @@ fn sealing_plants_are_caught_under_their_requirement_ids() {
         (SealBreach::LowFloor, "IFC-TRN-109"),
         (SealBreach::AlterFrame, "IFC-TRN-105"),
         (SealBreach::IgnoresShutdown, "IFC-TRN-071"),
+        (SealBreach::LargeDeadline, "IFC-TRN-107"),
+        (SealBreach::FalseDeclaration, "IFC-TRN-110"),
+        (SealBreach::MalformedAfterShutdown, "IFC-TRN-071"),
+        (SealBreach::SenderRetention, "IFC-TRN-034"),
     ] {
-        let report = run(&SealingHarness(breach, true));
+        let report = run(&SealingHarness(breach, true, None));
         assert!(report.failed(id), "{breach:?} not caught as {id}: {report}");
         assert!(report.failed("IFC-TRN-003"), "{report}");
+        assert!(
+            std::panic::catch_unwind(|| report.assert_conformant()).is_err(),
+            "{report}"
+        );
+        if breach == SealBreach::LargeDeadline {
+            assert!(
+                report
+                    .rows
+                    .iter()
+                    .any(|r| r.check == "frame-has-no-accompanying-values"
+                        && matches!(r.verdict, Verdict::Pass(_))),
+                "small control must stay clean: {report}"
+            );
+            assert!(
+                report
+                    .rows
+                    .iter()
+                    .any(|r| r.check == "all-worlds-no-accompanying-values" && r.verdict.is_fail()),
+                "large-frame leak escaped: {report}"
+            );
+        }
+        if breach == SealBreach::FalseDeclaration {
+            assert!(
+                report
+                    .failures()
+                    .iter()
+                    .all(|r| matches!(r.id, "IFC-TRN-110" | "IFC-TRN-003")),
+                "plain delegation should pass the original checks: {report}"
+            );
+        }
     }
 }
 #[test]
 fn a_sealing_report_with_an_omitted_check_is_refused() {
-    let report = run(&SealingHarness(SealBreach::None, true));
+    let report = run(&SealingHarness(SealBreach::None, true, None));
     for id in [
         "IFC-TRN-104",
         "IFC-TRN-105",
@@ -795,6 +958,7 @@ fn a_sealing_report_with_an_omitted_check_is_refused() {
         "IFC-TRN-108",
         "IFC-TRN-109",
         "IFC-TRN-113",
+        "IFC-TRN-110",
     ] {
         let mut omitted = report.clone();
         omitted.rows.retain(|r| r.id != id);
@@ -803,4 +967,19 @@ fn a_sealing_report_with_an_omitted_check_is_refused() {
             "omitted {id} passed"
         );
     }
+}
+
+#[test]
+fn late_network_frames_are_opened_then_dropped_by_the_receiving_core() {
+    let late = Arc::new(AtomicUsize::new(0));
+    let report = run(&SealingHarness(
+        SealBreach::LateNetwork,
+        true,
+        Some(late.clone()),
+    ));
+    report.assert_conformant();
+    assert!(
+        late.load(Ordering::SeqCst) > 0,
+        "no raw late arrival exercised"
+    );
 }

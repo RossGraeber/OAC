@@ -16,6 +16,7 @@ pub(crate) const REQUIRED: &[&str] = &[
     "IFC-TRN-108",
     "IFC-TRN-109",
     "IFC-TRN-113",
+    "IFC-TRN-110",
 ];
 
 // RFC 7748 Alice/Bob test key pairs, exclusively for synthetic suite payloads.
@@ -57,6 +58,8 @@ pub(crate) fn logical(
     local: &KeyId,
     caps: TransportCapabilities,
     frames: FrameBook,
+    medium: Arc<dyn Medium>,
+    epoch: Instant,
 ) -> Box<dyn Transport> {
     if !caps.sealing {
         return raw;
@@ -67,6 +70,8 @@ pub(crate) fn logical(
         caps,
         watches: Mutex::new(Vec::new()),
         frames,
+        epoch,
+        medium,
     })
 }
 struct Logical {
@@ -75,8 +80,17 @@ struct Logical {
     caps: TransportCapabilities,
     watches: Mutex<Vec<Subscription>>,
     frames: FrameBook,
+    epoch: Instant,
+    medium: Arc<dyn Medium>,
 }
-fn opened(k: &KeyId, i: &Inbound, d: &Destination, presence: bool) -> Option<Payload> {
+fn opened(
+    k: &KeyId,
+    i: &Inbound,
+    d: &Destination,
+    presence: bool,
+    epoch: Instant,
+    now: Instant,
+) -> Option<Payload> {
     if i.payload.kind() != PayloadKind::Sealed {
         return None;
     }
@@ -85,7 +99,12 @@ fn opened(k: &KeyId, i: &Inbound, d: &Destination, presence: bool) -> Option<Pay
         return None;
     }
     let label = format!("{d:?}");
-    let end = o.payload[..100].iter().position(|&b| b == 0)?;
+    // The receiver's core owns expiry (SEC-SEL-036); no deadline rides beside the frame.
+    let deadline = u64::from_be_bytes(o.payload[92..100].try_into().ok()?);
+    if now.saturating_duration_since(epoch).as_nanos() >= u128::from(deadline) {
+        return None;
+    }
+    let end = o.payload[..92].iter().position(|&b| b == 0)?;
     if &o.payload[..end] != label.as_bytes() {
         return None;
     }
@@ -111,6 +130,13 @@ impl Transport for Logical {
         let mut bytes = vec![0; 100];
         let label = format!("{d:?}");
         bytes[..label.len()].copy_from_slice(label.as_bytes());
+        let deadline = u64::try_from(
+            dl.instant()
+                .saturating_duration_since(self.epoch)
+                .as_nanos(),
+        )
+        .unwrap();
+        bytes[92..100].copy_from_slice(&deadline.to_be_bytes());
         bytes.extend_from_slice(p.octets());
         let Ok(f) = sealing::seal(
             &public(&target),
@@ -135,13 +161,14 @@ impl Transport for Logical {
         let d = d.clone();
         let k = self.local.clone();
         let frames = self.frames.clone();
+        let (epoch, medium) = (self.epoch, self.medium.clone());
         self.raw.subscribe(
             &Destination::Device(self.local.clone()),
             Arc::new(move |mut i| {
                 if !frames.lock().unwrap().contains(i.payload.octets()) {
                     return;
                 }
-                if let Some(p) = opened(&k, &i, &d, false) {
+                if let Some(p) = opened(&k, &i, &d, false, epoch, medium.now()) {
                     i.payload = p;
                     h(i);
                 }
@@ -156,13 +183,14 @@ impl Transport for Logical {
         let h2 = h.clone();
         let k = self.local.clone();
         let frames = self.frames.clone();
+        let (epoch, medium) = (self.epoch, self.medium.clone());
         let s = self.raw.subscribe(
             &d.clone(),
             Arc::new(move |i| {
                 if !frames.lock().unwrap().contains(i.payload.octets()) {
                     return;
                 }
-                if let Some(payload) = opened(&k, &i, &d, true) {
+                if let Some(payload) = opened(&k, &i, &d, true, epoch, medium.now()) {
                     h2(PresenceEvent::Record {
                         payload,
                         carrier: i.carrier,
@@ -193,6 +221,61 @@ fn raw(h: &dyn TransportHarness) -> (Box<dyn Medium>, Box<dyn Transport>, Transp
 }
 fn absent() -> Verdict {
     Verdict::Pass("sealing absent; plain contract path unchanged".into())
+}
+
+/// Keep the sender obligation observable even though the simulated receiving core
+/// drops expired opened payloads. This check observes raw frames, not Logical.
+pub(crate) fn sender_expiry(h: &dyn TransportHarness) -> Verdict {
+    let (m, t, c) = raw(h);
+    if !c.sealing {
+        return absent();
+    }
+    let d = Destination::Device(key(1));
+    let seen = Seen::default();
+    let _s = t.subscribe(&d, seen.handler()).unwrap();
+    m.subscribed();
+    let at = m.now();
+    let p = frame(
+        &key(1),
+        PayloadKind::Envelope,
+        b"expired-sender-control",
+        c.max_payload_octets,
+    );
+    t.publish(&d, p, Deadline::at(at));
+    m.settle();
+    m.advance(Duration::from_secs(3));
+    m.settle();
+    fail_if!(
+        seen.len() != 0,
+        "sender delivered an already-expired raw frame"
+    );
+    if let Some(f) = m.faults()
+        && f.next_sender_hold(Duration::from_secs(2))
+    {
+        let p = frame(
+            &key(1),
+            PayloadKind::Envelope,
+            b"sender-held-control",
+            c.max_payload_octets,
+        );
+        fail_if!(
+            t.publish(&d, p, Deadline::at(m.now() + Duration::from_secs(1)))
+                != PublishResult::Taken,
+            "sender hold control refused"
+        );
+        m.advance(Duration::from_secs(3));
+        m.settle();
+        fail_if!(
+            seen.len() != 0,
+            "sender emitted a frame retained past its deadline"
+        );
+        return Verdict::Pass(
+            "expired input and sender-retained frame never delivered at raw boundary".into(),
+        );
+    }
+    Verdict::Pass(
+        "sender never emitted already-expired input; sender holding unsupported/not exercised; receiving-core filtering bypassed".into(),
+    )
 }
 
 pub(crate) fn reject_plain(h: &dyn TransportHarness) -> Verdict {
@@ -370,6 +453,9 @@ pub(crate) fn carriage(h: &dyn TransportHarness) -> Verdict {
         Ok(v) => v,
         Err(v) => return v,
     };
+    check_carriage(&obs)
+}
+pub(crate) fn check_carriage(obs: &[SealingObservation]) -> Verdict {
     fail_if!(
         obs.iter().any(|o| !o.accompanying.is_empty()),
         "a frame carried an accompanying application value"
@@ -381,6 +467,9 @@ pub(crate) fn identifiers(h: &dyn TransportHarness) -> Verdict {
         Ok(v) => v,
         Err(v) => return v,
     };
+    check_identifiers(&obs)
+}
+pub(crate) fn check_identifiers(obs: &[SealingObservation]) -> Verdict {
     let Destination::Session(s) = session(7) else {
         unreachable!()
     };
@@ -393,7 +482,7 @@ pub(crate) fn identifiers(h: &dyn TransportHarness) -> Verdict {
         vec![7; 16],
     ];
     for o in obs {
-        for id in o.identifiers {
+        for id in &o.identifiers {
             fail_if!(
                 needles.iter().any(|n| id.windows(n.len()).any(|w| w == n)),
                 "link/peer/carrier/liveness identifier exposed a device or session id"

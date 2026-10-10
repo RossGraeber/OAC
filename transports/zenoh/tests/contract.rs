@@ -56,6 +56,10 @@ struct PeerMedium {
 }
 
 impl TransportHarness for PeerHarness {
+    fn binding_sealing(&self) -> bool {
+        false
+    }
+
     fn name(&self) -> String {
         "zenoh peer, local mode (loopback rendezvous)".into()
     }

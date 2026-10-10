@@ -22,6 +22,8 @@
 //! [IFC-TRN-035]); without it those parts are reported not applicable, never passed.
 //!
 //! A sealing declaration selects suite-side sealing/opening of the same logical checks.
+//! Every start is cross-checked against the independently reviewed binding value; run-wide
+//! raw observations cover all worlds and callbacks before opening/filtering.
 //! Only sealed frames cross the tested transport; presence uses `publish` and a device
 //! subscription. Raw sealing checks bypass that helper. [`Medium::sealing_observations`]
 //! is mandatory for that path, and missing observations fail, rather than skip, checks.
@@ -34,7 +36,8 @@
 //! [IFC-TRN-040], [IFC-TRN-043], [IFC-TRN-044], [IFC-TRN-050], [IFC-TRN-060],
 //! [IFC-TRN-071], [IFC-TRN-080] and [IFC-NEU-003], plus [IFC-TYP-092] for the transport's
 //! `health` and [IFC-TYP-095], plus [IFC-TRN-104], [IFC-TRN-105], [IFC-TRN-107],
-//! [IFC-TRN-108], [IFC-TRN-109] and [IFC-TRN-113] when sealing is declared. [`run`]
+//! [IFC-TRN-108], [IFC-TRN-109] and [IFC-TRN-113] when sealing is declared, and
+//! [IFC-TRN-110] against the binding. [`run`]
 //! returns one [`Row`] per check; [IFC-TRN-003] passes only when no other row failed. The requirements Appendix C gives the `core` are not
 //! this suite's (they need the core's send and receive paths, F6 and F11), and
 //! [IFC-TRN-090] is the binding document's.
@@ -64,6 +67,10 @@ pub const REAL_SETTLE: Duration = Duration::from_millis(200);
 
 /// What an implementation under test supplies: a fresh medium per check.
 pub trait TransportHarness: Sync {
+    /// Sealing value from the independently reviewed binding (absent means false).
+    /// Must not be computed from the implementation's `start` declaration.
+    fn binding_sealing(&self) -> bool;
+
     /// A short name for reports.
     fn name(&self) -> String;
 
@@ -151,6 +158,12 @@ pub enum Fate {
 pub trait FaultControl: Send + Sync {
     /// The next payload taken gets `fate`.
     fn next(&self, fate: Fate);
+
+    /// Delay the next hand-off at the sender, where Deadline still applies.
+    /// False means this medium can delay only network/receiving delivery.
+    fn next_sender_hold(&self, _by: Duration) -> bool {
+        false
+    }
 }
 
 /// The verdict of one check.
@@ -266,6 +279,11 @@ pub const CHECKS: &[(&str, &str, Check)] = &[
     ),
     ("IFC-TRN-109", "sealing-payload-floor", sealed::floor),
     (
+        "IFC-TRN-034",
+        "sealing-sender-expired-input",
+        sealed::sender_expiry,
+    ),
+    (
         "IFC-TRN-105",
         "sealed-to-local-device-subscription",
         sealed::inbound,
@@ -322,8 +340,9 @@ pub const CHECKS: &[(&str, &str, Check)] = &[
 /// Run every check against `harness`. A check that panics is a [`Verdict::Fail`] with the
 /// panic message; the other checks still run.
 pub fn run(harness: &dyn TransportHarness) -> Report {
-    let sealing =
-        catch_unwind(AssertUnwindSafe(|| World::new(harness).a.caps.sealing)).unwrap_or(false);
+    let audit = audit::Harness::new(harness);
+    let harness: &dyn TransportHarness = &audit;
+    let sealing = harness.binding_sealing();
     let mut rows = Vec::new();
     for (id, check, f) in CHECKS {
         let verdict = match catch_unwind(AssertUnwindSafe(|| f(harness))) {
@@ -331,6 +350,40 @@ pub fn run(harness: &dyn TransportHarness) -> Report {
             Err(p) => Verdict::Fail(format!("panicked: {}", panic_text(&p))),
         };
         rows.push(Row { id, check, verdict });
+    }
+    let sealing = sealing || audit.sealing_observed();
+    rows.push(Row {
+        id: "IFC-TRN-110",
+        check: "declaration-agrees-with-binding",
+        verdict: audit.declaration(),
+    });
+    if sealing {
+        rows.push(Row {
+            id: "IFC-TRN-071",
+            check: "raw-no-handler-after-shutdown",
+            verdict: audit.shutdown(),
+        });
+        let obs = audit.observations();
+        for (id, check, verdict) in [
+            (
+                "IFC-TRN-107",
+                "all-worlds-no-accompanying-values",
+                match &obs {
+                    Ok(v) => sealed::check_carriage(v),
+                    Err(v) => v.clone(),
+                },
+            ),
+            (
+                "IFC-TRN-108",
+                "all-worlds-no-identifier-leaks",
+                match &obs {
+                    Ok(v) => sealed::check_identifiers(v),
+                    Err(v) => v.clone(),
+                },
+            ),
+        ] {
+            rows.push(Row { id, check, verdict });
+        }
     }
     let failed: Vec<_> = rows
         .iter()
@@ -385,37 +438,50 @@ struct Ep {
     caps: TransportCapabilities,
 }
 
-fn start(m: &dyn Medium, n: u8, frames: sealed::FrameBook) -> Result<Ep, TransportError> {
+fn start(
+    m: Arc<dyn Medium>,
+    n: u8,
+    frames: sealed::FrameBook,
+    epoch: Instant,
+) -> Result<Ep, TransportError> {
     let raw = m.transport();
     let key = key(n);
     let caps = raw.start(&key, m.configuration())?;
-    let t = sealed::logical(raw, &key, caps, frames);
+    let t = sealed::logical(raw, &key, caps, frames, m, epoch);
     Ok(Ep { t, key, caps })
 }
 
 /// A medium with endpoint `a` and, on a cross-implementation medium, a second endpoint `b`
 /// for another device key.
 struct World {
-    m: Box<dyn Medium>,
+    m: Arc<dyn Medium>,
     a: Ep,
     b: Option<Ep>,
     frames: sealed::FrameBook,
+    epoch: Instant,
 }
 
 impl World {
     fn new(h: &dyn TransportHarness) -> World {
-        let m = h.medium();
+        let m: Arc<dyn Medium> = h.medium().into();
         let frames = sealed::FrameBook::default();
-        let a = start(&*m, 1, frames.clone()).expect("start of the first transport");
+        let epoch = m.now();
+        let a = start(m.clone(), 1, frames.clone(), epoch).expect("start of the first transport");
         let b = if a.caps.reach == Reach::CrossImplementation {
             Some(
-                start(&*m, 2, frames.clone())
+                start(m.clone(), 2, frames.clone(), epoch)
                     .expect("start of a second device on a cross-implementation medium"),
             )
         } else {
             None
         };
-        World { m, a, b, frames }
+        World {
+            m,
+            a,
+            b,
+            frames,
+            epoch,
+        }
     }
 
     /// The receiving side: `b` when there is one, else `a` itself.
@@ -535,6 +601,7 @@ macro_rules! fail_if {
 
 // ---- §6.1, §6.5: carrying the three kinds --------------------------------------------
 
+mod audit;
 mod sealed;
 
 /// [IFC-TRN-001]: an envelope to a session, a receipt to a device and a presence record to
@@ -928,7 +995,14 @@ pub fn ifc_trn_035(h: &dyn TransportHarness) -> Verdict {
         again
             .start(&r.key, w.m.configuration())
             .expect("restart of the receiver");
-        let again = sealed::logical(again, &r.key, r.caps, w.frames.clone());
+        let again = sealed::logical(
+            again,
+            &r.key,
+            r.caps,
+            w.frames.clone(),
+            w.m.clone(),
+            w.epoch,
+        );
         let after = Seen::default();
         let _s2 = again
             .subscribe(&session(7), after.handler())
@@ -968,7 +1042,14 @@ pub fn ifc_trn_035(h: &dyn TransportHarness) -> Verdict {
             again
                 .start(&w.a.key, w.m.configuration())
                 .expect("restart of the sender");
-            let _again = sealed::logical(again, &w.a.key, w.a.caps, w.frames.clone());
+            let _again = sealed::logical(
+                again,
+                &w.a.key,
+                w.a.caps,
+                w.frames.clone(),
+                w.m.clone(),
+                w.epoch,
+            );
             w.m.advance(Duration::from_secs(2));
             w.quiet();
             fail_if!(
@@ -1060,7 +1141,7 @@ pub fn ifc_trn_043(h: &dyn TransportHarness) -> Verdict {
         before_health != after_health,
         "the publisher's health changed when the other side subscribed: {before_health:?} then {after_health:?}"
     );
-    let third = start(&*w.m, 3, w.frames.clone());
+    let third = start(w.m.clone(), 3, w.frames.clone(), w.epoch);
     let refused = match &third {
         Ok(c) => {
             c.t.subscribe(&session(11), Seen::<Inbound>::default().handler())
@@ -1263,7 +1344,7 @@ pub fn ifc_trn_080(h: &dyn TransportHarness) -> Verdict {
             "destination_restricted declared on a one-implementation medium: no other implementation to keep it from".into(),
         );
     };
-    let Ok(c) = start(&*w.m, 3, w.frames.clone()) else {
+    let Ok(c) = start(w.m.clone(), 3, w.frames.clone(), w.epoch) else {
         return Verdict::NotApplicable("a third implementation could not start".into());
     };
     let (at_b, at_c) = (Seen::default(), Seen::default());
