@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! [`ClaudeAdapter`]: `ProviderAdapter` (`spec/interfaces.md` Table 5.2) for the Claude Code
-//! channel path.
+//! Channels path (research preview).
 //!
 //! Each connection the core gives it ([`ProviderAdapter::take_connection`]) is one channel
 //! server's stdio stream, relayed by the shim Claude Code spawned
@@ -18,8 +18,8 @@
 //!
 //! Revision 0.4 closure: shutdown closes every core-issued connection before settling
 //! pending calls. This binding states `shutdown_bound_ms = 1000`; every core connection
-//! must have a closure bound no greater than that budget. Event handlers and request
-//! sinks must return promptly (as local callbacks) and may re-enter shutdown. Closed streams cannot transfer later, including notifications that
+//! must have a closure bound no greater than that budget. Event handlers may re-enter
+//! shutdown. Closed streams cannot transfer later, including notifications that
 //! outlived a deliver timeout ([IFC-ADP-070..078]; #376).
 
 use std::collections::{HashMap, VecDeque};

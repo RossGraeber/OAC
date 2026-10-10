@@ -28,7 +28,7 @@ verdict changes beyond the spec-driven Gate S4 suite baseline below.)
 connection-factory revision, authorized by the lead on 2026-10-10. Arbitrary blocking
 Read/Write factories are replaced by core-owned cancellable halves; no compatibility
 constructor. Existing checks and planted breaches are retained, with new stalled-write
-and late-hand-off plants. Gate S4 suite baseline: `ad107f6e82e69ed02701c7e167c214a69d3ab540`
+and late-hand-off plants. Gate S4 suite baseline: `14dfb4d9f15307d36f66552916bf05ea492673fc`
 (latest dedicated suite revision commit; initial factory migration `f77a3a3`). No gate verdict changes.)
 
 **Last updated:** 2026-10-09 (**PR #370 review round 1:** trusted-other-device

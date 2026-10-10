@@ -419,7 +419,7 @@ pub enum DiscoveryRequestResult {
 }
 
 /// The request sink of `accept_requests` (Table 5.2): "an operation that takes a
-/// `SendRequest` or a `DiscoveryRequest` and returns a `RequestResult`". In this binding it
+/// `SendRequest`, `DiscoveryRequest` or `IdentityRequest` and returns a `RequestResult`". In this binding it
 /// is one method per kind of request, each returning that kind's result
 /// ([IFC-ADP-003], [IFC-ADP-060]).
 pub trait RequestSink: Send + Sync {
