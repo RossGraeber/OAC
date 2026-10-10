@@ -119,6 +119,7 @@ impl Transport for Logical {
         self.raw.start(k, c)
     }
     fn publish(&self, d: &Destination, p: Payload, dl: Deadline) -> PublishResult {
+        self.medium.audit_destination(d);
         let target = match d {
             Destination::Device(k) => k.clone(),
             Destination::Session(_) => key(if self.caps.reach == Reach::CrossImplementation {
@@ -158,6 +159,7 @@ impl Transport for Logical {
         d: &Destination,
         h: InboundHandler,
     ) -> Result<Subscription, TransportError> {
+        self.medium.audit_destination(d);
         let d = d.clone();
         let k = self.local.clone();
         let frames = self.frames.clone();
@@ -383,6 +385,7 @@ pub(crate) fn frame_cap(h: &dyn TransportHarness) -> Verdict {
 
 fn observations(h: &dyn TransportHarness) -> Result<Vec<SealingObservation>, Verdict> {
     let (m, t, c) = raw(h);
+    m.audit_destination(&session(7));
     if !c.sealing {
         return Err(absent());
     }
@@ -467,20 +470,32 @@ pub(crate) fn identifiers(h: &dyn TransportHarness) -> Verdict {
         Ok(v) => v,
         Err(v) => return v,
     };
-    check_identifiers(&obs)
+    let needles: Vec<_> = [
+        Destination::Device(key(1)),
+        Destination::Device(key(2)),
+        session(7),
+    ]
+    .iter()
+    .flat_map(identifier_needles)
+    .collect();
+    check_identifiers(&obs, &needles)
 }
-pub(crate) fn check_identifiers(obs: &[SealingObservation]) -> Verdict {
-    let Destination::Session(s) = session(7) else {
-        unreachable!()
+pub(crate) fn identifier_needles(d: &Destination) -> Vec<Vec<u8>> {
+    let (text, octets) = match d {
+        Destination::Device(k) => (k.as_str(), hex(k.as_str())),
+        Destination::Session(s) => {
+            // Canonical SessionId is Crockford base32 encoding of 128 bits,
+            // with two leading zero bits (SC-ID-003). Decode the actual id, not a sample.
+            let alphabet = b"0123456789abcdefghjkmnpqrstvwxyz";
+            let value = s.as_str().bytes().fold(0u128, |v, b| {
+                (v << 5) | alphabet.iter().position(|&c| c == b).unwrap() as u128
+            });
+            (s.as_str(), value.to_be_bytes().to_vec())
+        }
     };
-    let needles = [
-        key(1).as_str().as_bytes().to_vec(),
-        hex(key(1).as_str()),
-        key(2).as_str().as_bytes().to_vec(),
-        hex(key(2).as_str()),
-        s.as_str().as_bytes().to_vec(),
-        vec![7; 16],
-    ];
+    vec![text.as_bytes().to_vec(), octets]
+}
+pub(crate) fn check_identifiers(obs: &[SealingObservation], needles: &[Vec<u8>]) -> Verdict {
     for o in obs {
         for id in &o.identifiers {
             fail_if!(
@@ -490,6 +505,39 @@ pub(crate) fn check_identifiers(obs: &[SealingObservation]) -> Verdict {
         }
     }
     Verdict::Pass("observed identifiers contain no test device/session id (text or octets); arbitrary derivations need binding review".into())
+}
+
+#[cfg(test)]
+mod identifier_tests {
+    use super::*;
+
+    #[test]
+    fn actual_session_octets_and_every_suite_identifier_are_scanned_at_any_frame_size() {
+        let octets = std::array::from_fn(|i| (i as u8).wrapping_mul(17));
+        let d = Destination::Session(SessionId::from_random_octets(octets));
+        assert_eq!(identifier_needles(&d)[1], octets);
+        let destinations: Vec<_> = (1..=3)
+            .map(|n| Destination::Device(key(n)))
+            .chain((1..=15).map(session))
+            .chain([d])
+            .collect();
+        let needles: Vec<_> = destinations.iter().flat_map(identifier_needles).collect();
+        for destination in &destinations {
+            for needle in identifier_needles(destination) {
+                for size in [54, 4401, 65590] {
+                    let mut id = b"prefix/".to_vec();
+                    id.extend(&needle);
+                    id.extend(b"/suffix");
+                    let observation = SealingObservation {
+                        frame: vec![0; size],
+                        accompanying: Vec::new(),
+                        identifiers: vec![id],
+                    };
+                    assert!(check_identifiers(&[observation], &needles).is_fail());
+                }
+            }
+        }
+    }
 }
 pub(crate) fn inbound(h: &dyn TransportHarness) -> Verdict {
     let (m, a, c) = raw(h);

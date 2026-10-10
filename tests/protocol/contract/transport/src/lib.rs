@@ -81,6 +81,11 @@ pub trait TransportHarness: Sync {
 /// One medium: the transports made by [`Medium::transport`] and started with
 /// [`Medium::configuration`] reach each other.
 pub trait Medium: Send + Sync {
+    /// Suite-internal audit hook for destinations before logical sealing hides them.
+    /// Implementations need not override this; the run-wide audit owns the record.
+    #[doc(hidden)]
+    fn audit_destination(&self, _destination: &Destination) {}
+
     /// Raw carriage captured at the implementation boundary, including headers and link,
     /// peer, carrier and liveness identifiers. Required for a sealing declaration.
     /// This is observation, never permission to omit a check. See the suite README.
@@ -377,7 +382,7 @@ pub fn run(harness: &dyn TransportHarness) -> Report {
                 "IFC-TRN-108",
                 "all-worlds-no-identifier-leaks",
                 match &obs {
-                    Ok(v) => sealed::check_identifiers(v),
+                    Ok(v) => sealed::check_identifiers(v, &audit.identifier_needles()),
                     Err(v) => v.clone(),
                 },
             ),
@@ -1453,6 +1458,9 @@ pub fn ifc_typ_092(h: &dyn TransportHarness) -> Verdict {
 pub fn ifc_typ_095(h: &dyn TransportHarness) -> Verdict {
     let w = World::new(h);
     for d in [session(15), Destination::Device(w.recv().key.clone())] {
+        if w.a.caps.sealing {
+            w.m.audit_destination(&d);
+        }
         match d {
             Destination::Session(_) | Destination::Device(_) => {}
         }

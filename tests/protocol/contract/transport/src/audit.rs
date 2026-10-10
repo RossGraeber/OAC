@@ -71,6 +71,16 @@ impl<'a> Harness<'a> {
         }
         Ok(all)
     }
+    pub fn identifier_needles(&self) -> Vec<Vec<u8>> {
+        self.media
+            .lock()
+            .unwrap()
+            .iter()
+            .flat_map(|m| m.identifiers.lock().unwrap().clone())
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .collect()
+    }
 }
 impl TransportHarness for Harness<'_> {
     fn binding_sealing(&self) -> bool {
@@ -81,6 +91,7 @@ impl TransportHarness for Harness<'_> {
     }
     fn medium(&self) -> Box<dyn Medium> {
         let record = Arc::new(Record {
+            identifiers: Mutex::default(),
             declarations: Mutex::default(),
             sent: Mutex::default(),
             late: AtomicUsize::default(),
@@ -95,6 +106,7 @@ impl TransportHarness for Harness<'_> {
     }
 }
 struct Record {
+    identifiers: Mutex<std::collections::HashSet<Vec<u8>>>,
     declarations: Mutex<Vec<bool>>,
     sent: Mutex<Vec<Vec<u8>>>,
     late: AtomicUsize,
@@ -140,6 +152,13 @@ impl Drop for AuditedMedium {
 }
 
 impl Medium for Arc<AuditedMedium> {
+    fn audit_destination(&self, d: &Destination) {
+        self.record
+            .identifiers
+            .lock()
+            .unwrap()
+            .extend(sealed::identifier_needles(d));
+    }
     fn transport(&self) -> Box<dyn Transport> {
         Box::new(Raw {
             inner: self.inner.transport(),
@@ -178,6 +197,13 @@ struct Raw {
     down: Mutex<Arc<AtomicBool>>,
 }
 impl Raw {
+    fn record_destination(&self, d: &Destination) {
+        self.record
+            .identifiers
+            .lock()
+            .unwrap()
+            .extend(sealed::identifier_needles(d));
+    }
     fn record(&self, p: &Payload, r: PublishResult) -> PublishResult {
         if p.kind() == PayloadKind::Sealed && r == PublishResult::Taken {
             self.record.sent.lock().unwrap().push(p.octets().to_vec());
@@ -191,6 +217,11 @@ impl Transport for Raw {
         k: &KeyId,
         c: TransportConfiguration,
     ) -> Result<TransportCapabilities, TransportError> {
+        self.record
+            .identifiers
+            .lock()
+            .unwrap()
+            .extend(sealed::identifier_needles(&Destination::Device(k.clone())));
         let caps = self.inner.start(k, c)?;
         self.record.declarations.lock().unwrap().push(caps.sealing);
         let mut down = self.down.lock().unwrap();
@@ -200,10 +231,12 @@ impl Transport for Raw {
         Ok(caps)
     }
     fn publish(&self, d: &Destination, p: Payload, dl: Deadline) -> PublishResult {
+        self.record_destination(d);
         let r = self.inner.publish(d, p.clone(), dl);
         self.record(&p, r)
     }
     fn send_presence(&self, d: &Destination, p: Payload, dl: Deadline) -> PublishResult {
+        self.record_destination(d);
         let r = self.inner.send_presence(d, p.clone(), dl);
         self.record(&p, r)
     }
@@ -212,6 +245,7 @@ impl Transport for Raw {
         d: &Destination,
         h: InboundHandler,
     ) -> Result<Subscription, TransportError> {
+        self.record_destination(d);
         let (down, late) = (self.down.lock().unwrap().clone(), self.record.clone());
         self.inner.subscribe(
             d,

@@ -570,6 +570,8 @@ enum SealBreach {
     Deadline,
     DeviceId,
     SessionId,
+    ThirdDeviceText,
+    ThirdDeviceOctets,
     NoObservations,
     EmptyObservations,
     OverCap,
@@ -600,6 +602,7 @@ impl FaultControl for SealingFaults {
 }
 type SentDeadlines = Arc<Mutex<Vec<(Vec<u8>, Deadline)>>>;
 struct SealingMedium {
+    third_key: Arc<Mutex<Option<KeyId>>>,
     inner: MemoryMedium,
     breach: SealBreach,
     observations: Arc<Mutex<Vec<oac_contract_transport::SealingObservation>>>,
@@ -609,6 +612,7 @@ struct SealingMedium {
     deadlines: SentDeadlines,
 }
 struct SealingTransport {
+    third_key: Arc<Mutex<Option<KeyId>>>,
     inner: MemoryTransport,
     breach: SealBreach,
     observations: Arc<Mutex<Vec<oac_contract_transport::SealingObservation>>>,
@@ -640,6 +644,7 @@ impl TransportHarness for SealingHarness {
         };
         let hold = Arc::default();
         Box::new(SealingMedium {
+            third_key: Arc::default(),
             inner: MemoryMedium {
                 network,
                 faults: None,
@@ -659,6 +664,7 @@ impl TransportHarness for SealingHarness {
 impl Medium for SealingMedium {
     fn transport(&self) -> Box<dyn Transport> {
         Box::new(SealingTransport {
+            third_key: self.third_key.clone(),
             inner: MemoryTransport::new(),
             breach: self.breach,
             observations: self.observations.clone(),
@@ -697,7 +703,29 @@ impl Medium for SealingMedium {
         match self.breach {
             SealBreach::NoObservations => None,
             SealBreach::EmptyObservations => Some(Vec::new()),
-            _ => Some(self.observations.lock().unwrap().clone()),
+            _ => {
+                let mut observations = self.observations.lock().unwrap().clone();
+                if let Some(k) = self.third_key.lock().unwrap().as_ref() {
+                    let id = match self.breach {
+                        SealBreach::ThirdDeviceText => k.as_str().as_bytes().to_vec(),
+                        SealBreach::ThirdDeviceOctets => k
+                            .as_str()
+                            .as_bytes()
+                            .as_chunks::<2>()
+                            .0
+                            .iter()
+                            .map(|c| {
+                                u8::from_str_radix(std::str::from_utf8(c).unwrap(), 16).unwrap()
+                            })
+                            .collect(),
+                        _ => return Some(observations),
+                    };
+                    for observation in &mut observations {
+                        observation.identifiers.push(id.clone());
+                    }
+                }
+                Some(observations)
+            }
         }
     }
 }
@@ -708,6 +736,10 @@ impl Transport for SealingTransport {
         c: TransportConfiguration,
     ) -> Result<TransportCapabilities, TransportError> {
         let mut caps = self.inner.start(k, c)?;
+        if *k == oac_contract_transport::key(3) {
+            // Capture the actual third start argument; only that world's captures leak it.
+            *self.third_key.lock().unwrap() = Some(k.clone());
+        }
         if self.breach == SealBreach::FalseDeclaration {
             return Ok(caps);
         }
@@ -902,6 +934,8 @@ fn sealing_plants_are_caught_under_their_requirement_ids() {
         (SealBreach::Deadline, "IFC-TRN-107"),
         (SealBreach::DeviceId, "IFC-TRN-108"),
         (SealBreach::SessionId, "IFC-TRN-108"),
+        (SealBreach::ThirdDeviceText, "IFC-TRN-108"),
+        (SealBreach::ThirdDeviceOctets, "IFC-TRN-108"),
         (SealBreach::NoObservations, "IFC-TRN-107"),
         (SealBreach::EmptyObservations, "IFC-TRN-107"),
         (SealBreach::OverCap, "IFC-TRN-104"),
@@ -935,6 +969,26 @@ fn sealing_plants_are_caught_under_their_requirement_ids() {
                     .iter()
                     .any(|r| r.check == "all-worlds-no-accompanying-values" && r.verdict.is_fail()),
                 "large-frame leak escaped: {report}"
+            );
+        }
+        if matches!(
+            breach,
+            SealBreach::ThirdDeviceText | SealBreach::ThirdDeviceOctets
+        ) {
+            assert!(
+                report
+                    .rows
+                    .iter()
+                    .any(|r| r.check == "identifiers-do-not-name-devices-or-sessions"
+                        && matches!(r.verdict, Verdict::Pass(_))),
+                "small control must stay clean: {report}"
+            );
+            assert!(
+                report
+                    .rows
+                    .iter()
+                    .any(|r| r.check == "all-worlds-no-identifier-leaks" && r.verdict.is_fail()),
+                "third-device leak escaped: {report}"
             );
         }
         if breach == SealBreach::FalseDeclaration {
