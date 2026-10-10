@@ -74,6 +74,12 @@ impl Connection {
         mut reader: crate::connection::ConnectionReader,
         mut writer: crate::connection::ConnectionWriter,
     ) -> Connection {
+        assert!(
+            !reader.attached && !writer.attached,
+            "connection halves cannot be reissued"
+        );
+        reader.attached = true;
+        writer.attached = true;
         let closure = Arc::new(crate::connection::Closure::default());
         reader.closure = closure.clone();
         writer.closure = closure.clone();
@@ -284,7 +290,7 @@ pub struct IdentityRequest {
     pub attachment: Attachment,
 }
 
-/// Exactly the two local result members of interfaces 0.4 ?4.10; no key bytes.
+/// Exactly the two local result members of interfaces 0.4 section 4.10; no key bytes.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LocalIdentity {
     /// The currently served session.

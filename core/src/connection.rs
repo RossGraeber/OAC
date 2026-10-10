@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! Core-owned cancellable byte streams (interfaces 0.4 ?5.2).
+//! Core-owned cancellable byte streams (interfaces 0.4 section 5.2).
 //!
 //! Bytes arrive through a local relay's channel. No arbitrary blocking Read/Write
 //! implementation can enter a Connection. Transfer commits under the closure lock;
@@ -21,11 +21,11 @@ const READ_WAIT: Duration = Duration::from_millis(1);
 
 #[derive(Default)]
 struct State {
-    closed: bool,
     pending: usize,
 }
 #[derive(Default)]
 pub(crate) struct Closure {
+    closed: AtomicBool,
     state: Mutex<State>,
     changed: Condvar,
 }
@@ -34,23 +34,22 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 impl Closure {
     pub(crate) fn is_closed(&self) -> bool {
-        lock(&self.state).closed
+        self.closed.load(Ordering::SeqCst)
     }
     pub(crate) fn begin_close(&self) {
-        lock(&self.state).closed = true;
+        self.closed.store(true, Ordering::SeqCst);
         self.changed.notify_all();
     }
     pub(crate) fn close(&self) {
+        self.begin_close();
         let mut s = lock(&self.state);
-        s.closed = true;
-        self.changed.notify_all();
         while s.pending != 0 {
             s = self.changed.wait(s).unwrap_or_else(|e| e.into_inner());
         }
     }
     fn begin(self: &Arc<Self>) -> Option<Pending> {
         let mut s = lock(&self.state);
-        if s.closed {
+        if self.closed.load(Ordering::SeqCst) {
             return None;
         }
         s.pending += 1;
@@ -97,6 +96,7 @@ pub struct ConnectionReader {
     buf: Vec<u8>,
     pos: usize,
     pub(crate) closure: Arc<Closure>,
+    pub(crate) attached: bool,
 }
 impl From<Receiver<Vec<u8>>> for ConnectionReader {
     fn from(rx: Receiver<Vec<u8>>) -> Self {
@@ -105,6 +105,7 @@ impl From<Receiver<Vec<u8>>> for ConnectionReader {
             buf: Vec::new(),
             pos: 0,
             closure: Arc::default(),
+            attached: false,
         }
     }
 }
@@ -129,7 +130,7 @@ impl Read for ConnectionReader {
         }
         loop {
             let s = lock(&self.closure.state);
-            if s.closed {
+            if self.closure.is_closed() {
                 return Ok(0);
             }
             if self.pos < self.buf.len() {
@@ -197,6 +198,7 @@ pub struct ConnectionWriter {
     tx: Sender<Vec<u8>>,
     control: WriteControl,
     pub(crate) closure: Arc<Closure>,
+    pub(crate) attached: bool,
 }
 impl Default for ConnectionWriter {
     fn default() -> Self {
@@ -204,6 +206,7 @@ impl Default for ConnectionWriter {
             tx: mpsc::channel().0,
             control: WriteControl::default(),
             closure: Arc::default(),
+            attached: false,
         }
     }
 }
@@ -234,7 +237,7 @@ impl ConnectionWriter {
         let mut transferred = 0;
         loop {
             let mut s = lock(&self.closure.state);
-            while !s.closed
+            while !self.closure.is_closed()
                 && (self.control.0.paused.load(Ordering::SeqCst)
                     || transferred >= self.control.0.after.load(Ordering::SeqCst))
             {
@@ -245,7 +248,7 @@ impl ConnectionWriter {
                     .unwrap_or_else(|e| e.into_inner())
                     .0;
             }
-            if s.closed {
+            if self.closure.is_closed() {
                 return Ok(WriteOutcome::Closed { transferred });
             }
             let end = (transferred + 8192).min(buf.len());
@@ -405,5 +408,52 @@ mod tests {
                 other => panic!("{other:?}"),
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod barrier_tests {
+    use super::*;
+    use crate::adapter::Connection;
+    #[test]
+    fn closure_begun_refuses_new_operations_even_before_close_waits() {
+        let (tx, rx) = mpsc::channel();
+        let c = Connection::accept(Default::default(), tx.into());
+        let (h, mut r, mut w) = c.into_streams();
+        h.begin_close();
+        assert_eq!(
+            w.transfer(b"no").unwrap(),
+            WriteOutcome::Closed { transferred: 0 }
+        );
+        assert_eq!(r.read(&mut [0; 8]).unwrap(), 0);
+        assert!(rx.try_recv().is_err());
+        h.close();
+    }
+    #[test]
+    fn an_io_failure_before_close_retains_its_failure() {
+        let c = Connection::accept(Default::default(), Default::default());
+        let (h, _, mut w) = c.into_streams();
+        let error = w.transfer(b"gone").unwrap_err();
+        h.close();
+        assert_eq!(error.kind(), io::ErrorKind::BrokenPipe);
+        assert_eq!(error.to_string(), "relay ended");
+        assert!(
+            error
+                .get_ref()
+                .unwrap()
+                .downcast_ref::<ClosedWrite>()
+                .is_none()
+        );
+    }
+    #[test]
+    fn previously_issued_halves_cannot_change_their_closure_state() {
+        let c = Connection::accept(Default::default(), Default::default());
+        let (h, r, w) = c.into_streams();
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| Connection::accept(r, w)))
+                .is_err()
+        );
+        h.close();
+        assert!(h.is_closed());
     }
 }
