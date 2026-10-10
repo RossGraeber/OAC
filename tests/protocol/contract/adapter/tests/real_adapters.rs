@@ -379,6 +379,7 @@ fn the_forbidden_lists_agree() {
 /// Conservative source guard: contract harnesses must be unconditional default tests.
 /// Reject disabling attributes anywhere in the fixed harness, including crate attributes.
 fn active_contract_harness(text: &str, manifest: &str) -> bool {
+    use syn::ext::IdentExt;
     use syn::visit::Visit;
 
     #[derive(Default)]
@@ -388,10 +389,11 @@ fn active_contract_harness(text: &str, manifest: &str) -> bool {
     }
     impl<'ast> Visit<'ast> for Attributes {
         fn visit_attribute(&mut self, attr: &'ast syn::Attribute) {
-            self.test |= attr.path().is_ident("test");
-            self.disabled |= ["ignore", "cfg", "cfg_attr"]
-                .iter()
-                .any(|name| attr.path().is_ident(name));
+            if let Some(ident) = attr.path().get_ident() {
+                let name = ident.unraw().to_string();
+                self.test |= name == "test";
+                self.disabled |= ["ignore", "cfg", "cfg_attr"].contains(&name.as_str());
+            }
             syn::visit::visit_attribute(self, attr);
         }
     }
@@ -434,6 +436,8 @@ fn ignored_or_disabled_contract_harnesses_are_rejected() {
     assert!(!active_contract_harness("#[ignore", "[package]"));
     for attr in [
         "#[ignore]",
+        "#[r#ignore]",
+        "#[r#ignore = \"later\"]",
         "#[ignore = \"later\"]",
         "#[/* review syntax */ignore]",
         "#[/* nested /* comment */ */ ignore = \"later\"]",
@@ -441,6 +445,8 @@ fn ignored_or_disabled_contract_harnesses_are_rejected() {
         "#![/* comment */ignore]",
         "#[/* comment */cfg_attr(test, ignore = \"later\")]",
         "#[cfg(any())]",
+        "#[r#cfg(any())]",
+        "#[r#cfg_attr(test, ignore)]",
         "#[cfg_attr(test, ignore)]",
         "#![cfg(any())]",
     ] {
@@ -457,6 +463,91 @@ fn ignored_or_disabled_contract_harnesses_are_rejected() {
     ] {
         assert!(!active_contract_harness(active, disabled), "{disabled}");
     }
+}
+
+/// Check libtest's compiled inventory as well as source spelling. Listing never runs
+/// the tests or a live harness; both Cargo invocations are offline and locked.
+fn compiled_contract_harness(dir: &Path) -> Result<(), String> {
+    let list = |ignored: bool| -> Result<usize, String> {
+        let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+        let mut command = std::process::Command::new(cargo);
+        command
+            .current_dir(dir)
+            .args(["test", "--offline", "--locked", "--test", "contract", "--"])
+            .args(["--list", "--format", "terse"]);
+        if ignored {
+            command.arg("--ignored");
+        }
+        let out = command
+            .output()
+            .map_err(|e| format!("contract inventory: {e}"))?;
+        if !out.status.success() {
+            return Err(format!(
+                "contract inventory failed ({}): {}",
+                out.status,
+                String::from_utf8_lossy(&out.stderr)
+            ));
+        }
+        let stdout = String::from_utf8(out.stdout)
+            .map_err(|e| format!("contract inventory is not UTF-8: {e}"))?;
+        Ok(stdout
+            .lines()
+            .filter(|line| line.ends_with(": test"))
+            .count())
+    };
+    let all = list(false)?;
+    let ignored = list(true)?;
+    if ignored != 0 {
+        return Err(format!("contract inventory lists {ignored} ignored tests"));
+    }
+    if all == 0 {
+        return Err("contract inventory lists zero active tests".to_owned());
+    }
+    Ok(())
+}
+
+#[test]
+fn compiled_contract_inventory_rejects_ignored_and_empty_targets() {
+    let dir = std::env::temp_dir().join(format!("oac-contract-inventory-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("tests")).unwrap();
+    std::fs::write(
+        dir.join("Cargo.toml"),
+        "[workspace]\n[package]\nname = \"planted-contract-inventory\"\nversion = \"0.0.0\"\nedition = \"2024\"\n",
+    )
+    .unwrap();
+    std::fs::write(dir.join("tests/contract.rs"), "#[test] fn active() {}\n").unwrap();
+    let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+    let lock = std::process::Command::new(cargo)
+        .current_dir(&dir)
+        .args(["generate-lockfile", "--offline"])
+        .output()
+        .unwrap();
+    assert!(
+        lock.status.success(),
+        "{}",
+        String::from_utf8_lossy(&lock.stderr)
+    );
+    for (source, expected) in [
+        ("#[test] fn active() {}", None),
+        ("#[test] #[ignore] fn ignored() {}", Some("ignored tests")),
+        ("#[test] #[r#ignore] fn ignored() {}", Some("ignored tests")),
+        (
+            "#[test] fn active() {} #[test] #[r#ignore] fn ignored() {}",
+            Some("ignored tests"),
+        ),
+        ("fn no_tests() {}", Some("zero active tests")),
+    ] {
+        std::fs::write(dir.join("tests/contract.rs"), source).unwrap();
+        let result = compiled_contract_harness(&dir);
+        match expected {
+            None => assert!(result.is_ok(), "{result:?}"),
+            Some(reason) => assert!(
+                result.as_ref().is_err_and(|e| e.contains(reason)),
+                "{source}: expected {reason}, got {result:?}"
+            ),
+        }
+    }
+    std::fs::remove_dir_all(&dir).unwrap();
 }
 
 #[test]
@@ -503,5 +594,6 @@ fn every_real_adapter_that_implements_the_trait_runs_the_suite() {
                 harness.display()
             );
         }
+        compiled_contract_harness(&dir).unwrap_or_else(|e| panic!("{name}: {e}"));
     }
 }
