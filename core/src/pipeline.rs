@@ -1205,7 +1205,7 @@ impl RequestSink for Sink {
         use crate::adapter::{IdentityRequestResult, LocalIdentity};
         let Some(inner) = self.inner.upgrade() else {
             return IdentityRequestResult::Refused {
-                error: ErrorCode::InternalError,
+                error: ErrorCode::Unauthorized,
             };
         };
         let core = inner.lock();

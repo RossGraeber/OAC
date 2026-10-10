@@ -3176,3 +3176,22 @@ fn identity_refuses_a_withheld_or_closed_attachment_and_uses_a_new_binding() {
         }
     );
 }
+
+#[test]
+fn identity_refuses_when_the_core_no_longer_serves_the_attachment() {
+    use oac_core::adapter::{IdentityRequest, IdentityRequestResult};
+    let n = node(
+        &Bus::default(),
+        "identity-device",
+        PipelineConfig::default(),
+    );
+    let (a, _) = session(&n, 51);
+    let sink = n.adapter.sink();
+    drop(n);
+    assert_eq!(
+        sink.identity(IdentityRequest { attachment: a }),
+        IdentityRequestResult::Refused {
+            error: ErrorCode::Unauthorized
+        }
+    );
+}
