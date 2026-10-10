@@ -646,7 +646,10 @@ function bashFile(bodyText) {
   }
   return bashFiles.get(text);
 }
-// A run's own winWorkDir directories still present (the run was interrupted mid-step).
+// Best-effort cleanup on normal JS exit. Forced termination (including Windows
+// child.kill('SIGINT')), a crash, or a locked child file can leave a directory behind.
+// Console cancellation is not proven by the normal-exit self-test. The next run with
+// that PID clears its stale directory before the step; other PID directories are untouched.
 const workDirs = new Set();
 process.on('exit', () => {
   for (const f of bashFiles.values()) rmSync(dirname(f), { recursive: true, force: true });

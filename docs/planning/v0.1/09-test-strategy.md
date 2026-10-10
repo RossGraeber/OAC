@@ -169,6 +169,29 @@ deleted workflow ran it as a tier of its own. The default-tier step `test-listen
 bind, unspecified address, non-loopback Zenoh locator, raw default Zenoh configuration or
 multicast in product or test code outside its stale-checked allowlists.
 
+The guard reads complete listener calls and multicast settings across lines, masking
+comments and string delimiters. Node's positional host must itself be a loopback literal;
+Rust associated and instance `bind` calls, including renamed socket types, fail closed
+unless their own address is literal loopback or the exact site is reviewed. Session/key
+and attachment binding methods share the name `bind`: their reviewed lines open no socket.
+Every REVIEWED entry must resolve to exactly one complete line, with no extra listener;
+repeated session-binding lines also pin the following line. OPT_IN requires the complete
+opening negated gate call and return block, with every listener after it. A disabled
+condition such as `&& false` fails.
+
+This lexical check does not prove receiver types at reviewed sites or gate-helper
+semantics. Wrappers, renamed bind functions, generated calls, computed JS properties,
+template interpolation and dependency listeners remain source-review responsibilities.
+Computed addresses at direct Rust binds are rejected rather than inferred as safe.
+
+On Windows, compiled-tests-self-test uses `%TEMP%\\oac-cts-<pid>`, cleared before its
+step and removed after normal completion. The runner's exit hook is best effort: forced
+termination, crashes and locked child files can leave it behind. In particular, a Windows
+`child.kill('SIGINT')` probe does not establish graceful console cancellation. Console
+cancellation cleanup remains unverified; the existing self-test proves normal cleanup and
+stale-directory removal, not interruption cleanup. A reused PID clears its stale directory
+before the step; other PID directories are untouched.
+
 ---
 
 ## 4. Opt-in mechanics
