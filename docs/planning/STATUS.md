@@ -4,32 +4,39 @@ The single source of truth for where the project is. The `oac` router skill read
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
 
-**Last updated:** 2026-10-10 (**Interfaces 0.4 implemented; #376, Refs #66:**
-`core/src/connection.rs` supplies core-owned cancellable relay halves, a 100 ms close
-bound, exact zero/partial/full transfer outcomes, and one closure state shared by
-handles and halves. No arbitrary blocking-stream compatibility constructor remains.
-`Pipelines::connect_observed` refuses a closure bound outside the adapter's budget.
-Claude's binding supplement (`adapters/claude/src/adapter.rs`) states a 1000 ms shutdown
-bound and closes all streams before settling pending hand-offs; handler re-entry and
-concurrent shutdown are supported. Runtime cleanup can finish later, with all streams
-revoked and no writer capable of further transfer. Row 82 of 11-risks is closed with
-named proving tests. OS-authenticated IPC integration remains G9 (#70).
+**Last updated:** 2026-10-10 (**Spec-driven transport contract-suite revision,
+lead-approved 2026-10-10, before #374; Refs #59, #62, #370, #374**). The shared
+`tests/protocol/contract/transport` suite now selects sealing from the transport's
+actual `start` declaration, cross-checked against the harness's independently reviewed
+binding expectation (IFC-TRN-110). Every existing delivery, ordering, expiry, restart and
+presence check uses core HPKE frames on that path; the non-sealing path retains its
+original assertions, payloads and operations. New mandatory checks cover IFC-TRN-113
+plain-kind refusal through both send operations, IFC-TRN-105 unchanged frames on the
+local device subscription, IFC-TRN-107/108 carriage observations, IFC-TRN-109's floor,
+and the frame cap/54-octet overhead relevant to the core-owned IFC-TRN-104. Missing
+observations and missing mandatory sealing report rows fail conformance. Run-wide
+metadata audits cover every frame size/world; shutdown counts raw callbacks before
+filtering. Encrypted expiry controls model SEC-SEL-036 receiver drops, permitting
+late sealing-network arrivals while raw sender tests retain IFC-TRN-034 obligations. A test-only
+sealing stand-in passes the complete suite with ordered/no-fault and scripted-fault
+media; planted breaches prove the new checks. Product transports and frozen spec text
+are unchanged.
 
-The core request sink answers attachment-attributed IdentityRequest from one current
-binding snapshot and the public device signing-key digest only. It refuses unknown,
-foreign-adapter, unbound, withheld and closed attachments; no envelope or receipt is
-created. Tests cover cross-adapter selection, revocation races, a new binding and the
-exact result members. The whoami tool and registration integration remain #66. The
-revision's minor/no-wire classification is already merged in PR #378; only proven
-Appendix A evidence cells change here. No requirement text, dependency, pin or gate
-verdict changes beyond the spec-driven Gate S4 suite baseline below.)
-
-**Last updated:** 2026-10-10 (**Interfaces 0.4, #376:** spec-driven adapter suite
-connection-factory revision, authorized by the lead on 2026-10-10. Arbitrary blocking
-Read/Write factories are replaced by core-owned cancellable halves; no compatibility
-constructor. Existing checks and planted breaches are retained, with new stalled-write
-and late-hand-off plants. Gate S4 suite baseline: `14dfb4d9f15307d36f66552916bf05ea492673fc`
-(latest dedicated suite revision commit; initial factory migration `f77a3a3`). No gate verdict changes.)
+**New Gate S4 transport contract-suite baseline:** `e7d55d59a84bea587e992da5b680be9569336fcd`
+(the implementation commit; this documentation records it in a following commit).
+PR #379 review round 2: the run-wide identifier audit collects every actual start key
+and every raw/logical destination, including the type-only session control. It checks
+text and decoded octets across every captured world/frame size; selective text and
+raw-octet disclosures of the third device's actual start key fail IFC-TRN-108 and
+IFC-TRN-003, while the small metadata controls stay clean. The original non-sealing
+assertions, payloads, operations and limits remain unchanged.
+S4 evidence for sealing transports must cite this baseline or a descendant and run
+all checks. This is the approved spec-driven suite revision, not a gate verdict.
+The [suite README](../../tests/protocol/contract/transport/README.md) records the
+harness observation contract and its limits: native capture completeness and arbitrary
+identifier derivations remain binding-review obligations; the black-box trait cannot
+expose them independently. This revision does not claim complete metadata
+confidentiality, transport authentication, or fulfilment of #374.
 
 **Last updated:** 2026-10-09 (**PR #370 review round 1:** trusted-other-device
 pairing and seal-failure paths have mutation-backed tests; unknown transport
