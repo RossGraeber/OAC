@@ -163,6 +163,8 @@ enum ChannelBreach {
     WaitsBeforeClose,
     /// Reports shutdown complete but leaves an admitted write able to finish.
     LateHandOff,
+    /// The reviewer's mutation: fail truthfully, but settle 40 ms after closing.
+    LateSettlement,
     /// Declares an MCP `resources` capability, an inbox the session could read
     /// ([IFC-ADP-040]; [MCPB-DLV-002]).
     DeclaresResources,
@@ -441,6 +443,9 @@ impl ProviderAdapter for ChannelStandIn {
         let mut sent = true;
         for _ in 0..calls {
             sent &= send_line(&self.writers, a, &frame);
+        }
+        if !sent && self.breach == ChannelBreach::LateSettlement {
+            std::thread::sleep(std::time::Duration::from_millis(40));
         }
         if sent {
             HandOffOutcome::Completed
@@ -1366,11 +1371,13 @@ fn the_binding_is_identified_by_its_surface_not_by_the_harness() {
 #[test]
 fn the_suite_still_catches_stalled_shutdown_and_late_hand_off_after_factory_migration() {
     let stalled = channel_report(ChannelBreach::WaitsBeforeClose, MidTurnRelease::default());
-    assert_caught(&stalled, "wait before connection close", &["IFC-ADP-074"]);
+    assert_caught(&stalled, "wait before connection close", &["IFC-ADP-119"]);
     let late = channel_report(ChannelBreach::LateHandOff, MidTurnRelease::default());
     assert_caught(
         &late,
         "admitted write completes after shutdown",
         &["IFC-ADP-073", "IFC-ADP-070"],
     );
+    let settlement = channel_report(ChannelBreach::LateSettlement, MidTurnRelease::default());
+    assert_caught(&settlement, "40 ms late failed result", &["IFC-ADP-109"]);
 }

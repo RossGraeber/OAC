@@ -596,6 +596,21 @@ impl CoreSide {
 struct Sink(Arc<CoreSide>);
 
 impl RequestSink for Sink {
+    fn send_local(
+        &self,
+        call: &mut oac_core::local_call::CallContext,
+        request: SendRequest,
+    ) -> oac_core::local_call::LocalResult<SendRequestResult> {
+        call.commit(|| self.send(request))
+    }
+
+    fn discover_local(
+        &self,
+        call: &mut oac_core::local_call::CallContext,
+        request: DiscoveryRequest,
+    ) -> oac_core::local_call::LocalResult<DiscoveryRequestResult> {
+        call.commit(|| self.discover(request))
+    }
     fn send(&self, request: SendRequest) -> SendRequestResult {
         let me = &self.0;
         let id = Token::parse(&format!("m{}", me.next_id.fetch_add(1, Ordering::Relaxed)))
@@ -1803,7 +1818,9 @@ fn scenarios(ctx: &mut Ctx<'_>) -> Result<(), String> {
         for (_, c) in &controls {
             c.pause(false);
         }
-        let terminal = terminal_at_return.or_else(|| settle_rx.recv_timeout(WAIT).ok());
+        // Cleanup may wait; evidence may not. A late failed/indeterminate result is
+        // still a settlement-barrier violation, even when no bytes reached the peer.
+        let terminal = terminal_at_return;
         if !returned {
             let _ = done_rx.recv_timeout(WAIT);
         }
@@ -1811,7 +1828,7 @@ fn scenarios(ctx: &mut Ctx<'_>) -> Result<(), String> {
         let _ = delivering.join();
         std::thread::sleep(Duration::from_millis(50));
         let observed = ctx.h.observe(s1.index);
-        check!(ctx, "IFC-ADP-074", "stalled-shutdown-is-bounded", {
+        check!(ctx, "IFC-ADP-119", "stalled-shutdown-is-bounded", {
             if stalled && returned {
                 Verdict::Pass(format!("stalled peer: shutdown returned within {bound} ms"))
             } else {
@@ -1831,12 +1848,23 @@ fn scenarios(ctx: &mut Ctx<'_>) -> Result<(), String> {
             if calls_with(&observed, &text).is_empty()
                 && !took(&observed, &text)
                 && terminal.is_some_and(|x| x != HandOffOutcome::Completed)
+                && ctx.core.events() == *shutdown_events.as_ref().unwrap()
+                && ctx.core.requests().len() == shutdown_requests.unwrap()
             {
                 Verdict::Pass("resuming the peer after return transferred no pending input".into())
             } else {
                 Verdict::Fail(format!(
                     "late hand-off or successful stalled input: {terminal:?}"
                 ))
+            }
+        });
+        check!(ctx, "IFC-ADP-109", "settlement-at-first-shutdown-return", {
+            if terminal_at_return.is_some() {
+                Verdict::Pass(
+                    "pending deliver result present at first return; no grace period".into(),
+                )
+            } else {
+                Verdict::Fail("pending deliver returned an outcome after shutdown returned".into())
             }
         });
     }
