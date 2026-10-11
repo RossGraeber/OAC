@@ -60,6 +60,54 @@ fn send_and_receive(sender: &PeerTransport, receiver: &PeerTransport, device: ch
 }
 
 #[test]
+fn concurrent_first_creation_publishes_one_complete_private_identity() {
+    for _ in 0..4 {
+        let dir = StateDirectory::new();
+        let conf = local(&dir);
+        let barrier = std::sync::Barrier::new(8);
+        let results = std::thread::scope(|scope| {
+            let callers: Vec<_> = (0..8)
+                .map(|_| {
+                    let conf = &conf;
+                    let barrier = &barrier;
+                    let directory = &dir.0;
+                    scope.spawn(move || -> Result<Vec<u8>, String> {
+                        barrier.wait();
+                        // Real configuration/provisioning path, with an independent
+                        // ephemeral listener per caller. Native TLS parses the winner.
+                        let native = conf.native(Role::First, 0)?;
+                        let peer = zenoh::open(native).wait().map_err(|e| e.to_string())?;
+                        let bundle = std::fs::read(directory.join("identity.pem"))
+                            .map_err(|e| e.to_string())?;
+                        peer.close().wait().map_err(|e| e.to_string())?;
+                        Ok(bundle)
+                    })
+                })
+                .collect();
+            callers
+                .into_iter()
+                .map(|c| c.join().unwrap())
+                .collect::<Vec<_>>()
+        });
+        let errors: Vec<_> = results.iter().filter_map(|r| r.as_ref().err()).collect();
+        assert!(errors.is_empty(), "{errors:?}");
+        let winner = results[0].as_ref().unwrap();
+        assert!(results.iter().all(|r| r.as_ref().unwrap() == winner));
+        assert_eq!(std::fs::read_dir(&dir.0).unwrap().count(), 1);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            for (path, mode) in [(&dir.0, 0o700), (&dir.0.join("identity.pem"), 0o600)] {
+                assert_eq!(
+                    std::fs::metadata(path).unwrap().permissions().mode() & 0o777,
+                    mode
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn plain_native_router_and_different_user_tls_holder_are_refused() {
     let trusted = StateDirectory::new();
     let foreign = StateDirectory::new();
@@ -260,6 +308,42 @@ fn native_mtls_refuses_a_joiner_without_a_client_certificate() {
 }
 
 #[test]
+fn native_tls_refuses_expired_certificate_without_regenerating_state() {
+    for expired in [false, true] {
+        let dir = StateDirectory::new();
+        let conf = local(&dir);
+        conf.native(Role::First, 0).unwrap();
+        let mut params = rcgen::CertificateParams::new(vec!["127.0.0.1".into()]).unwrap();
+        params
+            .distinguished_name
+            .push(rcgen::DnType::CommonName, "oac-local");
+        params.extended_key_usages = vec![
+            rcgen::ExtendedKeyUsagePurpose::ServerAuth,
+            rcgen::ExtendedKeyUsagePurpose::ClientAuth,
+        ];
+        if expired {
+            params.not_before = rcgen::date_time_ymd(2000, 1, 1);
+            params.not_after = rcgen::date_time_ymd(2001, 1, 1);
+        }
+        let credential_key = rcgen::KeyPair::generate().unwrap();
+        let certificate = params.self_signed(&credential_key).unwrap();
+        let bundle = format!("{}{}", certificate.pem(), credential_key.serialize_pem());
+        std::fs::write(dir.0.join("identity.pem"), &bundle).unwrap();
+        let holder = PeerTransport::new();
+        holder.start(&key('a'), conf.clone().wrap()).unwrap();
+        let joiner = PeerTransport::new();
+        let result = joiner.start(&key('b'), conf.wrap());
+        assert_eq!(result.is_err(), expired);
+        assert_eq!(
+            std::fs::read_to_string(dir.0.join("identity.pem")).unwrap(),
+            bundle
+        );
+        joiner.shutdown();
+        holder.shutdown();
+    }
+}
+
+#[test]
 fn corrupt_existing_pin_is_not_regenerated_and_native_configuration_is_default_deny() {
     let dir = StateDirectory::new();
     let conf = local(&dir);
@@ -347,4 +431,29 @@ if (![OacTlsTestAcl]::IsNull($env:OAC_TLS_STORAGE)) { throw 'null DACL control w
         String::from_utf8_lossy(&result.stderr)
     );
     assert!(conf.native(Role::First, conf.rendezvous_port()).is_err());
+}
+
+#[cfg(unix)]
+#[test]
+fn existing_unix_non_private_storage_is_refused_without_repair() {
+    use std::os::unix::fs::PermissionsExt;
+    for directory_is_public in [true, false] {
+        let dir = StateDirectory::new();
+        let conf = local(&dir);
+        conf.native(Role::First, 0).unwrap();
+        let path = if directory_is_public {
+            dir.0.clone()
+        } else {
+            dir.0.join("identity.pem")
+        };
+        let mode = if directory_is_public { 0o755 } else { 0o644 };
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(mode)).unwrap();
+        let original = std::fs::read(dir.0.join("identity.pem")).unwrap();
+        assert!(conf.native(Role::First, 0).is_err());
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            mode
+        );
+        assert_eq!(std::fs::read(dir.0.join("identity.pem")).unwrap(), original);
+    }
 }

@@ -84,6 +84,60 @@
 //! LAN host reachability/scouting requires the unrun two-host leg in the integration
 //! README; default tests exercise this configuration only on loopback.
 //!
+//! **Certificate lifetime and recovery (#384, review finding 3).** Local self-signed
+//! certificates, pairing CAs and paired leaves retain rcgen 0.14.10 defaults:
+//! 1975-01-01 00:00:00 UTC to 4096-01-01 00:00:00 UTC. This is a very long credential
+//! lifetime, not an implemented renewal schedule. OAC sets no explicit validity and
+//! performs no automatic regeneration/renewal on expiry, corruption, non-private
+//! storage or failed connections. The valid/expired loopback control
+//! `native_tls_refuses_expired_certificate_without_regenerating_state` verifies native
+//! expiry refusal on join and unchanged stored material. Both roles enable Zenoh's
+//! `close_link_on_expiration`; upstream source implements closure at peer-chain expiry.
+//! Scheduled closure is source-verified, not a live timed-expiry test. Native TLS and
+//! the host clock own these checks; OAC adds no expiry handshake or clock protocol.
+//! Default-date source: <https://github.com/rustls/rcgen/blob/f4a3b165c467c070d5c74b86acc2c3f0a0be10ab/rcgen/src/certificate.rs>,
+//! rcgen 0.14.10, cached first-party source inspected 2026-10-11. Zenoh expiry source:
+//! <https://github.com/eclipse-zenoh/zenoh/blob/1.10.1/io/zenoh-link-tls/src/unicast.rs>,
+//! version 1.10.1, cached first-party source inspected 2026-10-11.
+//!
+//! **Explicit local re-provisioning/rotation (planned outage).**
+//! 1. Stop sends, shut down every local joiner and the live rendezvous holder, and
+//!    disable automatic restarts. Confirm that the holder has released the port and
+//!    no old session remains: file changes do not update credentials already in memory.
+//! 2. Retire the old owner-only `relay-tls` directory offline; keep any required backup
+//!    owner-only and inaccessible to running peers. Do not reset state while a holder
+//!    is active or merely because a connection failed. Investigate privacy failures
+//!    before deliberately replacing storage. Use a fresh absent state directory.
+//! 3. Start one intended holder through normal provisioning. It creates a new key and
+//!    complete bundle in private storage. Restart all joiners with that same directory;
+//!    check native link establishment before resuming sends. Retire old backups under
+//!    the operator's key-disposal policy. Certificate-only replacement with an old key
+//!    is not revocation; this sequence makes no new exclusive-pin claim (finding 1).
+//!
+//! **Explicit LAN re-provisioning/rotation (planned group outage).**
+//! 1. Coordinate all peers in the affected pairing trust group, stop sends and all live
+//!    listeners/joiners, and disable restarts. Include offline peers in the rollout;
+//!    leave an unupdated peer stopped. Live sessions retain loaded credentials.
+//! 2. Through the authorized offline provisioning path, issue fresh keys/leaves with
+//!    correct IP SANs and approved opaque CNs. For authority expiry, compromise or
+//!    revocation, create a fresh `PairingAuthority` and reissue every group's leaf;
+//!    replacing a leaf under the old CA does not revoke other old CA-valid leaves.
+//! 3. Install each credential into a fresh owner-only directory (`install` refuses
+//!    replacement). Update every peer's `CertificateFiles`, trusted roots, endpoints
+//!    and CN allowlist together. Remove the old group's roots everywhere when retiring
+//!    that authority; do not leave a dual-root transition for revocation. Retire old
+//!    credential directories offline with owner-only backup/key-disposal handling.
+//! 4. Restart intended listening peers, then their connecting peers using the new
+//!    configuration. Verify native TLS links and allowed/denied CN operations before
+//!    resuming sends. On failure keep traffic stopped and repair provisioning explicitly;
+//!    never regenerate or trust a newly encountered peer automatically.
+//!
+//! This is operator coordination through existing provisioning/configuration seams,
+//! not a custom rotation protocol. Daemon/CLI wiring and two-host validation remain
+//! unimplemented/unrun; root changes do not assert the exclusive-pin condition awaiting
+//! the lead's decision in review finding 1. TLS rotation does not rotate core signing
+//! or agreement keys or change core authorization.
+//!
 //! Sources: Zenoh supported stable configuration / TLS / ACL implementation, version
 //! 1.10.1, retrieved/inspected 2026-10-11:
 //! <https://github.com/eclipse-zenoh/zenoh/blob/1.10.1/DEFAULT_CONFIG.json5>,

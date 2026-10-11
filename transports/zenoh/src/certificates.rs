@@ -1,6 +1,27 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! OAC-owned certificate provisioning. Verification and handshakes belong to Zenoh.
+//!
+//! Local certificates, pairing authorities and issued leaves retain rcgen 0.14.10's
+//! default validity: 1975-01-01 00:00:00 UTC through 4096-01-01 00:00:00 UTC.
+//! Source: <https://github.com/rustls/rcgen/blob/f4a3b165c467c070d5c74b86acc2c3f0a0be10ab/rcgen/src/certificate.rs>,
+//! version 0.14.10, cached first-party source inspected 2026-10-11. No shorter
+//! operational rotation interval is implemented. Zenoh refuses expired credentials
+//! on join (valid/expired control in `native_tls_refuses_expired_certificate_without_regenerating_state`);
+//! configuration enables native `close_link_on_expiration`. There is no automatic
+//! renewal or regeneration on expiry, corruption, privacy failure or connection failure.
+//!
+//! Rotation/recovery requires a coordinated outage: stop the local live holder and
+//! every joiner, disable restarts, retire the old private directory, provision fresh
+//! key material, then start one holder before restarting joiners on that same material.
+//! For LAN, stop all peers in the affected trust group, authorize fresh provisioning
+//! offline, install fresh credentials in new owner-only directories, and update every
+//! peer's roots, IP SAN configuration and CN allowlist before restarting listeners and
+//! then connecting peers. For revocation, replace the pairing authority and all leaves
+//! and remove old roots everywhere; leaf reissue under an old CA does not revoke it.
+//! Do not overwrite live files or rely on certificate-only replacement with an old key.
+//! See the crate's binding document for the full local/LAN sequence and evidence limits.
+//! No custom rotation, handshake or revocation protocol is added.
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -185,25 +206,32 @@ fn private_directory(path: &Path) -> Result<(), String> {
     }
     #[cfg(windows)]
     {
-        // Native Windows ACL provisioning, not transport authentication. The path is
-        // passed as data, never interpolated into script code. Do not read any keyring.
+        // Native Windows ACL provisioning, not transport authentication. .NET Framework
+        // passes DirectorySecurity as Win32 SECURITY_ATTRIBUTES at creation and accepts
+        // a concurrent existing directory without changing its ACL; validation below
+        // still refuses non-private existing state. First-party source inspected 2026-10-11:
+        // https://github.com/microsoft/referencesource/blob/ec9fa9ae770d522a5b5f0607898044b7478574a3/mscorlib/system/io/directory.cs
+        // The path is data, never interpolated into script code. Do not read any keyring.
         use std::os::windows::process::CommandExt;
         let script = r#"
 $ErrorActionPreference='Stop'
 $p=$env:OAC_TLS_STORAGE
 $sid=[System.Security.Principal.WindowsIdentity]::GetCurrent().User
-if (!(Test-Path -LiteralPath $p)) {
-  $d=New-Item -ItemType Directory -Path $p
-  $a=New-Object System.Security.AccessControl.DirectorySecurity
-  $a.SetOwner($sid)
-  $a.SetAccessRuleProtection($true,$false)
-  $r=New-Object System.Security.AccessControl.FileSystemAccessRule($sid,'FullControl','ContainerInherit,ObjectInherit','None','Allow')
-  $a.AddAccessRule($r)
-  Set-Acl -LiteralPath $p -AclObject $a
-}
+$a=New-Object System.Security.AccessControl.DirectorySecurity
+$a.SetOwner($sid)
+$a.SetAccessRuleProtection($true,$false)
+$r=New-Object System.Security.AccessControl.FileSystemAccessRule($sid,'FullControl','ContainerInherit,ObjectInherit','None','Allow')
+$a.AddAccessRule($r)
+$null=[System.IO.Directory]::CreateDirectory($p,$a)
 foreach ($d in @((Get-Item -LiteralPath $p)) + @(Get-ChildItem -LiteralPath $p -Force)) {
   if ($d.Attributes -band [System.IO.FileAttributes]::ReparsePoint) { throw 'reparse point' }
-  $a=Get-Acl -LiteralPath $d.FullName
+  try { $a=Get-Acl -LiteralPath $d.FullName } catch {
+    # Concurrent creators remove their private temporary files after publication.
+    # Only vanished pending files may be skipped; never skip the directory/bundle,
+    # an existing file, or an ACL that can actually be inspected and is non-private.
+    if (!$d.PSIsContainer -and $d.Name -like 'pending-*.pem' -and !(Test-Path -LiteralPath $d.FullName)) { continue }
+    throw
+  }
   if ($a.GetOwner([System.Security.Principal.SecurityIdentifier]) -ne $sid) { throw 'foreign owner' }
   $ownerAllowed=$false
   foreach ($r in $a.GetAccessRules($true,$true,[System.Security.Principal.SecurityIdentifier])) {
@@ -232,6 +260,8 @@ foreach ($d in @((Get-Item -LiteralPath $p)) + @(Get-ChildItem -LiteralPath $p -
 /// One self-signed certificate is both the per-user pin and the local mTLS identity.
 /// A complete PEM bundle is published with an atomic no-overwrite hard link. Losing
 /// creators read the winner; partial/corrupt existing state fails closed in native TLS.
+/// Unix directories use mode 0700 at creation; temporary files use O_EXCL and mode 0600.
+/// Windows files inherit the directory's owner-only ACL, present from directory creation.
 pub(crate) fn local_files(directory: &Path) -> Result<CertificateFiles, String> {
     if let Some(parent) = directory.parent() {
         fs::create_dir_all(parent).map_err(|_| "cannot create certificate parent")?;
