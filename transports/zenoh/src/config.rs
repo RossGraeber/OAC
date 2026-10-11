@@ -7,7 +7,7 @@
 //! separately run router daemon, and **no multicast scouting and no gossip**. Peers
 //! meet at a fixed loopback rendezvous port. The first transport to start listens on it, in
 //! Zenoh's router mode inside this process, and relays between the others. Every later
-//! transport is a peer that connects to it alone, and reconnects to the port if that link
+//! transport is a client that connects to it alone, and reconnects to the port if that link
 //! drops. No session opens a connection it was not configured with.
 //!
 //! Why not multicast scouting (the PR #364 review, blocking finding 1): with scouting on, a
@@ -21,7 +21,7 @@
 //! C7 §5's "multicast scouting on by default" by its own named reversal path (the G3
 //! fallback); the dated note in C7 §5 records it. LAN mode and TLS are G3's (#64).
 
-use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};
+use std::net::{Ipv4Addr, SocketAddr, TcpStream};
 use std::time::Duration;
 
 use oac_core::transport::TransportConfiguration;
@@ -58,14 +58,6 @@ pub(crate) enum Role {
     First,
     /// A peer that connects to the rendezvous port another peer holds.
     Joiner,
-}
-
-/// A loopback port free at the time of asking.
-pub(crate) fn free_loopback_port() -> Option<u16> {
-    TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
-        .and_then(|l| l.local_addr())
-        .map(|a| a.port())
-        .ok()
 }
 
 impl PeerConfiguration {
@@ -119,11 +111,11 @@ impl PeerConfiguration {
     }
 
     /// The loopback port a peer in `role` listens on: the rendezvous port for the first
-    /// peer; for a joiner, `own` (a free port it picked, so its locator is known).
-    pub(crate) fn listen_port(&self, role: Role, own: u16) -> u16 {
+    /// peer; for a joiner, zero lets Zenoh allocate the ephemeral port atomically.
+    pub(crate) fn listen_port(&self, role: Role) -> u16 {
         match role {
             Role::First => self.port,
-            Role::Joiner => own,
+            Role::Joiner => 0,
         }
     }
 
@@ -144,6 +136,9 @@ impl PeerConfiguration {
         };
         set("mode", mode.into())?;
         set("adminspace/enabled", "false".into())?;
+        // Router mode defaults to automatic timestamps. Sealed samples carry no
+        // application time value beside the core frame, including at the relay.
+        set("timestamping/enabled", "false".into())?;
         // Loopback only, fail closed: no scouting, no gossip, so no connection is ever made
         // to a locator a peer was told rather than configured with.
         set("scouting/multicast/enabled", "false".into())?;
@@ -194,6 +189,7 @@ mod tests {
             assert_eq!(json(&n, "mode"), format!(r#""{mode}""#));
             assert_eq!(json(&n, "scouting/multicast/enabled"), "false");
             assert_eq!(json(&n, "scouting/gossip/enabled"), "false");
+            assert_eq!(json(&n, "timestamping/enabled"), "false");
             for k in ["listen/endpoints", "connect/endpoints"] {
                 let v = json(&n, k);
                 let endpoints: Vec<&str> = v.split('"').filter(|s| s.contains('/')).collect();
@@ -210,15 +206,11 @@ mod tests {
         let c = PeerConfiguration::rendezvous(17448).with_partition("t");
         assert_eq!(c.rendezvous_port(), 17448);
         assert_eq!(c.roles().len(), 2);
-        let first = c
-            .native(Role::First, c.listen_port(Role::First, 40001))
-            .unwrap();
+        let first = c.native(Role::First, c.listen_port(Role::First)).unwrap();
         assert!(json(&first, "listen/endpoints").contains("127.0.0.1:17448"));
         assert_eq!(json(&first, "connect/endpoints"), "[]");
-        let joiner = c
-            .native(Role::Joiner, c.listen_port(Role::Joiner, 40001))
-            .unwrap();
-        assert!(json(&joiner, "listen/endpoints").contains("127.0.0.1:40001"));
+        let joiner = c.native(Role::Joiner, c.listen_port(Role::Joiner)).unwrap();
+        assert!(json(&joiner, "listen/endpoints").contains("127.0.0.1:0"));
         assert!(json(&joiner, "connect/endpoints").contains("127.0.0.1:17448"));
     }
 }

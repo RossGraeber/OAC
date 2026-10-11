@@ -4,11 +4,10 @@
 //! stable API's synchronous `Wait` path.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::thread::{self, JoinHandle, ThreadId};
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::Instant;
 
 use oac_core::health::{HealthState, HealthStatus};
 use oac_core::ids::KeyId;
@@ -18,13 +17,14 @@ use oac_core::transport::{
     TransportConfiguration, TransportError,
 };
 use zenoh::Wait;
+use zenoh::bytes::Encoding;
+use zenoh::handlers::{IntoHandler, RingChannel, RingChannelHandler};
 use zenoh::pubsub::Subscriber;
 use zenoh::qos::CongestionControl;
 use zenoh::sample::Sample;
 
 use crate::addressing::{self, Digest128, Partition};
-use crate::config::{PeerConfiguration, Role, free_loopback_port};
-use crate::frame;
+use crate::config::{PeerConfiguration, Role};
 use crate::gate::Gate;
 use crate::presence::Watchers;
 
@@ -32,11 +32,9 @@ use crate::presence::Watchers;
 /// itself; the bound is what the contract suite exercises ([IFC-TRN-023], [IFC-TRN-030]).
 pub const MAX_PAYLOAD_OCTETS: u64 = 1 << 20;
 
-/// The most frames waiting for the dispatch thread, and the most payload octets they may
-/// hold together. A frame that would go past either is dropped on arrival (binding
-/// document, "Timing").
-const QUEUE_FRAMES: usize = 1024;
-const QUEUE_OCTETS: usize = 16 << 20;
+/// Native RingChannel capacity: at most 16 MiB of admitted frame octets.
+/// Overflow drops the oldest frame; a dispatching frame adds at most 1 MiB.
+const QUEUE_FRAMES: usize = 16;
 
 /// The transport. Cloning shares one transport.
 #[derive(Clone, Default)]
@@ -44,8 +42,10 @@ pub struct PeerTransport {
     inner: Arc<Mutex<State>>,
     /// Every native string a start of this transport held, kept after shutdown, for leak
     /// tests (the `test-support` feature).
-    #[cfg_attr(not(feature = "test-support"), allow(dead_code))]
+    #[cfg(feature = "test-support")]
     leak_checks: Arc<Mutex<Vec<String>>>,
+    #[cfg(feature = "test-support")]
+    carriage: Arc<Mutex<Vec<CarriageObservation>>>,
 }
 
 #[derive(Default)]
@@ -66,78 +66,64 @@ struct Running {
     gate: Arc<Gate>,
     subs: Arc<Subs>,
     watchers: Arc<Watchers>,
-    queue: Arc<Mutex<Option<SyncSender<Received>>>>,
     dispatcher: Mutex<Option<JoinHandle<()>>>,
     dispatcher_id: ThreadId,
 }
 
-/// The core's subscriptions, by destination digest.
+/// Only local device subscriptions receive sealed frames. Session entries stay local.
 #[derive(Default)]
 struct Subs {
     next: AtomicU64,
-    map: Mutex<HashMap<Digest128, Vec<Entry>>>,
+    map: Mutex<HashMap<Destination, Vec<Entry>>>,
 }
 
 #[derive(Clone)]
 struct Entry {
     id: u64,
-    accepts: PayloadKind,
     handler: InboundHandler,
     gate: Arc<Gate>,
 }
 
 impl Subs {
-    fn lock(&self) -> MutexGuard<'_, HashMap<Digest128, Vec<Entry>>> {
+    fn lock(&self) -> MutexGuard<'_, HashMap<Destination, Vec<Entry>>> {
         self.map.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    fn add(&self, digest: Digest128, accepts: PayloadKind, handler: InboundHandler) -> Entry {
+    fn add(&self, destination: Destination, handler: InboundHandler) -> Entry {
         let e = Entry {
             id: self.next.fetch_add(1, Ordering::Relaxed),
-            accepts,
             handler,
             gate: Gate::new(),
         };
-        self.lock().entry(digest).or_default().push(e.clone());
+        self.lock().entry(destination).or_default().push(e.clone());
         e
     }
 
-    fn remove(&self, digest: &Digest128, id: u64) {
+    fn remove(&self, destination: &Destination, id: u64) {
         let mut m = self.lock();
-        if let Some(v) = m.get_mut(digest) {
+        if let Some(v) = m.get_mut(destination) {
             v.retain(|e| e.id != id);
             if v.is_empty() {
-                m.remove(digest);
+                m.remove(destination);
             }
         }
-    }
-
-    /// True when a subscription could take a frame of `kind` for `digest`.
-    fn wants(&self, digest: &Digest128, kind: PayloadKind) -> bool {
-        self.lock()
-            .get(digest)
-            .is_some_and(|v| v.iter().any(|e| e.accepts == kind))
     }
 
     fn dispatch(
         &self,
         gate: &Arc<Gate>,
-        digest: &Digest128,
-        kind: PayloadKind,
+        destination: &Destination,
         octets: Vec<u8>,
         link: &Digest128,
     ) {
-        let entries: Vec<Entry> = match self.lock().get(digest) {
-            Some(v) => v.iter().filter(|e| e.accepts == kind).cloned().collect(),
-            None => return,
-        };
+        let entries = self.lock().get(destination).cloned().unwrap_or_default();
         if entries.is_empty() {
             return;
         }
         let Some(_transport) = gate.enter() else {
             return;
         };
-        let payload = Payload::new(kind, octets);
+        let payload = Payload::new(PayloadKind::Sealed, octets);
         let carrier = CarrierHandle::from_opaque(link.to_vec());
         for e in entries {
             let Some(_sub) = e.gate.enter() else { continue };
@@ -149,107 +135,28 @@ impl Subs {
     }
 }
 
-pub(crate) fn unix_millis_now() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
-        .unwrap_or(0)
+/// Raw sample boundary observations, available only to this binding's tests.
+#[cfg(feature = "test-support")]
+#[derive(Clone, Debug)]
+pub struct CarriageObservation {
+    pub frame: Vec<u8>,
+    pub accompanying: Vec<Vec<u8>>,
+    pub key: String,
+    pub encoding: String,
+    pub identifiers: Vec<Vec<u8>>,
 }
 
-/// A frame taken off the wire, waiting for the dispatch thread.
-struct Received {
-    digest: Digest128,
-    kind: PayloadKind,
-    expiry_unix_millis: u64,
-    link: Digest128,
-    octets: Vec<u8>,
-}
-
-/// What the receive callback and the dispatch thread share.
-struct Inbox {
-    partition: Partition,
-    local_digest: Digest128,
-    subs: Arc<Subs>,
-    queued_octets: AtomicUsize,
-}
-
-impl Inbox {
-    /// True when this peer has a consumer for a frame of `kind` on `digest`.
-    fn wants(&self, digest: &Digest128, kind: PayloadKind) -> bool {
-        match kind {
-            PayloadKind::Presence => digest == &self.local_digest,
-            PayloadKind::Envelope | PayloadKind::Receipt => self.subs.wants(digest, kind),
-            // `frame::decode` never yields it: this transport does not carry sealed frames
-            // yet (G1's follow-up, #62).
-            PayloadKind::Sealed => false,
-        }
-    }
-}
-
-/// The receive path, on Zenoh's own thread. Every frame put on the partition reaches every
-/// peer of it. This decodes it, drops it if it is expired or if this peer has no consumer
-/// for it, and otherwise queues a copy for the dispatch thread, or drops it if the queue is
-/// full. No handler runs here, so nothing a handler does holds up the link.
-fn on_sample(sample: &Sample, inbox: &Inbox, tx: &Mutex<Option<SyncSender<Received>>>) {
-    let Some(digest) = inbox.partition.digest_of(sample.key_expr().as_str()) else {
-        return;
-    };
-    let bytes = sample.payload().to_bytes();
-    let Some(f) = frame::decode(&bytes) else {
-        return;
-    };
-    if unix_millis_now() >= f.expiry_unix_millis || !inbox.wants(&digest, f.kind) {
-        return;
-    }
-    let n = f.octets.len();
-    if inbox.queued_octets.fetch_add(n, Ordering::AcqRel) + n > QUEUE_OCTETS {
-        inbox.queued_octets.fetch_sub(n, Ordering::AcqRel);
-        return;
-    }
-    let r = Received {
-        digest,
-        kind: f.kind,
-        expiry_unix_millis: f.expiry_unix_millis,
-        link: f.link,
-        octets: f.octets.to_vec(),
-    };
-    let sent = match &*tx.lock().unwrap_or_else(|e| e.into_inner()) {
-        Some(tx) => tx.try_send(r).is_ok(),
-        None => false,
-    };
-    if !sent {
-        inbox.queued_octets.fetch_sub(n, Ordering::AcqRel);
-    }
-}
-
-/// The dispatch thread: hands queued frames to the core's handlers, in arrival order,
-/// behind the transport's gate. It ends when `shutdown` drops the sending half of the
-/// queue.
+/// Blocking read on the established native stream, not inbox polling. Core handlers
+/// never run on Zenoh's receive thread. The native ring owns queuing and overflow.
 fn dispatch_loop(
-    rx: Receiver<Received>,
-    inbox: Arc<Inbox>,
+    rx: RingChannelHandler<Vec<u8>>,
+    subs: Arc<Subs>,
     gate: Arc<Gate>,
-    watchers: Arc<Watchers>,
+    local: KeyId,
+    link: Digest128,
 ) {
-    while let Ok(r) = rx.recv() {
-        inbox
-            .queued_octets
-            .fetch_sub(r.octets.len(), Ordering::AcqRel);
-        if unix_millis_now() >= r.expiry_unix_millis {
-            continue;
-        }
-        match r.kind {
-            PayloadKind::Presence => watchers.record(
-                &gate,
-                &r.octets,
-                CarrierHandle::from_opaque(r.link.to_vec()),
-            ),
-            PayloadKind::Envelope | PayloadKind::Receipt => inbox
-                .subs
-                .dispatch(&gate, &r.digest, r.kind, r.octets, &r.link),
-            // Never queued: `Inbox::wants` refuses it.
-            PayloadKind::Sealed => {}
-        }
+    while let Ok(octets) = rx.recv() {
+        subs.dispatch(&gate, &Destination::Device(local.clone()), octets, &link);
     }
 }
 
@@ -282,7 +189,7 @@ impl PeerTransport {
     }
 
     /// For leak tests only, behind the `test-support` feature: the transport-native strings
-    /// every start of this transport held (its own peer id, its listening and rendezvous
+    /// every start of this transport held (its own peer id, its configured listener and rendezvous
     /// endpoints, its key expression prefix), kept after shutdown, so that a test can check
     /// that none of them reaches the core.
     #[cfg(feature = "test-support")]
@@ -293,23 +200,67 @@ impl PeerTransport {
             .clone()
     }
 
-    /// Open the native session: the session and the loopback port it listens on.
-    fn open(conf: &PeerConfiguration) -> Result<(zenoh::Session, u16), TransportError> {
+    #[cfg(feature = "test-support")]
+    fn capture(
+        capture: &Mutex<Vec<CarriageObservation>>,
+        frame: &[u8],
+        key: &str,
+        encoding: &Encoding,
+        link: &Digest128,
+        accompanying: Vec<Vec<u8>>,
+    ) {
+        capture
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push(CarriageObservation {
+                frame: frame.to_vec(),
+                accompanying,
+                key: key.to_owned(),
+                encoding: encoding.to_string(),
+                identifiers: vec![link.to_vec()],
+            });
+    }
+
+    /// Raw samples and carrier bytes for this binding's contract harness only.
+    #[cfg(feature = "test-support")]
+    pub fn carriage_for_tests(&self) -> Vec<CarriageObservation> {
+        let mut observations = self
+            .carriage
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        let mut identifiers = self.identifiers_for_leak_checks();
+        if let Some(r) = self.running() {
+            identifiers.extend(r.session.info().peers_zid().wait().map(|id| id.to_string()));
+            identifiers.extend(
+                r.session
+                    .info()
+                    .routers_zid()
+                    .wait()
+                    .map(|id| id.to_string()),
+            );
+        }
+        for observation in &mut observations {
+            observation
+                .identifiers
+                .extend(identifiers.iter().map(|s| s.as_bytes().to_vec()));
+        }
+        observations
+    }
+
+    /// Open the native session; Zenoh allocates the joiner's ephemeral listener.
+    fn open(conf: &PeerConfiguration) -> Result<zenoh::Session, TransportError> {
         let mut last = String::new();
         let roles = conf.roles();
         // Something already accepts connections on the port when the joiner side is tried
         // first (`PeerConfiguration::roles`).
         let port_answers = roles[0] == Role::Joiner;
         for role in roles {
-            let own = free_loopback_port().ok_or_else(|| {
-                TransportError::InvalidConfiguration("no free loopback port".into())
-            })?;
-            let listen = conf.listen_port(role, own);
             let native = conf
-                .native(role, listen)
+                .native(role, conf.listen_port(role))
                 .map_err(TransportError::InvalidConfiguration)?;
             match zenoh::open(native).wait() {
-                Ok(s) => return Ok((s, listen)),
+                Ok(s) => return Ok(s),
                 Err(_) => {
                     last = match role {
                         Role::First => "the peer session did not open".into(),
@@ -336,33 +287,36 @@ impl PeerTransport {
         destination: &Destination,
         payload: &Payload,
         deadline: Deadline,
-        kinds: &[PayloadKind],
     ) -> PublishResult {
         let Some(r) = self.running() else {
             return PublishResult::NotTaken;
         };
         let kind = payload.kind();
-        if !kinds.contains(&kind) || !kind.fits(destination) {
+        if kind != PayloadKind::Sealed || !kind.fits(destination) {
             return PublishResult::NotTaken;
         }
         if u64::try_from(payload.len()).unwrap_or(u64::MAX) > MAX_PAYLOAD_OCTETS {
             return PublishResult::NotTaken;
         }
+        let key = r.partition.key();
+        let frame = payload.octets().to_vec();
         let now = Instant::now();
         if deadline.has_passed_at(now) {
             return PublishResult::NotTaken;
         }
-        let left =
-            u64::try_from(deadline.instant().duration_since(now).as_millis()).unwrap_or(u64::MAX);
-        if left == 0 {
-            return PublishResult::NotTaken;
-        }
-        let expiry = unix_millis_now().saturating_add(left);
-        let digest = addressing::destination_digest(destination);
-        let f = frame::encode(kind, expiry, &r.link, payload.octets());
+        #[cfg(feature = "test-support")]
+        Self::capture(
+            &self.carriage,
+            &frame,
+            &key,
+            &Encoding::ZENOH_BYTES,
+            &r.link,
+            vec![],
+        );
         match r
             .session
-            .put(r.partition.key(&digest), f)
+            .put(key, frame)
+            .encoding(Encoding::ZENOH_BYTES)
             .congestion_control(CongestionControl::Block)
             .wait()
         {
@@ -385,23 +339,18 @@ impl Transport for PeerTransport {
         if matches!(*state, State::Running(_)) {
             return Err(TransportError::AlreadyStarted);
         }
-        let (session, listen_port) = Self::open(&conf)?;
+        let session = Self::open(&conf)?;
         let native_id = session.zid().to_string();
         let partition = Partition::new(conf.partition());
         let gate = Gate::new();
         let subs: Arc<Subs> = Arc::default();
         let watchers: Arc<Watchers> = Arc::default();
-        let inbox = Arc::new(Inbox {
-            partition: partition.clone(),
-            local_digest: addressing::device_digest(local_device),
-            subs: subs.clone(),
-            queued_octets: AtomicUsize::new(0),
-        });
-        let (tx, rx) = sync_channel::<Received>(QUEUE_FRAMES);
-        let (i, g, w) = (inbox.clone(), gate.clone(), watchers.clone());
+        let link = addressing::link_octets(&native_id);
+        let (tx, rx) = RingChannel::new(QUEUE_FRAMES).into_handler();
+        let (s, g, local) = (subs.clone(), gate.clone(), local_device.clone());
         let dispatcher = match thread::Builder::new()
             .name("oac-peer-dispatch".into())
-            .spawn(move || dispatch_loop(rx, i, g, w))
+            .spawn(move || dispatch_loop(rx, s, g, local, link))
         {
             Ok(h) => h,
             Err(_) => {
@@ -412,44 +361,64 @@ impl Transport for PeerTransport {
             }
         };
         let dispatcher_id = dispatcher.thread().id();
-        let queue = Arc::new(Mutex::new(Some(tx)));
-        let q = queue.clone();
+        #[cfg(feature = "test-support")]
+        let capture = self.carriage.clone();
         let subscriber = match session
-            .declare_subscriber(partition.all())
-            .callback(move |sample| on_sample(&sample, &inbox, &q))
+            .declare_subscriber(partition.key())
+            .callback(move |sample: Sample| {
+                #[cfg(feature = "test-support")]
+                Self::capture(
+                    &capture,
+                    &sample.payload().to_bytes(),
+                    sample.key_expr().as_str(),
+                    sample.encoding(),
+                    &link,
+                    sample
+                        .attachment()
+                        .map(|a| a.to_bytes().into_owned())
+                        .into_iter()
+                        .chain(sample.timestamp().map(|t| t.to_string().into_bytes()))
+                        .collect(),
+                );
+                // Zenoh's handlers bound count, not bytes. Admission precedes the copy;
+                // Vec owns only frame octets, rather than retaining native backing buffers.
+                if sample.payload().len() <= MAX_PAYLOAD_OCTETS as usize
+                    && *sample.encoding() == Encoding::ZENOH_BYTES
+                {
+                    tx.call(sample.payload().to_bytes().into_owned());
+                }
+            })
             .wait()
         {
             Ok(sub) => sub,
             Err(_) => {
                 let _ = session.close().wait();
-                queue.lock().unwrap_or_else(|e| e.into_inner()).take();
                 let _ = dispatcher.join();
                 return Err(TransportError::InvalidConfiguration(
                     "the peer session refused the subscription".into(),
                 ));
             }
         };
+        #[cfg(feature = "test-support")]
         {
             let mut l = self.leak_checks.lock().unwrap_or_else(|e| e.into_inner());
             l.extend([
                 native_id.clone(),
                 partition.prefix().to_owned(),
-                partition.all(),
+                partition.key(),
             ]);
-            for port in [listen_port, conf.rendezvous_port()] {
-                l.extend([format!("127.0.0.1:{port}"), format!("tcp/127.0.0.1:{port}")]);
-            }
+            l.push("tcp/127.0.0.1:0".into());
+            l.push(format!("tcp/127.0.0.1:{}", conf.rendezvous_port()));
         }
         *state = State::Running(Arc::new(Running {
             session,
             subscriber: Mutex::new(Some(subscriber)),
             partition,
             local: local_device.clone(),
-            link: addressing::link_octets(&native_id),
+            link,
             gate,
             subs,
             watchers,
-            queue,
             dispatcher: Mutex::new(Some(dispatcher)),
             dispatcher_id,
         }));
@@ -463,10 +432,7 @@ impl Transport for PeerTransport {
             reach: Reach::CrossImplementation,
             destination_restricted: false,
             max_payload_octets: MAX_PAYLOAD_OCTETS,
-            // Not yet: declaring `sealing`, and the frame changes that go with it, are G1's
-            // follow-up (#62). Until then the core never passes it a sealed payload
-            // ([IFC-TRN-102]), and `publish` refuses one as an unlisted kind.
-            sealing: false,
+            sealing: true,
         })
     }
 
@@ -476,12 +442,7 @@ impl Transport for PeerTransport {
         payload: Payload,
         deadline: Deadline,
     ) -> PublishResult {
-        self.put(
-            destination,
-            &payload,
-            deadline,
-            &[PayloadKind::Envelope, PayloadKind::Receipt],
-        )
+        self.put(destination, &payload, deadline)
     }
 
     fn subscribe(
@@ -490,19 +451,17 @@ impl Transport for PeerTransport {
         handler: InboundHandler,
     ) -> Result<Subscription, TransportError> {
         let r = self.running().ok_or(TransportError::NotStarted)?;
-        let accepts = match destination {
-            Destination::Session(_) => PayloadKind::Envelope,
-            Destination::Device(k) if *k == r.local => PayloadKind::Receipt,
-            Destination::Device(_) => return Err(TransportError::NotLocalDevice),
-        };
-        let digest = addressing::destination_digest(destination);
-        let entry = r.subs.add(digest, accepts, handler);
+        if matches!(destination, Destination::Device(k) if *k != r.local) {
+            return Err(TransportError::NotLocalDevice);
+        }
+        let destination = destination.clone();
+        let entry = r.subs.add(destination.clone(), handler);
         let subs: Weak<Subs> = Arc::downgrade(&r.subs);
         let (gate, id) = (entry.gate, entry.id);
         Ok(Subscription::new(move || {
             gate.close();
             if let Some(s) = subs.upgrade() {
-                s.remove(&digest, id);
+                s.remove(&destination, id);
             }
         }))
     }
@@ -513,8 +472,8 @@ impl Transport for PeerTransport {
         payload: Payload,
         deadline: Deadline,
     ) -> PublishResult {
-        // Carried like a receipt, as one whole frame, to the named device (presence.rs).
-        self.put(destination, &payload, deadline, &[PayloadKind::Presence])
+        // Plain presence is refused; sealed records use the same device stream.
+        self.put(destination, &payload, deadline)
     }
 
     fn watch_presence(&self, handler: PresenceHandler) -> Result<(), TransportError> {
@@ -552,6 +511,18 @@ impl Transport for PeerTransport {
         // No handler runs once this returns ([IFC-TRN-071]): close the gate first, then let
         // the native session go.
         r.gate.close();
+        #[cfg(feature = "test-support")]
+        {
+            let mut ids = self.leak_checks.lock().unwrap_or_else(|e| e.into_inner());
+            ids.extend(r.session.info().peers_zid().wait().map(|id| id.to_string()));
+            ids.extend(
+                r.session
+                    .info()
+                    .routers_zid()
+                    .wait()
+                    .map(|id| id.to_string()),
+            );
+        }
         let sub = r
             .subscriber
             .lock()
@@ -561,9 +532,8 @@ impl Transport for PeerTransport {
             let _ = sub.undeclare().wait();
         }
         let _ = r.session.close().wait();
-        // Drop the sending half of the queue, so the dispatch thread ends; wait for it,
+        // Undeclaring drops the native ring callback, ending the stream; wait for it,
         // unless this is it (a handler that called shutdown).
-        r.queue.lock().unwrap_or_else(|e| e.into_inner()).take();
         let worker = r
             .dispatcher
             .lock()

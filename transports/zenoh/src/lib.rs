@@ -24,10 +24,9 @@
 //!
 //! # Transport binding document
 //!
-//! **Not for real traffic yet.** Until per-recipient frame encryption (the spec PR #367) and
-//! the core's sealing work that uses it have landed, this transport must not carry real
-//! traffic: every peer of a partition, and the rendezvous holder, can read every frame
-//! (PR #364, lead's condition of 2026-10-09; C7 §3 dated note).
+//! **Not for real traffic yet.** Core sealing has landed (#370), and this binding now
+//! declares `sealing`. The restriction remains until #64 also authenticates the relay
+//! with a per-user pinned TLS certificate (lead's condition of 2026-10-09).
 //!
 //! This section is the transport binding document that [IFC-TRN-090] requires, for the
 //! publish, subscribe and presence-carriage half (G1). G2 (#63) adds carrier loss, and G3
@@ -81,120 +80,110 @@
 //! which `scripts/check-test-listeners.mjs` enforces; on Windows a non-loopback listener
 //! raises a firewall prompt for every rebuilt test executable.
 //!
-//! **Addressing.** A `Destination` maps to the key expression `oac/1/<partition>/<digest>`
-//! (`addressing.rs`). `<digest>` is 128 bits of SHA-256 over a kind tag and the session id
-//! or key id, as 32 hex digits. It is one-way: a key expression on the wire, in a log or in
-//! routing state does not yield the session id, and a session id, being 128 CSPRNG bits,
-//! cannot be guessed from a pattern (C7 §3). `<partition>` separates installs and test
-//! media ([`PeerConfiguration::with_partition`]). There is no group or room key: a
-//! payload is put on exactly one destination's key.
+//! **Sealed carriage (`sealing: true`, IFC-TRN-100..113).** Every frame uses exactly
+//! `oac/1/<partition>/frames`, independent of destination, kind, deadline, device and
+//! session. The partition is a hash of the configured install label only. The core's
+//! sealed octets are the Zenoh sample payload directly; sample boundaries provide framing.
+//! There is no OAC header, kind tag, expiry, destination digest or sender handle. Every
+//! publication uses the fixed `Encoding::ZENOH_BYTES`; no attachment, timestamp or source
+//! info is set; automatic timestamps are explicitly disabled, including on the relay.
+//! Zenoh's native framing and random peer/link identifiers remain. None is
+//! derived from the local key id or any session id. Size, timing and native link correlation
+//! remain observable; this is not traffic-metadata confidentiality.
 //!
-//! The digest is **unkeyed**, and the same in every partition: only the partition chunk of
-//! the key expression differs. So an observer of the traffic links every frame for one
-//! session, in any partition, to every other, and anyone who already holds a session id can
-//! recognise its frames. The digest hides the id; it does not make a session's traffic
-//! unlinkable.
+//! **Admission and delivery.** Both send operations refuse every non-`sealed` kind,
+//! session destinations, frames above 1 MiB, passed deadlines and stopped transports
+//! (`not-taken`). Every admitted inbound sample goes unchanged, as `sealed`, to all
+//! subscriptions for this transport's local device, including the sender's own stream.
+//! Other-device subscriptions are refused; session subscriptions stay local and receive
+//! no frames. Sealed presence uses this same device stream through `publish`; the core
+//! opens and dispatches the inner record. G1's `watch_presence` reports nothing.
+//! The core silently discards frames that cannot open, target another device or are late.
+//! Sealing hides content, never authenticates; signatures remain core-owned. Authenticated
+//! peer messages remain untrusted instructions and may contain prompt injection.
 //!
-//! **Kinds (Table 6.1).** `publish` takes `envelope` to a `session` and `receipt` to a
-//! `device`; `send_presence` takes `presence` to a `device`. Any other pairing, a payload
-//! above [`MAX_PAYLOAD_OCTETS`], a deadline already reached, or a transport that is not
-//! started is `not-taken`. Each payload travels as one frame (`frame.rs`): a 27-octet
-//! header (kind, expiry, sending link) and then the octets exactly as passed
-//! ([IFC-TRN-030]).
+//! **Hidden subscriptions (IFC-TRN-043/044).** Each start declares one native subscriber
+//! on the fixed frame key until shutdown. Local subscription changes never affect native
+//! interest or admission. Every peer receives every frame in its partition, regardless
+//! of which local sessions listen. The binding tests exercise native interest with sealed
+//! samples; the unchanged shared suite exercises sealed presence and every other check.
 //!
-//! **Delivery.** A `session` payload goes to every subscription for that session id on
-//! every peer of the partition, the sender's own included ([IFC-TRN-002]). A `receipt`
-//! goes to the subscriptions for the local device of the peer started with that key id; a
-//! `device` subscription for any other key id is refused (`NotLocalDevice`). A presence
-//! record goes, whole, to the `watch_presence` handlers of the peer started with the named
-//! key id, and to no other peer's handlers ([IFC-TRN-050]). Handlers are called on the
-//! transport's own dispatch thread, on its initiative ([IFC-TRN-040], [IFC-TRN-060]);
-//! nothing polls.
+//! **Native queue and isolation.** Zenoh `RingChannel` owns receive queuing and overflow:
+//! at most 16 frames, dropping the **oldest** when full (formerly drop-newest). The small
+//! receive callback checks size and fixed encoding before copying admitted payload octets
+//! into the ring. Zenoh has no byte-capacity handler, so the 1 MiB per-frame cap times 16
+//! gives a 16 MiB queued-payload bound; one dispatching frame adds at most 1 MiB, plus
+//! transient callback copies and native receive buffers. Frame storage is owned `Vec<u8>`
+//! so the ring does not retain larger native backing buffers. These are payload bounds,
+//! not a bound on Zenoh's link buffers or process RSS. One dispatch thread calls core
+//! handlers behind lifecycle gates. A stalled handler holds up only its own transport's
+//! callbacks; the ring continues draining the link and other peers keep receiving.
 //!
-//! **Non-disclosure of subscriptions ([IFC-TRN-043], [IFC-TRN-044]).** Each started
-//! transport declares exactly one native subscriber, on `oac/1/<partition>/*`, at `start`,
-//! and keeps it until `shutdown`. `subscribe` and ending a subscription change only a
-//! local table. So what a peer declares, and the routing state other peers hold, are the
-//! same whichever destinations it has subscriptions for, and no other implementation can
-//! tell whether a subscription exists. `publish` puts the frame whatever the subscriptions
-//! are: its result depends only on the checks under "Kinds" and on the native put
-//! succeeding. The cost is that every peer of the partition receives every frame put on
-//! it, and drops those for destinations it has no subscription for. What another peer can
-//! observe is the traffic: that a frame of some size went to a key expression at some time.
-//! Envelope content is not confidential from peers of the same partition; the envelope
-//! signature, not the transport, is the authenticity proof (C7 §7), and full
-//! confidentiality is out of scope for this revision (`spec/security.md` §1.3).
+//! **Deadlines (IFC-TRN-034).** Sender admission checks the monotonic deadline immediately
+//! before native `put`. No deadline travels beside the frame; receiving expiry is solely
+//! the core's encrypted-payload check (SEC-SEL-036). Zenoh has no per-publication TTL.
+//! Blocking congestion control closes a stalled link after 1 s (`wait_before_close`),
+//! but does not prove native queued copies cannot outlive a shorter deadline. This is an
+//! open sender-side limitation for the lead under #377; no stalled-link deadline guarantee
+//! is claimed. Nothing is retried or stored by OAC across a lost link or restart.
 //!
-//! **Timing.** Receiving and handing over are separate:
+//! **Carrier handles.** Inbound frames share a receiver-local handle: a hash of this
+//! transport's random native session id. It is never transmitted and groups the local
+//! frame stream, not senders. No sending peer chooses it; no device/session id derives
+//! it. G2 (#63) must use receiving-side native liveliness for carrier loss, never infer
+//! sender identity from this stream handle. Peer ids and endpoints reach no neutral health
+//! detail or error. G1 reports no carrier loss.
 //!
-//! - Zenoh's receive callback only decodes a frame, drops it if it is expired or if this
-//!   peer has no consumer for it, and otherwise queues a copy. No handler runs on Zenoh's
-//!   thread, so a slow or stalled handler never holds up a link, and so never slows the
-//!   sender. The work the callback does for a frame this peer has a consumer for (a copy
-//!   and a queue push) is local and does not reach the sender: it adds no timing difference
-//!   another implementation can observe.
-//! - One dispatch thread per transport hands queued frames to handlers, in arrival order.
-//!   The queue is bounded (1024 frames, 16 MiB of payload). A frame that arrives while it is
-//!   full is dropped, which `reliability` absent allows. A handler that stalls holds up
-//!   only its own transport's later handlers, and then frames for that transport are
-//!   dropped once the queue fills.
-//! - `publish` uses Zenoh's blocking congestion control, so a payload is not dropped just
-//!   because a send queue is momentarily full. The cost: if a peer's link stops draining (a
-//!   stalled or hostile local process), `publish` can block for up to 1 s, after which Zenoh
-//!   closes that link (`wait_before_close`, set in `config.rs`). This is the same whether or
-//!   not the destination is subscribed anywhere ([IFC-TRN-044]); it depends only on the
-//!   links, which every peer of the partition holds alike.
+//! **Why OAC still owns custom code (#377).** Zenoh has no first-holder rendezvous
+//! election, byte-bounded receive handler, neutral payload-size/error/health semantics,
+//! monotonic publication deadline, or core-handler shutdown gate (IFC-TRN-071). OAC keeps
+//! those admission, local subscription and lifecycle checks. Native subscriptions cannot
+//! express hidden session interest while delivering only to the device stream, so local
+//! subscription bookkeeping stays OAC-owned.
+//! Partition-label hashing supplies install isolation and a syntax-safe fixed key;
+//! receiver-local hashing maps native identity to the neutral opaque carrier type.
+//! Zenoh provides neither OAC's partition-label contract nor its neutral carrier type.
+//! Zenoh owns routing, reconnection, sample boundaries, fragmentation, overflow and
+//! keep-alives. Ephemeral listeners use `:0`;
+//! Zenoh allocates them without OAC's former bind/drop/rebind race.
 //!
-//! **Deadlines ([IFC-TRN-034]).** A `Deadline` is an instant on the sender's monotonic
-//! clock. The sender refuses a payload whose deadline has passed, and carries the time left
-//! as a wall-clock expiry in the frame; the receiver drops a frame at or after its expiry,
-//! on arrival and again on the dispatch thread. On one host both read the same wall clock,
-//! so the check is exact up to a step of that clock (a backwards step lets a frame in
-//! flight live longer by the step). Between hosts it is not safe as it stands: a receiver
-//! whose clock runs `d` behind the sender's can hand a frame over up to `d` after its
-//! deadline, which breaks [IFC-TRN-034]; a receiver `d` ahead drops frames early, which is
-//! safe. LAN mode (G3, #64) must bound this before it carries a frame between hosts: for
-//! example, carry the time left instead and subtract a stated transit allowance, or
-//! subtract a declared skew bound at the sender and refuse payloads with less time left than
-//! that bound (C7 §6 dated note; `11-risks.md` row 77).
+//! Stable API sources, version 1.10.1, inspected in cached first-party source 2026-10-10:
+//! <https://github.com/eclipse-zenoh/zenoh/blob/1.10.1/zenoh/src/api/handlers/ring.rs>
+//! (`IntoHandler`, `RingChannel`, drop-oldest),
+//! <https://github.com/eclipse-zenoh/zenoh/blob/1.10.1/zenoh/src/api/builders/publisher.rs>
+//! (`put`, fixed encoding; no TTL), and
+//! <https://github.com/eclipse-zenoh/zenoh/blob/1.10.1/DEFAULT_CONFIG.json5>
+//! (ephemeral listeners and `wait_before_close`).
 //!
-//! **What is held ([IFC-TRN-033], [IFC-TRN-035], [IFC-TRN-036]).** Nothing is stored. A
-//! frame exists only in Zenoh's send and receive queues and this transport's bounded
-//! dispatch queue while it is in flight; a frame for a destination with no subscription is
-//! dropped on arrival; a restarted peer is a new Zenoh session with a new peer id, an empty
-//! table and an empty queue.
+//! **Contract observation mapping (IFC-TRN-112).** With `test-support`, captures at the
+//! actual outgoing `put` boundary and incoming sample callback record exact frame bytes,
+//! key, encoding and receiver-local carrier bytes. The harness checks that every key and
+//! encoding is the binding's fixed constant, excluding those destination-independent
+//! constants from application values. Incoming attachments and timestamps are captured
+//! as accompanying values, so unexpected additions fail the audit; the expected list is empty.
+//! Start/shutdown snapshots retain native peer/router ids, configured listener/rendezvous and key
+//! strings, even after restart. No attachment, source info or liveness signal is emitted.
+//! The contract audit checks every exercised medium and frame size. Native framing is
+//! delegated to Zenoh; capture is at its sample API, not a packet trace. Actual ephemeral
+//! locators are not exposed by the stable API; configured `:0` is captured. Binding review
+//! must still check derivations and native capture completeness (suite README).
 //!
-//! **Carrier handles ([IFC-TRN-012], [IFC-NEU-003]).** The handle on a received payload is
-//! the 16 octets the *sending* peer wrote into the frame header: for this transport, 128
-//! bits of SHA-256 over its own session's peer id. Nothing checks them. Any peer of the
-//! partition can write any value there, including another peer's. So the handle names a
-//! link only as far as the senders are honest: it is fit for grouping what one sender
-//! sent, and unfit for attributing anything, carrier loss included. G2 (#63) must derive
-//! carrier loss from what the receiving transport itself observes (its own link or
-//! liveliness events), never from a handle a frame carried (`11-risks.md` row 76). The
-//! handle carries no native identifier, and no peer id, endpoint or key expression reaches
-//! a health detail or an error.
-//!
-//! **Declaration (Table 6.3) and its evidence.**
+//! **Declaration and evidence (Table 6.3).**
 //!
 //! | Member | Value | Evidence |
 //! |---|---|---|
-//! | `reliability` | absent | Zenoh's reliable channel retransmits within one link only; nothing is retried across a lost link or reported back, and the dispatch queue drops when full. |
-//! | `persistence` | absent | Nothing is stored ([IFC-TRN-026]). |
-//! | `offline_queueing` | absent | A frame for an unreachable destination is not held ([IFC-TRN-026], [IFC-TRN-036]). |
-//! | `ordering` | absent | Not claimed: per-link order is Zenoh's behaviour, not a guarantee this transport tests across links and restarts. |
-//! | `multicast_discovery` | absent | Scouting is off; peers meet at a configured loopback port. |
-//! | `routing_federation` | absent | The in-process relay links loopback sessions on one host only; nothing is relayed between networks. |
-//! | `reach` | `cross-implementation` | Every transport of the partition on the host, through the loopback rendezvous. |
-//! | `destination_restricted` | absent | Every peer of the partition receives every frame (above), so [IFC-TRN-080] is not claimed, and [IFC-TRN-081] keeps other implementations' presence records off this transport until G3. |
-//! | `max_payload_octets` | 1048576 | The contract suite carries a payload of exactly this size. |
-//!
-//! **Carrier loss.** None reported in G1 ([IFC-TRN-061] is optional); G2 maps liveliness
-//! tokens to it (C7 §4), under the rule in "Carrier handles" above.
+//! | `sealing` | present | Direct frame carriage; unchanged sealing-aware contract suite. |
+//! | `reliability` | absent | Native ring drops oldest on overflow; no retry across lost links. |
+//! | `persistence`, `offline_queueing` | absent | No durable store or OAC retry queue. |
+//! | `ordering` | absent | No cross-link/restart ordering guarantee claimed. |
+//! | `multicast_discovery` | absent | Scouting and gossip off. |
+//! | `routing_federation` | absent | Loopback relay only. |
+//! | `reach` | `cross-implementation` | Peers in one partition through the loopback relay. |
+//! | `destination_restricted` | absent | All peers receive all frames; sealing satisfies IFC-TRN-081. |
+//! | `max_payload_octets` | 1048576 | Contract suite exercises exact cap and one-octet overflow. |
 
 mod addressing;
 mod config;
-mod frame;
 mod gate;
 mod presence;
 mod transport;
@@ -204,3 +193,6 @@ mod tests;
 
 pub use config::{DEFAULT_PARTITION, DEFAULT_RENDEZVOUS_PORT, PeerConfiguration};
 pub use transport::{MAX_PAYLOAD_OCTETS, PeerTransport};
+
+#[cfg(feature = "test-support")]
+pub use transport::CarriageObservation;
