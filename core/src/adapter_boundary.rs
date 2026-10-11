@@ -12,6 +12,8 @@ pub(crate) struct AdapterBoundary {
     pub(crate) adapter: Arc<dyn ProviderAdapter>,
     pub(crate) admission: CallAdmission,
     callbacks: RwLock<()>,
+    #[cfg(test)]
+    before_callback_lock: std::sync::Mutex<Option<Box<dyn FnOnce() + Send>>>,
 }
 
 impl AdapterBoundary {
@@ -43,6 +45,8 @@ impl AdapterBoundary {
             adapter,
             admission,
             callbacks: RwLock::new(()),
+            #[cfg(test)]
+            before_callback_lock: std::sync::Mutex::new(None),
         }
     }
 
@@ -59,6 +63,10 @@ impl AdapterBoundary {
             if let Some(v) = call.cancellation() {
                 return v.map(|()| unreachable!());
             }
+            #[cfg(test)]
+            if let Some(hook) = self.before_callback_lock.lock().unwrap().take() {
+                hook();
+            }
             match self.callbacks.try_read() {
                 Ok(g) => break g,
                 Err(std::sync::TryLockError::Poisoned(e)) => break e.into_inner(),
@@ -67,6 +75,11 @@ impl AdapterBoundary {
                 }
             }
         };
+        // Admission must be checked while holding the same barrier shutdown drains.
+        // A caller may have been descheduled after the check before try_read.
+        if let Some(v) = call.cancellation() {
+            return v.map(|()| unreachable!());
+        }
         let value = run(&mut call);
         drop(guard);
         value
@@ -202,6 +215,45 @@ mod tests {
             self.settled.send(result.clone()).unwrap();
             result.map(|()| unreachable!())
         }
+    }
+
+    #[test]
+    fn callback_paused_before_read_guard_cannot_enter_after_shutdown_returns() {
+        let (entered, entered_rx) = mpsc::channel();
+        let (settled, _settled_rx) = mpsc::channel();
+        let probe = Arc::new(Probe {
+            blocker: Arc::new(Mutex::new(())),
+            entered,
+            settled,
+            calls: AtomicUsize::new(0),
+        });
+        let boundary = Arc::new(AdapterBoundary::new(probe.clone()));
+        let (paused, paused_rx) = mpsc::channel();
+        let (resume, resume_rx) = mpsc::channel();
+        *boundary.before_callback_lock.lock().unwrap() = Some(Box::new(move || {
+            paused.send(()).unwrap();
+            resume_rx.recv().unwrap();
+        }));
+        let connection = Connection::accept(
+            crate::connection::ConnectionReader::default(),
+            crate::connection::ConnectionWriter::default(),
+        );
+        let attachment = connection.handle().clone();
+        let caller = boundary.clone();
+        let worker = std::thread::spawn(move || {
+            caller.callback(&attachment, |call| {
+                caller.adapter.capabilities_local(call, &attachment)
+            })
+        });
+        paused_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        boundary.shutdown();
+        let at_return = probe.calls.load(Ordering::SeqCst);
+        resume.send(()).unwrap();
+        let result = worker.join().unwrap();
+        assert_eq!(at_return, 0);
+        assert!(matches!(result, LocalResult::ShuttingDown));
+        assert_eq!(probe.calls.load(Ordering::SeqCst), 0);
+        assert!(entered_rx.try_recv().is_err());
     }
 
     #[test]

@@ -379,6 +379,7 @@ export const OPT_IN = [
 
 // Exact trimmed lines that match a rule but listen on nothing beyond loopback.
 export const REVIEWED = [
+  { path: "adapters/claude/tests/channel.rs", rule: "rust-bind", line: P("while pipes.bind(&attachment, &re", "cord, None).is_err() {"), why: "Pipelines attachment binding in the final-closure contention regression; no socket" },
   { path: "core/src/session_binding.rs", rule: "rust-bind", line: P("Some(StartKind::Transition", ") => bind(if any_differs {"), why: "Local BindingDecision closure; only constructs a session-binding decision, no socket" },
   { path: "core/src/session_binding.rs", rule: "rust-bind", line: P("bind(Vec", "::new())"), why: "Local BindingDecision closure; no socket" },
   { path: "core/src/session_binding.rs", rule: "rust-bind", line: P("bind(vec![diagnos", "tic(\"SC-ID-141\")])"), why: "Local BindingDecision closure; no socket" },

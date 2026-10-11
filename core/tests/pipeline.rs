@@ -657,12 +657,22 @@ fn local_core_snapshots_commit_or_cancel_without_identity_material_on_failure() 
 
 #[test]
 fn final_local_closure_returns_before_blocked_withdrawal_and_never_calls_the_stopped_adapter() {
+    check_final_local_closure(false);
+}
+
+#[test]
+fn expired_final_local_closure_reports_timeout_and_still_removes_the_binding() {
+    check_final_local_closure(true);
+}
+
+fn check_final_local_closure(expire_final: bool) {
     use oac_core::adapter::LocalEventHandler;
     use oac_core::local_call::{CallAdmission, LocalResult};
     struct LocalAdapter {
         inner: Arc<TestAdapter>,
         scope: Mutex<CallAdmission>,
         closed: AtomicUsize,
+        expire_final: bool,
     }
     impl ProviderAdapter for LocalAdapter {
         fn local_calls(&self) -> bool {
@@ -676,6 +686,7 @@ fn final_local_closure_returns_before_blocked_withdrawal_and_never_calls_the_sto
         }
         fn watch_local_attachments(&self, handler: LocalEventHandler) {
             let scope = self.scope.lock().unwrap().clone();
+            let expire_final = self.expire_final;
             self.inner.watch_attachments(Arc::new(move |event| {
                 let (attachment, final_report) = match &event {
                     AdapterEvent::AttachmentOpened { attachment, .. } => {
@@ -684,11 +695,22 @@ fn final_local_closure_returns_before_blocked_withdrawal_and_never_calls_the_sto
                     AdapterEvent::AttachmentClosed { attachment } => (attachment.clone(), true),
                     _ => panic!("unexpected test event"),
                 };
-                let mut call = scope.call(Some(attachment), 100);
+                let expire = final_report && expire_final;
+                let mut call = scope.call(Some(attachment), if expire { 1 } else { 100 });
                 if final_report {
                     call = call.final_report();
                 }
-                assert_eq!(handler(&mut call, event), LocalResult::Completed(()));
+                if expire {
+                    std::thread::sleep(Duration::from_millis(2));
+                }
+                assert_eq!(
+                    handler(&mut call, event),
+                    if expire {
+                        LocalResult::TimedOut
+                    } else {
+                        LocalResult::Completed(())
+                    }
+                );
             }));
         }
         fn take_connection(&self, c: Connection) {
@@ -742,6 +764,7 @@ fn final_local_closure_returns_before_blocked_withdrawal_and_never_calls_the_sto
         inner: TestAdapter::new(),
         scope: Mutex::default(),
         closed: AtomicUsize::new(0),
+        expire_final,
     });
     n.adapter = local.inner.clone();
     n.adapter_id = n.pipes.add_adapter(local.clone());
@@ -774,9 +797,27 @@ fn final_local_closure_returns_before_blocked_withdrawal_and_never_calls_the_sto
         release_rx.recv().unwrap();
         finished.send(()).unwrap();
     }));
+    let pipes = n.pipes.clone();
+    let (locked, locked_rx) = std::sync::mpsc::channel();
+    let (unlock, unlock_rx) = std::sync::mpsc::channel();
+    let blocker = std::thread::spawn(move || {
+        pipes.with_engine(|_| {
+            locked.send(()).unwrap();
+            unlock_rx.recv().unwrap();
+        })
+    });
+    locked_rx.recv_timeout(WAIT).unwrap();
     let start = Instant::now();
     local.shutdown();
     assert!(start.elapsed() < Duration::from_millis(1000));
+    assert_eq!(
+        n.pipes.binding(&attachment),
+        None,
+        "closure recorded at return despite the held core lock"
+    );
+    unlock.send(()).unwrap();
+    blocker.join().unwrap();
+    assert_eq!(n.pipes.binding(&attachment), None);
     assert!(attachment.is_closed());
     entered_rx.recv_timeout(WAIT).unwrap();
     let mut call = CallAdmission::default().call(Some(attachment.clone()), 100);

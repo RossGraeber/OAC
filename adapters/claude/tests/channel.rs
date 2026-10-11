@@ -1042,3 +1042,136 @@ fn invalid_local_budgets_and_excess_connections_are_rejected_before_admission() 
     assert!(start.elapsed() < Duration::from_millis(oac_adapter_claude::SHUTDOWN_BOUND_MS));
     assert!(wires.iter().all(|(_, h)| h.is_closed()));
 }
+
+/// Real adapter/core regression for IFC-ADP-106: a final report cannot leave a
+/// bound session behind when ordinary core work holds its lock past the stop budget.
+#[test]
+fn shutdown_records_core_closure_despite_core_lock_contention() {
+    use oac_core::authorization::{AuthorizationEngine, MemoryDecisionLog};
+    use oac_core::health::{HealthState, HealthStatus};
+    use oac_core::ids::KeyId;
+    use oac_core::pipeline::{PipelineConfig, Pipelines};
+    use oac_core::transport::*;
+
+    struct QuietTransport;
+    impl Transport for QuietTransport {
+        fn start(
+            &self,
+            _: &KeyId,
+            _: TransportConfiguration,
+        ) -> Result<TransportCapabilities, TransportError> {
+            Ok(TransportCapabilities {
+                reliability: false,
+                persistence: false,
+                offline_queueing: false,
+                ordering: false,
+                multicast_discovery: false,
+                routing_federation: false,
+                reach: Reach::LocalOnly,
+                destination_restricted: true,
+                max_payload_octets: 65536,
+                sealing: false,
+            })
+        }
+        fn publish(&self, _: &Destination, _: Payload, _: Deadline) -> PublishResult {
+            PublishResult::NotTaken
+        }
+        fn subscribe(
+            &self,
+            _: &Destination,
+            _: InboundHandler,
+        ) -> Result<Subscription, TransportError> {
+            Ok(Subscription::new(|| {}))
+        }
+        fn send_presence(&self, _: &Destination, _: Payload, _: Deadline) -> PublishResult {
+            PublishResult::NotTaken
+        }
+        fn watch_presence(&self, _: PresenceHandler) -> Result<(), TransportError> {
+            Ok(())
+        }
+        fn health(&self) -> HealthStatus {
+            HealthStatus::new(HealthState::Healthy)
+        }
+        fn shutdown(&self) {}
+    }
+
+    let identity =
+        DeviceIdentity::new(DeviceKey::generate(), Token::parse("closure-test").unwrap());
+    let clock = Arc::new(SystemClock);
+    let engine =
+        AuthorizationEngine::new(&identity, clock.clone(), Box::new(MemoryDecisionLog::new()));
+    let pipes = Pipelines::new(
+        identity,
+        engine,
+        clock,
+        Arc::new(Instant::now),
+        Arc::new(QuietTransport),
+        PipelineConfig::default(),
+    );
+    pipes.start(TransportConfiguration::new(())).unwrap();
+    let adapter = Arc::new(ClaudeAdapter::new());
+    let id = pipes.add_adapter(adapter.clone());
+    let (to_tx, to_rx) = mpsc::channel();
+    let (from_tx, from_rx) = mpsc::channel();
+    let writer = oac_core::connection::ConnectionWriter::from(from_tx);
+    let stall = writer.control();
+    let connection = Connection::accept(to_rx.into(), writer);
+    let attachment = connection.handle().clone();
+    pipes.connect(id, connection).unwrap();
+    let mut wire = Wire {
+        to_adapter: Some(to_tx),
+        from_adapter: from_rx,
+        partial: Vec::new(),
+        stall,
+    };
+    open(&mut wire, true);
+    let session = SessionId::from_random_octets([99; 16]);
+    let record = pipes
+        .device()
+        .register(
+            session.clone(),
+            Token::parse("claude").unwrap(),
+            "native-closure-test",
+            "/work",
+            SystemClock.now(),
+        )
+        .unwrap();
+    let deadline = Instant::now() + WAIT;
+    while pipes.bind(&attachment, &record, None).is_err() {
+        assert!(Instant::now() < deadline, "attachment opens and binds");
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    assert_eq!(pipes.binding(&attachment), Some(session));
+    let blocked = pipes.clone();
+    let (entered, entered_rx) = mpsc::channel();
+    let (release, release_rx) = mpsc::channel();
+    let blocker = std::thread::spawn(move || {
+        blocked.with_engine(|_| {
+            entered.send(()).unwrap();
+            release_rx.recv().unwrap();
+        })
+    });
+    entered_rx.recv_timeout(WAIT).unwrap();
+    let stopping = adapter.clone();
+    let (returned, returned_rx) = mpsc::channel();
+    let stop = std::thread::spawn(move || {
+        let start = Instant::now();
+        stopping.shutdown();
+        returned.send(start.elapsed()).unwrap();
+    });
+    let elapsed = returned_rx.recv_timeout(WAIT);
+    // Keep the lock held beyond the final-report budget, including for a fast report.
+    std::thread::sleep(Duration::from_millis(150));
+    release.send(()).unwrap();
+    blocker.join().unwrap();
+    stop.join().unwrap();
+    assert!(elapsed.unwrap() < Duration::from_millis(oac_adapter_claude::SHUTDOWN_BOUND_MS));
+    assert!(attachment.is_closed());
+    assert_eq!(
+        pipes.binding(&attachment),
+        None,
+        "no stale binding after shutdown"
+    );
+    assert!(wire.next(Duration::from_millis(50)).is_none());
+    pipes.shutdown();
+}

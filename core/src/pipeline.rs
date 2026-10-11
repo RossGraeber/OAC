@@ -477,7 +477,23 @@ struct Core {
     next_signal_seq: u64,
 }
 
+// Final closure is authoritative independently of a lock held by ordinary core work.
+// Every core snapshot applies these records before it can expose or serve a session.
+#[derive(Default)]
+struct LocalClosures {
+    connections: HashMap<Attachment, AdapterId>,
+    pending: HashMap<Attachment, AdapterId>,
+    peer_work: Vec<ClosureWork>,
+}
+
+type ClosureWork = (
+    Option<Subscription>,
+    Option<crate::presence::PresenceRecord>,
+    Vec<(KeyId, Carriage)>,
+);
+
 struct Inner {
+    closures: Mutex<LocalClosures>,
     peer_workers: Mutex<Vec<std::thread::JoinHandle<()>>>,
     committed_sends: Mutex<HashMap<AdapterId, usize>>,
     local_workers: AtomicUsize,
@@ -605,6 +621,7 @@ impl Pipelines {
         };
         Pipelines {
             inner: Arc::new(Inner {
+                closures: Mutex::default(),
                 peer_workers: Mutex::default(),
                 committed_sends: Mutex::default(),
                 local_workers: AtomicUsize::new(0),
@@ -879,6 +896,12 @@ impl Pipelines {
             if observation != PeerObservation::none() {
                 core.observed.insert(handle.clone(), observation);
             }
+            self.inner
+                .closures
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .connections
+                .insert(handle.clone(), adapter);
             core.connections.insert(handle, adapter);
             a
         };
@@ -1128,6 +1151,16 @@ impl Pipelines {
 
     /// The session an attachment is bound to.
     pub fn binding(&self, attachment: &Attachment) -> Option<SessionId> {
+        if self
+            .inner
+            .closures
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .pending
+            .contains_key(attachment)
+        {
+            return None;
+        }
         self.inner
             .lock()
             .attachments
@@ -1336,7 +1369,7 @@ impl RequestSink for Sink {
         let Some(inner) = self.inner.upgrade() else {
             return LocalResult::ShuttingDown;
         };
-        let mut core = match call.lock(&inner.core) {
+        let mut core = match inner.local_lock(call) {
             Ok(v) => v,
             Err(v) => return v.map(|()| unreachable!()),
         };
@@ -1354,7 +1387,7 @@ impl RequestSink for Sink {
         let Some(inner) = self.inner.upgrade() else {
             return LocalResult::ShuttingDown;
         };
-        let core = match call.lock(&inner.core) {
+        let core = match inner.local_lock(call) {
             Ok(v) => v,
             Err(v) => return v.map(|()| unreachable!()),
         };
@@ -1413,7 +1446,70 @@ impl RequestSink for Sink {
 
 impl Inner {
     fn lock(&self) -> MutexGuard<'_, Core> {
-        self.core.lock().unwrap_or_else(PoisonError::into_inner)
+        let mut core = self.core.lock().unwrap_or_else(PoisonError::into_inner);
+        self.apply_closures(&mut core);
+        core
+    }
+
+    fn local_lock<'a>(
+        &'a self,
+        call: &mut crate::local_call::CallContext,
+    ) -> Result<MutexGuard<'a, Core>, crate::local_call::LocalResult<()>> {
+        let mut core = call.lock(&self.core)?;
+        self.apply_closures(&mut core);
+        Ok(core)
+    }
+
+    fn apply_closures(&self, core: &mut Core) {
+        let pending: Vec<_> = self
+            .closures
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .pending
+            .iter()
+            .map(|(attachment, adapter)| (attachment.clone(), *adapter))
+            .collect();
+        for (attachment, adapter) in pending {
+            let work = self.apply_closure(core, &attachment, adapter);
+            let mut closures = self.closures.lock().unwrap_or_else(PoisonError::into_inner);
+            closures.pending.remove(&attachment);
+            if let Some(work) = work {
+                closures.peer_work.push(work);
+            }
+        }
+    }
+
+    fn apply_closure(
+        &self,
+        core: &mut Core,
+        attachment: &Attachment,
+        adapter: AdapterId,
+    ) -> Option<ClosureWork> {
+        if core.connections.get(attachment) != Some(&adapter) {
+            return None;
+        }
+        let session = core.attachments.remove(attachment).and_then(|e| e.session);
+        core.connections.remove(attachment);
+        core.observed.remove(attachment);
+        let session = session?;
+        core.sessions.remove(&session);
+        core.engine.end_session(&session);
+        core.engine.prune();
+        core.registry.deregister_own(&session);
+        let sub = core.subscriptions.remove(&session);
+        let devices: Vec<_> = core
+            .announced
+            .keys()
+            .filter(|(s, _)| s == &session)
+            .map(|(_, d)| d.clone())
+            .collect();
+        core.announced.retain(|(s, _), _| s != &session);
+        let record = core.issuer.withdraw(&session, self.clock.now(), true);
+        let audiences = devices
+            .into_iter()
+            .filter_map(|device| Some((device.clone(), Inner::carriage(core, &device)?)))
+            .collect();
+        Some((sub, record, audiences))
     }
 
     fn refresh_interval(&self) -> Duration {
@@ -1523,7 +1619,7 @@ impl Inner {
         use crate::local_call::LocalResult;
         let mono = (self.monotonic)();
         let now = self.clock.now();
-        let mut guard = match call.lock(&self.core) {
+        let mut guard = match self.local_lock(call) {
             Ok(v) => v,
             Err(v) => return v.map(|()| unreachable!()),
         };
@@ -2268,80 +2364,68 @@ impl Inner {
         // adapter callbacks pass through AdapterBoundary, which revokes them at stop.
         // Closure is different: cessation is committed locally before this report returns.
         if let AdapterEvent::AttachmentClosed { attachment } = event {
-            let mut core = match call.lock(&self.core) {
-                Ok(v) => v,
-                Err(v) => return v,
+            // Record cessation under a short, separately owned lock. Even an expired
+            // report must record mandatory closure; its terminal outcome stays truthful.
+            let recorded = {
+                let mut closures = self.closures.lock().unwrap_or_else(PoisonError::into_inner);
+                if closures.connections.get(&attachment) == Some(&adapter) {
+                    closures.connections.remove(&attachment);
+                    closures.pending.insert(attachment, adapter);
+                    true
+                } else {
+                    false
+                }
             };
-            let work = call.commit(|| {
-                if core.connections.get(&attachment) != Some(&adapter) {
-                    return None;
-                }
-                let session = core.attachments.remove(&attachment).and_then(|e| e.session);
-                core.connections.remove(&attachment);
-                core.observed.remove(&attachment);
-                let session = session?;
-                core.sessions.remove(&session);
-                core.engine.end_session(&session);
-                core.engine.prune();
-                core.registry.deregister_own(&session);
-                let sub = core.subscriptions.remove(&session);
-                let devices: Vec<_> = core
-                    .announced
-                    .keys()
-                    .filter(|(s, _)| s == &session)
-                    .map(|(_, d)| d.clone())
-                    .collect();
-                core.announced.retain(|(s, _), _| s != &session);
-                let record = core.issuer.withdraw(&session, self.clock.now(), true);
-                let audiences: Vec<_> = devices
-                    .into_iter()
-                    .filter_map(|device| Some((device.clone(), Inner::carriage(&core, &device)?)))
-                    .collect();
-                Some((sub, record, audiences))
-            });
-            drop(core);
-            return work.map(|work| {
-                if let Some((sub, record, audiences)) = work {
-                    let inner = self.clone();
-                    // No adapter reference in this deferred peer-only work.
-                    let worker = std::thread::spawn(move || {
-                        if let Some(sub) = sub {
-                            sub.end();
-                        }
-                        let Some(record) = record else {
-                            return;
-                        };
-                        for (device, carriage) in audiences {
-                            let Some((destination, payload)) = AuthenticatedPresenceRecord::issue(
-                                &inner.identity,
-                                &record,
-                                &device,
-                            )
-                            .to_payload() else {
-                                continue;
-                            };
-                            let _ = inner.pass(
-                                carriage,
-                                &device,
-                                &destination,
-                                payload,
-                                inner.control_deadline(),
-                            );
-                        }
-                    });
-                    let mut workers = self
-                        .peer_workers
+            let result = call.commit(|| ());
+            if !recorded {
+                return result;
+            }
+            let inner = self.clone();
+            // Materialization and peer withdrawal are core-owned. No adapter reference
+            // or report survives on this worker, and readers materialize closure first.
+            let worker = std::thread::spawn(move || {
+                drop(inner.lock());
+                let work = std::mem::take(
+                    &mut inner
+                        .closures
                         .lock()
-                        .unwrap_or_else(PoisonError::into_inner);
-                    workers.retain(|worker| !worker.is_finished());
-                    workers.push(worker);
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .peer_work,
+                );
+                for (sub, record, audiences) in work {
+                    if let Some(sub) = sub {
+                        sub.end();
+                    }
+                    let Some(record) = record else { continue };
+                    for (device, carriage) in audiences {
+                        let Some((destination, payload)) =
+                            AuthenticatedPresenceRecord::issue(&inner.identity, &record, &device)
+                                .to_payload()
+                        else {
+                            continue;
+                        };
+                        let _ = inner.pass(
+                            carriage,
+                            &device,
+                            &destination,
+                            payload,
+                            inner.control_deadline(),
+                        );
+                    }
                 }
             });
+            let mut workers = self
+                .peer_workers
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            workers.retain(|worker| !worker.is_finished());
+            workers.push(worker);
+            return result;
         }
         if let Some(v) = call.cancellation() {
             return v;
         }
-        let mut core = match call.lock(&self.core) {
+        let mut core = match self.local_lock(call) {
             Ok(v) => v,
             Err(v) => return v,
         };
@@ -2542,6 +2626,11 @@ impl Inner {
         core.attachments.remove(connection);
         core.connections.remove(connection);
         core.observed.remove(connection);
+        self.closures
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .connections
+            .remove(connection);
     }
 
     // ---- binding from native signals (§6.7) -------------------------------------------
