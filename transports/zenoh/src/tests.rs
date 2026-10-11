@@ -11,6 +11,7 @@ use oac_core::sealing::{AgreementPublicKey, seal};
 use oac_core::transport::{Deadline, Destination, Payload, PayloadKind, PublishResult, Transport};
 use zenoh::Wait;
 use zenoh::bytes::Encoding;
+use zenoh::qos::CongestionControl;
 
 use crate::addressing::Partition;
 use crate::config::Role;
@@ -54,9 +55,31 @@ fn native_interest_and_sealed_carriage_do_not_depend_on_subscriptions() {
     let _device = a
         .subscribe(
             &Destination::Device(key('a')),
-            Arc::new(move |i| g.lock().unwrap().push(i.payload)),
+            Arc::new(move |i| {
+                if i.payload.octets() != b"native-ready" {
+                    g.lock().unwrap().push(i.payload);
+                }
+            }),
         )
         .unwrap();
+    // The observer's declaration must propagate back to the sender. Native matching
+    // at the observer proves the opposite direction only; use actual sample readiness.
+    let start = Instant::now();
+    loop {
+        assert!(start.elapsed() < Duration::from_secs(15));
+        a.publish(
+            &Destination::Device(key('b')),
+            Payload::new(PayloadKind::Sealed, b"native-ready".to_vec()),
+            Deadline::at(Instant::now() + Duration::from_secs(5)),
+        );
+        if capture
+            .recv_timeout(Duration::from_millis(100))
+            .unwrap()
+            .is_some()
+        {
+            break;
+        }
+    }
     let s1 = Destination::Session(SessionId::from_random_octets([1; 16]));
     let s2 = Destination::Session(SessionId::from_random_octets([2; 16]));
     // Public agreement key from sec-test-keys.json, also used by core's sealing tests.
@@ -90,10 +113,13 @@ fn native_interest_and_sealed_carriage_do_not_depend_on_subscriptions() {
                 ),
                 PublishResult::Taken
             );
-            let sample = capture
-                .recv_timeout(Duration::from_secs(5))
-                .unwrap()
-                .unwrap();
+            let deadline = Instant::now() + Duration::from_secs(5);
+            let sample = loop {
+                let sample = capture.recv_deadline(deadline).unwrap().unwrap();
+                if sample.payload().to_bytes().as_ref() != b"native-ready" {
+                    break sample;
+                }
+            };
             assert_eq!(sample.key_expr().as_str(), p.key());
             assert_eq!(*sample.encoding(), Encoding::ZENOH_BYTES);
             assert_eq!(sample.payload().to_bytes().as_ref(), &bytes);
@@ -136,6 +162,7 @@ fn native_ring_drops_oldest_and_refuses_oversized_samples_while_handler_stalls()
     let publisher = raw
         .declare_publisher(Partition::new(c.partition()).key())
         .encoding(Encoding::ZENOH_BYTES)
+        .congestion_control(CongestionControl::Block)
         .wait()
         .unwrap();
     wait_for(|| publisher.matching_status().wait().unwrap().matching());
@@ -158,6 +185,14 @@ fn native_ring_drops_oldest_and_refuses_oversized_samples_while_handler_stalls()
             }),
         )
         .unwrap();
+    // Drop before the subscription on every unwind, releasing its blocked callback.
+    struct Release(mpsc::Sender<()>);
+    impl Drop for Release {
+        fn drop(&mut self) {
+            let _ = self.0.send(());
+        }
+    }
+    let release = Release(release_tx);
     publisher.put(b"hold".to_vec()).wait().unwrap();
     entered_rx.recv_timeout(Duration::from_secs(5)).unwrap();
     for n in 0..40u8 {
@@ -181,7 +216,7 @@ fn native_ring_drops_oldest_and_refuses_oversized_samples_while_handler_stalls()
             .any(|o| o.frame == b"wrong encoding")
     });
     thread::sleep(Duration::from_millis(100));
-    release_tx.send(()).unwrap();
+    release.0.send(()).unwrap();
     wait_for(|| got.lock().unwrap().len() == 16);
     assert_eq!(
         got.lock().unwrap().iter().map(|b| b[0]).collect::<Vec<_>>(),
