@@ -300,6 +300,9 @@ fn corrupt_existing_pin_is_not_regenerated_and_native_configuration_is_default_d
 #[cfg(windows)]
 #[test]
 fn existing_windows_null_dacl_certificate_directory_is_refused() {
+    // Supported Win32 APIs (desktop API), documentation inspected 2026-10-11:
+    // https://learn.microsoft.com/en-us/windows/win32/api/aclapi/nf-aclapi-setnamedsecurityinfow
+    // https://learn.microsoft.com/en-us/windows/win32/api/aclapi/nf-aclapi-getnamedsecurityinfow
     use std::os::windows::process::CommandExt;
     let dir = StateDirectory::new();
     let conf = local(&dir);
