@@ -696,7 +696,7 @@ core-to-adapter event callback: exactly `set_binding`, `capabilities` and `deliv
 in Table 5.2, including calls made reentrantly while handling an adapter event.
 `take_connection`, `watch_attachments` (stream establishment), `accept_requests` (sink
 installation), `health` and `shutdown` are not event callbacks; their Table 5.2 outputs
-remain unchanged. `shutdown` has its own bound and settlement barrier (§5.8).
+remain unchanged. `shutdown` has its own bound and settlement barrier (§5.7).
 Direction means the callee's owner, not the event's origin;
 a core-provided adapter-event handler is an adapter-to-core call. Stream waiting for the
 next event is distinct from executing a callback; connection stream closure remains §5.2.
