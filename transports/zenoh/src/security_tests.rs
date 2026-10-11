@@ -282,7 +282,8 @@ fn corrupt_existing_pin_is_not_regenerated_and_native_configuration_is_default_d
         acl["subjects"][0]["cert_common_names"],
         serde_json::json!(["oac-local"])
     );
-    assert!(acl["subjects"][0].get("zids").is_none());
+    // Native config serializes unused optional subject fields as null.
+    assert!(acl["subjects"][0]["zids"].is_null());
     std::fs::write(dir.0.join("identity.pem"), b"corrupt pin").unwrap();
     assert!(PeerTransport::new().start(&key('a'), conf.wrap()).is_err());
     assert_eq!(
