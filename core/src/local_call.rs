@@ -104,7 +104,7 @@ pub struct CallContext {
 impl CallContext {
     /// The core binds a supplied invocation to its own admission state and the actual
     /// request attachment. A caller cannot replace shutdown with a fresh live scope.
-    pub(crate) fn bind_to(&mut self, admission: &CallAdmission, attachment: Attachment) {
+    pub(crate) fn associate_with(&mut self, admission: &CallAdmission, attachment: Attachment) {
         self.bind_scope(admission);
         self.attachment = Some(attachment);
     }
@@ -327,7 +327,10 @@ mod tests {
     #[test]
     fn closure_commit_and_first_cancellation_transition_are_preserved() {
         let admission = CallAdmission::default();
-        let c = Connection::accept(Default::default(), Default::default());
+        let c = Connection::accept(
+            crate::connection::ConnectionReader::default(),
+            crate::connection::ConnectionWriter::default(),
+        );
         let h = c.handle();
         let mut call = admission.call(Some(h.clone()), 1000);
         assert_eq!(
@@ -343,7 +346,10 @@ mod tests {
             LocalResult::<()>::Closed
         );
         let admission = CallAdmission::default();
-        let c = Connection::accept(Default::default(), Default::default());
+        let c = Connection::accept(
+            crate::connection::ConnectionReader::default(),
+            crate::connection::ConnectionWriter::default(),
+        );
         let h = c.handle();
         let mut call = admission.call(Some(h.clone()), 1000);
         admission.stop();
@@ -354,8 +360,14 @@ mod tests {
     #[test]
     fn ordinary_timeout_and_connection_scoping_and_reserved_final_reports() {
         let scope = CallAdmission::default();
-        let a = Connection::accept(Default::default(), Default::default());
-        let b = Connection::accept(Default::default(), Default::default());
+        let a = Connection::accept(
+            crate::connection::ConnectionReader::default(),
+            crate::connection::ConnectionWriter::default(),
+        );
+        let b = Connection::accept(
+            crate::connection::ConnectionReader::default(),
+            crate::connection::ConnectionWriter::default(),
+        );
         let mut first = scope.call(Some(a.handle().clone()), 1000);
         let mut other = scope.call(Some(b.handle().clone()), 1000);
         a.handle().close();

@@ -794,7 +794,7 @@ impl Pipelines {
                         AdapterEvent::AttachmentOpened { attachment, .. }
                         | AdapterEvent::AttachmentClosed { attachment }
                         | AdapterEvent::CapabilitiesChanged { attachment } => {
-                            call.bind_to(&event_admission, attachment.clone())
+                            call.associate_with(&event_admission, attachment.clone())
                         }
                         _ => {}
                     }
@@ -1319,7 +1319,7 @@ impl RequestSink for Sink {
         call: &mut crate::local_call::CallContext,
         request: SendRequest,
     ) -> crate::local_call::LocalResult<SendRequestResult> {
-        call.bind_to(&self.admission, request.attachment.clone());
+        call.associate_with(&self.admission, request.attachment.clone());
         match self.inner.upgrade() {
             Some(inner) => inner.send_local(self.adapter, call, request),
             None => crate::local_call::LocalResult::ShuttingDown,
@@ -1331,7 +1331,7 @@ impl RequestSink for Sink {
         call: &mut crate::local_call::CallContext,
         request: DiscoveryRequest,
     ) -> crate::local_call::LocalResult<DiscoveryRequestResult> {
-        call.bind_to(&self.admission, request.attachment.clone());
+        call.associate_with(&self.admission, request.attachment.clone());
         use crate::local_call::LocalResult;
         let Some(inner) = self.inner.upgrade() else {
             return LocalResult::ShuttingDown;
@@ -1348,7 +1348,7 @@ impl RequestSink for Sink {
         call: &mut crate::local_call::CallContext,
         request: crate::adapter::IdentityRequest,
     ) -> crate::local_call::LocalResult<crate::adapter::IdentityRequestResult> {
-        call.bind_to(&self.admission, request.attachment.clone());
+        call.associate_with(&self.admission, request.attachment.clone());
         use crate::adapter::{IdentityRequestResult, LocalIdentity};
         use crate::local_call::LocalResult;
         let Some(inner) = self.inner.upgrade() else {
@@ -3097,8 +3097,14 @@ mod tests {
         let key = |s: &str| PairingKey::from_observation(s.as_bytes().to_vec());
         let (p, q) = (AdapterId(0), AdapterId(1));
         let of = |k: Option<&PairingKey>, c| SignalHolder::of(p, k, c);
-        let c1 = Connection::accept(Default::default(), Default::default());
-        let c2 = Connection::accept(Default::default(), Default::default());
+        let c1 = Connection::accept(
+            crate::connection::ConnectionReader::default(),
+            crate::connection::ConnectionWriter::default(),
+        );
+        let c2 = Connection::accept(
+            crate::connection::ConnectionReader::default(),
+            crate::connection::ConnectionWriter::default(),
+        );
         let (c1, c2) = (c1.handle(), c2.handle());
         let k = key("k");
         assert!(

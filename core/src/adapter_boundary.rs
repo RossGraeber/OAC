@@ -217,7 +217,10 @@ mod tests {
             calls: AtomicUsize::new(0),
         });
         let boundary = Arc::new(AdapterBoundary::new(probe.clone()));
-        let connection = Connection::accept(Default::default(), Default::default());
+        let connection = Connection::accept(
+            crate::connection::ConnectionReader::default(),
+            crate::connection::ConnectionWriter::default(),
+        );
         let attachment = connection.handle().clone();
         let worker_boundary = boundary.clone();
         let a = attachment.clone();
@@ -253,7 +256,10 @@ mod tests {
             settled,
             calls: AtomicUsize::new(0),
         };
-        let connection = Connection::accept(Default::default(), Default::default());
+        let connection = Connection::accept(
+            crate::connection::ConnectionReader::default(),
+            crate::connection::ConnectionWriter::default(),
+        );
         let mut call = CallAdmission::default().call(Some(connection.handle().clone()), 10);
         assert!(matches!(
             probe.capabilities_local(&mut call, connection.handle()),
