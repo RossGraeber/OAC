@@ -205,9 +205,13 @@ foreach ($d in @((Get-Item -LiteralPath $p)) + @(Get-ChildItem -LiteralPath $p -
   if ($d.Attributes -band [System.IO.FileAttributes]::ReparsePoint) { throw 'reparse point' }
   $a=Get-Acl -LiteralPath $d.FullName
   if ($a.GetOwner([System.Security.Principal.SecurityIdentifier]) -ne $sid) { throw 'foreign owner' }
+  $ownerAllowed=$false
   foreach ($r in $a.GetAccessRules($true,$true,[System.Security.Principal.SecurityIdentifier])) {
     if ($r.AccessControlType -eq 'Allow' -and $r.IdentityReference -ne $sid) { throw 'non-private storage' }
+    if ($r.AccessControlType -eq 'Allow' -and $r.IdentityReference -eq $sid) { $ownerAllowed=$true }
   }
+  # An empty ACL enumeration may represent a null DACL (everyone allowed), not privacy.
+  if (!$ownerAllowed) { throw 'missing owner access rule' }
 }
 "#;
         let output = std::process::Command::new("powershell.exe")
