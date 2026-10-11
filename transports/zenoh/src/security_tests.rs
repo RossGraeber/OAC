@@ -244,6 +244,11 @@ fn native_mtls_refuses_a_joiner_without_a_client_certificate() {
     let holder = PeerTransport::new();
     holder.start(&key('a'), conf.clone().wrap()).unwrap();
     let mut anonymous = conf.native(Role::Joiner, 0).unwrap();
+    // Model a native client that does not offer a certificate, independently of
+    // OAC's mandatory-client-credential configuration. The holder still requires mTLS.
+    anonymous
+        .insert_json5("transport/link/tls/enable_mtls", "false")
+        .unwrap();
     anonymous
         .insert_json5("transport/link/tls/connect_certificate", "null")
         .unwrap();
