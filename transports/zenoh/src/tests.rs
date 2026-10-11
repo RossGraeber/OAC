@@ -1,182 +1,227 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! Tests that need the crate's inside: the native view another peer has of this transport
-//! ([IFC-TRN-043], [IFC-TRN-013]). Loopback only, over a fixed rendezvous port with
-//! scouting off, so that nothing outside the test joins.
-
+//! Native sample observations and overflow checks; default tier, loopback only.
 use std::net::TcpListener;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use oac_core::ids::{KeyId, SessionId};
-use oac_core::transport::{
-    Deadline, Destination, Inbound, Payload, PayloadKind, PresenceEvent, PublishResult, Transport,
-};
+use oac_core::sealing::{AgreementPublicKey, seal};
+use oac_core::transport::{Deadline, Destination, Payload, PayloadKind, PublishResult, Transport};
 use zenoh::Wait;
+use zenoh::bytes::Encoding;
 
-use crate::addressing::{Partition, destination_digest};
-use crate::config::{Role, free_loopback_port};
-use crate::{PeerConfiguration, PeerTransport};
+use crate::addressing::Partition;
+use crate::config::Role;
+use crate::{MAX_PAYLOAD_OCTETS, PeerConfiguration, PeerTransport};
 
 fn conf(tag: &str) -> PeerConfiguration {
     let port = TcpListener::bind("127.0.0.1:0")
-        .and_then(|l| l.local_addr())
+        .unwrap()
+        .local_addr()
         .unwrap()
         .port();
     PeerConfiguration::rendezvous(port).with_partition(format!("unit-{tag}-{port}"))
 }
-
-/// The native configuration of a raw peer joining `c`'s rendezvous.
-fn joiner(c: &PeerConfiguration) -> zenoh::Config {
-    c.native(Role::Joiner, free_loopback_port().unwrap())
-        .unwrap()
-}
-
-/// True when a raw joiner is linked to the rendezvous holder.
-fn linked(s: &zenoh::Session) -> bool {
-    s.info().routers_zid().wait().count() >= 1
-}
-
 fn key(c: char) -> KeyId {
     KeyId::parse(&c.to_string().repeat(64)).unwrap()
 }
-
-fn session(n: u8) -> Destination {
-    Destination::Session(SessionId::from_random_octets([n; 16]))
-}
-
-fn wait_for(cond: impl Fn() -> bool) -> bool {
-    let t = Instant::now();
-    while t.elapsed() < Duration::from_secs(15) {
-        if cond() {
-            return true;
-        }
-        thread::sleep(Duration::from_millis(50));
+fn wait_for(cond: impl Fn() -> bool) {
+    let start = Instant::now();
+    while !cond() {
+        assert!(start.elapsed() < Duration::from_secs(15));
+        thread::sleep(Duration::from_millis(20));
     }
-    cond()
 }
 
-/// [IFC-TRN-043], differential: a third party on the partition, holding the session ids,
-/// sees the same native interest for a subscribed and an unsubscribed destination, before
-/// and after the subscription is made and ended.
+/// IFC-TRN-043/106/107: native matching and sample carriage are identical before,
+/// during and after local interest changes, using a real core-generated HPKE frame.
 #[test]
-fn native_interest_does_not_depend_on_subscriptions() {
+fn native_interest_and_sealed_carriage_do_not_depend_on_subscriptions() {
     let c = conf("043");
     let a = PeerTransport::new();
     a.start(&key('a'), c.clone().wrap()).unwrap();
-    let observer = zenoh::open(joiner(&c)).wait().unwrap();
-    assert!(wait_for(|| linked(&observer)));
+    let observer = zenoh::open(c.native(Role::Joiner, 0).unwrap())
+        .wait()
+        .unwrap();
     let p = Partition::new(c.partition());
-    let (subd, unsubd) = (session(1), session(2));
-    let pub_subd = observer
-        .declare_publisher(p.key(&destination_digest(&subd)))
-        .wait()
-        .unwrap();
-    let pub_unsubd = observer
-        .declare_publisher(p.key(&destination_digest(&unsubd)))
-        .wait()
-        .unwrap();
-    let matching = || {
-        (
-            pub_subd.matching_status().wait().unwrap().matching(),
-            pub_unsubd.matching_status().wait().unwrap().matching(),
+    let publisher = observer.declare_publisher(p.key()).wait().unwrap();
+    wait_for(|| publisher.matching_status().wait().unwrap().matching());
+    let capture = observer.declare_subscriber(p.key()).wait().unwrap();
+    let device_got = Arc::new(Mutex::new(Vec::new()));
+    let g = device_got.clone();
+    let _device = a
+        .subscribe(
+            &Destination::Device(key('a')),
+            Arc::new(move |i| g.lock().unwrap().push(i.payload)),
         )
-    };
-    // The transport's one declaration reaches the observer.
-    assert!(wait_for(|| matching() == (true, true)));
-    let before = matching();
-    let s = a.subscribe(&subd, Arc::new(|_| {})).unwrap();
-    thread::sleep(Duration::from_millis(500));
-    let during = matching();
-    s.end();
-    thread::sleep(Duration::from_millis(500));
-    let after = matching();
-    assert_eq!(
-        (before, during, after),
-        ((true, true), (true, true), (true, true))
+        .unwrap();
+    let s1 = Destination::Session(SessionId::from_random_octets([1; 16]));
+    let s2 = Destination::Session(SessionId::from_random_octets([2; 16]));
+    // Public agreement key from sec-test-keys.json, also used by core's sealing tests.
+    let recipient =
+        AgreementPublicKey::from_base64url("wcSSzJLhvIMKmwB60NLYtLZcibdrU5_XcugIsJugBG8").unwrap();
+    let bytes = seal(
+        &recipient,
+        PayloadKind::Presence,
+        b"synthetic presence",
+        MAX_PAYLOAD_OCTETS,
+    )
+    .unwrap();
+    let mut local = None;
+    for stage in 0..3 {
+        if stage == 1 {
+            local = Some(
+                a.subscribe(&s1, Arc::new(|_| panic!("sealed frame reached session")))
+                    .unwrap(),
+            );
+        }
+        if stage == 2 {
+            local.take().unwrap().end();
+        }
+        assert!(publisher.matching_status().wait().unwrap().matching());
+        for dest in [Destination::Device(key('b')), Destination::Device(key('c'))] {
+            assert_eq!(
+                a.publish(
+                    &dest,
+                    Payload::new(PayloadKind::Sealed, bytes.clone()),
+                    Deadline::at(Instant::now() + Duration::from_secs(5))
+                ),
+                PublishResult::Taken
+            );
+            let sample = capture
+                .recv_timeout(Duration::from_secs(5))
+                .unwrap()
+                .unwrap();
+            assert_eq!(sample.key_expr().as_str(), p.key());
+            assert_eq!(*sample.encoding(), Encoding::ZENOH_BYTES);
+            assert_eq!(sample.payload().to_bytes().as_ref(), &bytes);
+            assert!(sample.attachment().is_none());
+            assert!(sample.timestamp().is_none());
+        }
+        for dest in [&s1, &s2] {
+            assert_eq!(
+                a.publish(
+                    dest,
+                    Payload::new(PayloadKind::Sealed, bytes.clone()),
+                    Deadline::at(Instant::now() + Duration::from_secs(5))
+                ),
+                PublishResult::NotTaken
+            );
+        }
+    }
+    wait_for(|| device_got.lock().unwrap().len() == 6);
+    assert!(
+        device_got
+            .lock()
+            .unwrap()
+            .iter()
+            .all(|p| p.kind() == PayloadKind::Sealed && p.octets() == bytes)
     );
     a.shutdown();
-    let _ = observer.close().wait();
+    observer.close().wait().unwrap();
 }
 
-/// [IFC-TRN-013]: two transports that found each other hand the core nothing, neither a
-/// presence event nor an inbound payload, until a payload is sent: transport discovery is
-/// not a session or a presence record.
+/// Flood the actual receive callback while its device handler stalls. Size admission
+/// precedes native queuing; overflow retains only the newest 16 admitted frames.
+#[test]
+fn native_ring_drops_oldest_and_refuses_oversized_samples_while_handler_stalls() {
+    let c = conf("ring");
+    let a = PeerTransport::new();
+    a.start(&key('a'), c.clone().wrap()).unwrap();
+    let raw = zenoh::open(c.native(Role::Joiner, 0).unwrap())
+        .wait()
+        .unwrap();
+    let publisher = raw
+        .declare_publisher(Partition::new(c.partition()).key())
+        .encoding(Encoding::ZENOH_BYTES)
+        .wait()
+        .unwrap();
+    wait_for(|| publisher.matching_status().wait().unwrap().matching());
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let release_rx = Mutex::new(release_rx);
+    let got = Arc::new(Mutex::new(Vec::new()));
+    let g = got.clone();
+    let _sub = a
+        .subscribe(
+            &Destination::Device(key('a')),
+            Arc::new(move |i| {
+                let bytes = i.payload.octets();
+                if bytes == b"hold" {
+                    entered_tx.send(()).unwrap();
+                    release_rx.lock().unwrap().recv().unwrap();
+                } else {
+                    g.lock().unwrap().push(bytes.to_vec());
+                }
+            }),
+        )
+        .unwrap();
+    publisher.put(b"hold".to_vec()).wait().unwrap();
+    entered_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    for n in 0..40u8 {
+        publisher
+            .put(vec![n; MAX_PAYLOAD_OCTETS as usize])
+            .wait()
+            .unwrap();
+    }
+    publisher
+        .put(vec![99; MAX_PAYLOAD_OCTETS as usize + 1])
+        .wait()
+        .unwrap();
+    publisher
+        .put(b"wrong encoding".to_vec())
+        .encoding(Encoding::TEXT_PLAIN)
+        .wait()
+        .unwrap();
+    wait_for(|| {
+        a.carriage_for_tests()
+            .iter()
+            .any(|o| o.frame == b"wrong encoding")
+    });
+    thread::sleep(Duration::from_millis(100));
+    release_tx.send(()).unwrap();
+    wait_for(|| got.lock().unwrap().len() == 16);
+    assert_eq!(
+        got.lock().unwrap().iter().map(|b| b[0]).collect::<Vec<_>>(),
+        (24..40).collect::<Vec<u8>>()
+    );
+    assert!(
+        got.lock()
+            .unwrap()
+            .iter()
+            .all(|b| b.len() == MAX_PAYLOAD_OCTETS as usize)
+    );
+    a.shutdown();
+    raw.close().wait().unwrap();
+}
+
 #[test]
 fn discovery_alone_hands_the_core_nothing() {
     let c = conf("013");
     let (a, b) = (PeerTransport::new(), PeerTransport::new());
     a.start(&key('a'), c.clone().wrap()).unwrap();
-    let events: Arc<Mutex<Vec<PresenceEvent>>> = Arc::default();
-    let inbound: Arc<Mutex<Vec<Inbound>>> = Arc::default();
-    let (e, i) = (events.clone(), inbound.clone());
-    a.watch_presence(Arc::new(move |x| e.lock().unwrap().push(x)))
+    a.watch_presence(Arc::new(|_| panic!("discovery became presence")))
         .unwrap();
-    let _s = a
+    let got = Arc::new(Mutex::new(Vec::new()));
+    let g = got.clone();
+    let _sub = a
         .subscribe(
             &Destination::Device(key('a')),
-            Arc::new(move |x| i.lock().unwrap().push(x)),
+            Arc::new(move |i| g.lock().unwrap().push(i.payload)),
         )
         .unwrap();
     b.start(&key('b'), c.wrap()).unwrap();
-    assert!(wait_for(|| b.connected_peers() >= 1));
-    thread::sleep(Duration::from_secs(1));
-    assert!(events.lock().unwrap().is_empty());
-    assert!(inbound.lock().unwrap().is_empty());
-    // The control: a record sent on purpose arrives.
-    let r = b.send_presence(
-        &Destination::Device(key('a')),
-        Payload::new(PayloadKind::Presence, b"record".to_vec()),
-        Deadline::at(Instant::now() + Duration::from_secs(10)),
-    );
-    assert_eq!(r, PublishResult::Taken);
-    assert!(wait_for(|| events.lock().unwrap().len() == 1));
-    b.shutdown();
-    a.shutdown();
-}
-
-/// A frame that reaches a peer after its expiry is dropped ([IFC-TRN-034]): a native put of
-/// an expired frame on a subscribed destination is never handed over, while a fresh one is.
-#[test]
-fn an_expired_frame_is_dropped_on_arrival() {
-    let c = conf("034");
-    let a = PeerTransport::new();
-    a.start(&key('a'), c.clone().wrap()).unwrap();
-    let got: Arc<Mutex<Vec<Vec<u8>>>> = Arc::default();
-    let g = got.clone();
-    let _s = a
-        .subscribe(
-            &session(3),
-            Arc::new(move |x| g.lock().unwrap().push(x.payload.octets().to_vec())),
-        )
-        .unwrap();
-    let raw = zenoh::open(joiner(&c)).wait().unwrap();
-    assert!(wait_for(|| linked(&raw)));
-    let k = Partition::new(c.partition()).key(&destination_digest(&session(3)));
-    let now = crate::transport::unix_millis_now();
-    let link = [7u8; 16];
-    // The fresh frame doubles as the readiness probe: keep putting it until it arrives.
-    assert!(wait_for(|| {
-        raw.put(
-            &k,
-            crate::frame::encode(PayloadKind::Envelope, now + 60_000, &link, b"fresh"),
-        )
-        .wait()
-        .unwrap();
-        !got.lock().unwrap().is_empty()
-    }));
-    raw.put(
-        &k,
-        crate::frame::encode(PayloadKind::Envelope, now - 1, &link, b"expired"),
-    )
-    .wait()
-    .unwrap();
-    raw.put(&k, b"not a frame".to_vec()).wait().unwrap();
     thread::sleep(Duration::from_millis(500));
-    let got = got.lock().unwrap();
-    assert!(got.iter().all(|o| o == b"fresh"), "{got:?}");
-    drop(got);
-    let _ = raw.close().wait();
+    assert!(got.lock().unwrap().is_empty());
+    b.publish(
+        &Destination::Device(key('a')),
+        Payload::new(PayloadKind::Sealed, b"record".to_vec()),
+        Deadline::at(Instant::now() + Duration::from_secs(5)),
+    );
+    wait_for(|| !got.lock().unwrap().is_empty());
+    assert_eq!(got.lock().unwrap()[0].octets(), b"record");
+    b.shutdown();
     a.shutdown();
 }

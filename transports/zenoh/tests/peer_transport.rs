@@ -16,7 +16,7 @@ use zenoh::Wait;
 use oac_core::health::HealthState;
 use oac_core::ids::{KeyId, SessionId};
 use oac_core::transport::{
-    Deadline, Destination, Inbound, Payload, PayloadKind, PresenceEvent, PublishResult, Transport,
+    Deadline, Destination, Inbound, Payload, PayloadKind, PublishResult, Transport,
     TransportConfiguration, TransportError,
 };
 use oac_transport_zenoh::{
@@ -83,6 +83,7 @@ fn start_twice_device_subscriptions_and_kinds() {
     let caps = t.start(&key('a'), conf().wrap()).unwrap();
     assert!(caps.contract_violations().is_empty());
     assert!(!caps.multicast_discovery);
+    assert!(caps.sealing);
     assert_eq!(caps.max_payload_octets, MAX_PAYLOAD_OCTETS);
     assert_eq!(t.health().state, HealthState::Healthy);
     assert_eq!(
@@ -124,17 +125,17 @@ fn start_twice_device_subscriptions_and_kinds() {
         ),
         // Above the declared maximum.
         t.publish(
-            &session(1),
+            &dev,
             Payload::new(
-                PayloadKind::Envelope,
+                PayloadKind::Sealed,
                 vec![0; MAX_PAYLOAD_OCTETS as usize + 1],
             ),
             later(),
         ),
         // A deadline already reached.
         t.publish(
-            &session(1),
-            Payload::new(PayloadKind::Envelope, b"x".to_vec()),
+            &dev,
+            Payload::new(PayloadKind::Sealed, b"x".to_vec()),
             Deadline::at(Instant::now()),
         ),
     ];
@@ -162,15 +163,18 @@ fn a_transport_starts_again_after_shutdown_with_nothing_kept() {
     let got: Arc<Mutex<Vec<Inbound>>> = Arc::default();
     let g = got.clone();
     let _s = t
-        .subscribe(&session(4), Arc::new(move |i| g.lock().unwrap().push(i)))
+        .subscribe(
+            &Destination::Device(key('a')),
+            Arc::new(move |i| g.lock().unwrap().push(i)),
+        )
         .unwrap();
     t.shutdown();
     t.start(&key('a'), c.wrap()).unwrap();
     // The subscription made before the restart is gone with it ([IFC-TRN-035]).
     for _ in 0..5 {
         t.publish(
-            &session(4),
-            Payload::new(PayloadKind::Envelope, b"x".to_vec()),
+            &Destination::Device(key('a')),
+            Payload::new(PayloadKind::Sealed, b"x".to_vec()),
             later(),
         );
         thread::sleep(Duration::from_millis(50));
@@ -264,7 +268,9 @@ fn local_mode_reaches_nothing_beyond_loopback() {
     a.start(&key('a'), c.clone().wrap()).unwrap();
     b.start(&key('b'), c.wrap()).unwrap();
     let got: Got = Arc::default();
-    let _s = b.subscribe(&session(9), sink(&got)).unwrap();
+    let _s = b
+        .subscribe(&Destination::Device(key('b')), sink(&got))
+        .unwrap();
     let start = Instant::now();
     let mut probe_linked = 0;
     while got.lock().unwrap().is_empty() || start.elapsed() < Duration::from_secs(4) {
@@ -273,8 +279,8 @@ fn local_mode_reaches_nothing_beyond_loopback() {
             "the control never arrived"
         );
         a.publish(
-            &session(9),
-            Payload::new(PayloadKind::Envelope, b"local only".to_vec()),
+            &Destination::Device(key('b')),
+            Payload::new(PayloadKind::Sealed, b"local only".to_vec()),
             later(),
         );
         let info = probe.info();
@@ -336,7 +342,9 @@ fn later_peers_reach_each_other_through_the_rendezvous_peer() {
     j1.start(&key('b'), c.clone().wrap()).unwrap();
     j2.start(&key('c'), c.wrap()).unwrap();
     let got: Got = Arc::default();
-    let _s = j2.subscribe(&session(12), sink(&got)).unwrap();
+    let _s = j2
+        .subscribe(&Destination::Device(key('c')), sink(&got))
+        .unwrap();
     let start = Instant::now();
     while got.lock().unwrap().is_empty() {
         assert!(
@@ -346,8 +354,8 @@ fn later_peers_reach_each_other_through_the_rendezvous_peer() {
             j2.connected_peers()
         );
         j1.publish(
-            &session(12),
-            Payload::new(PayloadKind::Envelope, b"j".to_vec()),
+            &Destination::Device(key('c')),
+            Payload::new(PayloadKind::Sealed, b"j".to_vec()),
             later(),
         );
         thread::sleep(Duration::from_millis(100));
@@ -371,7 +379,9 @@ fn a_later_peer_reconnects_when_the_rendezvous_holder_is_replaced() {
     holder.start(&key('a'), c.clone().wrap()).unwrap();
     j.start(&key('b'), c.clone().wrap()).unwrap();
     let got: Got = Arc::default();
-    let _s = j.subscribe(&session(13), sink(&got)).unwrap();
+    let _s = j
+        .subscribe(&Destination::Device(key('b')), sink(&got))
+        .unwrap();
     holder.shutdown();
     let next = PeerTransport::new();
     next.start(&key('c'), c.wrap()).unwrap();
@@ -382,8 +392,8 @@ fn a_later_peer_reconnects_when_the_rendezvous_holder_is_replaced() {
             "the later peer never reconnected"
         );
         next.publish(
-            &session(13),
-            Payload::new(PayloadKind::Envelope, b"again".to_vec()),
+            &Destination::Device(key('b')),
+            Payload::new(PayloadKind::Sealed, b"again".to_vec()),
             later(),
         );
         thread::sleep(Duration::from_millis(200));
@@ -412,7 +422,7 @@ fn a_stalled_handler_blocks_no_publisher_and_no_other_peer() {
     let (r, st) = (release.clone(), stalled.clone());
     let _stuck = b
         .subscribe(
-            &session(10),
+            &Destination::Device(key('b')),
             Arc::new(move |_| {
                 st.fetch_add(1, Ordering::SeqCst);
                 let _wait = r.lock().unwrap();
@@ -420,7 +430,9 @@ fn a_stalled_handler_blocks_no_publisher_and_no_other_peer() {
         )
         .unwrap();
     let fine: Got = Arc::default();
-    let _ok = other.subscribe(&session(11), sink(&fine)).unwrap();
+    let _ok = other
+        .subscribe(&Destination::Device(key('c')), sink(&fine))
+        .unwrap();
     let start = Instant::now();
     while stalled.load(Ordering::SeqCst) == 0 {
         assert!(
@@ -428,8 +440,8 @@ fn a_stalled_handler_blocks_no_publisher_and_no_other_peer() {
             "b never received"
         );
         a.publish(
-            &session(10),
-            Payload::new(PayloadKind::Envelope, b"s".to_vec()),
+            &Destination::Device(key('b')),
+            Payload::new(PayloadKind::Sealed, b"s".to_vec()),
             later(),
         );
         thread::sleep(Duration::from_millis(100));
@@ -439,8 +451,8 @@ fn a_stalled_handler_blocks_no_publisher_and_no_other_peer() {
     let t = Instant::now();
     for _ in 0..50 {
         a.publish(
-            &session(10),
-            Payload::new(PayloadKind::Envelope, vec![0; 4096]),
+            &Destination::Device(key('b')),
+            Payload::new(PayloadKind::Sealed, vec![0; 4096]),
             later(),
         );
     }
@@ -456,8 +468,8 @@ fn a_stalled_handler_blocks_no_publisher_and_no_other_peer() {
             "the other peer stopped receiving"
         );
         a.publish(
-            &session(11),
-            Payload::new(PayloadKind::Envelope, b"f".to_vec()),
+            &Destination::Device(key('c')),
+            Payload::new(PayloadKind::Sealed, b"f".to_vec()),
             later(),
         );
         thread::sleep(Duration::from_millis(100));
@@ -479,13 +491,10 @@ fn sink(g: &Got) -> Arc<dyn Fn(Inbound) + Send + Sync> {
     })
 }
 
-/// Every frame reaches every peer of the partition (one native subscriber per transport,
-/// for [IFC-TRN-043]), so the local filter is what keeps content from the wrong consumer:
-/// an envelope reaches only that session's subscriptions, a receipt only the named
-/// device's subscription, a presence record only the named device's watchers, and nothing
-/// reaches another device's transport.
+/// IFC-TRN-105/050: all kinds' sealed frames go unchanged to each local device stream;
+/// the transport never chooses a consumer from a clear-text destination or kind.
 #[test]
-fn frames_reach_only_their_own_local_consumer() {
+fn sealed_frames_reach_every_device_stream_and_no_session_or_watch() {
     let c = conf();
     let (a, b, other) = (
         PeerTransport::new(),
@@ -495,68 +504,51 @@ fn frames_reach_only_their_own_local_consumer() {
     a.start(&key('a'), c.clone().wrap()).unwrap();
     b.start(&key('b'), c.clone().wrap()).unwrap();
     other.start(&key('c'), c.wrap()).unwrap();
-    let [s1, s2, s3, bdev, cdev, bprs, cprs]: [Got; 7] = Default::default();
+    let [own, bdev, cdev, session_got]: [Got; 4] = Default::default();
     let _subs = [
-        b.subscribe(&session(1), sink(&s1)).unwrap(),
-        b.subscribe(&session(2), sink(&s2)).unwrap(),
-        other.subscribe(&session(3), sink(&s3)).unwrap(),
+        a.subscribe(&Destination::Device(key('a')), sink(&own))
+            .unwrap(),
         b.subscribe(&Destination::Device(key('b')), sink(&bdev))
             .unwrap(),
         other
             .subscribe(&Destination::Device(key('c')), sink(&cdev))
             .unwrap(),
+        b.subscribe(&session(99), sink(&session_got)).unwrap(),
     ];
-    for (t, g) in [(&b, &bprs), (&other, &cprs)] {
-        let g = g.clone();
-        t.watch_presence(Arc::new(move |e| {
-            if let PresenceEvent::Record { payload, .. } = e {
-                g.lock()
-                    .unwrap()
-                    .push((payload.kind(), payload.octets().to_vec()));
-            }
-        }))
-        .unwrap();
-    }
-    let dev_b = Destination::Device(key('b'));
+    let watches = Arc::new(AtomicUsize::new(0));
+    let w = watches.clone();
+    b.watch_presence(Arc::new(move |_| {
+        w.fetch_add(1, Ordering::SeqCst);
+    }))
+    .unwrap();
+    // Actual HPKE frames of every inner kind are exercised by the shared suite.
+    // These arbitrary octets prove the transport never parses or alters the sealed bytes.
     let start = Instant::now();
-    while s1.lock().unwrap().is_empty()
-        || bdev.lock().unwrap().is_empty()
-        || bprs.lock().unwrap().is_empty()
+    while [&own, &bdev, &cdev]
+        .iter()
+        .any(|g| g.lock().unwrap().is_empty())
     {
-        assert!(start.elapsed() < Duration::from_secs(15), "nothing arrived");
-        a.publish(
-            &session(1),
-            Payload::new(PayloadKind::Envelope, b"e".to_vec()),
-            later(),
-        );
-        a.publish(
-            &dev_b,
-            Payload::new(PayloadKind::Receipt, b"r".to_vec()),
-            later(),
-        );
-        a.send_presence(
-            &dev_b,
-            Payload::new(PayloadKind::Presence, b"p".to_vec()),
-            later(),
+        assert!(start.elapsed() < Duration::from_secs(15));
+        assert_eq!(
+            a.publish(
+                &Destination::Device(key('b')),
+                Payload::new(PayloadKind::Sealed, vec![0, 255, 7]),
+                later()
+            ),
+            PublishResult::Taken
         );
         thread::sleep(Duration::from_millis(100));
     }
-    thread::sleep(Duration::from_millis(500));
-    let only = |g: &Got, k: PayloadKind, o: &[u8]| {
-        g.lock().unwrap().iter().all(|(gk, go)| *gk == k && go == o)
-    };
-    assert!(only(&s1, PayloadKind::Envelope, b"e"));
-    assert!(only(&bdev, PayloadKind::Receipt, b"r"));
-    assert!(only(&bprs, PayloadKind::Presence, b"p"));
-    for (name, g) in [
-        ("session 2", &s2),
-        ("session 3", &s3),
-        ("device c", &cdev),
-        ("device c presence", &cprs),
-    ] {
-        let got = g.lock().unwrap().clone();
-        assert!(got.is_empty(), "{name} received {got:?}");
+    for g in [&own, &bdev, &cdev] {
+        assert!(
+            g.lock()
+                .unwrap()
+                .iter()
+                .all(|(kind, bytes)| *kind == PayloadKind::Sealed && bytes == &[0, 255, 7])
+        );
     }
+    assert!(session_got.lock().unwrap().is_empty());
+    assert_eq!(watches.load(Ordering::SeqCst), 0);
     for t in [a, b, other] {
         t.shutdown();
     }

@@ -12,30 +12,23 @@
 //! media use the real clock and have no fault control: the checks that need a copy held in
 //! flight report what they could not run, as the suite defines.
 //!
-//! `subscribed` waits for real interest: it subscribes a probe on every running transport
-//! of the medium and has every running transport publish to it until each probe has heard
-//! from every transport. Only then is a payload published next certain to have a path.
-//!
-//! `health_must_not_contain` lists every native peer id, listening and rendezvous endpoint
-//! and key expression prefix the medium's transports held, and the multicast group address.
+//! Start waits for native declarations. The fixed frame subscription never changes;
+//! `subscribed` allows propagation to settle, without publishing probe frames to core.
+//! Raw capture is at each transport's actual sample send/receive boundary. Fixed frame
+//! key and encoding are independently checked against this binding's constants, excluded
+//! from accompanying application values. Carrier bytes and native identifier snapshots
+//! stay in the audit. Native packets/ephemeral locators are not exposed by the stable API;
+//! derivations and capture completeness remain binding-review obligations.
 
-use std::collections::HashSet;
 use std::net::TcpListener;
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use oac_contract_transport::{Medium, Report, TransportHarness, Verdict, run};
-use oac_core::health::HealthState;
-use oac_core::ids::SessionId;
-use oac_core::transport::{
-    CarrierHandle, Deadline, Destination, Payload, PayloadKind, Transport, TransportConfiguration,
-};
+use oac_contract_transport::{Medium, Report, SealingObservation, TransportHarness, Verdict, run};
+use oac_core::transport::{Transport, TransportConfiguration};
 use oac_transport_zenoh::{PeerConfiguration, PeerTransport};
-
-/// How long `subscribed` waits for every probe to hear from every transport.
-const READY: Duration = Duration::from_secs(15);
 
 static MEDIA: AtomicU64 = AtomicU64::new(0);
 
@@ -52,12 +45,11 @@ struct PeerHarness;
 struct PeerMedium {
     conf: PeerConfiguration,
     made: Mutex<Vec<PeerTransport>>,
-    probes: AtomicU64,
 }
 
 impl TransportHarness for PeerHarness {
     fn binding_sealing(&self) -> bool {
-        false
+        true
     }
 
     fn name(&self) -> String {
@@ -69,7 +61,6 @@ impl TransportHarness for PeerHarness {
             conf: PeerConfiguration::rendezvous(free_port())
                 .with_partition(format!("contract-{:016x}", unique())),
             made: Mutex::new(Vec::new()),
-            probes: AtomicU64::new(1),
         })
     }
 }
@@ -80,24 +71,6 @@ fn free_port() -> u16 {
         .and_then(|l| l.local_addr())
         .map(|a| a.port())
         .expect("a free loopback port")
-}
-
-impl PeerMedium {
-    fn running(&self) -> Vec<PeerTransport> {
-        self.made
-            .lock()
-            .unwrap()
-            .iter()
-            .filter(|t| t.health().state == HealthState::Healthy)
-            .cloned()
-            .collect()
-    }
-
-    fn probe_session(&self) -> Destination {
-        let n =
-            u128::from(unique()) << 64 | u128::from(self.probes.fetch_add(1, Ordering::Relaxed));
-        Destination::Session(SessionId::from_random_octets(n.to_be_bytes()))
-    }
 }
 
 impl Medium for PeerMedium {
@@ -116,42 +89,37 @@ impl Medium for PeerMedium {
     }
 
     fn subscribed(&self) {
-        let running = self.running();
-        let start = Instant::now();
-        for r in &running {
-            let probe = self.probe_session();
-            let heard: Arc<Mutex<HashSet<CarrierHandle>>> = Arc::default();
-            let h = heard.clone();
-            let _sub = r
-                .subscribe(
-                    &probe,
-                    Arc::new(move |i| {
-                        h.lock().unwrap().insert(i.carrier);
-                    }),
-                )
-                .expect("probe subscription");
-            loop {
-                for s in &running {
-                    s.publish(
-                        &probe,
-                        Payload::new(PayloadKind::Envelope, b"probe".to_vec()),
-                        Deadline::at(Instant::now() + Duration::from_secs(5)),
-                    );
-                }
-                thread::sleep(Duration::from_millis(50));
-                if heard.lock().unwrap().len() >= running.len() {
-                    break;
-                }
-                assert!(
-                    start.elapsed() < READY,
-                    "interest did not propagate: a probe heard {} of {} transports in {READY:?}",
-                    heard.lock().unwrap().len(),
-                    running.len()
-                );
-            }
-        }
-        // Let the last probes drain before the suite publishes.
-        thread::sleep(Duration::from_millis(50));
+        // start waits for native declarations; the fixed subscription never changes.
+        thread::sleep(Duration::from_millis(300));
+    }
+
+    fn sealing_observations(&self) -> Option<Vec<SealingObservation>> {
+        let transports = self.made.lock().unwrap();
+        use sha2::{Digest, Sha256};
+        let mut hash = Sha256::new();
+        hash.update(b"oac transport partition v1\0");
+        hash.update(self.conf.partition().as_bytes());
+        let prefix: String = hash.finalize()[..8]
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        let expected_key = format!("oac/1/{prefix}/frames");
+
+        Some(
+            transports
+                .iter()
+                .flat_map(|t| t.carriage_for_tests())
+                .map(|o| {
+                    assert_eq!(o.key, expected_key);
+                    assert_eq!(o.encoding, zenoh::bytes::Encoding::ZENOH_BYTES.to_string());
+                    SealingObservation {
+                        frame: o.frame,
+                        accompanying: o.accompanying,
+                        identifiers: o.identifiers,
+                    }
+                })
+                .collect(),
+        )
     }
 
     fn health_must_not_contain(&self) -> Vec<String> {

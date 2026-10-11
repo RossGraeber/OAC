@@ -20,18 +20,19 @@ oac-core.workspace = true
 # features off; `transport_tcp` is the one link this transport opens (C7 section 5: a
 # loopback TCP rendezvous; scouting is off in local mode). TLS is G3's (#64).
 zenoh = { version = "=1.10.1", default-features = false, features = ["transport_tcp"] }
-# The one-way hash behind the private key expressions (C7 section 3). Already in the graph
+# Hashes configured partition labels and receiver-local opaque stream handles. Already in the graph
 # at this version through core/.
 sha2 = "=0.11.0"
 
 [features]
-# Test support only: `PeerTransport::identifiers_for_leak_checks`, the native strings a
-# leak test checks for. Off by default; this crate's own tests turn it on through the
+# Test support only: native identifier snapshots and raw sample-boundary carriage captures.
+# Captures retain synthetic frame bytes without a memory bound; never enable in product use.
+# Off by default; this crate's own tests turn it on through the
 # dev-dependency below. A dependent that turned it on explicitly would gain nothing that
 # crosses the boundary: the method exists only on the concrete `PeerTransport`, which only
 # cli/ constructs (the core holds a `dyn Transport` and cannot call it), and it returns this
-# process's own peer ids, loopback ports and key prefix, which hold no secret and no other
-# user's data. It feeds no health detail or error (IFC-TYP-092). Turning it on in a
+# process's own peer ids, configured endpoints and key prefix plus synthetic sample bytes.
+# It feeds no health detail or error (IFC-TYP-092). Turning it on in a
 # product crate is still a review finding.
 test-support = []
 
