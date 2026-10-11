@@ -1188,4 +1188,4 @@ not a new G3 gate verdict or two-host run. Sources:
 https://github.com/eclipse-zenoh/zenoh/blob/1.10.1/DEFAULT_CONFIG.json5 and
 https://github.com/eclipse-zenoh/zenoh/blob/1.10.1/io/zenoh-link-tls/src/utils.rs,
 version 1.10.1, retrieved/inspected 2026-10-11. Supported stable surface isolated by
-`transports/zenoh/`; license inventory: G-7 ?3.1/appendix and 07 ?5.
+`transports/zenoh/`; license inventory: G-7 §3.1/appendix and 07 §5.

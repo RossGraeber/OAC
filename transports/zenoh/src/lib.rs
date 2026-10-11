@@ -144,7 +144,7 @@
 //! handlers behind lifecycle gates. A stalled handler holds up only its own transport's
 //! callbacks; the ring continues draining the link and other peers keep receiving.
 //!
-//! **Cross-host clocks (#64, C7 ?6).** No custom clock synchronization is provided.
+//! **Cross-host clocks (#64, C7 §6).** No custom clock synchronization is provided.
 //! The sender uses monotonic admission; after decrypting, the receiving core applies
 //! SEC-SEL-036 using its own wall clock. A slow receiving clock can extend effective
 //! validity by its skew, and a fast one can discard early. Operators must bound host

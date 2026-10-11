@@ -84,7 +84,7 @@ What `node scripts/local-ci.mjs` enforces so they stay opt-in:
 - Check 9 keeps this directory a leaf and keeps the driver out of everything else.
 
 
-## G3 native TLS two-host leg (#64) ? planned, NOT RUN
+## G3 native TLS two-host leg (#64) - planned, NOT RUN
 
 Run only with explicit LAN opt-in (`node scripts/local-ci.mjs --tier lan` for the
 existing host probe); no live harness, no Codex daemon. A future two-host driver must

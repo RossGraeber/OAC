@@ -860,7 +860,7 @@ CN subjects are opaque transport names, never `zid` or OAC device/session ids.
 Native ACL denial drops operations even when the CA-valid link itself can open.
 Signatures remain the message authenticity proof; authenticated instructions are untrusted.
 
-?6 clock-skew implementation clarification: no custom clock sync. Sender admission is
+§6 clock-skew implementation clarification: no custom clock sync. Sender admission is
 monotonic; receiving core late discard after opening uses its local wall clock
 (SEC-SEL-036). Slow receiver skew can extend effective validity; fast skew can reject
 early. Operators must bound skew operationally. Zenoh has no publication TTL and OAC
