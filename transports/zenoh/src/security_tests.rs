@@ -308,9 +308,11 @@ fn existing_windows_null_dacl_certificate_directory_is_refused() {
 $ErrorActionPreference='Stop'
 $sid=[System.Security.Principal.WindowsIdentity]::GetCurrent().User
 $a=New-Object System.Security.AccessControl.DirectorySecurity
-$a.SetSecurityDescriptorSddlForm('D:NO_ACCESS_CONTROL')
+$a.SetSecurityDescriptorSddlForm('D:PNO_ACCESS_CONTROL')
 $a.SetOwner($sid)
 Set-Acl -LiteralPath $env:OAC_TLS_STORAGE -AclObject $a
+$observed=Get-Acl -LiteralPath $env:OAC_TLS_STORAGE
+if (!$observed.GetSecurityDescriptorSddlForm([System.Security.AccessControl.AccessControlSections]::Access).Contains('NO_ACCESS_CONTROL')) { throw 'null DACL control was not installed' }
 "#;
     let result = std::process::Command::new("powershell.exe")
         .args(["-NoProfile", "-NonInteractive", "-Command", script])

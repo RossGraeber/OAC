@@ -210,7 +210,7 @@ foreach ($d in @((Get-Item -LiteralPath $p)) + @(Get-ChildItem -LiteralPath $p -
     if ($r.AccessControlType -eq 'Allow' -and $r.IdentityReference -ne $sid) { throw 'non-private storage' }
     if ($r.AccessControlType -eq 'Allow' -and $r.IdentityReference -eq $sid) { $ownerAllowed=$true }
   }
-  # An empty ACL enumeration may represent a null DACL (everyone allowed), not privacy.
+  # Refuse missing owner rules, including null/empty DACL representations.
   if (!$ownerAllowed) { throw 'missing owner access rule' }
 }
 "#;
