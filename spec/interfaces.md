@@ -674,9 +674,9 @@ Table 5.2. `ProviderAdapter`.
 |---|---|---|---|
 | `take_connection` | core | a `Connection` | none |
 | `watch_attachments` | core | none | an event stream of adapter events (§5.4) |
-| `set_binding` | core | an `Attachment`; a `SessionIdentity`, or none | none |
-| `capabilities` | core | an `Attachment` | `AdapterCapabilities` |
-| `deliver` | core | a `HandOff` | a `HandOffOutcome` |
+| `set_binding` | core | an `Attachment`; a `SessionIdentity`, or none | local call result; `completed` has no value (§5.3.1) |
+| `capabilities` | core | an `Attachment` | local call result; `completed` carries `AdapterCapabilities` (§5.3.1) |
+| `deliver` | core | a `HandOff` | local call result; `completed` carries `HandOffOutcome` (§5.3.1, §5.5) |
 | `accept_requests` | core | a request sink: an operation that takes a `SendRequest`, a `DiscoveryRequest` or an `IdentityRequest` and returns a local call result containing a `RequestResult` on completion (§5.3.1) | none |
 | `health` | core | none | `HealthStatus` |
 | `shutdown` | core | none | none |
@@ -692,7 +692,12 @@ all operations of the request sink (`RequestSink` in the reference implementatio
 including send, discovery and identity requests, and every other adapter-to-core call.
 It includes reporting an adapter event to a core-provided handler (`AdapterEventHandler`
 in the reference implementation). The **event-callback bound** covers every synchronous
-core-to-adapter event callback. Direction means the callee's owner, not the event's origin;
+core-to-adapter event callback: exactly `set_binding`, `capabilities` and `deliver`
+in Table 5.2, including calls made reentrantly while handling an adapter event.
+`take_connection`, `watch_attachments` (stream establishment), `accept_requests` (sink
+installation), `health` and `shutdown` are not event callbacks; their Table 5.2 outputs
+remain unchanged. `shutdown` has its own bound and settlement barrier (§5.8).
+Direction means the callee's owner, not the event's origin;
 a core-provided adapter-event handler is an adapter-to-core call. Stream waiting for the
 next event is distinct from executing a callback; connection stream closure remains §5.2.
 
@@ -706,19 +711,68 @@ entry for a later call. A stop bound is no larger than its corresponding ordinar
 The earlier applicable deadline governs. These declarations are local contract values,
 not peer capabilities or wire members.
 
-Request-sink invocations and event-handler invocations return the local call result below;
-this wraps their existing completed result rather than changing `RequestResult`.
+Request-sink invocations, event-handler invocations and the three event callbacks
+return the local call result below, whether realized as methods or callbacks (§1.2).
+This wraps their existing completed result rather than changing its members.
 
 A **local call result** is `completed` with the operation's existing result (including no
-value for a notification), `closed`, `shutting-down`, or `timed-out`. The latter three are
-terminal outcomes of the local call, not new `ErrorCode` values or delivery states. A
-completed request still carries the unchanged `RequestResult` of §4.10. `closed` or
-`shutting-down` means that the operation was not admitted, or was cancelled before its
-commit point. A committed request returns its definite existing result; cancellation never
-changes a sent envelope into a refusal or asserts a successful hand-off. `timed-out`
-identifies expiry of the ordinary call bound, never permission to retry a hand-off. The
-binding maps a local failure to its existing harness-facing failure surface without
-inventing a peer error code. No result exposes identity or key material on a failed call.
+value for an event report or `set_binding`), `closed`, `shutting-down`, or `timed-out`.
+The latter three carry no completed value. They are terminal outcomes of the local call,
+not new `ErrorCode` values or delivery states. A completed request carries the unchanged
+`RequestResult` of §4.10; a completed `capabilities` carries `AdapterCapabilities`; a
+completed `deliver` carries one of the existing `HandOffOutcome` values of §5.5, including
+that type's own `completed` outcome. `closed` identifies connection closure;
+`shutting-down` identifies adapter shutdown; `timed-out` identifies expiry of the ordinary
+call bound. The first applicable cancellation transition wins if several race before
+commit. None authorizes retrying a hand-off. Failed local identity calls expose no identity
+or key material.
+
+The **request commit boundary** is the following per-operation linearization point:
+
+| Request | Commit boundary | Result preserved after commit |
+|---|---|---|
+| Send, including reply | creation of the valid signed envelope with its assigned `id`, before attempting transport publication; an earlier refusal commits at selection of its `RequestResult` | `refused` for a committed refusal; otherwise `not-passed` with that `id` until transport takes ownership, or `sent` with that `id` once it does (§4.10) |
+| Discovery | selection of the authorized discovery snapshot or refusal `RequestResult` | the selected array or refusal |
+| Identity | the authorized single binding/fingerprint snapshot of [IFC-ADP-096], or selection of the refusal `RequestResult` | that `LocalIdentity` or refusal |
+
+[IFC-ADP-112] The core MUST linearize request commit against cancellation, including
+shutdown, connection closure and ordinary deadline expiry.
+
+[IFC-ADP-113] The core MUST return exactly one `completed` local call result carrying the
+normal `RequestResult` for a request committed before cancellation.
+
+[IFC-ADP-114] The core MUST return exactly one applicable terminal local outcome without a
+`RequestResult` when cancellation wins before request commit.
+
+Envelope creation and recording its `id` in the committed request are one logical step;
+there is no created-but-uncommitted envelope. A send cancelled after creation settles
+transport ownership within the applicable call bound. If no transport took the envelope,
+the result is `completed` containing `not-passed`, `failed`, `transport-failure` and the
+created `id`; an unrelated internal failure retains the existing `internal-error` choice.
+If a transport took it before cancellation settled, the result is `completed` containing
+`sent`, `accepted-by-adapter` and that `id`, with the existing reply correlation and receipt
+stream. An attempted publication is not proof of ownership. The publication/ownership race
+settles before the call returns; no later publication changes a returned `not-passed`.
+Cancellation never changes a sent envelope into a refusal. Neither a bare terminal outcome
+after commit nor both a terminal outcome and a completed result is permitted. Committing
+selects the required result; it does not extend any ordinary or stop deadline.
+
+[IFC-ADP-115] The core MUST consume an event callback's terminal local outcome according to
+the following table, without substituting a completed value.
+
+| Callback | Completed value | Handling of `closed`, `shutting-down` or `timed-out` |
+|---|---|---|
+| `set_binding` | no value; binding notification finished | retain the core's authoritative binding decision; stop serving the affected attachment if the notification failed; for `set_binding(None)` during final closure, retain local deregistration and complete the closure report without retrying or waiting for the stopped adapter |
+| `capabilities` | the returned `AdapterCapabilities` | use no capability value from this call; stop serving the affected attachment and publish no new announcement based on the failed call |
+| `deliver` | the returned `HandOffOutcome`, mapped by Table 5.3 unchanged | map to `failed` if cancellation prevented any harness hand-off attempt or an attempted hand-off is known to have failed, or `indeterminate` if its completion is unknowable; record the corresponding Table 5.3 state/code; never infer `completed` or retry |
+
+A callback that already completed preserves its completed value when cancellation races
+return. A known completed harness hand-off therefore returns `completed` carrying
+`HandOffOutcome.completed`, even if cancellation arrives before the callback returns. Final closure records cessation
+of service in the core before notifying the adapter;
+a terminal `set_binding(None)` does not undo that closure or block [IFC-ADP-106]. Nested
+ordinary calls reentering the core during shutdown receive `shutting-down` before commit;
+required final closure reports retain their special admission below.
 
 [IFC-ADP-100] The core MUST return every core-provided call made by an adapter within
 `core_call_bound_ms` with a definite local call result.
@@ -884,8 +938,13 @@ that and makes no other call ([SEC-AUZ-027]). The adapter binding document names
 hand-off and every steering operation of its harness ([IFC-ADP-080]); for one v0.1 harness
 that is [MCPB-CDX-002] to [MCPB-CDX-005].
 
-[IFC-ADP-050] An adapter's `deliver` operation MUST return exactly one `HandOffOutcome` for each
-`HandOff`.
+[IFC-ADP-050] An adapter's `deliver` operation MUST return exactly one local call result
+for each `HandOff`: `completed` carrying a `HandOffOutcome`, or a terminal local outcome
+consumed under [IFC-ADP-115].
+
+The outcome names in the requirements below refer to the carried `HandOffOutcome`,
+not the outer local call result. Table 5.3 applies to that carried value or the existing
+outcome selected by [IFC-ADP-115] after a terminal local failure.
 
 [IFC-ADP-057] An adapter MUST make at most one hand-off call for each `HandOff`.
 
@@ -943,14 +1002,25 @@ end of a write reports `completed` at the end of the write, and nothing more.
 ### 5.6 `accept_requests`: requests, refusals and receipts
 
 `accept_requests` gives the adapter the core's request sink. The adapter passes each request
-a harness makes into the sink ([IFC-ADP-003]) and returns the `RequestResult` to the harness.
+a harness makes into the sink ([IFC-ADP-003]). A completed local call carries the
+`RequestResult` returned to the harness; a pre-commit local failure uses the mapping below.
 A refusal is a `RequestResult` with an `ErrorCode` from Table 8.3 whose scope includes
 `request` ([SC-RCP-075]), never a silent drop ([SC-ID-102]). An envelope that the core created
 but could not pass to a transport is a `not-passed` result, not a refusal (§4.10).
 
-[IFC-ADP-060] An adapter MUST return to the harness the core's `RequestResult` for each request,
+[IFC-ADP-060] An adapter MUST return to the harness the core's `RequestResult` for each
+request whose local call result is `completed`,
 with its outcome and its `ErrorCode` unchanged.
 
+[IFC-ADP-116] An adapter MUST map a request's pre-commit `closed`, `shutting-down` or
+`timed-out` local outcome to the existing harness-facing request refusal with
+`internal-error`, without an envelope id, delivery state, pairing value or identity.
+
+This mapping supplies a refusal when the core has no `RequestResult`; it does not replace a
+committed result under [IFC-ADP-060]. For the existing binding, §5.4 of
+`spec/bindings/mcp.md` carries it as a tool execution error with `internal-error` in text.
+The local outcome itself is not a peer error code. On an already closed connection the
+result remains settled locally; no write past the §5.2 closure barrier is permitted.
 An adapter binding document says how the harness's surface carries the result; the meaning
 does not change on the way.
 
@@ -1820,6 +1890,11 @@ the requirement whose fixtures exercise it. Appendix C gives each requirement's 
 | IFC-ADP-109 | MUST | 5.3.1 | TODO(fixture): owner F10 (#59) with G4 (#65) and G5 (#66), all call/report/callback outcomes exist at first shutdown return barrier; late-settlement mutant fails without grace period |
 | IFC-ADP-110 | MUST NOT | 5.3.1 | TODO(fixture): owner F10 (#59) with G4 (#65) and G5 (#66), release all blocked callees after shutdown return; adapter emits no late report or callback |
 | IFC-ADP-111 | MUST NOT | 5.3.1 | TODO(fixture): owner F10 (#59) with G4 (#65) and G5 (#66), release deferred core publication after shutdown return; no callback into stopped adapter |
+| IFC-ADP-112 | MUST | 5.3.1 | TODO(fixture): owner F10 (#59) with G4 (#65) and G5 (#66), cancel/shutdown races signed-envelope creation on both sides of the atomic commit boundary; ordinary timeout and connection closure obey the same boundary |
+| IFC-ADP-113 | MUST | 5.3.1 | TODO(fixture): owner F10 (#59) with G4 (#65) and G5 (#66), created-not-passed send retains id and transport-failure; taken-before-stop send retains sent; committed refusal/discovery/identity retains its result; exactly one result at return |
+| IFC-ADP-114 | MUST | 5.3.1 | TODO(fixture): owner F10 (#59) with G4 (#65) and G5 (#66), pre-envelope cancellation produces one terminal outcome with no RequestResult and no later envelope; rejected nested request during shutdown |
+| IFC-ADP-115 | MUST | 5.3.1 | TODO(fixture): owner F10 (#59) with G4 (#65) and G5 (#66), each callback preserves completed values or consumes terminal outcomes as specified; final set_binding(None) reenters core during shutdown, nested ordinary call is rejected, closure report completes locally without waiting for publication; deliver records only observed Table 5.3 outcome |
+| IFC-ADP-116 | MUST | 5.6 | TODO(fixture): owner G5 (#66) with F10 (#59) and G4 (#65), each pre-commit local failure maps to existing internal-error refusal with no identity/id/state; completed RequestResult unchanged; closed connection records result without a late write |
 | IFC-TRN-001 | MUST | 6.1 | TODO(fixture): F10 transport suite against F7, then G1-G2 |
 | IFC-TRN-002 | MAY | 6.1 | none (MAY) |
 | IFC-TRN-003 | MUST | 3.3 | TODO(fixture): each assigned requirement's own tests, run against a transport; F10 |
@@ -1892,7 +1967,7 @@ a frame, so the id was reused for the rule it holds now and is not retired.
 | 0.2 | 2026-10-08 | #69, PR #350, with `spec/bindings/mcp.md` 0.2 (the issued-value pairing for one v0.1 harness, §4.5 there): `NativeSignal` gains `revealed` and a `refused` result gains `pairing_value` (§4.10); the `attachment-unconfirmed` event (§5.4); IFC-ADP-090 (pairing values drawn from a secure random source), IFC-ADP-091 (the event comes before the request), IFC-ADP-092 and IFC-ADP-093 (the core stops serving the attachment until it is paired again, and records a finding); Appendix C gives owners to the `MUST` and `MUST NOT` requirements among MCPB-ATT-004 to MCPB-ATT-026, and to MCPB-CDX-006. Minor revision under `docs/planning/decisions/E7-interface-freeze.md` §7: no wire form changes, the added members are optional, and every new `MUST` binds only an implementation that issues pairing values or receives the new event, so an implementation conformant to 0.1 stays conformant. |
 | 0.3 | 2026-10-09 | Sealing transports, with `spec/security.md` 0.3 (payload sealing, §14 there), on the lead's ruling of 2026-10-09 on PR #364 (review finding 2): `Payload` gains the kind `sealed` (§4.11, Table 6.1); `TransportCapabilities` gains `sealing` (Table 6.3); §6.10 adds IFC-TRN-100 to IFC-TRN-104 (the core passes and takes only sealed payloads on a sealing transport, addressed to the recipient device, with room for the frame's overhead), IFC-TRN-105 to IFC-TRN-110 and IFC-TRN-113 (the transport hands sealed payloads to the local device's subscription, shows no destination, carries nothing beside a frame, deadline included, shows no device key id or session id, declares a size floor of 65590, declares the `sealing` value its binding states, and refuses any other payload kind), IFC-TRN-111 (`SHOULD`: seal on every unrestricted cross-implementation transport) and IFC-TRN-112 (the binding document states what travels beside a frame); [IFC-TRN-034] no longer binds a sealing transport's receiving end, in the rule's own text, and the receiving core drops late payloads in its place; [IFC-TRN-081] admits a sealing transport as a second way across implementations, with a dated note; §6.2, §6.4 and §8 updated; Appendix C gives owners to the new `MUST` and `MUST NOT` requirements and to those of SEC-SEL-001 to SEC-SEL-043. Minor revision under `docs/planning/decisions/E7-interface-freeze.md` §7 and `spec/session-channels.md` §5.2 item 9: the relaxed [IFC-TRN-081] forbids nothing it allowed, and every new `MUST`, and the narrower reach of [IFC-TRN-034], whose obligation moves to the receiving core, binds only a transport that declares `sealing` or a core that uses one, which no earlier revision defined. |
 | 0.4 | 2026-10-10 | Refs #376, Refs #66, Refs #375. Adds Connection.close and close_bound_ms with a terminal write/closure barrier (IFC-ADP-014 to IFC-ADP-019); bounded shutdown using closure (IFC-ADP-072 to IFC-ADP-078); IdentityRequest and LocalIdentity through the core request sink (IFC-ADP-094 to IFC-ADP-098), with only the public signing-key fingerprint exposed. Appendix A records owned TODO(fixture) cells and Appendix C assigns owners. §7.1 classifies both as minor no-wire-form amendments under E7 §7 item 2, explicitly breaking for local implementations but not for the protocol, lists implementation work, and defers all #375 items to a separate security amendment. The existing identity tool wire form needs no change; each transport/binding document still needs to state its applicable shutdown/close bound under E7 change control. |
-| 0.5 (proposed; lead approval pending) | 2026-10-10 | Refs #376, Refs #380 (implementation PR), Refs #66; lead decision 2026-10-10 following PR #380 review issuecomment-6101230133. Adds §5.3.1 IFC-ADP-100 to IFC-ADP-111: core-owned bounds on all adapter-to-core synchronous calls, adapter-owned core-to-adapter event-callback bounds, prompt lifecycle settlement with definite local results, bounded final closure reporting, aggregate end-to-end shutdown budgeting and no post-return reports/callbacks. Appendix A records owned TODO(fixture) cells; Appendix C assigns owners. §7.2 classifies this as minor under E7 §7 item 2 and explicitly breaking for unbounded local implementations, with no wire change or new extension identifier. Implementation work remains in core, adapters and PR #380. |
+| 0.5 (proposed; lead approval pending) | 2026-10-10 | Refs #376, Refs #380 (implementation PR), Refs #66; lead decision 2026-10-10 following PR #380 review issuecomment-6101230133. Adds §5.3.1 IFC-ADP-100 to IFC-ADP-115 and §5.6 IFC-ADP-116: core-owned bounds on all adapter-to-core synchronous calls, adapter-owned core-to-adapter event-callback bounds, prompt lifecycle settlement with definite local results, enumerated callback output/failure contracts, atomic per-request commit boundaries preserving created-not-passed and taken sends, existing harness refusal mapping for pre-commit failures, bounded final closure reporting, aggregate end-to-end shutdown budgeting and no post-return reports/callbacks. Appendix A records owned TODO(fixture) cells; Appendix C assigns owners. §7.2 classifies this as minor under E7 §7 item 2 and explicitly breaking for unbounded local implementations, with no wire change or new extension identifier. Implementation work remains in core, adapters and PR #380. |
 
 ## Appendix C. Owner index
 
@@ -1937,8 +2012,8 @@ carries the requirement out.
 | MCPB-FBK | adapter | 001 |
 | MCPB-CLD | adapter | 001, 002, 003 |
 | MCPB-CDX | adapter | 001, 002, 003, 004, 005, 006 |
-| IFC-ADP | adapter | 001, 002, 003, 004, 005, 006, 007, 010, 013, 020, 022, 030, 031, 040, 041, 043, 050, 051, 052, 053, 054, 056, 057, 060, 070, 071, 072, 073, 074, 075, 078, 091, 094, 101, 103, 108, 109, 110 |
-| IFC-ADP | core | 011, 012, 014, 015, 016, 017, 018, 019, 042, 055, 077, 090, 092, 093, 095, 096, 097, 098, 100, 102, 104, 106, 107, 111 |
+| IFC-ADP | adapter | 001, 002, 003, 004, 005, 006, 007, 010, 013, 020, 022, 030, 031, 040, 041, 043, 050, 051, 052, 053, 054, 056, 057, 060, 070, 071, 072, 073, 074, 075, 078, 091, 094, 101, 103, 108, 109, 110, 116 |
+| IFC-ADP | core | 011, 012, 014, 015, 016, 017, 018, 019, 042, 055, 077, 090, 092, 093, 095, 096, 097, 098, 100, 102, 104, 106, 107, 111, 112, 113, 114, 115 |
 | IFC-ADP | binding | 076, 080, 105 |
 | IFC-TRN | core | 010, 011, 012, 013, 022, 024, 025, 032, 037, 041, 042, 051, 062, 081, 100, 101, 102, 103, 104 |
 | IFC-TRN | transport | 001, 003, 020, 021, 023, 026, 030, 031, 033, 034, 035, 036, 040, 043, 044, 050, 060, 071, 080, 105, 106, 107, 108, 109, 110, 113 |
