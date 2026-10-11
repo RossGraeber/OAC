@@ -22,7 +22,7 @@ const leBytes = (x) => {
 const L = 2n ** 252n + 27742317777372353535851937790883648493n;
 import { parseTimestamp, isSessionId, isToken } from './core.mjs';
 import { sealBase, openBase, x25519, x25519Public, acceptableAgreementKey, seal as sealFrame, open as openFrame } from './hpke.mjs';
-import { checkOwners } from './index-check.mjs';
+import { checkIndexes, checkOwners } from './index-check.mjs';
 import { contractStrays } from './layout.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -164,6 +164,24 @@ export function selfTest() {
   const iface = readRepo('spec/interfaces.md');
   const rowOf = (area, owner) => iface.split('\n').find((l) => l.startsWith(`| ${area} | ${owner} | `));
   const withInterfaces = (text) => (rel) => (rel === 'spec/interfaces.md' ? text : readRepo(rel));
+  // Retirement metadata remains checked even though retired ids have no active owner.
+  const retired = '| IFC-ADP-074 | RETIRED | 5.7 | Retired in revision 0.6; replaced by [IFC-ADP-119] |';
+  const retirementProblems = (text) => checkIndexes(withInterfaces(text), []).filter((p) => p.includes('retired IFC-ADP-074'));
+  expect('retired index: committed row exists', iface.includes(retired));
+  expect('retired index: committed metadata is clean', retirementProblems(iface).length === 0);
+  const retirementMutations = {
+    'missing revision': retired.replace('revision 0.6', 'revision unknown'),
+    'missing replacement': retired.replace('; replaced by [IFC-ADP-119]', ''),
+    'undefined replacement': retired.replace('IFC-ADP-119', 'IFC-ADP-999'),
+    'retired replacement': retired.replace('IFC-ADP-119', 'IFC-ADP-100'),
+    'fixture obligation': retired.replace('] |', ']; TODO(fixture) |'),
+  };
+  for (const [name, row] of Object.entries(retirementMutations)) {
+    expect(`retired index: ${name} fails`, retirementProblems(iface.replace(retired, row)).length > 0);
+  }
+  expect('retired index: active definition fails', retirementProblems(iface.replace('[IFC-ADP-119] An adapter MUST', '[IFC-ADP-074] An adapter MUST')).length > 0);
+  expect('retired index: duplicate row fails', checkIndexes(withInterfaces(iface.replace(retired, `${retired}\n${retired}`)), []).some((p) => p.includes('IFC-ADP-074 has more than one index row')));
+  expect('retired index: owner fails', checkOwners(withInterfaces(iface.replace('| IFC-ADP | adapter | ', '| IFC-ADP | adapter | 074, '))).length > 0);
   expect('owner index: committed text is clean', checkOwners(readRepo).length === 0);
   const rct = rowOf('SEC-RCT', 'core'); // | SEC-RCT | core | 001, 002, 003, 004, 005 |
   const env = rowOf('SC-ENV', 'adapter');
