@@ -306,13 +306,31 @@ fn existing_windows_null_dacl_certificate_directory_is_refused() {
     conf.native(Role::First, conf.rendezvous_port()).unwrap();
     let script = r#"
 $ErrorActionPreference='Stop'
-$sid=[System.Security.Principal.WindowsIdentity]::GetCurrent().User
-$a=New-Object System.Security.AccessControl.DirectorySecurity
-$a.SetSecurityDescriptorSddlForm('D:PNO_ACCESS_CONTROL')
-$a.SetOwner($sid)
-Set-Acl -LiteralPath $env:OAC_TLS_STORAGE -AclObject $a
-$observed=Get-Acl -LiteralPath $env:OAC_TLS_STORAGE
-if (!$observed.GetSecurityDescriptorSddlForm([System.Security.AccessControl.AccessControlSections]::Access).Contains('NO_ACCESS_CONTROL')) { throw 'null DACL control was not installed' }
+# Set only the DACL through the public Win32 API. PowerShell Set-Acl's null-DACL
+# path also requests SACL privileges, which a normal user does not have.
+Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+public static class OacTlsTestAcl {
+  [DllImport("advapi32.dll", CharSet=CharSet.Unicode, EntryPoint="SetNamedSecurityInfoW")]
+  static extern uint Set(string path, int type, uint flags, IntPtr owner, IntPtr group, IntPtr dacl, IntPtr sacl);
+  [DllImport("advapi32.dll", CharSet=CharSet.Unicode, EntryPoint="GetNamedSecurityInfoW")]
+  static extern uint Get(string path, int type, uint flags, out IntPtr owner, out IntPtr group, out IntPtr dacl, out IntPtr sacl, out IntPtr descriptor);
+  [DllImport("kernel32.dll")] static extern IntPtr LocalFree(IntPtr pointer);
+  public static void Install(string path) {
+    uint error=Set(path,1,0x80000004u,IntPtr.Zero,IntPtr.Zero,IntPtr.Zero,IntPtr.Zero);
+    if(error!=0) throw new Exception("cannot install null DACL: "+error);
+  }
+  public static bool IsNull(string path) {
+    IntPtr owner, group, dacl, sacl, descriptor;
+    uint error=Get(path,1,4u,out owner,out group,out dacl,out sacl,out descriptor);
+    if(error!=0) throw new Exception("cannot inspect null DACL: "+error);
+    try { return dacl==IntPtr.Zero; } finally { LocalFree(descriptor); }
+  }
+}
+"@
+[OacTlsTestAcl]::Install($env:OAC_TLS_STORAGE)
+if (![OacTlsTestAcl]::IsNull($env:OAC_TLS_STORAGE)) { throw 'null DACL control was not installed' }
 "#;
     let result = std::process::Command::new("powershell.exe")
         .args(["-NoProfile", "-NonInteractive", "-Command", script])
@@ -320,6 +338,10 @@ if (!$observed.GetSecurityDescriptorSddlForm([System.Security.AccessControl.Acce
         .creation_flags(0x0800_0000)
         .output()
         .unwrap();
-    assert!(result.status.success());
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
     assert!(conf.native(Role::First, conf.rendezvous_port()).is_err());
 }
