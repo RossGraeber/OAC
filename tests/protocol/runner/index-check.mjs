@@ -52,7 +52,7 @@ export function indexRows(text, heading) {
   const lines = text.slice(start).split('\n');
   for (let k = 0; k < lines.length; k++) {
     if (k > 0 && /^#{1,3} /.test(lines[k])) break;
-    const m = new RegExp(`^\\| ${ID} \\| (MUST NOT|MUST|SHOULD NOT|SHOULD|MAY) \\|(.*)\\|\\s*$`).exec(lines[k]);
+    const m = new RegExp(`^\\| ${ID} \\| (MUST NOT|MUST|SHOULD NOT|SHOULD|MAY|RETIRED) \\|(.*)\\|\\s*$`).exec(lines[k]);
     if (m) rows.push({ id: m[1], level: m[2], cell: m[3], line: base + k });
   }
   return rows;
@@ -118,6 +118,14 @@ export function checkIndexes(read, fixtures) {
       if (rowIds.has(row.id)) problems.push(`${doc.path}:${row.line}: ${row.id} has more than one index row`);
       rowIds.set(row.id, row);
       const d = defs.get(row.id);
+      if (row.level === 'RETIRED') {
+        if (d) problems.push(`${doc.path}:${row.line}: retired ${row.id} is still defined`);
+        const retirement = /Retired in revision ([0-9]+\.[0-9]+); replaced by \[([A-Z]+-[A-Z]+-[0-9]{3})\]/.exec(row.cell);
+        if (!retirement) problems.push(`${doc.path}:${row.line}: retired ${row.id} needs a retirement revision and replacement`);
+        else if (!defs.has(retirement[2])) problems.push(`${doc.path}:${row.line}: retired ${row.id} replacement ${retirement[2]} is not defined in the document`);
+        if (cellReferences(row.cell).length || row.cell.includes('TODO(fixture)')) problems.push(`${doc.path}:${row.line}: retired ${row.id} still carries fixture obligations`);
+        continue;
+      }
       if (!d) problems.push(`${doc.path}:${row.line}: index row ${row.id} names no requirement defined in the document`);
       else if (d.level !== row.level) problems.push(`${doc.path}:${row.line}: ${row.id} is indexed as ${row.level} but its sentence (line ${d.line}) uses ${d.level}`);
       for (const ref of cellReferences(row.cell)) {
