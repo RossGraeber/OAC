@@ -778,20 +778,20 @@ a terminal `set_binding(None)` does not undo that closure or block [IFC-ADP-106]
 ordinary calls reentering the core during shutdown receive `shutting-down` before commit;
 required final closure reports retain their special admission below.
 
-[IFC-ADP-100] The core MUST return every core-provided call made by an adapter within the
+[IFC-ADP-120] The core MUST return every core-provided call made by an adapter within the
 composed call bound of §5.3.2, using `core_call_bound_ms` as its local budget, with a
 definite local call result.
 
-[IFC-ADP-101] An adapter MUST return every core-to-adapter event callback within the
+[IFC-ADP-121] An adapter MUST return every core-to-adapter event callback within the
 composed call bound of §5.3.2, using `event_callback_bound_ms` as its local budget, with
 a definite local call result.
 
-[IFC-ADP-102] The core MUST settle pending or later adapter-to-core calls within the
+[IFC-ADP-122] The core MUST settle pending or later adapter-to-core calls within the
 composed stop bound of §5.3.2, using `stop_call_bound_ms` as its local budget once adapter
 shutdown begins or their associated connection begins closing, with a definite local call
 result.
 
-[IFC-ADP-103] An adapter MUST settle pending or later core-to-adapter event callbacks within
+[IFC-ADP-123] An adapter MUST settle pending or later core-to-adapter event callbacks within
 the composed stop bound of §5.3.2, using `stop_callback_bound_ms` as its local budget once
 its shutdown begins or their associated connection begins closing, with a definite local
 call result.
@@ -821,10 +821,10 @@ its failure does not keep an adapter callback on the stack. Authentication still
 only routing, not instructions in content (§8). The identity authorization and single-snapshot rules
 [IFC-ADP-095] to [IFC-ADP-098] apply unchanged to completed identity requests.
 
-[IFC-ADP-107] The core MUST provide call bounds whose aggregate settlement and final-report
+[IFC-ADP-124] The core MUST provide call bounds whose aggregate settlement and final-report
 cost fits the composed shutdown bound of §5.3.2 together with connection closure.
 
-[IFC-ADP-108] An adapter MUST budget callback settlement, connection closure, required final
+[IFC-ADP-125] An adapter MUST budget callback settlement, connection closure, required final
 reports and worker settlement together within the composed shutdown bound of §5.3.2.
 
 The composed bound is end-to-end, not a separate full shutdown budget for each phase or
@@ -865,8 +865,8 @@ is counted once. Sequential waits add; independent concurrent waits contribute t
 maximum plus coordination cost. Admission limits keep the number of waits finite.
 The adapter budget covers its own coordination, callbacks, workers and connection closure;
 the core budget covers its own settlement and final local reports. Neither includes the
-transport contribution. This qualifies [IFC-ADP-074], [IFC-ADP-100] to [IFC-ADP-103] and
-[IFC-ADP-107] to [IFC-ADP-108]; finite local bounds remain required.
+transport contribution. This is specified by [IFC-ADP-119] to [IFC-ADP-125], replacing
+the retired timing requirements listed in Appendix A; finite local bounds remain required.
 
 A transport declaring no publish bound makes settlement and shutdown **unbounded at that
 step** whenever publication is awaited. No awaited publication means no contribution from
@@ -1139,7 +1139,7 @@ choice, not a relaxation of the bound.
 [IFC-ADP-073] An adapter MUST close every `Connection` it received before its `shutdown`
 returns.
 
-[IFC-ADP-074] An adapter MUST return from `shutdown` within the composed bound of §5.3.2.
+[IFC-ADP-119] An adapter MUST return from `shutdown` within the composed bound of §5.3.2.
 
 [IFC-ADP-075] An adapter MUST settle every in-flight hand-off call
 before its `shutdown` returns.
@@ -1965,7 +1965,7 @@ the requirement whose fixtures exercise it. Appendix C gives each requirement's 
 | IFC-ADP-071 | MUST | 5.7 | TODO(fixture): F10 adapter suite |
 | IFC-ADP-072 | MUST | 5.7 | TODO(fixture): owner F10 (#59) with G4 (#65), race shutdown with new delivery and harness requests; no new hand-off begins |
 | IFC-ADP-073 | MUST | 5.7 | TODO(fixture): owner F10 (#59) with G4 (#65), shutdown closes every supplied connection, including native-signal-only connections |
-| IFC-ADP-074 | MUST | 5.7 | TODO(fixture): owner F10 (#59) with G4 (#65), permanently stalled peer and multiple connections; shutdown returns within the binding's declared bound; revision 0.6 transport contribution and unresolved publication follow §5.3.2 |
+| IFC-ADP-074 | RETIRED | 5.7 | Retired in revision 0.6; replaced by [IFC-ADP-119] |
 | IFC-ADP-075 | MUST | 5.7 | TODO(fixture): owner F10 (#59) with G4 (#65), blocked delivery races shutdown; one truthful outcome precedes shutdown return; releasing peer afterwards cannot complete a late hand-off |
 | IFC-ADP-076 | MUST | 5.7 | TODO(fixture): owner G4 (#65) with G7 (#68), binding document review checks a finite positive bound covering all shutdown work |
 | IFC-ADP-077 | MUST | 5.7 | TODO(fixture): owner F10 (#59) with G9 (#70), a connection whose close bound exceeds the adapter's shutdown bound is never supplied |
@@ -1980,15 +1980,15 @@ the requirement whose fixtures exercise it. Appendix C gives each requirement's 
 | IFC-ADP-096 | MUST | 5.6 | TODO(fixture): owner F10 (#59) with G5 (#66), identity request races rebind/revoke; successful session and local signing fingerprint belong to one current binding snapshot |
 | IFC-ADP-097 | MUST | 5.6 | TODO(fixture): owner F10 (#59) with G5 (#66), successful result has exactly session_id and the public fingerprint in security §5.2's form |
 | IFC-ADP-098 | MUST NOT | 5.6 | TODO(fixture): owner F11 (#60) with G5 (#66), synthetic signing/agreement key sentinels never appear in identity requests/results; only the digest is exposed |
-| IFC-ADP-100 | MUST | 5.3.1 | TODO(fixture): owner F10 (#59) with G4 (#65) and G5 (#66), core callee stalled in each send/discovery/identity operation and event handler; ordinary bound returns definite result; revision 0.6 transport contribution and unresolved publication follow §5.3.2 |
-| IFC-ADP-101 | MUST | 5.3.1 | TODO(fixture): owner F10 (#59) with G4 (#65) and G5 (#66), stalled core-to-adapter event callback; ordinary bound includes admission and nested work; revision 0.6 transport contribution and unresolved publication follow §5.3.2 |
-| IFC-ADP-102 | MUST | 5.3.1 | TODO(fixture): owner F10 (#59) with G4 (#65) and G5 (#66), pending and new sink/identity/report calls race shutdown or connection closure; stop deadline and definite result, unrelated connection unaffected; revision 0.6 transport contribution and unresolved publication follow §5.3.2 |
-| IFC-ADP-103 | MUST | 5.3.1 | TODO(fixture): owner F10 (#59) with G4 (#65) and G5 (#66), pending and new core-to-adapter callbacks race shutdown or closure; stop deadline and definite result; revision 0.6 transport contribution and unresolved publication follow §5.3.2 |
+| IFC-ADP-100 | RETIRED | 5.3.1 | Retired in revision 0.6; replaced by [IFC-ADP-120] |
+| IFC-ADP-101 | RETIRED | 5.3.1 | Retired in revision 0.6; replaced by [IFC-ADP-121] |
+| IFC-ADP-102 | RETIRED | 5.3.1 | Retired in revision 0.6; replaced by [IFC-ADP-122] |
+| IFC-ADP-103 | RETIRED | 5.3.1 | Retired in revision 0.6; replaced by [IFC-ADP-123] |
 | IFC-ADP-104 | MUST | 5.3.1 | TODO(fixture): owner F10 (#59) with G4 (#65) and G5 (#66), core declarations and independent admission state remain observable while a callee holds a lock |
 | IFC-ADP-105 | MUST | 5.3.1 | TODO(fixture): owner G4 (#65), binding review verifies finite positive callback/stop bounds |
 | IFC-ADP-106 | MUST | 5.3.1 | TODO(fixture): owner F10 (#59) with G4 (#65) and G5 (#66), final closure report after connection close and during shutdown records closure locally while peer publication stalls |
-| IFC-ADP-107 | MUST | 5.3.1 | TODO(fixture): owner F10 (#59) with G4 (#65) and G5 (#66), core rejects local costs exceeding their declared local budgets before admission; revision 0.6 transport contribution and unresolved publication follow §5.3.2 |
-| IFC-ADP-108 | MUST | 5.3.1 | TODO(fixture): owner F10 (#59) with G4 (#65) and G5 (#66), multiple connections and concurrent/sequential calls fit one end-to-end shutdown budget; revision 0.6 transport contribution and unresolved publication follow §5.3.2 |
+| IFC-ADP-107 | RETIRED | 5.3.1 | Retired in revision 0.6; replaced by [IFC-ADP-124] |
+| IFC-ADP-108 | RETIRED | 5.3.1 | Retired in revision 0.6; replaced by [IFC-ADP-125] |
 | IFC-ADP-109 | MUST | 5.3.1 | TODO(fixture): owner F10 (#59) with G4 (#65) and G5 (#66), all call/report/callback outcomes exist at first shutdown return barrier; late-settlement mutant fails without grace period |
 | IFC-ADP-110 | MUST NOT | 5.3.1 | TODO(fixture): owner F10 (#59) with G4 (#65) and G5 (#66), release all blocked callees after shutdown return; adapter emits no late report or callback |
 | IFC-ADP-111 | MUST NOT | 5.3.1 | TODO(fixture): owner F10 (#59) with G4 (#65) and G5 (#66), release deferred core publication after shutdown return; no callback into stopped adapter |
@@ -1999,6 +1999,13 @@ the requirement whose fixtures exercise it. Appendix C gives each requirement's 
 | IFC-ADP-116 | MUST | 5.6 | TODO(fixture): owner G5 (#66) with F10 (#59) and G4 (#65), each pre-commit local failure maps to existing internal-error refusal with no identity/id/state; completed RequestResult unchanged; closed connection records result without a late write |
 | IFC-ADP-117 | MUST | 5.3.2 | TODO(fixture): owner F10 (#59) with G4 (#65) and F6, committed publish stalls past ordinary/stop/local shutdown budgets; no result or shutdown return at expiry, then taken/not-taken yields exactly one truthful result with original id; no late callback or retry |
 | IFC-ADP-118 | MUST | 5.3.2 | TODO(fixture): owner F10 (#59) with F6, missing declaration reports unbounded; finite declarations compose adapter + core + sequential/concurrent publish costs; no awaited publish contributes zero |
+| IFC-ADP-119 | MUST | 5.7 | TODO(fixture): owner F10 (#59) with G4 (#65), permanently stalled peer and multiple connections; shutdown returns within the composed bound; transport contribution and unresolved publication follow §5.3.2 |
+| IFC-ADP-120 | MUST | 5.3.1 | TODO(fixture): owner F10 (#59) with G4 (#65) and G5 (#66), core callee stalled in each send/discovery/identity operation and event handler; ordinary bound returns definite result; revision 0.6 transport contribution and unresolved publication follow §5.3.2 |
+| IFC-ADP-121 | MUST | 5.3.1 | TODO(fixture): owner F10 (#59) with G4 (#65) and G5 (#66), stalled core-to-adapter event callback; ordinary bound includes admission and nested work; revision 0.6 transport contribution and unresolved publication follow §5.3.2 |
+| IFC-ADP-122 | MUST | 5.3.1 | TODO(fixture): owner F10 (#59) with G4 (#65) and G5 (#66), pending and new sink/identity/report calls race shutdown or connection closure; stop deadline and definite result, unrelated connection unaffected; revision 0.6 transport contribution and unresolved publication follow §5.3.2 |
+| IFC-ADP-123 | MUST | 5.3.1 | TODO(fixture): owner F10 (#59) with G4 (#65) and G5 (#66), pending and new core-to-adapter callbacks race shutdown or closure; stop deadline and definite result; revision 0.6 transport contribution and unresolved publication follow §5.3.2 |
+| IFC-ADP-124 | MUST | 5.3.1 | TODO(fixture): owner F10 (#59) with G4 (#65) and G5 (#66), core rejects local costs exceeding their declared local budgets before admission; revision 0.6 transport contribution and unresolved publication follow §5.3.2 |
+| IFC-ADP-125 | MUST | 5.3.1 | TODO(fixture): owner F10 (#59) with G4 (#65) and G5 (#66), multiple connections and concurrent/sequential calls fit one end-to-end shutdown budget; revision 0.6 transport contribution and unresolved publication follow §5.3.2 |
 | IFC-TRN-001 | MUST | 6.1 | TODO(fixture): F10 transport suite against F7, then G1-G2 |
 | IFC-TRN-002 | MAY | 6.1 | none (MAY) |
 | IFC-TRN-003 | MUST | 3.3 | TODO(fixture): each assigned requirement's own tests, run against a transport; F10 |
@@ -2057,7 +2064,9 @@ the requirement whose fixtures exercise it. Appendix C gives each requirement's 
 | IFC-NEU-003 | MUST NOT | 7 | TODO(fixture): F10 transport suite, boundary lint check 1 over `core/`; G1 |
 | IFC-NEU-004 | MUST NOT | 7 | TODO(fixture): F1, F10 |
 
-Retired ids: none. One id appeared only in the draft under review (#279) and was dropped before
+Retired ids are retained above with their retirement revision and replacement. They have
+no active obligation or Appendix C owner. One id appeared only in the draft under review
+(#279) and was dropped before
 this document was first merged, so it was never published and is not retired: IFC-ADP-021.
 Its rule moved to [IFC-ADP-012], with the pairing key now observed by the core process.
 IFC-TRN-108 first named, in the draft of PR #367, a `SHOULD` to round a deadline carried beside a
@@ -2075,7 +2084,7 @@ a frame, so the id was reused for the rule it holds now and is not retired.
 | 0.3 | 2026-10-09 | Sealing transports, with `spec/security.md` 0.3 (payload sealing, §14 there), on the lead's ruling of 2026-10-09 on PR #364 (review finding 2): `Payload` gains the kind `sealed` (§4.11, Table 6.1); `TransportCapabilities` gains `sealing` (Table 6.3); §6.10 adds IFC-TRN-100 to IFC-TRN-104 (the core passes and takes only sealed payloads on a sealing transport, addressed to the recipient device, with room for the frame's overhead), IFC-TRN-105 to IFC-TRN-110 and IFC-TRN-113 (the transport hands sealed payloads to the local device's subscription, shows no destination, carries nothing beside a frame, deadline included, shows no device key id or session id, declares a size floor of 65590, declares the `sealing` value its binding states, and refuses any other payload kind), IFC-TRN-111 (`SHOULD`: seal on every unrestricted cross-implementation transport) and IFC-TRN-112 (the binding document states what travels beside a frame); [IFC-TRN-034] no longer binds a sealing transport's receiving end, in the rule's own text, and the receiving core drops late payloads in its place; [IFC-TRN-081] admits a sealing transport as a second way across implementations, with a dated note; §6.2, §6.4 and §8 updated; Appendix C gives owners to the new `MUST` and `MUST NOT` requirements and to those of SEC-SEL-001 to SEC-SEL-043. Minor revision under `docs/planning/decisions/E7-interface-freeze.md` §7 and `spec/session-channels.md` §5.2 item 9: the relaxed [IFC-TRN-081] forbids nothing it allowed, and every new `MUST`, and the narrower reach of [IFC-TRN-034], whose obligation moves to the receiving core, binds only a transport that declares `sealing` or a core that uses one, which no earlier revision defined. |
 | 0.4 | 2026-10-10 | Refs #376, Refs #66, Refs #375. Adds Connection.close and close_bound_ms with a terminal write/closure barrier (IFC-ADP-014 to IFC-ADP-019); bounded shutdown using closure (IFC-ADP-072 to IFC-ADP-078); IdentityRequest and LocalIdentity through the core request sink (IFC-ADP-094 to IFC-ADP-098), with only the public signing-key fingerprint exposed. Appendix A records owned TODO(fixture) cells and Appendix C assigns owners. §7.1 classifies both as minor no-wire-form amendments under E7 §7 item 2, explicitly breaking for local implementations but not for the protocol, lists implementation work, and defers all #375 items to a separate security amendment. The existing identity tool wire form needs no change; each transport/binding document still needs to state its applicable shutdown/close bound under E7 change control. |
 | 0.5 (proposed; lead approval pending) | 2026-10-10 | Refs #376, Refs #380 (implementation PR), Refs #66; lead decision 2026-10-10 following PR #380 review issuecomment-6101230133. Adds §5.3.1 IFC-ADP-100 to IFC-ADP-115 and §5.6 IFC-ADP-116: core-owned bounds on all adapter-to-core synchronous calls, adapter-owned core-to-adapter event-callback bounds, prompt lifecycle settlement with definite local results, enumerated callback output/failure contracts, atomic per-request commit boundaries preserving created-not-passed and taken sends, existing harness refusal mapping for pre-commit failures, bounded final closure reporting, aggregate end-to-end shutdown budgeting and no post-return reports/callbacks. Appendix A records owned TODO(fixture) cells; Appendix C assigns owners. §7.2 classifies this as minor under E7 §7 item 2 and explicitly breaking for unbounded local implementations, with no wire change or new extension identifier. Implementation work remains in core, adapters and PR #380. |
-| 0.6 (proposed; lead approval pending) | 2026-10-10 | Refs #380, Refs #376; lead decision 2026-10-10. Shutdown/settlement given the transport (§5.3.2): adapter + core + declared publish contribution, unbounded at an awaited undeclared step; committed unresolved publication stays pending until one truthful result, with unchanged ownership/commit and return barriers (IFC-ADP-117/118). Optional binding publish_bound_ms with conditional scope/return obligations (IFC-TRN-114 to IFC-TRN-116, §6.3.1); no mandatory transport bound, wire field or signature change. Owned Appendix A TODO(fixture) cells, Appendix C owners and explicit minor/local timing classification (§7.3). |
+| 0.6 (proposed; lead approval pending) | 2026-10-10 | Refs #380, Refs #376; lead decision 2026-10-10. Shutdown/settlement given the transport (§5.3.2): adapter + core + declared publish contribution, unbounded at an awaited undeclared step; committed unresolved publication stays pending until one truthful result, with unchanged ownership/commit and return barriers (IFC-ADP-117/118). Optional binding publish_bound_ms with conditional scope/return obligations (IFC-TRN-114 to IFC-TRN-116, §6.3.1); no mandatory transport bound, wire field or signature change. Retires IFC-ADP-074, IFC-ADP-100 to IFC-ADP-103 and IFC-ADP-107/108 in revision 0.6; replacement timing requirements are IFC-ADP-119 to IFC-ADP-125, respectively, under the ID-stability rule. Owned Appendix A TODO(fixture) cells, Appendix C owners move to the replacements; explicit minor/local timing classification (§7.3). |
 
 ## Appendix C. Owner index
 
@@ -2120,8 +2129,8 @@ carries the requirement out.
 | MCPB-FBK | adapter | 001 |
 | MCPB-CLD | adapter | 001, 002, 003 |
 | MCPB-CDX | adapter | 001, 002, 003, 004, 005, 006 |
-| IFC-ADP | adapter | 001, 002, 003, 004, 005, 006, 007, 010, 013, 020, 022, 030, 031, 040, 041, 043, 050, 051, 052, 053, 054, 056, 057, 060, 070, 071, 072, 073, 074, 075, 078, 091, 094, 101, 103, 108, 109, 110, 116 |
-| IFC-ADP | core | 011, 012, 014, 015, 016, 017, 018, 019, 042, 055, 077, 090, 092, 093, 095, 096, 097, 098, 100, 102, 104, 106, 107, 111, 112, 113, 114, 115, 117, 118 |
+| IFC-ADP | adapter | 001, 002, 003, 004, 005, 006, 007, 010, 013, 020, 022, 030, 031, 040, 041, 043, 050, 051, 052, 053, 054, 056, 057, 060, 070, 071, 072, 073, 075, 078, 091, 094, 109, 110, 116, 119, 121, 123, 125 |
+| IFC-ADP | core | 011, 012, 014, 015, 016, 017, 018, 019, 042, 055, 077, 090, 092, 093, 095, 096, 097, 098, 104, 106, 111, 112, 113, 114, 115, 117, 118, 120, 122, 124 |
 | IFC-ADP | binding | 076, 080, 105 |
 | IFC-TRN | core | 010, 011, 012, 013, 022, 024, 025, 032, 037, 041, 042, 051, 062, 081, 100, 101, 102, 103, 104 |
 | IFC-TRN | transport | 001, 003, 020, 021, 023, 026, 030, 031, 033, 034, 035, 036, 040, 043, 044, 050, 060, 071, 080, 105, 106, 107, 108, 109, 110, 113, 116 |
