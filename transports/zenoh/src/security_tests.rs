@@ -296,3 +296,28 @@ fn corrupt_existing_pin_is_not_regenerated_and_native_configuration_is_default_d
         b"corrupt pin"
     );
 }
+
+#[cfg(windows)]
+#[test]
+fn existing_windows_null_dacl_certificate_directory_is_refused() {
+    use std::os::windows::process::CommandExt;
+    let dir = StateDirectory::new();
+    let conf = local(&dir);
+    conf.native(Role::First, conf.rendezvous_port()).unwrap();
+    let script = r#"
+$ErrorActionPreference='Stop'
+$sid=[System.Security.Principal.WindowsIdentity]::GetCurrent().User
+$a=New-Object System.Security.AccessControl.DirectorySecurity
+$a.SetSecurityDescriptorSddlForm('D:NO_ACCESS_CONTROL')
+$a.SetOwner($sid)
+Set-Acl -LiteralPath $env:OAC_TLS_STORAGE -AclObject $a
+"#;
+    let result = std::process::Command::new("powershell.exe")
+        .args(["-NoProfile", "-NonInteractive", "-Command", script])
+        .env("OAC_TLS_STORAGE", &dir.0)
+        .creation_flags(0x0800_0000)
+        .output()
+        .unwrap();
+    assert!(result.status.success());
+    assert!(conf.native(Role::First, conf.rendezvous_port()).is_err());
+}
