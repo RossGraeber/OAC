@@ -450,6 +450,7 @@ struct Announced {
 /// Everything the pipelines change, under one lock. The lock is never held across a call
 /// into an adapter or a transport.
 struct Core {
+    admissions: Vec<crate::local_call::CallAdmission>,
     engine: AuthorizationEngine,
     registry: PresenceRegistry,
     issuer: PresenceIssuer,
@@ -477,6 +478,9 @@ struct Core {
 }
 
 struct Inner {
+    peer_workers: Mutex<Vec<std::thread::JoinHandle<()>>>,
+    committed_sends: Mutex<HashMap<AdapterId, usize>>,
+    local_workers: AtomicUsize,
     identity: DeviceIdentity,
     clock: Arc<dyn Clock>,
     monotonic: MonotonicClock,
@@ -530,6 +534,37 @@ impl fmt::Debug for Pipelines {
 }
 
 impl Pipelines {
+    /// Report local shutdown composition (IFC-ADP-118). Undeclared publication
+    /// contributes None, rather than misusing a payload's lifetime as a call bound.
+    pub fn shutdown_guarantee(
+        &self,
+        adapter: AdapterId,
+    ) -> Result<crate::local_call::ShutdownGuarantee, PipelineError> {
+        let core = self.inner.lock();
+        let a = core
+            .adapters
+            .get(adapter.0)
+            .ok_or(PipelineError::UnknownAdapter)?;
+        Ok(crate::local_call::ShutdownGuarantee {
+            adapter_ms: a.shutdown_bound_ms(),
+            core_ms: 100
+                * (a.connection_limit() as u64 + crate::local_call::MAX_PENDING_CALLS as u64),
+            publish_ms: self
+                .inner
+                .transport
+                .publish_bound_ms()
+                .map(std::num::NonZeroU64::get),
+            // A committed send can await its presence announcement and its envelope.
+            max_publications: 2 * self
+                .inner
+                .committed_sends
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .get(&adapter)
+                .copied()
+                .unwrap_or(0) as u64,
+        })
+    }
     /// Pipelines for the device `identity`, over `transport`, deciding with `engine`.
     ///
     /// `clock` must be the clock `engine` was built with, so that every check of one copy
@@ -548,6 +583,7 @@ impl Pipelines {
                 .expect("the cap is a valid lifetime")
         });
         let core = Core {
+            admissions: Vec::new(),
             engine,
             registry: PresenceRegistry::new(),
             issuer,
@@ -569,6 +605,9 @@ impl Pipelines {
         };
         Pipelines {
             inner: Arc::new(Inner {
+                peer_workers: Mutex::default(),
+                committed_sends: Mutex::default(),
+                local_workers: AtomicUsize::new(0),
                 identity,
                 store: DuplicateStore::new(clock.clone()),
                 clock,
@@ -729,20 +768,51 @@ impl Pipelines {
     /// Adds a provider adapter: the core watches its attachments and is its request sink
     /// (`spec/interfaces.md` Table 5.2).
     pub fn add_adapter(&self, adapter: Arc<dyn ProviderAdapter>) -> AdapterId {
+        let admission = crate::local_call::CallAdmission::default();
+        let local_calls = adapter.local_calls();
+        let adapter: Arc<dyn ProviderAdapter> = if local_calls {
+            Arc::new(crate::adapter_boundary::AdapterBoundary::with_admission(
+                adapter,
+                admission.clone(),
+            ))
+        } else {
+            adapter
+        };
         let id = {
             let mut core = self.inner.lock();
             core.adapters.push(adapter.clone());
+            core.admissions.push(admission.clone());
             AdapterId(core.adapters.len() - 1)
         };
         let weak = Arc::downgrade(&self.inner);
-        adapter.watch_attachments(Arc::new(move |e: AdapterEvent| {
-            if let Some(inner) = weak.upgrade() {
-                inner.on_adapter_event(id, e);
-            }
-        }));
+        if local_calls {
+            let event_admission = admission.clone();
+            adapter.watch_local_attachments(Arc::new(move |call, event| match weak.upgrade() {
+                Some(inner) => {
+                    call.bind_scope(&event_admission);
+                    match &event {
+                        AdapterEvent::AttachmentOpened { attachment, .. }
+                        | AdapterEvent::AttachmentClosed { attachment }
+                        | AdapterEvent::CapabilitiesChanged { attachment } => {
+                            call.bind_to(&event_admission, attachment.clone())
+                        }
+                        _ => {}
+                    }
+                    inner.on_local_adapter_event(id, call, event)
+                }
+                None => crate::local_call::LocalResult::ShuttingDown,
+            }));
+        } else {
+            adapter.watch_attachments(Arc::new(move |e: AdapterEvent| {
+                if let Some(inner) = weak.upgrade() {
+                    inner.on_adapter_event(id, e);
+                }
+            }));
+        }
         adapter.accept_requests(Arc::new(Sink {
             inner: Arc::downgrade(&self.inner),
             adapter: id,
+            admission,
         }));
         id
     }
@@ -786,7 +856,23 @@ impl Pipelines {
                 connection.close();
                 return Err(PipelineError::ClosureBound);
             }
-            if core.connections.len() >= self.inner.config.max_connections {
+            if core.connections.len() >= self.inner.config.max_connections
+                || self
+                    .inner
+                    .peer_workers
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .iter()
+                    .filter(|w| !w.is_finished())
+                    .count()
+                    >= crate::local_call::MAX_PENDING_CALLS
+                || core
+                    .connections
+                    .values()
+                    .filter(|id| **id == adapter)
+                    .count()
+                    >= a.connection_limit()
+            {
                 return Err(PipelineError::TooManyConnections);
             }
             let handle = connection.handle().clone();
@@ -1065,6 +1151,9 @@ impl Pipelines {
     /// transport shuts down.
     pub fn shutdown(&self) {
         let inner = &self.inner;
+        for admission in &inner.lock().admissions {
+            admission.stop();
+        }
         let adapters: Vec<Arc<dyn ProviderAdapter>> = inner.lock().adapters.clone();
         for a in &adapters {
             a.shutdown();
@@ -1076,6 +1165,17 @@ impl Pipelines {
         let device = inner.lock().device_subscription.take();
         if let Some(s) = device {
             s.end();
+        }
+        // Adapter final reports already returned after local cessation. The daemon owns
+        // peer withdrawal completion; keep its transport alive until those attempts end.
+        let workers = std::mem::take(
+            &mut *inner
+                .peer_workers
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner),
+        );
+        for worker in workers {
+            let _ = worker.join();
         }
         inner.transport.shutdown();
     }
@@ -1090,7 +1190,10 @@ fn descriptor_for(
     display_name: Option<&str>,
     limit: Option<u64>,
 ) -> Result<SessionDescriptor, PipelineError> {
-    let caps = adapter.capabilities(attachment);
+    let caps = local_capabilities(adapter, attachment).ok_or(PipelineError::InvalidCapabilities)?;
+    if attachment.is_closed() {
+        return Err(PipelineError::InvalidCapabilities);
+    }
     let mut entry = CapabilitiesEntry::new(IMPLEMENTED_VERSION, caps.active_inbound);
     if !caps.content_types.is_empty() {
         entry = entry
@@ -1111,6 +1214,18 @@ fn descriptor_for(
         Some(record.harness_label()),
     )
     .ok_or(PipelineError::InvalidCapabilities)
+}
+
+fn local_capabilities(
+    adapter: &dyn ProviderAdapter,
+    attachment: &Attachment,
+) -> Option<crate::adapter::AdapterCapabilities> {
+    let mut call =
+        crate::local_call::CallAdmission::default().call(Some(attachment.clone()), 11_000);
+    match adapter.capabilities_local(&mut call, attachment) {
+        crate::local_call::LocalResult::Completed(v) => Some(v),
+        _ => None,
+    }
 }
 
 /// The largest `max_envelope_octets` the core may declare for a session over a transport
@@ -1193,11 +1308,68 @@ fn fair_share_victim<H: Eq + std::hash::Hash>(
 /// The request sink an adapter is given: every request it passes enters the send path
 /// here, labelled with the adapter it came from.
 struct Sink {
+    admission: crate::local_call::CallAdmission,
     inner: Weak<Inner>,
     adapter: AdapterId,
 }
 
 impl RequestSink for Sink {
+    fn send_local(
+        &self,
+        call: &mut crate::local_call::CallContext,
+        request: SendRequest,
+    ) -> crate::local_call::LocalResult<SendRequestResult> {
+        call.bind_to(&self.admission, request.attachment.clone());
+        match self.inner.upgrade() {
+            Some(inner) => inner.send_local(self.adapter, call, request),
+            None => crate::local_call::LocalResult::ShuttingDown,
+        }
+    }
+
+    fn discover_local(
+        &self,
+        call: &mut crate::local_call::CallContext,
+        request: DiscoveryRequest,
+    ) -> crate::local_call::LocalResult<DiscoveryRequestResult> {
+        call.bind_to(&self.admission, request.attachment.clone());
+        use crate::local_call::LocalResult;
+        let Some(inner) = self.inner.upgrade() else {
+            return LocalResult::ShuttingDown;
+        };
+        let mut core = match call.lock(&inner.core) {
+            Ok(v) => v,
+            Err(v) => return v.map(|()| unreachable!()),
+        };
+        call.commit(|| inner.discovery_snapshot(self.adapter, request, &mut core))
+    }
+
+    fn identity_local(
+        &self,
+        call: &mut crate::local_call::CallContext,
+        request: crate::adapter::IdentityRequest,
+    ) -> crate::local_call::LocalResult<crate::adapter::IdentityRequestResult> {
+        call.bind_to(&self.admission, request.attachment.clone());
+        use crate::adapter::{IdentityRequestResult, LocalIdentity};
+        use crate::local_call::LocalResult;
+        let Some(inner) = self.inner.upgrade() else {
+            return LocalResult::ShuttingDown;
+        };
+        let core = match call.lock(&inner.core) {
+            Ok(v) => v,
+            Err(v) => return v.map(|()| unreachable!()),
+        };
+        call.commit(
+            || match Inner::requester(&core, self.adapter, &request.attachment) {
+                Some(session_id) => IdentityRequestResult::LocalIdentity(LocalIdentity {
+                    session_id,
+                    device_fingerprint: inner.identity.key_id().clone(),
+                }),
+                None => IdentityRequestResult::Refused {
+                    error: ErrorCode::Unauthorized,
+                },
+            },
+        )
+    }
     fn identity(
         &self,
         request: crate::adapter::IdentityRequest,
@@ -1333,9 +1505,28 @@ impl Inner {
     // ---- send path --------------------------------------------------------------------
 
     fn send(&self, adapter: AdapterId, request: SendRequest) -> SendRequestResult {
+        let mut call = crate::local_call::CallAdmission::default().call(None, 1000);
+        match self.send_local(adapter, &mut call, request) {
+            crate::local_call::LocalResult::Completed(v) => v,
+            _ => SendRequestResult::Refused {
+                error: ErrorCode::InternalError,
+            },
+        }
+    }
+
+    fn send_local(
+        &self,
+        adapter: AdapterId,
+        call: &mut crate::local_call::CallContext,
+        request: SendRequest,
+    ) -> crate::local_call::LocalResult<SendRequestResult> {
+        use crate::local_call::LocalResult;
         let mono = (self.monotonic)();
         let now = self.clock.now();
-        let mut guard = self.lock();
+        let mut guard = match call.lock(&self.core) {
+            Ok(v) => v,
+            Err(v) => return v.map(|()| unreachable!()),
+        };
         let core = &mut *guard;
         let requester = Inner::requester(core, adapter, &request.attachment);
         let reply = match (&requester, &request.requested_target) {
@@ -1343,54 +1534,79 @@ impl Inner {
             _ => Default::default(),
         };
         let (engine, registry) = (&mut core.engine, &core.registry);
-        let prepared = prepare_send(
-            requester.as_ref(),
-            &request,
-            |r, t| {
-                registry.send_presence(
-                    r,
-                    t,
-                    |r, t| {
-                        engine
-                            .decide(&AuthorizationRequest::Discover {
-                                requester: Requester::Session(r.clone()),
-                                session: t.clone(),
-                            })
-                            .permits(Kind::Discover)
-                    },
-                    mono,
-                )
-            },
-            &self.config.implemented,
-            reply,
-            &self.identity,
-            fresh_id(),
-            now,
-        );
+        let prepared = call.commit(|| {
+            prepare_send(
+                requester.as_ref(),
+                &request,
+                |r, t| {
+                    registry.send_presence(
+                        r,
+                        t,
+                        |r, t| {
+                            engine
+                                .decide(&AuthorizationRequest::Discover {
+                                    requester: Requester::Session(r.clone()),
+                                    session: t.clone(),
+                                })
+                                .permits(Kind::Discover)
+                        },
+                        mono,
+                    )
+                },
+                &self.config.implemented,
+                reply,
+                &self.identity,
+                fresh_id(),
+                now,
+            )
+        });
+        let prepared = match prepared {
+            LocalResult::Completed(v) => v,
+            v => return v.map(|_| unreachable!()),
+        };
         let prepared = match prepared {
             Ok(p) => p,
-            Err(error) => return SendRequestResult::Refused { error },
+            Err(error) => return LocalResult::Completed(SendRequestResult::Refused { error }),
         };
+        struct CommittedSend<'a>(&'a Mutex<HashMap<AdapterId, usize>>, AdapterId);
+        impl Drop for CommittedSend<'_> {
+            fn drop(&mut self) {
+                let mut counts = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+                if let Some(count) = counts.get_mut(&self.1) {
+                    *count -= 1;
+                    if *count == 0 {
+                        counts.remove(&self.1);
+                    }
+                }
+            }
+        }
+        *self
+            .committed_sends
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .entry(adapter)
+            .or_default() += 1;
+        let _committed_send = CommittedSend(&self.committed_sends, adapter);
         let env = prepared.envelope;
         let id = env.id().clone();
         let to_key = match core.engine.binding(env.to()) {
             Some(Binding::Key(k)) => k.clone(),
             // An `online` session is bound ([SEC-PRS-005]); anything else is a fault here.
             _ => {
-                return SendRequestResult::NotPassed {
+                return LocalResult::Completed(SendRequestResult::NotPassed {
                     id,
                     error: ErrorCode::InternalError,
-                };
+                });
             }
         };
         // [SEC-SEL-024]: on a sealing transport, with no statement held for the recipient's
         // device, nothing is passed, sealed or in the clear: `transport-failure`, and nothing
         // is recorded, since no copy exists.
         let Some(carriage) = Inner::carriage(core, &to_key) else {
-            return SendRequestResult::NotPassed {
+            return LocalResult::Completed(SendRequestResult::NotPassed {
                 id,
                 error: ErrorCode::TransportFailure,
-            };
+            });
         };
         // [SEC-PRS-010]: the sender's announcement goes to the recipient's device first.
         let announcement = if &to_key == self.identity.key_id() {
@@ -1426,10 +1642,10 @@ impl Inner {
                 // passed either: `failed` with `transport-failure`, no copy passed (§8.4.1).
                 // The sent record stays; no copy of its envelope exists to answer.
                 self.lock().trackers.remove(&key);
-                return SendRequestResult::NotPassed {
+                return LocalResult::Completed(SendRequestResult::NotPassed {
                     id,
                     error: ErrorCode::TransportFailure,
-                };
+                });
             }
         }
         let deadline = self.deadline_at(HandOffDeadline::of(&env).unix_nanos());
@@ -1441,7 +1657,7 @@ impl Inner {
             deadline,
         );
         let mut core = self.lock();
-        match result {
+        LocalResult::Completed(match result {
             PublishResult::Taken => {
                 if let Some(t) = core.trackers.get_mut(&key) {
                     t.tracker.passed();
@@ -1461,7 +1677,7 @@ impl Inner {
                     error: ErrorCode::TransportFailure,
                 }
             }
-        }
+        })
     }
 
     /// Keeps a tracker, within [`PipelineConfig::max_trackers`]: past it, trackers whose
@@ -1614,9 +1830,17 @@ impl Inner {
     }
 
     fn discover(&self, adapter: AdapterId, request: DiscoveryRequest) -> DiscoveryRequestResult {
-        let mono = (self.monotonic)();
         let mut guard = self.lock();
-        let core = &mut *guard;
+        self.discovery_snapshot(adapter, request, &mut guard)
+    }
+
+    fn discovery_snapshot(
+        &self,
+        adapter: AdapterId,
+        request: DiscoveryRequest,
+        core: &mut Core,
+    ) -> DiscoveryRequestResult {
+        let mono = (self.monotonic)();
         let requester = Inner::requester(core, adapter, &request.attachment);
         // `discover` asks `may_discover` once per candidate; the engine logs each decision.
         let engine = std::cell::RefCell::new(&mut core.engine);
@@ -1746,7 +1970,7 @@ impl Inner {
                 entry.open && !entry.withheld && online,
             )
         };
-        let caps = adapter.capabilities(&attachment);
+        let caps = local_capabilities(adapter.as_ref(), &attachment)?;
         Some(DeliveryTarget {
             accepting,
             active_inbound: caps.active_inbound,
@@ -2033,6 +2257,145 @@ impl Inner {
     }
 
     // ---- attachments ------------------------------------------------------------------
+
+    fn on_local_adapter_event(
+        self: &Arc<Self>,
+        adapter: AdapterId,
+        call: &mut crate::local_call::CallContext,
+        event: AdapterEvent,
+    ) -> crate::local_call::LocalResult<()> {
+        // The core owns downstream binding/publication work after local admission. All
+        // adapter callbacks pass through AdapterBoundary, which revokes them at stop.
+        // Closure is different: cessation is committed locally before this report returns.
+        if let AdapterEvent::AttachmentClosed { attachment } = event {
+            let mut core = match call.lock(&self.core) {
+                Ok(v) => v,
+                Err(v) => return v,
+            };
+            let work = call.commit(|| {
+                if core.connections.get(&attachment) != Some(&adapter) {
+                    return None;
+                }
+                let session = core.attachments.remove(&attachment).and_then(|e| e.session);
+                core.connections.remove(&attachment);
+                core.observed.remove(&attachment);
+                let session = session?;
+                core.sessions.remove(&session);
+                core.engine.end_session(&session);
+                core.engine.prune();
+                core.registry.deregister_own(&session);
+                let sub = core.subscriptions.remove(&session);
+                let devices: Vec<_> = core
+                    .announced
+                    .keys()
+                    .filter(|(s, _)| s == &session)
+                    .map(|(_, d)| d.clone())
+                    .collect();
+                core.announced.retain(|(s, _), _| s != &session);
+                let record = core.issuer.withdraw(&session, self.clock.now(), true);
+                let audiences: Vec<_> = devices
+                    .into_iter()
+                    .filter_map(|device| Some((device.clone(), Inner::carriage(&core, &device)?)))
+                    .collect();
+                Some((sub, record, audiences))
+            });
+            drop(core);
+            return work.map(|work| {
+                if let Some((sub, record, audiences)) = work {
+                    let inner = self.clone();
+                    // No adapter reference in this deferred peer-only work.
+                    let worker = std::thread::spawn(move || {
+                        if let Some(sub) = sub {
+                            sub.end();
+                        }
+                        let Some(record) = record else {
+                            return;
+                        };
+                        for (device, carriage) in audiences {
+                            let Some((destination, payload)) = AuthenticatedPresenceRecord::issue(
+                                &inner.identity,
+                                &record,
+                                &device,
+                            )
+                            .to_payload() else {
+                                continue;
+                            };
+                            let _ = inner.pass(
+                                carriage,
+                                &device,
+                                &destination,
+                                payload,
+                                inner.control_deadline(),
+                            );
+                        }
+                    });
+                    let mut workers = self
+                        .peer_workers
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner);
+                    workers.retain(|worker| !worker.is_finished());
+                    workers.push(worker);
+                }
+            });
+        }
+        if let Some(v) = call.cancellation() {
+            return v;
+        }
+        let mut core = match call.lock(&self.core) {
+            Ok(v) => v,
+            Err(v) => return v,
+        };
+        if self
+            .local_workers
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| {
+                (n < crate::local_call::MAX_PENDING_CALLS).then_some(n + 1)
+            })
+            .is_err()
+        {
+            return crate::local_call::LocalResult::TimedOut;
+        }
+        // Admission and queue ownership are committed before returning. The worker must
+        // recheck connection/admission before every callback; closure removes its record.
+        let result = call
+            .commit(|| {
+                if let AdapterEvent::AttachmentOpened {
+                    attachment,
+                    cross_check,
+                } = &event
+                    && core.connections.get(attachment) == Some(&adapter)
+                {
+                    core.attachments
+                        .entry(attachment.clone())
+                        .or_insert(AttachmentEntry {
+                            adapter,
+                            open: true,
+                            session: None,
+                            native_id: None,
+                            cross_check: cross_check.clone(),
+                            withheld: false,
+                            withheld_by: None,
+                            paired_seq: None,
+                        });
+                }
+                let inner = self.clone();
+                std::thread::spawn(move || {
+                    struct Worker(Arc<Inner>);
+                    impl Drop for Worker {
+                        fn drop(&mut self) {
+                            self.0.local_workers.fetch_sub(1, Ordering::SeqCst);
+                        }
+                    }
+                    let _worker = Worker(inner.clone());
+                    inner.on_adapter_event(adapter, event);
+                });
+            })
+            .map(|_| ());
+        drop(core);
+        if !matches!(result, crate::local_call::LocalResult::Completed(())) {
+            self.local_workers.fetch_sub(1, Ordering::SeqCst);
+        }
+        result
+    }
 
     fn on_adapter_event(self: &Arc<Self>, adapter: AdapterId, event: AdapterEvent) {
         match event {
@@ -2595,7 +2958,12 @@ impl Inner {
                 envelope_limit(core.transport_caps),
             )
         };
-        let caps = a.capabilities(attachment);
+        let Some(caps) = local_capabilities(a.as_ref(), attachment) else {
+            return;
+        };
+        if attachment.is_closed() {
+            return;
+        }
         let mut entry = CapabilitiesEntry::new(IMPLEMENTED_VERSION, caps.active_inbound);
         if !caps.content_types.is_empty() {
             match entry.with_content_types(caps.content_types) {
@@ -2644,7 +3012,6 @@ impl Inner {
             let Some(s) = e.session.clone() else { return };
             (core.adapters[e.adapter.0].clone(), s)
         };
-        adapter.set_binding(attachment, None);
         let (sub, withdrawals) = {
             let mut core = self.lock();
             if let Some(e) = core.attachments.get_mut(attachment) {
@@ -2682,6 +3049,7 @@ impl Inner {
                 };
             (sub, withdrawals)
         };
+        adapter.set_binding(attachment, None);
         if let Some(s) = sub {
             s.end();
         }

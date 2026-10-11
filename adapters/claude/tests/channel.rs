@@ -114,6 +114,20 @@ struct Core {
 struct Sink(Arc<Core>);
 
 impl RequestSink for Sink {
+    fn send_local(
+        &self,
+        call: &mut oac_core::local_call::CallContext,
+        request: SendRequest,
+    ) -> oac_core::local_call::LocalResult<SendRequestResult> {
+        call.commit(|| self.send(request))
+    }
+    fn discover_local(
+        &self,
+        call: &mut oac_core::local_call::CallContext,
+        request: DiscoveryRequest,
+    ) -> oac_core::local_call::LocalResult<DiscoveryRequestResult> {
+        call.commit(|| self.discover(request))
+    }
     fn send(&self, request: SendRequest) -> SendRequestResult {
         self.0.sent.lock().unwrap().push(request);
         SendRequestResult::Sent {
@@ -776,7 +790,9 @@ fn shutdown_settles_an_inflight_deliver_before_return() {
     assert!(done_rx.try_recv().is_err());
     a.shutdown();
     assert!(h.is_closed());
-    let outcome = done_rx.recv_timeout(Duration::from_millis(100)).unwrap();
+    let outcome = done_rx
+        .try_recv()
+        .expect("result settled at first shutdown return");
     assert!(matches!(
         outcome,
         HandOffOutcome::Failed | HandOffOutcome::Indeterminate
@@ -784,4 +800,245 @@ fn shutdown_settles_an_inflight_deliver_before_return() {
     t.join().unwrap();
     w.stall.pause(false);
     assert!(w.next(Duration::from_millis(100)).is_none());
+}
+
+/// IFC-ADP-122/109/110: a blocked pre-commit core request cancels cooperatively.
+#[test]
+fn shutdown_settles_a_blocked_precommit_request_without_releasing_its_blocker() {
+    use oac_core::local_call::{CallContext, LocalResult};
+    struct BlockedSink {
+        blocker: Arc<Mutex<()>>,
+        entered: Sender<()>,
+        settled: Sender<LocalResult<()>>,
+    }
+    impl RequestSink for BlockedSink {
+        fn send(&self, _: SendRequest) -> SendRequestResult {
+            panic!("legacy call")
+        }
+        fn discover(&self, _: DiscoveryRequest) -> DiscoveryRequestResult {
+            panic!("legacy call")
+        }
+        fn discover_local(
+            &self,
+            call: &mut CallContext,
+            _: DiscoveryRequest,
+        ) -> LocalResult<DiscoveryRequestResult> {
+            self.entered.send(()).unwrap();
+            let result = match call.lock(&self.blocker) {
+                Ok(_) => panic!("blocker was not released"),
+                Err(v) => v,
+            };
+            self.settled.send(result.clone()).unwrap();
+            result.map(|()| unreachable!())
+        }
+    }
+    let (a, core) = adapter_with(WAIT);
+    let blocker = Arc::new(Mutex::new(()));
+    let held = blocker.lock().unwrap();
+    let (entered, entered_rx) = mpsc::channel();
+    let (settled, settled_rx) = mpsc::channel();
+    a.accept_requests(Arc::new(BlockedSink {
+        blocker: blocker.clone(),
+        entered,
+        settled,
+    }));
+    let (mut wire, h) = connect(&a);
+    open(&mut wire, true);
+    wait_for_open(&core);
+    wire.send(r#"{"method":"tools/call","params":{"name":"list_sessions","arguments":{}},"jsonrpc":"2.0","id":2}"#);
+    entered_rx.recv_timeout(WAIT).unwrap();
+    let start = Instant::now();
+    a.shutdown();
+    assert!(start.elapsed() < Duration::from_millis(oac_adapter_claude::SHUTDOWN_BOUND_MS));
+    assert!(matches!(
+        settled_rx.try_recv().unwrap(),
+        LocalResult::Closed | LocalResult::ShuttingDown
+    ));
+    let events = core.events.lock().unwrap().clone();
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, AdapterEvent::AttachmentClosed { .. }))
+    );
+    drop(held);
+    assert!(h.is_closed());
+    assert!(wire.next(Duration::from_millis(50)).is_none());
+    assert_eq!(*core.events.lock().unwrap(), events);
+    assert!(settled_rx.try_recv().is_err());
+}
+
+/// IFC-ADP-106/122: the ordinary handler cancels; final closure has reserved local
+/// admission and records cessation without awaiting unrelated downstream work.
+#[test]
+fn shutdown_settles_a_blocked_handler_and_records_final_closure_at_return() {
+    use oac_core::local_call::LocalResult;
+    let a = Arc::new(ClaudeAdapter::new());
+    let blocker = Arc::new(Mutex::new(()));
+    let held = blocker.lock().unwrap();
+    let block = blocker.clone();
+    let (entered, entered_rx) = mpsc::channel();
+    let (settled, settled_rx) = mpsc::channel();
+    let reports = Arc::new(Mutex::new(Vec::new()));
+    let seen = reports.clone();
+    a.watch_local_attachments(Arc::new(move |call, event| {
+        if matches!(event, AdapterEvent::AttachmentOpened { .. }) {
+            entered.send(()).unwrap();
+            let result = match call.lock(&block) {
+                Ok(_) => panic!("blocker was not released"),
+                Err(v) => v,
+            };
+            settled.send(result.clone()).unwrap();
+            result
+        } else {
+            call.commit(|| seen.lock().unwrap().push(event))
+        }
+    }));
+    let (mut wire, h) = connect(&a);
+    open(&mut wire, true);
+    entered_rx.recv_timeout(WAIT).unwrap();
+    let start = Instant::now();
+    a.shutdown();
+    assert!(start.elapsed() < Duration::from_millis(oac_adapter_claude::SHUTDOWN_BOUND_MS));
+    assert!(matches!(
+        settled_rx.try_recv().unwrap(),
+        LocalResult::Closed | LocalResult::ShuttingDown
+    ));
+    let at_return = reports.lock().unwrap().clone();
+    assert_eq!(at_return.len(), 1);
+    assert!(matches!(
+        at_return[0],
+        AdapterEvent::AttachmentClosed { .. }
+    ));
+    drop(held);
+    assert!(h.is_closed());
+    assert!(wire.next(Duration::from_millis(50)).is_none());
+    assert_eq!(*reports.lock().unwrap(), at_return);
+}
+
+/// IFC-ADP-113/117: a committed request cannot be replaced by cancellation. With
+/// undeclared publication the shutdown barrier remains pending until ownership settles.
+#[test]
+fn committed_request_keeps_shutdown_pending_and_preserves_the_single_truthful_result() {
+    use oac_core::local_call::{CallContext, LocalResult};
+    for taken in [false, true] {
+        struct CommittedSink {
+            taken: bool,
+            entered: Sender<()>,
+            release: Mutex<Receiver<()>>,
+            settled: Sender<(String, String)>,
+        }
+        impl RequestSink for CommittedSink {
+            fn send(&self, _: SendRequest) -> SendRequestResult {
+                panic!("legacy call")
+            }
+            fn discover(&self, _: DiscoveryRequest) -> DiscoveryRequestResult {
+                panic!("legacy call")
+            }
+            fn send_local(
+                &self,
+                call: &mut CallContext,
+                _: SendRequest,
+            ) -> LocalResult<SendRequestResult> {
+                let id = match call.commit(|| Token::parse("committed-id").unwrap()) {
+                    LocalResult::Completed(id) => id,
+                    other => return other.map(|_| unreachable!()),
+                };
+                self.entered.send(()).unwrap();
+                self.release.lock().unwrap().recv().unwrap();
+                assert_eq!(call.cancellation(), None);
+                let result = if self.taken {
+                    SendRequestResult::Sent {
+                        id,
+                        correlation: None,
+                        receipts: ReceiptStream(mpsc::channel().1),
+                    }
+                } else {
+                    SendRequestResult::NotPassed {
+                        id,
+                        error: ErrorCode::TransportFailure,
+                    }
+                };
+                self.settled
+                    .send((
+                        result.outcome().into(),
+                        result.id().unwrap().as_str().into(),
+                    ))
+                    .unwrap();
+                LocalResult::Completed(result)
+            }
+        }
+        let (a, core) = adapter_with(WAIT);
+        let (entered, entered_rx) = mpsc::channel();
+        let (release, release_rx) = mpsc::channel();
+        let (settled, settled_rx) = mpsc::channel();
+        a.accept_requests(Arc::new(CommittedSink {
+            taken,
+            entered,
+            release: Mutex::new(release_rx),
+            settled,
+        }));
+        let (mut wire, h) = connect(&a);
+        open(&mut wire, true);
+        wait_for_open(&core);
+        let to = SessionId::from_random_octets([33; 16]);
+        wire.send(&format!(r#"{{"method":"tools/call","params":{{"name":"send","arguments":{{"to":"{to}","content":[{{"type":"text","text":"hi"}}]}}}},"jsonrpc":"2.0","id":2}}"#));
+        entered_rx.recv_timeout(WAIT).unwrap();
+        let (done, done_rx) = mpsc::channel();
+        let stopping = a.clone();
+        let thread = std::thread::spawn(move || {
+            stopping.shutdown();
+            done.send(()).unwrap();
+        });
+        assert!(
+            done_rx.recv_timeout(Duration::from_millis(1100)).is_err(),
+            "undeclared awaited publication must keep shutdown pending"
+        );
+        assert!(h.is_closed());
+        release.send(()).unwrap();
+        done_rx.recv_timeout(WAIT).unwrap();
+        let result = settled_rx
+            .try_recv()
+            .expect("committed result present at shutdown return");
+        assert_eq!(
+            result,
+            (
+                if taken { "sent" } else { "not-passed" }.into(),
+                "committed-id".into()
+            )
+        );
+        thread.join().unwrap();
+        assert!(wire.next(Duration::from_millis(50)).is_none());
+        assert!(settled_rx.try_recv().is_err(), "exactly one result");
+    }
+}
+
+#[test]
+fn invalid_local_budgets_and_excess_connections_are_rejected_before_admission() {
+    use oac_core::local_call::CallAdmission;
+    assert!(
+        std::panic::catch_unwind(|| ClaudeAdapter::with_handoff_wait(Duration::from_secs(11)))
+            .is_err()
+    );
+    for (ordinary, stop) in [(0, 0), (100, 200), (1001, 100), (1000, 101)] {
+        assert!(
+            std::panic::catch_unwind(|| {
+                ClaudeAdapter::new().configure_local_calls(
+                    CallAdmission::default(),
+                    ordinary,
+                    stop,
+                );
+            })
+            .is_err()
+        );
+    }
+    let adapter = ClaudeAdapter::new();
+    let wires: Vec<_> = (0..adapter.connection_limit())
+        .map(|_| connect(&adapter))
+        .collect();
+    let (_extra, refused) = connect(&adapter);
+    assert!(refused.is_closed());
+    let start = Instant::now();
+    adapter.shutdown();
+    assert!(start.elapsed() < Duration::from_millis(oac_adapter_claude::SHUTDOWN_BOUND_MS));
+    assert!(wires.iter().all(|(_, h)| h.is_closed()));
 }

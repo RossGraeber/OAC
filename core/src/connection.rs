@@ -22,6 +22,7 @@ const READ_WAIT: Duration = Duration::from_millis(1);
 #[derive(Default)]
 struct State {
     pending: usize,
+    closed_at: Option<std::time::Instant>,
 }
 #[derive(Default)]
 pub(crate) struct Closure {
@@ -37,8 +38,20 @@ impl Closure {
         self.closed.load(Ordering::SeqCst)
     }
     pub(crate) fn begin_close(&self) {
+        let mut state = lock(&self.state);
+        state.closed_at.get_or_insert_with(std::time::Instant::now);
         self.closed.store(true, Ordering::SeqCst);
         self.changed.notify_all();
+    }
+    pub(crate) fn closed_at(&self) -> Option<std::time::Instant> {
+        lock(&self.state).closed_at
+    }
+    pub(crate) fn if_open<T>(&self, select: impl FnOnce() -> T) -> Option<T> {
+        let state = lock(&self.state);
+        if state.closed_at.is_some() {
+            return None;
+        }
+        Some(select())
     }
     pub(crate) fn close(&self) {
         self.begin_close();

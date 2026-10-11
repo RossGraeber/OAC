@@ -47,8 +47,11 @@ const WAIT: Duration = Duration::from_secs(5);
 
 // ---- an in-test transport ----------------------------------------------------------------
 
+type PublishHook = Box<dyn FnOnce(&Payload) + Send>;
+
 #[derive(Default)]
 struct BusState {
+    on_publish: Option<PublishHook>,
     next: u64,
     subs: Vec<(u64, KeyId, Destination, InboundHandler)>,
     watchers: Vec<(KeyId, PresenceHandler)>,
@@ -148,6 +151,10 @@ impl Transport for Endpoint {
         };
         if !payload.kind().fits(destination) || payload.kind() == PayloadKind::Presence {
             return PublishResult::NotTaken;
+        }
+        let hook = self.bus.0.lock().unwrap().on_publish.take();
+        if let Some(hook) = hook {
+            hook(&payload);
         }
         let handlers: Vec<InboundHandler> = {
             let mut st = self.bus.0.lock().unwrap();
@@ -523,6 +530,326 @@ fn request(from: &Attachment, to: &SessionId, s: &str) -> SendRequest {
         conversation_id: None,
         correlation_id: None,
     }
+}
+
+#[test]
+fn local_core_send_waits_for_ownership_after_commit_and_keeps_the_original_id() {
+    use oac_core::local_call::{CallAdmission, LocalResult};
+    for taken in [false, true] {
+        let bus = Bus::default();
+        let n = node(&bus, "local-call", PipelineConfig::default());
+        let (from, from_id) = session(&n, 41);
+        let (_, to) = session(&n, 42);
+        local_grant(&n, &from_id, &to);
+        let (entered, entered_rx) = std::sync::mpsc::channel();
+        let (release, release_rx) = std::sync::mpsc::channel();
+        {
+            let mut st = bus.0.lock().unwrap();
+            st.refuse_envelopes = !taken;
+            st.on_publish = Some(Box::new(move |payload| {
+                let env = oac_core::json::parse(payload.octets()).unwrap();
+                let id = env
+                    .as_object()
+                    .unwrap()
+                    .get("id")
+                    .unwrap()
+                    .as_str()
+                    .unwrap()
+                    .to_owned();
+                entered.send(id).unwrap();
+                release_rx.recv().unwrap();
+            }));
+        }
+        let scope = CallAdmission::default();
+        let scope2 = scope.clone();
+        let sink = n.adapter.sink.lock().unwrap().clone().unwrap();
+        let request = request(&from, &to, "ownership race");
+        let (done, done_rx) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            let mut call = scope2.call(Some(request.attachment.clone()), 10);
+            let result = sink.send_local(&mut call, request);
+            done.send(result).unwrap();
+        });
+        let original_id = entered_rx.recv_timeout(WAIT).unwrap();
+        scope.stop();
+        from.begin_close();
+        assert!(done_rx.recv_timeout(Duration::from_millis(40)).is_err());
+        assert_eq!(
+            n.pipes
+                .shutdown_guarantee(n.adapter_id)
+                .unwrap()
+                .composed_ms(),
+            None
+        );
+        release.send(()).unwrap();
+        let LocalResult::Completed(result) = done_rx.recv_timeout(WAIT).unwrap() else {
+            panic!("committed request lost its result");
+        };
+        assert_eq!(result.id().unwrap().as_str(), original_id);
+        assert_eq!(result.outcome(), if taken { "sent" } else { "not-passed" });
+        if !taken {
+            assert_eq!(result.error(), Some(ErrorCode::TransportFailure));
+        }
+        worker.join().unwrap();
+        assert!(done_rx.try_recv().is_err());
+        assert_eq!(
+            n.pipes.shutdown_guarantee(n.adapter_id).unwrap().publish_ms,
+            None
+        );
+        assert!(
+            n.pipes
+                .shutdown_guarantee(n.adapter_id)
+                .unwrap()
+                .composed_ms()
+                .is_some()
+        );
+    }
+}
+
+#[test]
+fn local_core_snapshots_commit_or_cancel_without_identity_material_on_failure() {
+    use oac_core::adapter::{IdentityRequest, IdentityRequestResult};
+    use oac_core::local_call::{CallAdmission, LocalResult};
+    let n = node(&Bus::default(), "snapshot", PipelineConfig::default());
+    let (attachment, session_id) = session(&n, 43);
+    let sink = n.adapter.sink.lock().unwrap().clone().unwrap();
+    let scope = CallAdmission::default();
+    let mut identity = scope.call(Some(attachment.clone()), 1000);
+    let result = sink.identity_local(
+        &mut identity,
+        IdentityRequest {
+            attachment: attachment.clone(),
+        },
+    );
+    let LocalResult::Completed(IdentityRequestResult::LocalIdentity(value)) = result else {
+        panic!("identity snapshot");
+    };
+    assert_eq!(value.session_id, session_id);
+    assert_eq!(&value.device_fingerprint, n.pipes.device().key_id());
+    scope.stop();
+    assert_eq!(identity.cancellation(), None);
+    let mut stopped = scope.call(Some(attachment.clone()), 1000);
+    assert_eq!(
+        sink.identity_local(
+            &mut stopped,
+            IdentityRequest {
+                attachment: attachment.clone()
+            }
+        ),
+        LocalResult::ShuttingDown
+    );
+    let mut stopped = scope.call(Some(attachment.clone()), 1000);
+    assert_eq!(
+        sink.discover_local(
+            &mut stopped,
+            DiscoveryRequest {
+                attachment: attachment.clone()
+            }
+        ),
+        LocalResult::ShuttingDown
+    );
+    let mut stopped = scope.call(Some(attachment.clone()), 1000);
+    assert!(matches!(
+        sink.send_local(&mut stopped, request(&attachment, &session_id, "cancel")),
+        LocalResult::ShuttingDown
+    ));
+}
+
+#[test]
+fn final_local_closure_returns_before_blocked_withdrawal_and_never_calls_the_stopped_adapter() {
+    use oac_core::adapter::LocalEventHandler;
+    use oac_core::local_call::{CallAdmission, LocalResult};
+    struct LocalAdapter {
+        inner: Arc<TestAdapter>,
+        scope: Mutex<CallAdmission>,
+        closed: AtomicUsize,
+    }
+    impl ProviderAdapter for LocalAdapter {
+        fn local_calls(&self) -> bool {
+            true
+        }
+        fn connection_limit(&self) -> usize {
+            4
+        }
+        fn configure_local_calls(&self, scope: CallAdmission, _: u64, _: u64) {
+            *self.scope.lock().unwrap() = scope;
+        }
+        fn watch_local_attachments(&self, handler: LocalEventHandler) {
+            let scope = self.scope.lock().unwrap().clone();
+            self.inner.watch_attachments(Arc::new(move |event| {
+                let (attachment, final_report) = match &event {
+                    AdapterEvent::AttachmentOpened { attachment, .. } => {
+                        (attachment.clone(), false)
+                    }
+                    AdapterEvent::AttachmentClosed { attachment } => (attachment.clone(), true),
+                    _ => panic!("unexpected test event"),
+                };
+                let mut call = scope.call(Some(attachment), 100);
+                if final_report {
+                    call = call.final_report();
+                }
+                assert_eq!(handler(&mut call, event), LocalResult::Completed(()));
+            }));
+        }
+        fn take_connection(&self, c: Connection) {
+            self.inner.take_connection(c);
+        }
+        fn watch_attachments(&self, h: AdapterEventHandler) {
+            self.inner.watch_attachments(h);
+        }
+        fn set_binding(&self, a: &Attachment, s: Option<SessionId>) {
+            assert_eq!(
+                self.closed.load(Ordering::SeqCst),
+                0,
+                "callback after shutdown"
+            );
+            self.inner.set_binding(a, s);
+        }
+        fn capabilities(&self, a: &Attachment) -> AdapterCapabilities {
+            assert_eq!(
+                self.closed.load(Ordering::SeqCst),
+                0,
+                "callback after shutdown"
+            );
+            self.inner.capabilities(a)
+        }
+        fn deliver(&self, h: HandOff) -> HandOffOutcome {
+            assert_eq!(
+                self.closed.load(Ordering::SeqCst),
+                0,
+                "callback after shutdown"
+            );
+            self.inner.deliver(h)
+        }
+        fn accept_requests(&self, sink: Arc<dyn RequestSink>) {
+            self.inner.accept_requests(sink);
+        }
+        fn health(&self) -> HealthStatus {
+            self.inner.health()
+        }
+        fn shutdown(&self) {
+            self.scope.lock().unwrap().stop();
+            for h in self.inner.bound.lock().unwrap().keys() {
+                h.close();
+            }
+            self.inner.shutdown();
+            self.closed.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+    let bus = Bus::default();
+    let mut n = node(&bus, "final-report", PipelineConfig::default());
+    let local = Arc::new(LocalAdapter {
+        inner: TestAdapter::new(),
+        scope: Mutex::default(),
+        closed: AtomicUsize::new(0),
+    });
+    n.adapter = local.inner.clone();
+    n.adapter_id = n.pipes.add_adapter(local.clone());
+    let peer = node(&bus, "peer", PipelineConfig::default());
+    pair(&n, &peer);
+    pair(&peer, &n);
+    let sid = SessionId::from_random_octets([44; 16]);
+    let target = SessionId::from_random_octets([45; 16]);
+    grant(
+        &n,
+        Grant::Outbound {
+            writer: LocalSide::Session(sid.clone()),
+            target: PeerSide::session(peer.pipes.device().key_id().clone(), target.clone()),
+        },
+    );
+    grant(
+        &peer,
+        Grant::Inbound {
+            writer: PeerSide::session(n.pipes.device().key_id().clone(), sid.clone()),
+            target: LocalSide::Session(target),
+        },
+    );
+    session(&peer, 45);
+    let (attachment, _) = session(&n, 44);
+    let (entered, entered_rx) = std::sync::mpsc::channel();
+    let (release, release_rx) = std::sync::mpsc::channel();
+    let (finished, finished_rx) = std::sync::mpsc::channel();
+    bus.0.lock().unwrap().on_presence = Some(Box::new(move || {
+        entered.send(()).unwrap();
+        release_rx.recv().unwrap();
+        finished.send(()).unwrap();
+    }));
+    let start = Instant::now();
+    local.shutdown();
+    assert!(start.elapsed() < Duration::from_millis(1000));
+    assert!(attachment.is_closed());
+    entered_rx.recv_timeout(WAIT).unwrap();
+    let mut call = CallAdmission::default().call(Some(attachment.clone()), 100);
+    assert!(matches!(
+        n.adapter
+            .sink()
+            .identity_local(&mut call, oac_core::adapter::IdentityRequest { attachment }),
+        LocalResult::Closed
+    ));
+    release.send(()).unwrap();
+    finished_rx.recv_timeout(WAIT).unwrap();
+    assert_eq!(local.closed.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn all_local_request_methods_time_out_on_a_blocked_core_lock_without_late_work() {
+    use oac_core::adapter::IdentityRequest;
+    use oac_core::local_call::{CallAdmission, LocalResult};
+    let bus = Bus::default();
+    let n = node(&bus, "blocked-core", PipelineConfig::default());
+    let (attachment, sid) = session(&n, 46);
+    let sink = n.adapter.sink();
+    let before = bus.log();
+    let pipes = n.pipes.clone();
+    let (entered, entered_rx) = std::sync::mpsc::channel();
+    let (release, release_rx) = std::sync::mpsc::channel();
+    let blocker = std::thread::spawn(move || {
+        pipes.with_engine(|_| {
+            entered.send(()).unwrap();
+            release_rx.recv().unwrap();
+        })
+    });
+    entered_rx.recv_timeout(WAIT).unwrap();
+    let scope = CallAdmission::default();
+    let mut call = scope.call(Some(attachment.clone()), 10);
+    assert!(matches!(
+        sink.send_local(&mut call, request(&attachment, &sid, "never created")),
+        LocalResult::TimedOut
+    ));
+    let mut call = scope.call(Some(attachment.clone()), 10);
+    assert_eq!(
+        sink.discover_local(
+            &mut call,
+            DiscoveryRequest {
+                attachment: attachment.clone()
+            }
+        ),
+        LocalResult::TimedOut
+    );
+    let mut call = scope.call(Some(attachment.clone()), 10);
+    assert_eq!(
+        sink.identity_local(
+            &mut call,
+            IdentityRequest {
+                attachment: attachment.clone()
+            }
+        ),
+        LocalResult::TimedOut
+    );
+    release.send(()).unwrap();
+    blocker.join().unwrap();
+    assert_eq!(
+        bus.log(),
+        before,
+        "no cancelled invocation can later publish"
+    );
+    n.pipes.shutdown();
+    let mut supplied_live_scope = CallAdmission::default().call(None, 1000);
+    assert_eq!(
+        sink.identity_local(&mut supplied_live_scope, IdentityRequest { attachment }),
+        LocalResult::ShuttingDown,
+        "core owns admission even if a caller supplies a fresh scope"
+    );
 }
 
 /// Table 8.1 and Table 8.3 for a request result: `refused` has a `request`-scoped code and

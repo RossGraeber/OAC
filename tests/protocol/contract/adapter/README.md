@@ -219,6 +219,20 @@ its fake observations for late input. The planted WaitsBeforeClose and LateHandO
 adapters fail these checks; WorksAfterShutdown and KeepsAttachmentsAtShutdown retain
 their original failures. No real harness runs or gate verdicts change.
 
-Gate S4 suite baseline: `14dfb4d9f15307d36f66552916bf05ea492673fc` (2026-10-10).
+Gate S4 suite baseline: `92a444d5e4bee86c3f8a782f5d9ab466966ca718` (2026-10-10).
 The same pin is recorded in docs/planning/STATUS.md.
 `adapters/claude/tests/contract.rs` remains unchanged.
+
+
+## Interfaces 0.5/0.6 settlement revision (PR #380)
+
+The requested spec-driven revision removes the post-return result fallback. Every
+pending outcome must exist at the first shutdown return; event and request snapshots
+must also remain unchanged after the stalled peer resumes. The 40 ms LateSettlement
+plant returns a truthful failure too late and fails IFC-ADP-109. The shutdown timing
+check uses replacement ID IFC-ADP-119. The suite sink also implements the additive
+cancellation-aware request surface; all original assertions and planted breaches remain.
+The real Claude adapter was separately mutated to release its call guard and delay its
+cancellation outcome by 40 ms: both release profiles fail IFC-ADP-109 and IFC-ADP-070.
+No other contract suite or Claude contract harness was changed. The suite baseline above
+is the dedicated suite revision commit; implementation evidence uses its passing descendant.

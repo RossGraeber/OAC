@@ -413,6 +413,11 @@ impl std::error::Error for TransportError {}
 /// assigns to the `transport` ([IFC-TRN-003]), and has a transport binding document
 /// ([IFC-TRN-090]).
 pub trait Transport: Send + Sync {
+    /// OPTIONAL local publication return bound (IFC-TRN-114), independent of payload
+    /// lifetime. None contributes an unbounded awaited step to shutdown.
+    fn publish_bound_ms(&self) -> Option<std::num::NonZeroU64> {
+        None
+    }
     /// `start`: begin carrying payloads for the local device `local_device`, a public key
     /// id ([IFC-TRN-025]), and return the capability declaration ([IFC-TRN-020]).
     fn start(

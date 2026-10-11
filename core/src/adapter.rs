@@ -22,6 +22,7 @@
 //! peer authentication that [IFC-ADP-012] asks of the core before [`Connection::accept`]
 //! (G9).
 
+use crate::local_call::{CallAdmission, CallContext, LocalResult};
 use std::fmt;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -129,6 +130,12 @@ impl Connection {
 }
 
 impl ConnectionHandle {
+    pub(crate) fn closed_at(&self) -> Option<std::time::Instant> {
+        self.1.closed_at()
+    }
+    pub(crate) fn if_open<T>(&self, select: impl FnOnce() -> T) -> Option<T> {
+        self.1.if_open(select)
+    }
     /// Begin closure without waiting; useful for revoking several connections together.
     pub fn begin_close(&self) {
         self.1.begin_close();
@@ -423,6 +430,32 @@ pub enum DiscoveryRequestResult {
 /// is one method per kind of request, each returning that kind's result
 /// ([IFC-ADP-003], [IFC-ADP-060]).
 pub trait RequestSink: Send + Sync {
+    /// Cancellation-aware send. Legacy sinks are not admitted on the local-call path.
+    fn send_local(
+        &self,
+        _call: &mut CallContext,
+        _request: SendRequest,
+    ) -> LocalResult<SendRequestResult> {
+        LocalResult::TimedOut
+    }
+
+    /// Cancellation-aware discovery snapshot.
+    fn discover_local(
+        &self,
+        _call: &mut CallContext,
+        _request: DiscoveryRequest,
+    ) -> LocalResult<DiscoveryRequestResult> {
+        LocalResult::TimedOut
+    }
+
+    /// Cancellation-aware identity snapshot.
+    fn identity_local(
+        &self,
+        _call: &mut CallContext,
+        _request: IdentityRequest,
+    ) -> LocalResult<IdentityRequestResult> {
+        LocalResult::TimedOut
+    }
     /// Take a `SendRequest`.
     fn send(&self, request: SendRequest) -> SendRequestResult;
 
@@ -535,6 +568,11 @@ impl HandOffOutcome {
 /// running on another thread takes this one over.
 pub type AdapterEventHandler = Arc<dyn Fn(AdapterEvent) + Send + Sync>;
 
+/// Core-owned cooperative event handler. Final closure records local cessation before
+/// returning; any deferred peer work must never invoke the stopped adapter.
+pub type LocalEventHandler =
+    Arc<dyn Fn(&mut CallContext, AdapterEvent) -> LocalResult<()> + Send + Sync>;
+
 /// `ProviderAdapter` of `spec/interfaces.md` Table 5.2. The core calls every operation.
 ///
 /// An implementation satisfies each requirement that Appendix C of `spec/interfaces.md`
@@ -542,6 +580,66 @@ pub type AdapterEventHandler = Arc<dyn Fn(AdapterEvent) + Send + Sync>;
 /// ([IFC-ADP-080]). The adapter contract suite (`tests/protocol/contract/adapter/`, F10)
 /// runs against any implementation of this trait.
 pub trait ProviderAdapter: Send + Sync {
+    /// Whether this binding consumes the cancellation-aware core surface.
+    fn local_calls(&self) -> bool {
+        false
+    }
+    /// Finite admission limit used when budgeting final reports and connection closure.
+    fn connection_limit(&self) -> usize {
+        1024
+    }
+    /// Adapter-owned ordinary event callback budget, including nested local work.
+    fn event_callback_bound_ms(&self) -> u64 {
+        11_000
+    }
+    /// Adapter-owned callback stop budget.
+    fn stop_callback_bound_ms(&self) -> u64 {
+        200
+    }
+    /// Install the core's independently observable call admission and budgets before
+    /// accepting connections. Existing test adapters use the legacy surface.
+    fn configure_local_calls(&self, _admission: CallAdmission, _ordinary_ms: u64, _stop_ms: u64) {}
+
+    /// Establish the bounded event stream. The compatibility entry point is for legacy
+    /// test adapters; production adapters override this and consume the local result.
+    fn watch_local_attachments(&self, handler: LocalEventHandler) {
+        let admission = CallAdmission::default();
+        self.watch_attachments(Arc::new(move |event| {
+            let mut call = admission.call(None, 1000).final_report();
+            let _ = handler(&mut call, event);
+        }));
+    }
+
+    /// Callback result with cancellation distinct from the completed value.
+    fn set_binding_local(
+        &self,
+        call: &mut CallContext,
+        attachment: &Attachment,
+        session: Option<SessionId>,
+    ) -> LocalResult<()> {
+        call.commit(|| self.set_binding(attachment, session))
+    }
+
+    /// Callback result with no fabricated capability value on cancellation.
+    fn capabilities_local(
+        &self,
+        call: &mut CallContext,
+        attachment: &Attachment,
+    ) -> LocalResult<AdapterCapabilities> {
+        call.commit(|| self.capabilities(attachment))
+    }
+
+    /// Callback result; the adapter owns cancellation and harness I/O settlement.
+    fn deliver_local(
+        &self,
+        call: &mut CallContext,
+        hand_off: HandOff,
+    ) -> LocalResult<HandOffOutcome> {
+        if let Some(v) = call.cancellation() {
+            return v.map(|()| unreachable!());
+        }
+        LocalResult::Completed(self.deliver(hand_off))
+    }
     /// Finite positive bound stated by the adapter binding document, in milliseconds.
     /// The default binding budget is 1000 ms; adapters with a different budget override it.
     fn shutdown_bound_ms(&self) -> u64 {

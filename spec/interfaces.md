@@ -1937,12 +1937,12 @@ the requirement whose fixtures exercise it. Appendix C gives each requirement's 
 | IFC-ADP-011 | MUST | 3.3 | TODO(fixture): each assigned requirement's own fixtures, run against the core; F12 |
 | IFC-ADP-012 | MUST | 5.2 | TODO(fixture): needs the platform facilities; G9, F11 |
 | IFC-ADP-013 | MUST NOT | 5.2 | TODO(fixture): F10 adapter suite; F11 |
-| IFC-ADP-014 | MUST | 5.2 | TODO(fixture): owner F10 (#59) with G9 (#70), every supplied connection exposes independent close and a finite positive bound |
-| IFC-ADP-015 | MUST | 5.2 | TODO(fixture): owner F10 (#59) with G9 (#70), block the peer's reads and writes; close returns by the declared bound on a scripted clock |
-| IFC-ADP-016 | MUST | 5.2 | TODO(fixture): owner F10 (#59) with G9 (#70), race close with zero/partial/full writes and blocked reads; all pending operations terminate before close returns, writes report exact transferred counts |
-| IFC-ADP-017 | MUST NOT | 5.2 | TODO(fixture): owner F10 (#59) with G9 (#70), release a stalled peer after close returns; its transferred-octet count never increases |
-| IFC-ADP-018 | MUST | 5.2 | TODO(fixture): owner F10 (#59) with G9 (#70), new read/write begun during and after close is refused without transfer |
-| IFC-ADP-019 | MUST | 5.2 | TODO(fixture): owner F10 (#59) with G9 (#70), repeated/concurrent close through copies and split halves preserves one terminal state and leaves another connection open |
+| IFC-ADP-014 | MUST | 5.2 | tested, no wire fixture: core-owned connection handles expose `close_bound_ms`; shared adapter suite `closes-all-core-connections` and core connection closure tests |
+| IFC-ADP-015 | MUST | 5.2 | tested, no wire fixture: core `stalled_read_and_write_settle_within_bound_and_never_transfer_later` blocks both directions and measures independent bounded closure |
+| IFC-ADP-016 | MUST | 5.2 | tested, no wire fixture: core `partial_and_completed_transfers_keep_the_exact_count`, `close_racing_a_write_has_only_a_definite_terminal_result` and stalled-read test |
+| IFC-ADP-017 | MUST NOT | 5.2 | tested, no wire fixture: core `stalled_read_and_write_settle_within_bound_and_never_transfer_later`; shared adapter suite resumes the stalled peer after shutdown and records no late input |
+| IFC-ADP-018 | MUST | 5.2 | tested, no wire fixture: core `closure_begun_refuses_new_operations_even_before_close_waits` |
+| IFC-ADP-019 | MUST | 5.2 | tested, no wire fixture: core `concurrent_close_and_stream_halves_share_one_barrier_only` and `previously_issued_halves_cannot_change_their_closure_state` |
 | IFC-ADP-020 | MUST | 5.4 | TODO(fixture): F10 adapter suite against the fakes (F8, F9); G4-G8 |
 | IFC-ADP-022 | MUST | 5.4 | TODO(fixture): F10 adapter suite |
 | IFC-ADP-030 | MUST NOT | 5.4 | TODO(fixture): F10 adapter suite |
@@ -1961,14 +1961,14 @@ the requirement whose fixtures exercise it. Appendix C gives each requirement's 
 | IFC-ADP-057 | MUST | 5.5 | TODO(fixture): F10 adapter suite against the F9 fake; G7 (#68) |
 | IFC-ADP-060 | MUST | 5.6 | TODO(fixture): F10 adapter suite |
 | IFC-ADP-062 | MAY | 5.6 | none (MAY) |
-| IFC-ADP-070 | MUST NOT | 5.7 | TODO(fixture): owner F10 (#59) with G4 (#65), stalled write races shutdown; releasing the peer after shutdown returns causes no late hand-off or request passed to the core |
-| IFC-ADP-071 | MUST | 5.7 | TODO(fixture): F10 adapter suite |
+| IFC-ADP-070 | MUST NOT | 5.7 | tested, no wire fixture: shared adapter suite `nothing-after-shutdown` and `stalled-write-has-no-late-hand-off`, with `LateHandOff` and `LateSettlement` planted failures |
+| IFC-ADP-071 | MUST | 5.7 | tested, no wire fixture: shared adapter suite `closes-every-attachment-on-shutdown`, using the first-return event snapshot |
 | IFC-ADP-072 | MUST | 5.7 | TODO(fixture): owner F10 (#59) with G4 (#65), race shutdown with new delivery and harness requests; no new hand-off begins |
-| IFC-ADP-073 | MUST | 5.7 | TODO(fixture): owner F10 (#59) with G4 (#65), shutdown closes every supplied connection, including native-signal-only connections |
+| IFC-ADP-073 | MUST | 5.7 | tested, no wire fixture: shared adapter suite `closes-all-core-connections`; channel `shutdown_closes_opening_connections_and_double_shutdown_returns` covers unfinished openings |
 | IFC-ADP-074 | RETIRED | 5.7 | Retired in revision 0.6; replaced by [IFC-ADP-119] |
-| IFC-ADP-075 | MUST | 5.7 | TODO(fixture): owner F10 (#59) with G4 (#65), blocked delivery races shutdown; one truthful outcome precedes shutdown return; releasing peer afterwards cannot complete a late hand-off |
-| IFC-ADP-076 | MUST | 5.7 | TODO(fixture): owner G4 (#65) with G7 (#68), binding document review checks a finite positive bound covering all shutdown work |
-| IFC-ADP-077 | MUST | 5.7 | TODO(fixture): owner F10 (#59) with G9 (#70), a connection whose close bound exceeds the adapter's shutdown bound is never supplied |
+| IFC-ADP-075 | MUST | 5.7 | tested, no wire fixture: shared adapter suite `settlement-at-first-shutdown-return` and channel test `shutdown_settles_an_inflight_deliver_before_return`; the 40 ms `LateSettlement` plant fails at the first return barrier |
+| IFC-ADP-076 | MUST | 5.7 | binding declaration and test: reference adapter documents its positive local shutdown budget, callback budgets, admission limits and the separate core/optional publication contributions; budget rejection test |
+| IFC-ADP-077 | MUST | 5.7 | tested, no wire fixture: core pipeline `a_connection_cannot_exceed_the_adapter_shutdown_budget` |
 | IFC-ADP-078 | MUST | 5.7 | TODO(fixture): owner F10 (#59) with G4 (#65), race shutdown with new harness requests; no new request is accepted |
 | IFC-ADP-080 | MUST | 5.8 | TODO(fixture): document review at each adapter's task; G4-G8 |
 | IFC-ADP-090 | MUST | 5.6 | TODO(fixture): randomness is not decided by a data fixture; G8 (#69) review of the core's source of pairing values. The value's form is fixtured under `spec/bindings/mcp.md` [MCPB-ATT-005] |
@@ -1976,36 +1976,36 @@ the requirement whose fixtures exercise it. Appendix C gives each requirement's 
 | IFC-ADP-092 | MUST | 5.4 | TODO(fixture): F10 with G8 (#69): after the event, requests from the attachment are refused with `unauthorized` and nothing is handed off to it, until a paired native signal |
 | IFC-ADP-093 | MUST | 5.4 | TODO(fixture): F10 with G8 (#69): the event → one finding |
 | IFC-ADP-094 | MUST | 5.6 | TODO(fixture): owner F10 (#59) with G5 (#66) and G8 (#69), identity tool invokes sink with the actual attachment; injected identity claims are not used |
-| IFC-ADP-095 | MUST | 5.6 | TODO(fixture): owner F10 (#59) with F11 (#60), unbound/closed/unconfirmed attachments get unauthorized and no identity; rebinding never returns the previous session |
-| IFC-ADP-096 | MUST | 5.6 | TODO(fixture): owner F10 (#59) with G5 (#66), identity request races rebind/revoke; successful session and local signing fingerprint belong to one current binding snapshot |
-| IFC-ADP-097 | MUST | 5.6 | TODO(fixture): owner F10 (#59) with G5 (#66), successful result has exactly session_id and the public fingerprint in security §5.2's form |
-| IFC-ADP-098 | MUST NOT | 5.6 | TODO(fixture): owner F11 (#60) with G5 (#66), synthetic signing/agreement key sentinels never appear in identity requests/results; only the digest is exposed |
+| IFC-ADP-095 | MUST | 5.6 | tested, no wire fixture: core pipeline identity authorization tests reject foreign, unknown, unbound, withheld, closed and no-longer-served attachments |
+| IFC-ADP-096 | MUST | 5.6 | tested, no wire fixture: core pipeline `identity_racing_unbind_has_no_stale_fallback` and `local_core_snapshots_commit_or_cancel_without_identity_material_on_failure`; binding and public digest are selected under one core lock |
+| IFC-ADP-097 | MUST | 5.6 | tested, no wire fixture: core pipeline `identity_returns_only_the_current_attachment_binding_and_public_digest`; exhaustive result shape has exactly session_id and device_fingerprint |
+| IFC-ADP-098 | MUST NOT | 5.6 | tested, no wire fixture: core pipeline `identity_returns_only_the_current_attachment_binding_and_public_digest`; public digest only, with no secret material in request/result/debug paths |
 | IFC-ADP-100 | RETIRED | 5.3.1 | Retired in revision 0.6; replaced by [IFC-ADP-120] |
 | IFC-ADP-101 | RETIRED | 5.3.1 | Retired in revision 0.6; replaced by [IFC-ADP-121] |
 | IFC-ADP-102 | RETIRED | 5.3.1 | Retired in revision 0.6; replaced by [IFC-ADP-122] |
 | IFC-ADP-103 | RETIRED | 5.3.1 | Retired in revision 0.6; replaced by [IFC-ADP-123] |
-| IFC-ADP-104 | MUST | 5.3.1 | TODO(fixture): owner F10 (#59) with G4 (#65) and G5 (#66), core declarations and independent admission state remain observable while a callee holds a lock |
-| IFC-ADP-105 | MUST | 5.3.1 | TODO(fixture): owner G4 (#65), binding review verifies finite positive callback/stop bounds |
-| IFC-ADP-106 | MUST | 5.3.1 | TODO(fixture): owner F10 (#59) with G4 (#65) and G5 (#66), final closure report after connection close and during shutdown records closure locally while peer publication stalls |
+| IFC-ADP-104 | MUST | 5.3.1 | tested, no wire fixture: core `all_local_request_methods_time_out_on_a_blocked_core_lock_without_late_work` rejects a fresh caller admission scope after core shutdown; core supplies ordinary/stop budgets before connection admission |
+| IFC-ADP-105 | MUST | 5.3.1 | binding declaration and test: reference adapter documents ordinary/stop callback budgets; `invalid_local_budgets_and_excess_connections_are_rejected_before_admission` rejects costs outside the declared local budgets |
+| IFC-ADP-106 | MUST | 5.3.1 | tested, no wire fixture: core `final_local_closure_returns_before_blocked_withdrawal_and_never_calls_the_stopped_adapter`; local cessation completes before the separately owned peer withdrawal |
 | IFC-ADP-107 | RETIRED | 5.3.1 | Retired in revision 0.6; replaced by [IFC-ADP-124] |
 | IFC-ADP-108 | RETIRED | 5.3.1 | Retired in revision 0.6; replaced by [IFC-ADP-125] |
-| IFC-ADP-109 | MUST | 5.3.1 | TODO(fixture): owner F10 (#59) with G4 (#65) and G5 (#66), all call/report/callback outcomes exist at first shutdown return barrier; late-settlement mutant fails without grace period |
-| IFC-ADP-110 | MUST NOT | 5.3.1 | TODO(fixture): owner F10 (#59) with G4 (#65) and G5 (#66), release all blocked callees after shutdown return; adapter emits no late report or callback |
-| IFC-ADP-111 | MUST NOT | 5.3.1 | TODO(fixture): owner F10 (#59) with G4 (#65) and G5 (#66), release deferred core publication after shutdown return; no callback into stopped adapter |
-| IFC-ADP-112 | MUST | 5.3.1 | TODO(fixture): owner F10 (#59) with G4 (#65) and G5 (#66), cancel/shutdown races signed-envelope creation on both sides of the atomic commit boundary; ordinary timeout and connection closure obey the same boundary |
-| IFC-ADP-113 | MUST | 5.3.1 | TODO(fixture): owner F10 (#59) with G4 (#65) and G5 (#66), created-not-passed send retains id and transport-failure; taken-before-stop send retains sent; committed refusal/discovery/identity retains its result; exactly one result at return; revision 0.6 transport contribution and unresolved publication follow §5.3.2 |
-| IFC-ADP-114 | MUST | 5.3.1 | TODO(fixture): owner F10 (#59) with G4 (#65) and G5 (#66), pre-envelope cancellation produces one terminal outcome with no RequestResult and no later envelope; rejected nested request during shutdown |
+| IFC-ADP-109 | MUST | 5.3.1 | tested, no wire fixture: shared suite `settlement-at-first-shutdown-return`, channel blocked-request/blocked-handler tests and committed-request test; `LateSettlement` and the review's real 40 ms cancellation mutation fail without a grace period |
+| IFC-ADP-110 | MUST NOT | 5.3.1 | tested, no wire fixture: channel `shutdown_settles_a_blocked_precommit_request_without_releasing_its_blocker` and `shutdown_settles_a_blocked_handler_and_records_final_closure_at_return`; releasing blockers after return produces no result, report or input |
+| IFC-ADP-111 | MUST NOT | 5.3.1 | tested, no wire fixture: core `blocked_callback_settles_before_shutdown_and_no_callback_is_invoked_after_return` and `final_local_closure_returns_before_blocked_withdrawal_and_never_calls_the_stopped_adapter` |
+| IFC-ADP-112 | MUST | 5.3.1 | tested, no wire fixture: core `commit_and_shutdown_races_have_exactly_one_truthful_value`, `closure_commit_and_first_cancellation_transition_are_preserved` and `local_core_send_waits_for_ownership_after_commit_and_keeps_the_original_id` |
+| IFC-ADP-113 | MUST | 5.3.1 | tested, no wire fixture: core `local_core_send_waits_for_ownership_after_commit_and_keeps_the_original_id` and `local_core_snapshots_commit_or_cancel_without_identity_material_on_failure`; channel `committed_request_keeps_shutdown_pending_and_preserves_the_single_truthful_result` |
+| IFC-ADP-114 | MUST | 5.3.1 | tested, no wire fixture: core `all_local_request_methods_time_out_on_a_blocked_core_lock_without_late_work` and `commit_and_shutdown_races_have_exactly_one_truthful_value`; cancelled pre-commit work has no request value or later publication |
 | IFC-ADP-115 | MUST | 5.3.1 | TODO(fixture): owner F10 (#59) with G4 (#65) and G5 (#66), each callback preserves completed values or consumes terminal outcomes as specified; final set_binding(None) reenters core during shutdown, nested ordinary call is rejected, closure report completes locally without waiting for publication; deliver records only observed Table 5.3 outcome |
 | IFC-ADP-116 | MUST | 5.6 | TODO(fixture): owner G5 (#66) with F10 (#59) and G4 (#65), each pre-commit local failure maps to existing internal-error refusal with no identity/id/state; completed RequestResult unchanged; closed connection records result without a late write |
-| IFC-ADP-117 | MUST | 5.3.2 | TODO(fixture): owner F10 (#59) with G4 (#65) and F6, committed publish stalls past ordinary/stop/local shutdown budgets; no result or shutdown return at expiry, then taken/not-taken yields exactly one truthful result with original id; no late callback or retry |
-| IFC-ADP-118 | MUST | 5.3.2 | TODO(fixture): owner F10 (#59) with F6, missing declaration reports unbounded; finite declarations compose adapter + core + sequential/concurrent publish costs; no awaited publish contributes zero |
-| IFC-ADP-119 | MUST | 5.7 | TODO(fixture): owner F10 (#59) with G4 (#65), permanently stalled peer and multiple connections; shutdown returns within the composed bound; transport contribution and unresolved publication follow §5.3.2 |
-| IFC-ADP-120 | MUST | 5.3.1 | TODO(fixture): owner F10 (#59) with G4 (#65) and G5 (#66), core callee stalled in each send/discovery/identity operation and event handler; ordinary bound returns definite result; revision 0.6 transport contribution and unresolved publication follow §5.3.2 |
-| IFC-ADP-121 | MUST | 5.3.1 | TODO(fixture): owner F10 (#59) with G4 (#65) and G5 (#66), stalled core-to-adapter event callback; ordinary bound includes admission and nested work; revision 0.6 transport contribution and unresolved publication follow §5.3.2 |
-| IFC-ADP-122 | MUST | 5.3.1 | TODO(fixture): owner F10 (#59) with G4 (#65) and G5 (#66), pending and new sink/identity/report calls race shutdown or connection closure; stop deadline and definite result, unrelated connection unaffected; revision 0.6 transport contribution and unresolved publication follow §5.3.2 |
-| IFC-ADP-123 | MUST | 5.3.1 | TODO(fixture): owner F10 (#59) with G4 (#65) and G5 (#66), pending and new core-to-adapter callbacks race shutdown or closure; stop deadline and definite result; revision 0.6 transport contribution and unresolved publication follow §5.3.2 |
-| IFC-ADP-124 | MUST | 5.3.1 | TODO(fixture): owner F10 (#59) with G4 (#65) and G5 (#66), core rejects local costs exceeding their declared local budgets before admission; revision 0.6 transport contribution and unresolved publication follow §5.3.2 |
-| IFC-ADP-125 | MUST | 5.3.1 | TODO(fixture): owner F10 (#59) with G4 (#65) and G5 (#66), multiple connections and concurrent/sequential calls fit one end-to-end shutdown budget; revision 0.6 transport contribution and unresolved publication follow §5.3.2 |
+| IFC-ADP-117 | MUST | 5.3.2 | tested, no wire fixture: core `local_core_send_waits_for_ownership_after_commit_and_keeps_the_original_id`; channel `committed_request_keeps_shutdown_pending_and_preserves_the_single_truthful_result` keeps shutdown pending beyond the local bound for both ownership results |
+| IFC-ADP-118 | MUST | 5.3.2 | tested, no wire fixture: core `undeclared_publication_is_explicitly_unbounded_and_limits_are_finite` checks finite composition and zero awaited contribution; `local_core_send_waits_for_ownership_after_commit_and_keeps_the_original_id` checks the local guarantee report while publication is pending and after settlement |
+| IFC-ADP-119 | MUST | 5.7 | tested, no wire fixture: shared suite `stalled-shutdown-is-bounded` (IFC-ADP-119); channel `invalid_local_budgets_and_excess_connections_are_rejected_before_admission` and committed-request test cover finite local admission and the conditional publication contribution |
+| IFC-ADP-120 | MUST | 5.3.1 | tested, no wire fixture: core `all_local_request_methods_time_out_on_a_blocked_core_lock_without_late_work` covers send/discovery/identity; channel blocked-handler test covers event reporting; committed publication is covered by IFC-ADP-117 |
+| IFC-ADP-121 | MUST | 5.3.1 | tested, no wire fixture: core `ordinary_callback_timeout_has_no_completed_capability_value`; channel `a_stalled_write_is_indeterminate`; callback budgets are declared by the reference adapter binding |
+| IFC-ADP-122 | MUST | 5.3.1 | tested, no wire fixture: channel blocked-request/blocked-handler tests; core `ordinary_timeout_and_connection_scoping_and_reserved_final_reports` and committed ownership test cover cancellation scoping and publication settlement |
+| IFC-ADP-123 | MUST | 5.3.1 | tested, no wire fixture: core `blocked_callback_settles_before_shutdown_and_no_callback_is_invoked_after_return`; channel `shutdown_settles_an_inflight_deliver_before_return` and multiple-opening shutdown test |
+| IFC-ADP-124 | MUST | 5.3.1 | tested, no wire fixture: reference adapter/core boundary reject local costs outside declared budgets before admission; channel `invalid_local_budgets_and_excess_connections_are_rejected_before_admission`; core admission-limit and composition test |
+| IFC-ADP-125 | MUST | 5.3.1 | tested, no wire fixture: channel `invalid_local_budgets_and_excess_connections_are_rejected_before_admission`, concurrent/double shutdown and blocked-call tests; core composition test and IFC-ADP-117 cover the separate transport contribution |
 | IFC-TRN-001 | MUST | 6.1 | TODO(fixture): F10 transport suite against F7, then G1-G2 |
 | IFC-TRN-002 | MAY | 6.1 | none (MAY) |
 | IFC-TRN-003 | MUST | 3.3 | TODO(fixture): each assigned requirement's own tests, run against a transport; F10 |
