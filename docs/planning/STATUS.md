@@ -10,6 +10,19 @@ ephemeral listeners use `:0`. The binding-specific contract harness captures nat
 carriage for the unchanged sealing-aware shared suite. Appendix A evidence cells for
 IFC-TRN-043/050 are updated; frozen requirement text and suites are unchanged.
 No real traffic until #64 authenticates the relay with the per-user pinned TLS certificate.
+**Review round 1 (#382):** native ingress `low_pass_filter` replaces the receive-size
+predicate; outgoing frames use fixed `Drop`, `Data`, express publication and a flat 1 ms native
+batch-refill budget, without fragment extensions. Zenoh preallocates its 16-batch data pool at link initialization.
+The default two batches with zero/1 ms waits failed the unchanged large-frame contract
+check; 5 ms passed once but failed in the workspace. With 16 batches, zero wait
+also lost a final fragment; the 1 ms budget supplies that refill. Three consecutive full
+Zenoh package runs passed, including the unchanged shared suite. Monotonic admission is checked before copying
+and immediately before native publication. The stalled-native-subscriber regression uses
+actual 1 MiB HPKE frames, 20 ms deadlines and a 600 ms callback stall on both sender roles.
+Across those three runs, the maximum was 17.925 ms publication (0 ms call
+overrun) and 595.9942 ms late callback observation. These measurements include test-support
+capture and scheduling; late observation does not locate retained copies. Restoring Block
+was caught at 603.8484 ms. See the binding and risk row 77 for the source and residual.
 The sender-side native-queue deadline limitation remains open under #377 (risk row 77);
 no stalled-link expiry guarantee or new gate verdict is claimed. Risk rows 76/78 record
 removal of the sender-chosen handle and destination-digest linkage; native link, size and
@@ -2947,8 +2960,12 @@ recorded on Codex `0.161.0` (`docs/planning/gates/fixtures/s3-codex-capture/tran
   the loopback rendezvous only, with no multicast; Linux and macOS not yet run;
   11-risks.md row 36).
 - Native Zenoh queued copies respecting a shorter sender deadline under a stalled link
-  (UNVERIFIED — no per-publication TTL; sender admission and 1 s link-close bound do not
-  prove IFC-TRN-034 in this case; lead decision/proof under #377; 11-risks.md row 77).
+  (UNVERIFIED as a guarantee — no per-publication TTL; fixed Drop/express, a preallocated
+  native data pool and a flat 1 ms refill budget reduce blocking, but serialization, mutex contention, fanout,
+  scheduling and already serialized TX/TCP/relay copies are not bounded by each frame's
+  deadline. The review-round-1 regression measures call and late-observation overruns;
+  it does not prove IFC-TRN-034. No finite maximum overrun is proved; lead decision/proof
+  under #377; 11-risks.md row 77).
 - The identity of the local-mode rendezvous holder (UNVERIFIED — nothing authenticates it,
   so any local program on the port is the relay; G3 #64 must pin it with a per-user TLS
   certificate before real traffic; C7 §5 dated note; 11-risks.md row 81).

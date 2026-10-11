@@ -41,8 +41,8 @@ pub const DEFAULT_PARTITION: &str = "default";
 /// scenario used, `docs/planning/gates/G3-result.md`).
 pub const DEFAULT_RENDEZVOUS_PORT: u16 = 17447;
 
-/// How long a blocked `put` waits for a stalled link before Zenoh closes that link, in
-/// microseconds (binding document, "Timing").
+/// Native blocking control traffic closes a stalled link after this many microseconds.
+/// OAC frame publications use Drop, not this blocking path.
 pub(crate) const BLOCK_BEFORE_CLOSE_MICROS: u64 = 1_000_000;
 
 impl Default for PeerConfiguration {
@@ -143,6 +143,38 @@ impl PeerConfiguration {
         // to a locator a peer was told rather than configured with.
         set("scouting/multicast/enabled", "false".into())?;
         set("scouting/gossip/enabled", "false".into())?;
+        // Native ingress admission includes payload + attachment, before OAC's callback.
+        // The link defragmentation limit counts protocol bytes, so it cannot express
+        // the exact inclusive payload cap (and does not filter unfragmented samples).
+        set(
+            "low_pass_filter",
+            format!(
+                r#"[{{flows:["ingress"], messages:["put"], key_exprs:["oac/**"], size_limit:{}}}]"#,
+                crate::MAX_PAYLOAD_OCTETS
+            ),
+        )?;
+        // Let Zenoh allocate the data pool at link initialization, large enough for
+        // normal 1 MiB fragmentation without waiting for each two-batch refill.
+        // Two batches with even a 5 ms wait dropped an uncongested large frame on
+        // Windows (IFC-TRN-030). Use native capacity, not OAC buffering/retries.
+        set("transport/link/tx/queue/size/data", "16".into())?;
+        set(
+            "transport/link/tx/queue/allocation/mode",
+            r#""init""#.into(),
+        )?;
+        // A 1 MiB sample needs 17 native fragments: allow one short refill wait
+        // with no deadline extension. Zero wait occasionally loses that last fragment.
+        // Express publications have no adaptive batching delay.
+        // Already serialized batches have no TTL; see the binding's residual.
+        for (setting, micros) in [
+            ("wait_before_drop", 1000),
+            ("max_wait_before_drop_fragments", 0),
+        ] {
+            set(
+                &format!("transport/link/tx/queue/congestion_control/drop/{setting}"),
+                micros.to_string(),
+            )?;
+        }
         set(
             "transport/link/tx/queue/congestion_control/block/wait_before_close",
             BLOCK_BEFORE_CLOSE_MICROS.to_string(),

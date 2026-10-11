@@ -109,23 +109,54 @@
 //! samples; the unchanged shared suite exercises sealed presence and every other check.
 //!
 //! **Native queue and isolation.** Zenoh `RingChannel` owns receive queuing and overflow:
-//! at most 16 frames, dropping the **oldest** when full (formerly drop-newest). The small
-//! receive callback checks size and fixed encoding before copying admitted payload octets
-//! into the ring. Zenoh has no byte-capacity handler, so the 1 MiB per-frame cap times 16
-//! gives a 16 MiB queued-payload bound; one dispatching frame adds at most 1 MiB, plus
+//! at most 16 frames, dropping the **oldest** when full (formerly drop-newest). The
+//! native `low_pass_filter` admits ingress `put` samples on `oac/**` only when payload
+//! plus attachment is at most 1 MiB. The receive callback checks fixed encoding before
+//! copying payload octets into the ring; it contains no custom size predicate.
+//! `transport/link/rx/max_message_size` instead bounds the fragmented serialized message
+//! (including protocol overhead), and does not filter unfragmented samples; it cannot
+//! express the exact inclusive payload cap. Zenoh has no byte-capacity handler, so the
+//! native 1 MiB per-frame cap times 16 gives a 16 MiB queued-payload bound;
+//! one dispatching frame adds at most 1 MiB, plus
 //! transient callback copies and native receive buffers. Frame storage is owned `Vec<u8>`
 //! so the ring does not retain larger native backing buffers. These are payload bounds,
 //! not a bound on Zenoh's link buffers or process RSS. One dispatch thread calls core
 //! handlers behind lifecycle gates. A stalled handler holds up only its own transport's
 //! callbacks; the ring continues draining the link and other peers keep receiving.
 //!
-//! **Deadlines (IFC-TRN-034).** Sender admission checks the monotonic deadline immediately
-//! before native `put`. No deadline travels beside the frame; receiving expiry is solely
-//! the core's encrypted-payload check (SEC-SEL-036). Zenoh has no per-publication TTL.
-//! Blocking congestion control closes a stalled link after 1 s (`wait_before_close`),
-//! but does not prove native queued copies cannot outlive a shorter deadline. This is an
-//! open sender-side limitation for the lead under #377; no stalled-link deadline guarantee
-//! is claimed. Nothing is retried or stored by OAC across a lost link or restart.
+//! **Deadlines (IFC-TRN-034), review round 1.** Sender admission checks the monotonic
+//! deadline before copying and again immediately before resolving native `put`.
+//! All publications use fixed `CongestionControl::Drop`, priority `Data` and `express=true`:
+//! no adaptive batching delay and no deadline-dependent observable QoS. Zenoh's native
+//! `wait_before_drop=1000` and `max_wait_before_drop_fragments=0` (microseconds) give
+//! batch-refill waiting a flat 1 ms budget, without fragment extensions. Zenoh preallocates its 16-batch data
+//! pool (`transport/link/tx/queue/size/data=16`,
+//! `transport/link/tx/queue/allocation/mode="init"`) at link initialization:
+//! about 1 MiB of native batch storage per data queue, plus native metadata, other
+//! priority queues and TCP buffers. There is no OAC send queue. With the default two
+//! batches, zero/1 ms waits dropped an uncongested 1 MiB publication; 5 ms passed once
+//! but failed the workspace's unchanged IFC-TRN-030 check. With 16 batches, zero wait
+//! passed once but occasionally dropped the last fragment: a 1 MiB frame exceeds
+//! 16 x 65535 batch octets even before native headers. Native capacity plus one short
+//! refill budget supplies normal fragmentation; there is no increasing wait per
+//! fragment. Fanout can visit multiple
+//! links synchronously.
+//! Native drops still return successful `put`; `Taken` means ownership, not delivery.
+//! The 1 s `wait_before_close` remains for native blocking control traffic, not OAC frames.
+//!
+//! **Residual, not proven IFC-TRN-034 conformance.** A native wait budget is not a
+//! wall-clock retention bound: serialization, native mutex contention and OS scheduling
+//! add time. Serialized TX batches, TCP buffers and relay copies carry no TTL and cannot
+//! be revoked by the stable API. No finite maximum deadline overrun is proved.
+//! `short_deadline_does_not_wait_for_a_stalled_native_subscriber` reproduces the review's
+//! 600 ms stalled plain subscriber, actual 1 MiB HPKE frames and 20 ms deadlines, for
+//! relay and client senders. It separately reports maximum publish duration/call overrun
+//! and late callback observation (the latter includes receiver scheduling, and cannot
+//! locate a copy in sender TX vs TCP vs receiver buffers). Windows measurements are
+//! recorded in `11-risks.md` row 77. Its 100 ms regression threshold catches the reviewed
+//! 200-291 ms block, not a hard deadline guarantee. No deadline travels beside the frame;
+//! receiving expiry is solely the core's encrypted-payload check (SEC-SEL-036).
+//! Nothing is retried or stored by OAC across a lost link or restart.
 //!
 //! **Carrier handles.** Inbound frames share a receiver-local handle: a hash of this
 //! transport's random native session id. It is never transmitted and groups the local
@@ -143,7 +174,11 @@
 //! Partition-label hashing supplies install isolation and a syntax-safe fixed key;
 //! receiver-local hashing maps native identity to the neutral opaque carrier type.
 //! Zenoh provides neither OAC's partition-label contract nor its neutral carrier type.
-//! Zenoh owns routing, reconnection, sample boundaries, fragmentation, overflow and
+//! Encoding admission remains OAC-owned: the native size filter has no encoding predicate.
+//! Outbound size admission remains OAC-owned to return neutral `NotTaken`; the native
+//! silent filter cannot report that result. Owned frame copies keep native backing
+//! buffers out of the bounded ring. Zenoh owns ingress size filtering, routing,
+//! reconnection, congestion control, sample boundaries, fragmentation, overflow and
 //! keep-alives. Ephemeral listeners use `:0`;
 //! Zenoh allocates them without OAC's former bind/drop/rebind race.
 //!
@@ -153,7 +188,13 @@
 //! <https://github.com/eclipse-zenoh/zenoh/blob/1.10.1/zenoh/src/api/builders/publisher.rs>
 //! (`put`, fixed encoding; no TTL), and
 //! <https://github.com/eclipse-zenoh/zenoh/blob/1.10.1/DEFAULT_CONFIG.json5>
-//! (ephemeral listeners and `wait_before_close`).
+//! (ephemeral listeners, TX wait settings and `low_pass_filter`),
+//! <https://github.com/eclipse-zenoh/zenoh/blob/1.10.1/zenoh/src/net/routing/interceptor/low_pass.rs>
+//! (inclusive payload + attachment bound),
+//! <https://github.com/eclipse-zenoh/zenoh/blob/1.10.1/io/zenoh-transport/src/common/pipeline.rs>
+//! (native waits, fragmentation and express), and
+//! <https://github.com/eclipse-zenoh/zenoh/blob/1.10.1/io/zenoh-transport/src/unicast/universal/link.rs>
+//! (TX batches have no publication expiry).
 //!
 //! **Contract observation mapping (IFC-TRN-112).** With `test-support`, captures at the
 //! actual outgoing `put` boundary and incoming sample callback record exact frame bytes,

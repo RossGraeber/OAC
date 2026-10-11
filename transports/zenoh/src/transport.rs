@@ -20,7 +20,7 @@ use zenoh::Wait;
 use zenoh::bytes::Encoding;
 use zenoh::handlers::{IntoHandler, RingChannel, RingChannelHandler};
 use zenoh::pubsub::Subscriber;
-use zenoh::qos::CongestionControl;
+use zenoh::qos::{CongestionControl, Priority};
 use zenoh::sample::Sample;
 
 use crate::addressing::{self, Digest128, Partition};
@@ -299,11 +299,10 @@ impl PeerTransport {
             return PublishResult::NotTaken;
         }
         let key = r.partition.key();
-        let frame = payload.octets().to_vec();
-        let now = Instant::now();
-        if deadline.has_passed_at(now) {
+        if deadline.has_passed_at(Instant::now()) {
             return PublishResult::NotTaken;
         }
+        let frame = payload.octets().to_vec();
         #[cfg(feature = "test-support")]
         Self::capture(
             &self.carriage,
@@ -313,13 +312,18 @@ impl PeerTransport {
             &r.link,
             vec![],
         );
-        match r
+        let publication = r
             .session
             .put(key, frame)
             .encoding(Encoding::ZENOH_BYTES)
-            .congestion_control(CongestionControl::Block)
-            .wait()
-        {
+            .congestion_control(CongestionControl::Drop)
+            .priority(Priority::Data)
+            .express(true);
+        // Recheck after copying/building, immediately before native admission.
+        if deadline.has_passed_at(Instant::now()) {
+            return PublishResult::NotTaken;
+        }
+        match publication.wait() {
             Ok(()) => PublishResult::Taken,
             Err(_) => PublishResult::NotTaken,
         }
@@ -380,11 +384,9 @@ impl Transport for PeerTransport {
                         .chain(sample.timestamp().map(|t| t.to_string().into_bytes()))
                         .collect(),
                 );
-                // Zenoh's handlers bound count, not bytes. Admission precedes the copy;
+                // Zenoh's ingress filter bounds size before this callback;
                 // Vec owns only frame octets, rather than retaining native backing buffers.
-                if sample.payload().len() <= MAX_PAYLOAD_OCTETS as usize
-                    && *sample.encoding() == Encoding::ZENOH_BYTES
-                {
+                if *sample.encoding() == Encoding::ZENOH_BYTES {
                     tx.call(sample.payload().to_bytes().into_owned());
                 }
             })

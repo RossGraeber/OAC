@@ -7,7 +7,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use oac_core::ids::{KeyId, SessionId};
-use oac_core::sealing::{AgreementPublicKey, seal};
+use oac_core::sealing::{AgreementPublicKey, FRAME_OVERHEAD, seal};
 use oac_core::transport::{Deadline, Destination, Payload, PayloadKind, PublishResult, Transport};
 use zenoh::Wait;
 use zenoh::bytes::Encoding;
@@ -33,6 +33,171 @@ fn wait_for(cond: impl Fn() -> bool) {
     while !cond() {
         assert!(start.elapsed() < Duration::from_secs(15));
         thread::sleep(Duration::from_millis(20));
+    }
+}
+
+/// Review #382: a plain native callback stalls for 600 ms while the sender publishes
+/// actual 1 MiB HPKE frames with 20 ms deadlines. Measure both call retention and late
+/// observation: native TX/kernel copies have no per-frame expiry even with Drop.
+#[test]
+fn short_deadline_does_not_wait_for_a_stalled_native_subscriber() {
+    for sender_role in [Role::First, Role::Joiner] {
+        let c = conf("deadline");
+        let relay = PeerTransport::new();
+        relay.start(&key('a'), c.clone().wrap()).unwrap();
+        let joiner = PeerTransport::new();
+        if sender_role == Role::Joiner {
+            joiner.start(&key('c'), c.clone().wrap()).unwrap();
+        }
+        let sender = if sender_role == Role::First {
+            &relay
+        } else {
+            &joiner
+        };
+        // Independent native subscriber, not OAC's isolated dispatcher/ring.
+        let observer = zenoh::open(c.native(Role::Joiner, 0).unwrap())
+            .wait()
+            .unwrap();
+        let partition = Partition::new(c.partition());
+        let (seen_tx, seen_rx) = mpsc::channel();
+        let (entered_tx, entered_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let release_rx = Mutex::new(release_rx);
+        let _sub = observer
+            .declare_subscriber(partition.key())
+            .callback(move |sample| {
+                let bytes = sample.payload().to_bytes();
+                if bytes.as_ref() == b"stall" {
+                    entered_tx.send(()).unwrap();
+                    let _ = release_rx
+                        .lock()
+                        .unwrap()
+                        .recv_timeout(Duration::from_millis(600));
+                } else {
+                    seen_tx
+                        .send((
+                            bytes[..bytes.len().min(33)].to_vec(),
+                            Instant::now(),
+                            sample.congestion_control(),
+                            sample.express(),
+                        ))
+                        .unwrap();
+                }
+            })
+            .wait()
+            .unwrap();
+        // Unwind must never leave the native callback stuck.
+        struct Release(mpsc::Sender<()>);
+        impl Drop for Release {
+            fn drop(&mut self) {
+                let _ = self.0.send(());
+            }
+        }
+        let release = Release(release_tx);
+        let dest = Destination::Device(key('b'));
+        let ready = Instant::now();
+        loop {
+            assert!(ready.elapsed() < Duration::from_secs(15));
+            sender.publish(
+                &dest,
+                Payload::new(PayloadKind::Sealed, b"ready".to_vec()),
+                Deadline::at(Instant::now() + Duration::from_secs(5)),
+            );
+            if seen_rx.recv_timeout(Duration::from_millis(100)).is_ok() {
+                break;
+            }
+        }
+        let recipient =
+            AgreementPublicKey::from_base64url("wcSSzJLhvIMKmwB60NLYtLZcibdrU5_XcugIsJugBG8")
+                .unwrap();
+        let frames: Vec<_> = (0..32u8)
+            .map(|n| {
+                let frame = seal(
+                    &recipient,
+                    PayloadKind::Envelope,
+                    &vec![n; MAX_PAYLOAD_OCTETS as usize - FRAME_OVERHEAD],
+                    MAX_PAYLOAD_OCTETS,
+                )
+                .unwrap();
+                assert_eq!(frame.len(), MAX_PAYLOAD_OCTETS as usize);
+                frame
+            })
+            .collect();
+        let small = seal(
+            &recipient,
+            PayloadKind::Envelope,
+            b"queued probe",
+            MAX_PAYLOAD_OCTETS,
+        )
+        .unwrap();
+        sender.publish(
+            &dest,
+            Payload::new(PayloadKind::Sealed, b"stall".to_vec()),
+            Deadline::at(Instant::now() + Duration::from_secs(5)),
+        );
+        entered_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        let mut timings = Vec::new();
+        let mut max_call = Duration::ZERO;
+        let mut taken = 0;
+        for frame in std::iter::once(small).chain(frames) {
+            let prefix = frame[..33].to_vec();
+            let start = Instant::now();
+            let deadline = start + Duration::from_millis(20);
+            let result = sender.publish(
+                &dest,
+                Payload::new(PayloadKind::Sealed, frame),
+                Deadline::at(deadline),
+            );
+            let elapsed = start.elapsed();
+            max_call = max_call.max(elapsed);
+            timings.push((prefix, deadline));
+            taken += usize::from(result == PublishResult::Taken);
+        }
+        // Scheduler tolerance; catches the review's 200-291 ms blocking regression.
+        // This is not a universal wall-clock deadline guarantee.
+        assert!(
+            max_call < Duration::from_millis(100),
+            "publish blocked: {max_call:?}"
+        );
+        // Allow the full 600 ms callback stall, then drain observations through a barrier.
+        thread::sleep(Duration::from_millis(650));
+        let start = Instant::now();
+        let mut max_arrival_overrun = Duration::ZERO;
+        let mut received = 0;
+        'drain: loop {
+            assert!(start.elapsed() < Duration::from_secs(15));
+            sender.publish(
+                &dest,
+                Payload::new(PayloadKind::Sealed, b"barrier".to_vec()),
+                Deadline::at(Instant::now() + Duration::from_secs(5)),
+            );
+            while let Ok((prefix, arrival, congestion, express)) =
+                seen_rx.recv_timeout(Duration::from_millis(100))
+            {
+                assert_eq!(congestion, CongestionControl::Drop);
+                assert!(express);
+                if prefix == b"barrier" {
+                    break 'drain;
+                }
+                if let Some((_, deadline)) = timings.iter().find(|(p, _)| *p == prefix) {
+                    received += 1;
+                    max_arrival_overrun =
+                        max_arrival_overrun.max(arrival.saturating_duration_since(*deadline));
+                }
+            }
+        }
+        assert!(
+            received > 0,
+            "no queued frame observed; residual probe was not exercised"
+        );
+        eprintln!(
+            "deadline probe {sender_role:?}: max publish={max_call:?}, max call overrun={:?}, taken={taken}/33, received={received}/33, max arrival overrun={max_arrival_overrun:?}",
+            max_call.saturating_sub(Duration::from_millis(20))
+        );
+        drop(release);
+        joiner.shutdown();
+        relay.shutdown();
+        observer.close().wait().unwrap();
     }
 }
 
