@@ -1,5 +1,35 @@
 # OAC status
 
+**Last updated:** 2026-10-10 (**#374, sealed Zenoh binding; Refs #62, #64, #377**).
+The reference transport declares `sealing`, publishes core frame bytes directly on one
+destination-independent partition key with fixed encoding, and delivers all frames to the
+local device subscription. No custom frame header, destination digest, deadline or sender
+handle is carried. The receiver-local carrier groups the frame stream, not senders. Native
+Zenoh RingChannel owns overflow (drop-oldest, 16 frames, 16 MiB queued-payload bound);
+ephemeral listeners use `:0`. The binding-specific contract harness captures native sample
+carriage for the unchanged sealing-aware shared suite. Appendix A evidence cells for
+IFC-TRN-043/050 are updated; frozen requirement text and suites are unchanged.
+No real traffic until #64 authenticates the relay with the per-user pinned TLS certificate.
+**Review round 1 (#382):** native ingress `low_pass_filter` replaces the receive-size
+predicate; outgoing frames use fixed `Drop`, `Data`, express publication and a flat 1 ms native
+batch-refill budget, without fragment extensions. Zenoh preallocates its 16-batch data pool at link initialization.
+The default two batches with zero/1 ms waits failed the unchanged large-frame contract
+check; 5 ms passed once but failed in the workspace. With 16 batches, zero wait
+also lost a final fragment; the 1 ms budget supplies that refill. Three consecutive full
+Zenoh package runs passed, including the unchanged shared suite. Monotonic admission is checked before copying
+and immediately before native publication. The stalled-native-subscriber regression uses
+actual 1 MiB HPKE frames, 20 ms deadlines and a 600 ms callback stall on both sender roles.
+Across those three runs, the maximum was 17.925 ms publication (0 ms call
+overrun) and 595.9942 ms late callback observation. These measurements include test-support
+capture and scheduling; late observation does not locate retained copies. Restoring Block
+was caught at 603.8484 ms. See the binding and risk row 77 for the source and residual.
+The sender-side native-queue deadline limitation remains open under #377 (risk row 77);
+no stalled-link expiry guarantee or new gate verdict is claimed. Risk rows 76/78 record
+removal of the sender-chosen handle and destination-digest linkage; native link, size and
+timing correlation remains. Source for the stable native ring and its drop-oldest policy:
+https://github.com/eclipse-zenoh/zenoh/blob/1.10.1/zenoh/src/api/handlers/ring.rs,
+version 1.10.1, cached first-party source inspected 2026-10-10.
+
 The single source of truth for where the project is. The `oac` router skill reads this file
 rather than restating it. Update it when a stage opens or closes, when a gate returns a
 verdict, or when a pin moves.
@@ -2947,11 +2977,13 @@ recorded on Codex `0.161.0` (`docs/planning/gates/fixtures/s3-codex-capture/tran
   crate passes the transport contract suite over loopback; since 2026-10-09 local mode is
   the loopback rendezvous only, with no multicast; Linux and macOS not yet run;
   11-risks.md row 36).
-- The Zenoh transport's carrier handle is set by the sender and checked by nothing, so it
-  cannot attribute carrier loss (UNVERIFIED as a basis for attribution — no mechanism binds
-  it to a link; G2 #63 must use its own link or liveliness observations; 11-risks.md row 76).
-- Frame expiry under clock skew between hosts (UNVERIFIED for LAN mode — exact on one host,
-  unbounded across hosts until G3 #64 bounds it; C7 §6 dated note; 11-risks.md row 77).
+- Native Zenoh queued copies respecting a shorter sender deadline under a stalled link
+  (UNVERIFIED as a guarantee — no per-publication TTL; fixed Drop/express, a preallocated
+  native data pool and a flat 1 ms refill budget reduce blocking, but serialization, mutex contention, fanout,
+  scheduling and already serialized TX/TCP/relay copies are not bounded by each frame's
+  deadline. The review-round-1 regression measures call and late-observation overruns;
+  it does not prove IFC-TRN-034. No finite maximum overrun is proved; lead decision/proof
+  under #377; 11-risks.md row 77).
 - The identity of the local-mode rendezvous holder (UNVERIFIED — nothing authenticates it,
   so any local program on the port is the relay; G3 #64 must pin it with a per-user TLS
   certificate before real traffic; C7 §5 dated note; 11-risks.md row 81).

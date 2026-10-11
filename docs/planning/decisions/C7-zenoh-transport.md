@@ -222,6 +222,19 @@ peers see only size and timing, which matches the "traffic only" wording of
 landed, the Zenoh transport must not carry real traffic. Every peer of a partition, and the
 rendezvous holder (§5 dated notes), can read every frame.*
 
+*Dated note, 2026-10-10 (#374; Refs #377): the sealed binding supersedes the
+destination-digest addressing and per-sender header described above. Core HPKE octets
+are now native sample payloads on `oac/1/<partition>/frames`, with fixed encoding and no
+application header. This removes the previous unkeyed destination-digest linkage:
+holding a session id no longer identifies its frames by a digest. Native link, size and
+timing correlation remains. Every frame reaches each local device subscription; core
+opening selects the recipient and inner kind. A receiver-local stream handle replaces
+the transmitted sender handle. Native RingChannel owns drop-oldest overflow; ephemeral
+ports are allocated by Zenoh with `:0`. The binding document describes payload bounds,
+remaining OAC-owned admission/lifecycle checks and the native send-queue deadline
+limitation under #377. Core sealing has landed, but **no real traffic until #64 also
+authenticates the relay with the per-user pinned TLS certificate**.*
+
 ## 4. Presence mapping
 
 **Neutral states, from DESIGN.** Quoted, DESIGN.md line 105: "Start with `online`,
