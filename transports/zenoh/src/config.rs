@@ -7,7 +7,7 @@
 //! separately run router daemon, and **no multicast scouting and no gossip**. Peers
 //! meet at a fixed loopback rendezvous port. The first transport to start listens on it, in
 //! Zenoh's router mode inside this process, and relays between the others. Every later
-//! transport is a peer that connects to it alone, and reconnects to the port if that link
+//! transport is a client that connects to it alone, and reconnects to the port if that link
 //! drops. No session opens a connection it was not configured with.
 //!
 //! Why not multicast scouting (the PR #364 review, blocking finding 1): with scouting on, a
@@ -21,7 +21,7 @@
 //! C7 §5's "multicast scouting on by default" by its own named reversal path (the G3
 //! fallback); the dated note in C7 §5 records it. LAN mode and TLS are G3's (#64).
 
-use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};
+use std::net::{Ipv4Addr, SocketAddr, TcpStream};
 use std::time::Duration;
 
 use oac_core::transport::TransportConfiguration;
@@ -41,8 +41,8 @@ pub const DEFAULT_PARTITION: &str = "default";
 /// scenario used, `docs/planning/gates/G3-result.md`).
 pub const DEFAULT_RENDEZVOUS_PORT: u16 = 17447;
 
-/// How long a blocked `put` waits for a stalled link before Zenoh closes that link, in
-/// microseconds (binding document, "Timing").
+/// Native blocking control traffic closes a stalled link after this many microseconds.
+/// OAC frame publications use Drop, not this blocking path.
 pub(crate) const BLOCK_BEFORE_CLOSE_MICROS: u64 = 1_000_000;
 
 impl Default for PeerConfiguration {
@@ -58,14 +58,6 @@ pub(crate) enum Role {
     First,
     /// A peer that connects to the rendezvous port another peer holds.
     Joiner,
-}
-
-/// A loopback port free at the time of asking.
-pub(crate) fn free_loopback_port() -> Option<u16> {
-    TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
-        .and_then(|l| l.local_addr())
-        .map(|a| a.port())
-        .ok()
 }
 
 impl PeerConfiguration {
@@ -119,11 +111,11 @@ impl PeerConfiguration {
     }
 
     /// The loopback port a peer in `role` listens on: the rendezvous port for the first
-    /// peer; for a joiner, `own` (a free port it picked, so its locator is known).
-    pub(crate) fn listen_port(&self, role: Role, own: u16) -> u16 {
+    /// peer; for a joiner, zero lets Zenoh allocate the ephemeral port atomically.
+    pub(crate) fn listen_port(&self, role: Role) -> u16 {
         match role {
             Role::First => self.port,
-            Role::Joiner => own,
+            Role::Joiner => 0,
         }
     }
 
@@ -144,10 +136,45 @@ impl PeerConfiguration {
         };
         set("mode", mode.into())?;
         set("adminspace/enabled", "false".into())?;
+        // Router mode defaults to automatic timestamps. Sealed samples carry no
+        // application time value beside the core frame, including at the relay.
+        set("timestamping/enabled", "false".into())?;
         // Loopback only, fail closed: no scouting, no gossip, so no connection is ever made
         // to a locator a peer was told rather than configured with.
         set("scouting/multicast/enabled", "false".into())?;
         set("scouting/gossip/enabled", "false".into())?;
+        // Native ingress admission includes payload + attachment, before OAC's callback.
+        // The link defragmentation limit counts protocol bytes, so it cannot express
+        // the exact inclusive payload cap (and does not filter unfragmented samples).
+        set(
+            "low_pass_filter",
+            format!(
+                r#"[{{flows:["ingress"], messages:["put"], key_exprs:["oac/**"], size_limit:{}}}]"#,
+                crate::MAX_PAYLOAD_OCTETS
+            ),
+        )?;
+        // Let Zenoh allocate the data pool at link initialization, large enough for
+        // normal 1 MiB fragmentation without waiting for each two-batch refill.
+        // Two batches with even a 5 ms wait dropped an uncongested large frame on
+        // Windows (IFC-TRN-030). Use native capacity, not OAC buffering/retries.
+        set("transport/link/tx/queue/size/data", "16".into())?;
+        set(
+            "transport/link/tx/queue/allocation/mode",
+            r#""init""#.into(),
+        )?;
+        // A 1 MiB sample needs 17 native fragments: allow one short refill wait
+        // with no deadline extension. Zero wait occasionally loses that last fragment.
+        // Express publications have no adaptive batching delay.
+        // Already serialized batches have no TTL; see the binding's residual.
+        for (setting, micros) in [
+            ("wait_before_drop", 1000),
+            ("max_wait_before_drop_fragments", 0),
+        ] {
+            set(
+                &format!("transport/link/tx/queue/congestion_control/drop/{setting}"),
+                micros.to_string(),
+            )?;
+        }
         set(
             "transport/link/tx/queue/congestion_control/block/wait_before_close",
             BLOCK_BEFORE_CLOSE_MICROS.to_string(),
@@ -194,6 +221,7 @@ mod tests {
             assert_eq!(json(&n, "mode"), format!(r#""{mode}""#));
             assert_eq!(json(&n, "scouting/multicast/enabled"), "false");
             assert_eq!(json(&n, "scouting/gossip/enabled"), "false");
+            assert_eq!(json(&n, "timestamping/enabled"), "false");
             for k in ["listen/endpoints", "connect/endpoints"] {
                 let v = json(&n, k);
                 let endpoints: Vec<&str> = v.split('"').filter(|s| s.contains('/')).collect();
@@ -210,15 +238,11 @@ mod tests {
         let c = PeerConfiguration::rendezvous(17448).with_partition("t");
         assert_eq!(c.rendezvous_port(), 17448);
         assert_eq!(c.roles().len(), 2);
-        let first = c
-            .native(Role::First, c.listen_port(Role::First, 40001))
-            .unwrap();
+        let first = c.native(Role::First, c.listen_port(Role::First)).unwrap();
         assert!(json(&first, "listen/endpoints").contains("127.0.0.1:17448"));
         assert_eq!(json(&first, "connect/endpoints"), "[]");
-        let joiner = c
-            .native(Role::Joiner, c.listen_port(Role::Joiner, 40001))
-            .unwrap();
-        assert!(json(&joiner, "listen/endpoints").contains("127.0.0.1:40001"));
+        let joiner = c.native(Role::Joiner, c.listen_port(Role::Joiner)).unwrap();
+        assert!(json(&joiner, "listen/endpoints").contains("127.0.0.1:0"));
         assert!(json(&joiner, "connect/endpoints").contains("127.0.0.1:17448"));
     }
 }

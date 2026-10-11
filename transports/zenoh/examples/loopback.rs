@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Two Zenoh transports on one host, over a fixed loopback rendezvous port: one subscribes
-//! to a session, the other publishes an envelope to it.
+//! to its device stream, the other publishes synthetic sealed octets.
+//! This is a transport demonstration, not real traffic or a core sealing example.
 //!
 //!     cargo run -p oac-transport-zenoh --example loopback
 //!
@@ -12,7 +13,7 @@ use std::net::TcpListener;
 use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant};
 
-use oac_core::ids::{KeyId, SessionId};
+use oac_core::ids::KeyId;
 use oac_core::transport::{Deadline, Destination, Payload, PayloadKind, Transport};
 use oac_transport_zenoh::{PeerConfiguration, PeerTransport};
 
@@ -27,12 +28,12 @@ fn main() {
         .expect("start a");
     b.start(&KeyId::parse(&"b".repeat(64)).unwrap(), conf.wrap())
         .expect("start b");
-    let session = Destination::Session(SessionId::from_random_octets([42; 16]));
+    let device = Destination::Device(KeyId::parse(&"b".repeat(64)).unwrap());
     let (tx, rx) = mpsc::channel();
     let tx = std::sync::Mutex::new(tx);
     let _sub = b
         .subscribe(
-            &session,
+            &device,
             Arc::new(move |i| {
                 let _ = tx.lock().unwrap().send(i.payload.octets().to_vec());
             }),
@@ -41,8 +42,8 @@ fn main() {
     let start = Instant::now();
     let got = loop {
         a.publish(
-            &session,
-            Payload::new(PayloadKind::Envelope, b"hello".to_vec()),
+            &device,
+            Payload::new(PayloadKind::Sealed, b"synthetic sealed bytes".to_vec()),
             Deadline::at(Instant::now() + Duration::from_secs(5)),
         );
         if let Ok(o) = rx.recv_timeout(Duration::from_millis(200)) {
