@@ -2,14 +2,15 @@
 
 **Document:** `spec/interfaces.md`, the normative interface contracts of OAC Session
 Channels: the core neutral types, the provider adapter contract and the transport contract.
-**Revision:** 0.5 (proposed; lead PR approval pending), a minor revision of the 0.1 frozen
+**Revision:** 0.6 (proposed; lead PR approval pending), a minor revision of the 0.1 frozen
 at Gate S2 (signed off 2026-10-06, in
 force from the merge of PR #276; E7, #47), made under
 `docs/planning/decisions/E7-interface-freeze.md` §7: 0.2 (issue #69, PR #350), 0.3
 (sealing transports, §6.10; the lead's ruling of 2026-10-09 on PR #364), 0.4
 (bounded connection closure and local identity requests, #376 and #66, merged in PR #378),
-and 0.5 (bounded core calls and event callbacks, §5.3.1; lead decision 2026-10-10,
-Refs #376, Refs #380, Refs #66). Written by #273.
+0.5 (bounded core calls and event callbacks, §5.3.1; lead decision 2026-10-10,
+Refs #376, Refs #380, Refs #66), and 0.6 (shutdown given the transport, §5.3.2;
+lead decision 2026-10-10, Refs #380, Refs #376). Written by #273.
 Appendix B records the changes.
 **Companion documents:** `spec/session-channels.md` (the protocol), `spec/security.md` (the
 security model) and `spec/bindings/mcp.md` (the MCP binding). This document does not restate
@@ -702,7 +703,8 @@ a core-provided adapter-event handler is an adapter-to-core call. Stream waiting
 next event is distinct from executing a callback; connection stream closure remains §5.2.
 
 A bound measures elapsed milliseconds from call entry to return, including lock acquisition,
-queue admission, nested synchronous calls and any downstream work awaited by the callee.
+queue admission, nested synchronous calls and downstream work owned by the callee.
+Awaited transport publication contributes its separate declared bound, if any (§5.3.2).
 The core supplies `core_call_bound_ms` and `stop_call_bound_ms` for each adapter before
 accepting calls. The adapter binding document supplies `event_callback_bound_ms` and
 `stop_callback_bound_ms`. Each is a finite positive integer. The stop bounds measure from
@@ -746,7 +748,8 @@ normal `RequestResult` for a request committed before cancellation.
 
 Envelope creation and recording its `id` in the committed request are one logical step;
 there is no created-but-uncommitted envelope. A send cancelled after creation settles
-transport ownership within the applicable call bound. If no transport took the envelope,
+transport ownership within the applicable composed bound (§5.3.2). If no transport took
+the envelope,
 the result is `completed` containing `not-passed`, `failed`, `transport-failure` and the
 created `id`; an unrelated internal failure retains the existing `internal-error` choice.
 If a transport took it before cancellation settled, the result is `completed` containing
@@ -755,7 +758,8 @@ stream. An attempted publication is not proof of ownership. The publication/owne
 settles before the call returns; no later publication changes a returned `not-passed`.
 Cancellation never changes a sent envelope into a refusal. Neither a bare terminal outcome
 after commit nor both a terminal outcome and a completed result is permitted. Committing
-selects the required result; it does not extend any ordinary or stop deadline.
+selects the required result; it does not extend any local ordinary or stop budget.
+Unresolved transport publication remains subject to §5.3.2.
 
 [IFC-ADP-115] The core MUST consume an event callback's terminal local outcome according to
 the following table, without substituting a completed value.
@@ -774,19 +778,23 @@ a terminal `set_binding(None)` does not undo that closure or block [IFC-ADP-106]
 ordinary calls reentering the core during shutdown receive `shutting-down` before commit;
 required final closure reports retain their special admission below.
 
-[IFC-ADP-100] The core MUST return every core-provided call made by an adapter within
-`core_call_bound_ms` with a definite local call result.
+[IFC-ADP-100] The core MUST return every core-provided call made by an adapter within the
+composed call bound of §5.3.2, using `core_call_bound_ms` as its local budget, with a
+definite local call result.
 
-[IFC-ADP-101] An adapter MUST return every core-to-adapter event callback within
-`event_callback_bound_ms` with a definite local call result.
+[IFC-ADP-101] An adapter MUST return every core-to-adapter event callback within the
+composed call bound of §5.3.2, using `event_callback_bound_ms` as its local budget, with
+a definite local call result.
 
-[IFC-ADP-102] The core MUST settle pending or later adapter-to-core calls within
-`stop_call_bound_ms` once adapter shutdown begins or their associated connection begins
-closing, with a definite local call result.
+[IFC-ADP-102] The core MUST settle pending or later adapter-to-core calls within the
+composed stop bound of §5.3.2, using `stop_call_bound_ms` as its local budget once adapter
+shutdown begins or their associated connection begins closing, with a definite local call
+result.
 
 [IFC-ADP-103] An adapter MUST settle pending or later core-to-adapter event callbacks within
-`stop_callback_bound_ms` once its shutdown begins or their associated connection begins
-closing, with a definite local call result.
+the composed stop bound of §5.3.2, using `stop_callback_bound_ms` as its local budget once
+its shutdown begins or their associated connection begins closing, with a definite local
+call result.
 
 Calls associated with another open connection retain their ordinary bounds when only one
 connection closes. Adapter-wide calls acquire the stop deadline when adapter shutdown
@@ -808,23 +816,25 @@ bounds defined above.
 `stop_call_bound_ms` even during shutdown or after the reported connection closes.
 
 Completion records the closure effects owned by the core, including cessation of service
-for the attachment. Publication to a peer is separate bounded core work; its failure does
-not keep an adapter callback on the stack. Authentication still authorizes only routing,
-not instructions in content (§8). The identity authorization and single-snapshot rules
+for the attachment. Publication to a peer is separate core-owned work subject to §5.3.2;
+its failure does not keep an adapter callback on the stack. Authentication still authorizes
+only routing, not instructions in content (§8). The identity authorization and single-snapshot rules
 [IFC-ADP-095] to [IFC-ADP-098] apply unchanged to completed identity requests.
 
 [IFC-ADP-107] The core MUST provide call bounds whose aggregate settlement and final-report
-cost fits the adapter's declared `shutdown_bound_ms` together with connection closure.
+cost fits the composed shutdown bound of §5.3.2 together with connection closure.
 
 [IFC-ADP-108] An adapter MUST budget callback settlement, connection closure, required final
-reports and worker settlement together within its declared `shutdown_bound_ms`.
+reports and worker settlement together within the composed shutdown bound of §5.3.2.
 
-The bound is end-to-end, not a separate full shutdown budget for each phase or each call.
+The composed bound is end-to-end, not a separate full shutdown budget for each phase or
+each call. Its local budgets remain finite; its transport contribution is conditional.
 Sequential waits add; independently concurrent waits contribute their maximum plus local
 coordination cost. Admission limits bound the number of pending calls and final reports;
 an unbounded number of individually bounded calls is insufficient. A configuration whose
-worst-case total cannot fit is rejected before connections or calls are admitted. The core
-owns its callees and their cancellation; the adapter owns its callbacks and coordination.
+local costs cannot fit its local budgets is rejected before connections or calls are admitted.
+An undeclared transport bound does not alone reject a configuration; it prevents a finite
+end-to-end claim (§5.3.2). The core owns its callees and their cancellation; the adapter owns its callbacks and coordination.
 Neither side meets its obligation by timing out a waiter while leaving that call able to
 report, invoke a callback or hand off later. The 0.4 shutdown and stream barriers still
 apply; these call bounds make their pending-call and reporting costs finite.
@@ -842,6 +852,52 @@ Settlement is observable at the first shutdown return barrier, without a later g
 period. Previously completed harness input remains with the harness. Together with
 [IFC-ADP-070] this leaves no post-return hand-off, request, report or callback. Core-owned
 peer publication may finish later only without any further interaction with that adapter.
+
+### 5.3.2 Shutdown and settlement given the transport
+
+Revision 0.6 qualifies the 0.4/0.5 time guarantees by the network hand-off. The
+**composed bound** is the sum of the adapter's `shutdown_bound_ms`, the core's aggregate
+settlement/reporting bound (derived from its declared call bounds and admission limits),
+and the aggregate `publish` bound declared by each awaited transport (§6.3.1), if declared.
+For an ordinary call, use its ordinary local budgets;
+for shutdown or connection closure, use the applicable stop budgets. Local nested work
+is counted once. Sequential waits add; independent concurrent waits contribute their
+maximum plus coordination cost. Admission limits keep the number of waits finite.
+The adapter budget covers its own coordination, callbacks, workers and connection closure;
+the core budget covers its own settlement and final local reports. Neither includes the
+transport contribution. This qualifies [IFC-ADP-074], [IFC-ADP-100] to [IFC-ADP-103] and
+[IFC-ADP-107] to [IFC-ADP-108]; finite local bounds remain required.
+
+A transport declaring no publish bound makes settlement and shutdown **unbounded at that
+step** whenever publication is awaited. No awaited publication means no contribution from
+that transport. A payload's `Deadline` limits payload lifetime, not the time for `publish`
+to return. This document requires no transport to declare a publish bound.
+
+[IFC-ADP-117] The core MUST keep a committed send's local call pending when an attempted
+`publish` has not returned at budget expiry, until transport ownership is settled under
+[IFC-TRN-032].
+
+At expiry there is no request result yet: neither `sent` nor `not-passed` is established.
+This is a pending local invocation, not a new result, delivery state or error code. No bare
+`timed-out`, `closed` or `shutting-down` replaces the committed result, and no speculative
+`not-passed` authorizes a retry. On eventual `taken`, return exactly one `completed` with
+`sent` and the original `id`; on eventual `not-taken`, return exactly one `completed` with
+`not-passed`, the original `id`, `failed` and `transport-failure` (§5.3.1). A publication
+never attempted still permits `not-passed`. Cancellation before commit still follows
+[IFC-ADP-114]. No budget expiry creates a second result or changes the commit boundary.
+If publication never returns, no result or shutdown return is promised. A declared bound
+exceeded by the transport is a transport conformance failure, not evidence of ownership.
+The settlement and no-post-return barriers of 0.4/0.5 remain intact; timing out a waiter
+or detaching publication does not satisfy them.
+
+[IFC-ADP-118] The core MUST identify an undeclared awaited transport publish bound as
+unbounded when reporting the composed shutdown or settlement guarantee locally.
+
+This local guarantee report is distinct from a request result or peer receipt. It reports
+the local budgets and each transport contribution; it does not claim successful shutdown
+while settlement is pending. Deferred peer publication after a completed final local
+closure report (§5.3.1) is core-owned work, not an awaited adapter call; its completion
+has no finite guarantee without a declared publish bound and never calls a stopped adapter.
 
 ### 5.4 `take_connection`, `watch_attachments` and `set_binding`: session binding signals
 
@@ -1069,8 +1125,9 @@ and the harness sees only `accepted-by-adapter`.
 `health` returns a `HealthStatus` ([IFC-TYP-092]).
 
 The adapter binding document states `shutdown_bound_ms`, a finite positive integer bounding
-elapsed milliseconds from entry to return of `shutdown`. The bound covers connection
-closure, pending call settlement and attachment-closed reporting; it is independent of
+elapsed milliseconds of adapter-owned shutdown work. The end-to-end return bound adds
+core settlement and awaited transport publication (§5.3.2). The adapter budget covers
+connection closure, callbacks, workers and local reporting coordination; it is independent of
 whether the harness reads or responds. The core supplies connections whose closure bounds
 fit that shutdown bound. Closing independent connections concurrently is an implementation
 choice, not a relaxation of the bound.
@@ -1082,8 +1139,7 @@ choice, not a relaxation of the bound.
 [IFC-ADP-073] An adapter MUST close every `Connection` it received before its `shutdown`
 returns.
 
-[IFC-ADP-074] An adapter MUST return from `shutdown` within its binding's
-`shutdown_bound_ms`.
+[IFC-ADP-074] An adapter MUST return from `shutdown` within the composed bound of §5.3.2.
 
 [IFC-ADP-075] An adapter MUST settle every in-flight hand-off call
 before its `shutdown` returns.
@@ -1255,6 +1311,30 @@ accepted in the review of PR #279.*
 
 *Dated note, 2026-10-09 (revision 0.3): `sealing` is added to Table 6.3. A declaration made
 under an earlier revision has no `sealing` member, and the core reads it as `false`.*
+
+### 6.3.1 Optional publish-bound declaration
+
+[IFC-TRN-114] A transport binding document MAY declare a `publish_bound_ms`.
+
+Omission means no finite publish-return guarantee; omission remains conformant. This is
+an optional local binding statement, not a member of `TransportCapabilities`, a peer
+capability or a wire field. The core obtains the binding's declaration before computing
+a guarantee. No new `start` output or operation signature is introduced.
+
+[IFC-TRN-115] A binding declaring `publish_bound_ms` MUST state a finite positive integer
+in milliseconds bounding every `publish` invocation from entry to `PublishResult` return,
+including admission, locks, nested work and network waits.
+
+The declaration applies to the binding's supported configurations and all payload kinds
+accepted by `publish`, including sealed presence. A per-invocation bound is not a separate
+full shutdown budget for each call; §5.3.2 accounts for all awaited invocations.
+
+[IFC-TRN-116] A transport whose binding declares `publish_bound_ms` MUST return each
+`publish` invocation within that bound with the existing `PublishResult` of §4.11.
+
+The ownership rules [IFC-TRN-031] and [IFC-TRN-032] are unchanged. A binding that makes no
+such declaration incurs no new publish-return obligation. This declaration covers
+`publish` only; it claims no bound for other transport operations or remote delivery.
 
 ### 6.4 Operations
 
@@ -1706,6 +1786,28 @@ passes. PR #380 remains implementation work; lead approval here changes only the
 
 ---
 
+### 7.3 Revision 0.6 classification and implementation work
+
+Lead decision, 2026-10-10 (Refs #380, Refs #376): bound shutdown given the network;
+do not require every transport to bound `publish`. Revision 0.6 is **minor under E7
+§7 item 2's no-wire-form rule**, under the same major version and extension identifier.
+Against `spec/session-channels.md` §5.2 / §5.3: the optional binding declaration and its
+conditional obligations fit §5.2 items 6 and 9; no §5.3 items 1-10 wire-breaking case
+applies. The timing qualification and local guarantee reporting change the local contract,
+so this is not merely editorial (§5.2 item 8). E7 assigns those local changes a minor bump;
+§5.3 item 11 would be breaking if new obligations were imposed on earlier wire peers.
+No existing delivery-state, error-code, ownership or commit-boundary meaning changes.
+
+**This changes the local timing contract:** implementations claiming unconditional finite
+shutdown with an unbounded awaited publication need to qualify that claim. Transports
+omitting a publish bound remain conformant; declarations bind only transports taking up
+the new option. Implementation after lead approval belongs to F10 (#59) with G4 (#65)
+for composed-budget and pending-publication regressions, the core owner F6 for settlement,
+and G1 (#62) for any transport binding that elects to declare a bound. Appendix A records
+owned `TODO(fixture)` cells; this spec-only PR claims no implementation completion.
+
+---
+
 ## 8. Security considerations
 
 This section adds no requirement. It lists the threats that sit on the boundaries this
@@ -1863,7 +1965,7 @@ the requirement whose fixtures exercise it. Appendix C gives each requirement's 
 | IFC-ADP-071 | MUST | 5.7 | TODO(fixture): F10 adapter suite |
 | IFC-ADP-072 | MUST | 5.7 | TODO(fixture): owner F10 (#59) with G4 (#65), race shutdown with new delivery and harness requests; no new hand-off begins |
 | IFC-ADP-073 | MUST | 5.7 | TODO(fixture): owner F10 (#59) with G4 (#65), shutdown closes every supplied connection, including native-signal-only connections |
-| IFC-ADP-074 | MUST | 5.7 | TODO(fixture): owner F10 (#59) with G4 (#65), permanently stalled peer and multiple connections; shutdown returns within the binding's declared bound |
+| IFC-ADP-074 | MUST | 5.7 | TODO(fixture): owner F10 (#59) with G4 (#65), permanently stalled peer and multiple connections; shutdown returns within the binding's declared bound; revision 0.6 transport contribution and unresolved publication follow §5.3.2 |
 | IFC-ADP-075 | MUST | 5.7 | TODO(fixture): owner F10 (#59) with G4 (#65), blocked delivery races shutdown; one truthful outcome precedes shutdown return; releasing peer afterwards cannot complete a late hand-off |
 | IFC-ADP-076 | MUST | 5.7 | TODO(fixture): owner G4 (#65) with G7 (#68), binding document review checks a finite positive bound covering all shutdown work |
 | IFC-ADP-077 | MUST | 5.7 | TODO(fixture): owner F10 (#59) with G9 (#70), a connection whose close bound exceeds the adapter's shutdown bound is never supplied |
@@ -1878,23 +1980,25 @@ the requirement whose fixtures exercise it. Appendix C gives each requirement's 
 | IFC-ADP-096 | MUST | 5.6 | TODO(fixture): owner F10 (#59) with G5 (#66), identity request races rebind/revoke; successful session and local signing fingerprint belong to one current binding snapshot |
 | IFC-ADP-097 | MUST | 5.6 | TODO(fixture): owner F10 (#59) with G5 (#66), successful result has exactly session_id and the public fingerprint in security §5.2's form |
 | IFC-ADP-098 | MUST NOT | 5.6 | TODO(fixture): owner F11 (#60) with G5 (#66), synthetic signing/agreement key sentinels never appear in identity requests/results; only the digest is exposed |
-| IFC-ADP-100 | MUST | 5.3.1 | TODO(fixture): owner F10 (#59) with G4 (#65) and G5 (#66), core callee stalled in each send/discovery/identity operation and event handler; ordinary bound returns definite result |
-| IFC-ADP-101 | MUST | 5.3.1 | TODO(fixture): owner F10 (#59) with G4 (#65) and G5 (#66), stalled core-to-adapter event callback; ordinary bound includes admission and nested work |
-| IFC-ADP-102 | MUST | 5.3.1 | TODO(fixture): owner F10 (#59) with G4 (#65) and G5 (#66), pending and new sink/identity/report calls race shutdown or connection closure; stop deadline and definite result, unrelated connection unaffected |
-| IFC-ADP-103 | MUST | 5.3.1 | TODO(fixture): owner F10 (#59) with G4 (#65) and G5 (#66), pending and new core-to-adapter callbacks race shutdown or closure; stop deadline and definite result |
+| IFC-ADP-100 | MUST | 5.3.1 | TODO(fixture): owner F10 (#59) with G4 (#65) and G5 (#66), core callee stalled in each send/discovery/identity operation and event handler; ordinary bound returns definite result; revision 0.6 transport contribution and unresolved publication follow §5.3.2 |
+| IFC-ADP-101 | MUST | 5.3.1 | TODO(fixture): owner F10 (#59) with G4 (#65) and G5 (#66), stalled core-to-adapter event callback; ordinary bound includes admission and nested work; revision 0.6 transport contribution and unresolved publication follow §5.3.2 |
+| IFC-ADP-102 | MUST | 5.3.1 | TODO(fixture): owner F10 (#59) with G4 (#65) and G5 (#66), pending and new sink/identity/report calls race shutdown or connection closure; stop deadline and definite result, unrelated connection unaffected; revision 0.6 transport contribution and unresolved publication follow §5.3.2 |
+| IFC-ADP-103 | MUST | 5.3.1 | TODO(fixture): owner F10 (#59) with G4 (#65) and G5 (#66), pending and new core-to-adapter callbacks race shutdown or closure; stop deadline and definite result; revision 0.6 transport contribution and unresolved publication follow §5.3.2 |
 | IFC-ADP-104 | MUST | 5.3.1 | TODO(fixture): owner F10 (#59) with G4 (#65) and G5 (#66), core declarations and independent admission state remain observable while a callee holds a lock |
 | IFC-ADP-105 | MUST | 5.3.1 | TODO(fixture): owner G4 (#65), binding review verifies finite positive callback/stop bounds |
 | IFC-ADP-106 | MUST | 5.3.1 | TODO(fixture): owner F10 (#59) with G4 (#65) and G5 (#66), final closure report after connection close and during shutdown records closure locally while peer publication stalls |
-| IFC-ADP-107 | MUST | 5.3.1 | TODO(fixture): owner F10 (#59) with G4 (#65) and G5 (#66), core rejects aggregate call/close/report budget exceeding shutdown bound before admission |
-| IFC-ADP-108 | MUST | 5.3.1 | TODO(fixture): owner F10 (#59) with G4 (#65) and G5 (#66), multiple connections and concurrent/sequential calls fit one end-to-end shutdown budget |
+| IFC-ADP-107 | MUST | 5.3.1 | TODO(fixture): owner F10 (#59) with G4 (#65) and G5 (#66), core rejects local costs exceeding their declared local budgets before admission; revision 0.6 transport contribution and unresolved publication follow §5.3.2 |
+| IFC-ADP-108 | MUST | 5.3.1 | TODO(fixture): owner F10 (#59) with G4 (#65) and G5 (#66), multiple connections and concurrent/sequential calls fit one end-to-end shutdown budget; revision 0.6 transport contribution and unresolved publication follow §5.3.2 |
 | IFC-ADP-109 | MUST | 5.3.1 | TODO(fixture): owner F10 (#59) with G4 (#65) and G5 (#66), all call/report/callback outcomes exist at first shutdown return barrier; late-settlement mutant fails without grace period |
 | IFC-ADP-110 | MUST NOT | 5.3.1 | TODO(fixture): owner F10 (#59) with G4 (#65) and G5 (#66), release all blocked callees after shutdown return; adapter emits no late report or callback |
 | IFC-ADP-111 | MUST NOT | 5.3.1 | TODO(fixture): owner F10 (#59) with G4 (#65) and G5 (#66), release deferred core publication after shutdown return; no callback into stopped adapter |
 | IFC-ADP-112 | MUST | 5.3.1 | TODO(fixture): owner F10 (#59) with G4 (#65) and G5 (#66), cancel/shutdown races signed-envelope creation on both sides of the atomic commit boundary; ordinary timeout and connection closure obey the same boundary |
-| IFC-ADP-113 | MUST | 5.3.1 | TODO(fixture): owner F10 (#59) with G4 (#65) and G5 (#66), created-not-passed send retains id and transport-failure; taken-before-stop send retains sent; committed refusal/discovery/identity retains its result; exactly one result at return |
+| IFC-ADP-113 | MUST | 5.3.1 | TODO(fixture): owner F10 (#59) with G4 (#65) and G5 (#66), created-not-passed send retains id and transport-failure; taken-before-stop send retains sent; committed refusal/discovery/identity retains its result; exactly one result at return; revision 0.6 transport contribution and unresolved publication follow §5.3.2 |
 | IFC-ADP-114 | MUST | 5.3.1 | TODO(fixture): owner F10 (#59) with G4 (#65) and G5 (#66), pre-envelope cancellation produces one terminal outcome with no RequestResult and no later envelope; rejected nested request during shutdown |
 | IFC-ADP-115 | MUST | 5.3.1 | TODO(fixture): owner F10 (#59) with G4 (#65) and G5 (#66), each callback preserves completed values or consumes terminal outcomes as specified; final set_binding(None) reenters core during shutdown, nested ordinary call is rejected, closure report completes locally without waiting for publication; deliver records only observed Table 5.3 outcome |
 | IFC-ADP-116 | MUST | 5.6 | TODO(fixture): owner G5 (#66) with F10 (#59) and G4 (#65), each pre-commit local failure maps to existing internal-error refusal with no identity/id/state; completed RequestResult unchanged; closed connection records result without a late write |
+| IFC-ADP-117 | MUST | 5.3.2 | TODO(fixture): owner F10 (#59) with G4 (#65) and F6, committed publish stalls past ordinary/stop/local shutdown budgets; no result or shutdown return at expiry, then taken/not-taken yields exactly one truthful result with original id; no late callback or retry |
+| IFC-ADP-118 | MUST | 5.3.2 | TODO(fixture): owner F10 (#59) with F6, missing declaration reports unbounded; finite declarations compose adapter + core + sequential/concurrent publish costs; no awaited publish contributes zero |
 | IFC-TRN-001 | MUST | 6.1 | TODO(fixture): F10 transport suite against F7, then G1-G2 |
 | IFC-TRN-002 | MAY | 6.1 | none (MAY) |
 | IFC-TRN-003 | MUST | 3.3 | TODO(fixture): each assigned requirement's own tests, run against a transport; F10 |
@@ -1945,6 +2049,9 @@ the requirement whose fixtures exercise it. Appendix C gives each requirement's 
 | IFC-TRN-111 | SHOULD | 6.10 | none (SHOULD) |
 | IFC-TRN-112 | MUST | 6.10 | TODO(fixture): document review; G1 (#62) |
 | IFC-TRN-113 | MUST | 6.10 | TODO(fixture): F10 transport suite, each non-sealed kind passed to a sealing transport is `not-taken`; G1 (#62) |
+| IFC-TRN-114 | MAY | 6.3.1 | none (MAY); omission remains conformant |
+| IFC-TRN-115 | MUST | 6.3.1 | TODO(fixture): owner G1 (#62) with F10 (#59), binding review checks positive finite milliseconds and complete publish scope; omitted declaration incurs no obligation |
+| IFC-TRN-116 | MUST | 6.3.1 | TODO(fixture): owner F10 (#59) with G1 (#62), declaring transport returns taken/not-taken within bound under stalled network and locks; bound breach never fabricates not-taken; non-declaring transport remains conformant |
 | IFC-NEU-001 | MUST NOT | 7 | TODO(fixture): F1 workspace boundaries, boundary lint checks 1-2 over `core/` |
 | IFC-NEU-002 | MUST NOT | 7 | TODO(fixture): F10 adapter suite, boundary lint check 2 over `core/` |
 | IFC-NEU-003 | MUST NOT | 7 | TODO(fixture): F10 transport suite, boundary lint check 1 over `core/`; G1 |
@@ -1968,6 +2075,7 @@ a frame, so the id was reused for the rule it holds now and is not retired.
 | 0.3 | 2026-10-09 | Sealing transports, with `spec/security.md` 0.3 (payload sealing, §14 there), on the lead's ruling of 2026-10-09 on PR #364 (review finding 2): `Payload` gains the kind `sealed` (§4.11, Table 6.1); `TransportCapabilities` gains `sealing` (Table 6.3); §6.10 adds IFC-TRN-100 to IFC-TRN-104 (the core passes and takes only sealed payloads on a sealing transport, addressed to the recipient device, with room for the frame's overhead), IFC-TRN-105 to IFC-TRN-110 and IFC-TRN-113 (the transport hands sealed payloads to the local device's subscription, shows no destination, carries nothing beside a frame, deadline included, shows no device key id or session id, declares a size floor of 65590, declares the `sealing` value its binding states, and refuses any other payload kind), IFC-TRN-111 (`SHOULD`: seal on every unrestricted cross-implementation transport) and IFC-TRN-112 (the binding document states what travels beside a frame); [IFC-TRN-034] no longer binds a sealing transport's receiving end, in the rule's own text, and the receiving core drops late payloads in its place; [IFC-TRN-081] admits a sealing transport as a second way across implementations, with a dated note; §6.2, §6.4 and §8 updated; Appendix C gives owners to the new `MUST` and `MUST NOT` requirements and to those of SEC-SEL-001 to SEC-SEL-043. Minor revision under `docs/planning/decisions/E7-interface-freeze.md` §7 and `spec/session-channels.md` §5.2 item 9: the relaxed [IFC-TRN-081] forbids nothing it allowed, and every new `MUST`, and the narrower reach of [IFC-TRN-034], whose obligation moves to the receiving core, binds only a transport that declares `sealing` or a core that uses one, which no earlier revision defined. |
 | 0.4 | 2026-10-10 | Refs #376, Refs #66, Refs #375. Adds Connection.close and close_bound_ms with a terminal write/closure barrier (IFC-ADP-014 to IFC-ADP-019); bounded shutdown using closure (IFC-ADP-072 to IFC-ADP-078); IdentityRequest and LocalIdentity through the core request sink (IFC-ADP-094 to IFC-ADP-098), with only the public signing-key fingerprint exposed. Appendix A records owned TODO(fixture) cells and Appendix C assigns owners. §7.1 classifies both as minor no-wire-form amendments under E7 §7 item 2, explicitly breaking for local implementations but not for the protocol, lists implementation work, and defers all #375 items to a separate security amendment. The existing identity tool wire form needs no change; each transport/binding document still needs to state its applicable shutdown/close bound under E7 change control. |
 | 0.5 (proposed; lead approval pending) | 2026-10-10 | Refs #376, Refs #380 (implementation PR), Refs #66; lead decision 2026-10-10 following PR #380 review issuecomment-6101230133. Adds §5.3.1 IFC-ADP-100 to IFC-ADP-115 and §5.6 IFC-ADP-116: core-owned bounds on all adapter-to-core synchronous calls, adapter-owned core-to-adapter event-callback bounds, prompt lifecycle settlement with definite local results, enumerated callback output/failure contracts, atomic per-request commit boundaries preserving created-not-passed and taken sends, existing harness refusal mapping for pre-commit failures, bounded final closure reporting, aggregate end-to-end shutdown budgeting and no post-return reports/callbacks. Appendix A records owned TODO(fixture) cells; Appendix C assigns owners. §7.2 classifies this as minor under E7 §7 item 2 and explicitly breaking for unbounded local implementations, with no wire change or new extension identifier. Implementation work remains in core, adapters and PR #380. |
+| 0.6 (proposed; lead approval pending) | 2026-10-10 | Refs #380, Refs #376; lead decision 2026-10-10. Shutdown/settlement given the transport (§5.3.2): adapter + core + declared publish contribution, unbounded at an awaited undeclared step; committed unresolved publication stays pending until one truthful result, with unchanged ownership/commit and return barriers (IFC-ADP-117/118). Optional binding publish_bound_ms with conditional scope/return obligations (IFC-TRN-114 to IFC-TRN-116, §6.3.1); no mandatory transport bound, wire field or signature change. Owned Appendix A TODO(fixture) cells, Appendix C owners and explicit minor/local timing classification (§7.3). |
 
 ## Appendix C. Owner index
 
@@ -2013,11 +2121,11 @@ carries the requirement out.
 | MCPB-CLD | adapter | 001, 002, 003 |
 | MCPB-CDX | adapter | 001, 002, 003, 004, 005, 006 |
 | IFC-ADP | adapter | 001, 002, 003, 004, 005, 006, 007, 010, 013, 020, 022, 030, 031, 040, 041, 043, 050, 051, 052, 053, 054, 056, 057, 060, 070, 071, 072, 073, 074, 075, 078, 091, 094, 101, 103, 108, 109, 110, 116 |
-| IFC-ADP | core | 011, 012, 014, 015, 016, 017, 018, 019, 042, 055, 077, 090, 092, 093, 095, 096, 097, 098, 100, 102, 104, 106, 107, 111, 112, 113, 114, 115 |
+| IFC-ADP | core | 011, 012, 014, 015, 016, 017, 018, 019, 042, 055, 077, 090, 092, 093, 095, 096, 097, 098, 100, 102, 104, 106, 107, 111, 112, 113, 114, 115, 117, 118 |
 | IFC-ADP | binding | 076, 080, 105 |
 | IFC-TRN | core | 010, 011, 012, 013, 022, 024, 025, 032, 037, 041, 042, 051, 062, 081, 100, 101, 102, 103, 104 |
-| IFC-TRN | transport | 001, 003, 020, 021, 023, 026, 030, 031, 033, 034, 035, 036, 040, 043, 044, 050, 060, 071, 080, 105, 106, 107, 108, 109, 110, 113 |
-| IFC-TRN | binding | 090, 112 |
+| IFC-TRN | transport | 001, 003, 020, 021, 023, 026, 030, 031, 033, 034, 035, 036, 040, 043, 044, 050, 060, 071, 080, 105, 106, 107, 108, 109, 110, 113, 116 |
+| IFC-TRN | binding | 090, 112, 115 |
 | IFC-TYP | core | 001, 002, 003, 010, 020, 030, 040, 041, 042, 050, 051, 060, 061, 070, 080, 081, 082, 090, 091, 092, 095 |
 | IFC-NEU | adapter | 002 |
 | IFC-NEU | core | 001, 004 |
