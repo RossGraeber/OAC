@@ -840,3 +840,34 @@ feed, §5, §11), D3 (the gate spike build artifact that resolves the binary-siz
 UNVERIFIED item, §12), F11 (transport-layer security suite, §9), H2 (cross-project-
 leakage and transport-compromise verification, §9), and Epic A task A7's `docs/planning/
 v0.1/06-security.md` (the normative-adjacent landing site named in §14).
+
+
+## G3 implementation note (2026-10-11; #64, #377)
+
+Local fixed rendezvous now uses Zenoh supported native TLS with a persisted per-user
+certificate pin, mTLS, IP SAN name verification, expiration checks, and native
+default-deny certificate-CN ACLs. No trust-on-connect or custom authentication protocol.
+Core-signed sealed local traffic may now traverse that relay once this change lands;
+this updates the earlier no-real-traffic condition, not a live harness or S4 verdict.
+Authentication evidence and remaining port/holder availability risks: risk row 81 and
+`transports/zenoh/src/security_tests.rs`.
+
+LAN uses explicit TLS peer endpoints and pairing-issued certificate files; optional
+multicast scouting is LAN-only, gossip remains disabled. Explicit endpoints are the
+G3 fallback. The native protocol allowlist rejects plaintext even when discovered.
+The caller authorizes provisioning/pairing; daemon/CLI wiring remains G9/G11 work.
+CN subjects are opaque transport names, never `zid` or OAC device/session ids.
+Native ACL denial drops operations even when the CA-valid link itself can open.
+Signatures remain the message authenticity proof; authenticated instructions are untrusted.
+
+?6 clock-skew implementation clarification: no custom clock sync. Sender admission is
+monotonic; receiving core late discard after opening uses its local wall clock
+(SEC-SEL-036). Slow receiver skew can extend effective validity; fast skew can reject
+early. Operators must bound skew operationally. Zenoh has no publication TTL and OAC
+accepts its native retention per the lead's #377 direction; no finite sender-copy bound
+or measured cross-host skew bound is claimed. Risk row 77 retains the frozen sender
+requirement conflict for the lead; the unrun two-host plan records skew and expiry.
+
+Source: https://github.com/eclipse-zenoh/zenoh/blob/1.10.1/DEFAULT_CONFIG.json5 and
+https://github.com/eclipse-zenoh/zenoh/blob/1.10.1/io/zenoh-link-tls/src/utils.rs,
+Zenoh 1.10.1, retrieved/inspected 2026-10-11. No frozen requirement text changes.

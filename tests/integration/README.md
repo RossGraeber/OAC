@@ -82,3 +82,45 @@ What `node scripts/local-ci.mjs` enforces so they stay opt-in:
   credential (W4), starts other than by `workflow_dispatch` (W7) or runs on a GitHub-hosted
   runner (W8).
 - Check 9 keeps this directory a leaf and keeps the driver out of everything else.
+
+
+## G3 native TLS two-host leg (#64) ? planned, NOT RUN
+
+Run only with explicit LAN opt-in (`node scripts/local-ci.mjs --tier lan` for the
+existing host probe); no live harness, no Codex daemon. A future two-host driver must
+also require `OAC_TEST_LAN=1` and reject absent opt-in before opening any LAN listener.
+This implementation's native TLS/ACL tests run over loopback in the default tier;
+they do not prove host firewall, multicast, interface or clock behavior.
+
+1. On two operator-controlled Windows/Linux/macOS hosts, record OS, Zenoh 1.10.1,
+   OAC SHA, IPs, firewall policy, UTC offset and measured wall-clock skew. Synchronize
+   clocks through the hosts' existing OS service; do not add OAC clock sync.
+2. Authorize pairing before provisioning: create `PairingAuthority`, issue distinct
+   opaque CNs with each host's IP SAN, and install each `IssuedCertificate` into a fresh
+   owner-only directory. Provision through the approved operator/pairing path; never
+   distribute the authority's private key or a host key to other peers. CLI pairing
+   command wiring remains G9/G11; these transport APIs are the current seam.
+3. Configure `PeerConfiguration::lan(listen, connect, files, allowed_subjects)` on both
+   hosts, allow only the other's CN, use the same partition. With scouting off, explicit
+   endpoints must carry core-signed HPKE frames in both directions and pass unchanged
+   transport-contract checks through a two-host binding harness.
+4. Repeat with `with_lan_multicast(true)` and no explicit remote endpoints. Capture
+   native discovery and verify TLS-only links. Disable multicast at the network and
+   repeat step 3 (G3 fallback); never silently downgrade to plaintext.
+5. Negative controls: wrong CA/pin, absent client certificate, wrong IP SAN, and a
+   CA-valid unlisted CN. The first three must fail native authentication; the last may
+   open a native link but must carry no frames through the ACL. Try a plaintext
+   discovered locator: native protocol allowlist must refuse it.
+6. Record cross-host clock skew before/after a short-deadline core-sealed exchange.
+   Delay receipt beyond the encrypted deadline and assert receiving-core discard
+   (SEC-SEL-036). Record native arrival independently. No native TTL/sender-copy expiry
+   claim: slow receiver skew can extend effective validity and fast skew reject early.
+   Report observed skew/expiry against operational clock tolerance; sender retention
+   remains risk row 77 for the lead's spec decision.
+7. Replace the authenticated local relay on each host with another same-user process;
+   the persisted pin must remain unchanged and native reconnect must resume delivery.
+   Replacing it with an untrusted/plain holder must refuse traffic. Record holder gaps
+   and fixed-port denial of service as residuals, not failed authentication.
+
+Do not promote the G3 two-host leg or Gate S4 until the evidence is captured. No part
+of this task runs that leg or any provider harness.

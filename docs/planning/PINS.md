@@ -1177,3 +1177,15 @@ occur; everything else above this line is unchanged from B1.
   re-attempted in B2; GitHub Releases remains the source of record.
   *(Dated note, 2026-10-08, #62: closed as verified, no drift. crates.io's API confirms
   `1.10.1`, published 2026-09-07; see the "Zenoh" section's dated notes.)*
+
+
+G3 implementation note (2026-10-11, #64): pin values unchanged. The reference
+transport now enables approved `transport_tls` in addition to `transport_tcp` and
+uses approved `rcgen =0.14.10` (`default-features = false`, `pem`, `ring`). Native
+TLS/mTLS, name verification, expiration and access-control configuration are verified
+against cached first-party Zenoh 1.10.1 source and loopback security tests; this is
+not a new G3 gate verdict or two-host run. Sources:
+https://github.com/eclipse-zenoh/zenoh/blob/1.10.1/DEFAULT_CONFIG.json5 and
+https://github.com/eclipse-zenoh/zenoh/blob/1.10.1/io/zenoh-link-tls/src/utils.rs,
+version 1.10.1, retrieved/inspected 2026-10-11. Supported stable surface isolated by
+`transports/zenoh/`; license inventory: G-7 ?3.1/appendix and 07 ?5.

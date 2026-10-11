@@ -711,3 +711,14 @@ Per `oac-boundaries`' pre-commit self-check:
   `docs/planning/DESIGN.md`'s sketch beyond the daemon note (§1) already explained by
   `docs/planning/v0.1/04-architecture.md` §2 — no new conflict is recorded in
   `docs/planning/v0.1/03-decisions-and-amendments.md`.
+
+
+G3 implementation dependency note (2026-10-11, #64): `transports/zenoh/` enables the
+already-approved `transport_tls` feature on Zenoh `=1.10.1` alongside `transport_tcp`
+(native plaintext refusal/probe tests). Production configuration allows TLS only.
+It consumes approved `rcgen =0.14.10`, default features off, `pem`, `ring`, for local
+certificates and authorized LAN pairing issuance, and existing `serde_json =1.0.151`
+(MIT OR Apache-2.0, Apache-2.0 elected) for native configuration serialization.
+The new TLS/rcgen lockfile entries are the graph already inventoried and accepted in
+G-7 ?3.1 and its license appendix; no new pin, crypto backend, license exception or
+download. OAC owns storage/provisioning only; Zenoh owns TLS verification and ACLs.

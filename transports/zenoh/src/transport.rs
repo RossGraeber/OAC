@@ -409,8 +409,7 @@ impl Transport for PeerTransport {
                 partition.prefix().to_owned(),
                 partition.key(),
             ]);
-            l.push("tcp/127.0.0.1:0".into());
-            l.push(format!("tcp/127.0.0.1:{}", conf.rendezvous_port()));
+            l.extend(conf.configured_endpoints());
         }
         *state = State::Running(Arc::new(Running {
             session,
@@ -429,7 +428,7 @@ impl Transport for PeerTransport {
             persistence: false,
             offline_queueing: false,
             ordering: false,
-            multicast_discovery: false,
+            multicast_discovery: conf.multicast_enabled(),
             routing_federation: false,
             reach: Reach::CrossImplementation,
             destination_restricted: false,
