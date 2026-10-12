@@ -71,6 +71,7 @@ struct Common {
     sink: Option<Arc<dyn RequestSink>>,
     bound: HashMap<Attachment, Option<SessionId>>,
     open: Vec<Attachment>,
+    connections: Vec<Attachment>,
     down: bool,
     last_tool_use: Option<String>,
 }
@@ -158,6 +159,12 @@ enum ChannelBreach {
     RewritesContent,
     /// Keeps handing off after shutdown ([IFC-ADP-070]).
     WorksAfterShutdown,
+    /// Waits for a stalled writer before closing its connection.
+    WaitsBeforeClose,
+    /// Reports shutdown complete but leaves an admitted write able to finish.
+    LateHandOff,
+    /// The reviewer's mutation: fail truthfully, but settle 40 ms after closing.
+    LateSettlement,
     /// Declares an MCP `resources` capability, an inbox the session could read
     /// ([IFC-ADP-040]; [MCPB-DLV-002]).
     DeclaresResources,
@@ -367,6 +374,7 @@ impl ChannelStandIn {
 impl ProviderAdapter for ChannelStandIn {
     fn take_connection(&self, connection: Connection) {
         let (a, reader, writer) = connection.into_parts();
+        self.common.lock().unwrap().connections.push(a.clone());
         self.writers.lock().unwrap().insert(a.clone(), writer);
         let (common, writers, breach) = (self.common.clone(), self.writers.clone(), self.breach);
         std::thread::spawn(move || {
@@ -436,6 +444,9 @@ impl ProviderAdapter for ChannelStandIn {
         for _ in 0..calls {
             sent &= send_line(&self.writers, a, &frame);
         }
+        if !sent && self.breach == ChannelBreach::LateSettlement {
+            std::thread::sleep(std::time::Duration::from_millis(40));
+        }
         if sent {
             HandOffOutcome::Completed
         } else {
@@ -459,10 +470,30 @@ impl ProviderAdapter for ChannelStandIn {
     }
 
     fn shutdown(&self) {
+        if self.breach == ChannelBreach::WaitsBeforeClose {
+            // Planted inversion: acquiring this waits on the stalled transfer.
+            drop(self.writers.lock().unwrap());
+        }
+        // Report while the live list is still ours, before stream closure can wake a
+        // reader that removes it. The handler does not wait on the stalled writer.
         Common::shutdown(
             &self.common,
             self.breach != ChannelBreach::KeepsAttachmentsAtShutdown,
         );
+        if !matches!(
+            self.breach,
+            ChannelBreach::WorksAfterShutdown
+                | ChannelBreach::LateHandOff
+                | ChannelBreach::KeepsAttachmentsAtShutdown
+        ) {
+            let handles = self.common.lock().unwrap().connections.clone();
+            for h in &handles {
+                h.begin_close();
+            }
+            for h in handles {
+                h.close();
+            }
+        }
     }
 }
 
@@ -705,6 +736,7 @@ impl ProviderAdapter for QueueStandIn {
         // The stand-in's own wiring: the harness names the session's thread on the
         // connection, then holds it open for the session's life.
         let (a, reader, _writer) = connection.into_parts();
+        self.common.lock().unwrap().connections.push(a.clone());
         let (common, threads) = (self.common.clone(), self.threads.clone());
         std::thread::spawn(move || {
             let mut lines = BufReader::new(reader).lines().map_while(Result::ok);
@@ -829,6 +861,10 @@ impl ProviderAdapter for QueueStandIn {
 
     fn shutdown(&self) {
         Common::shutdown(&self.common, true);
+        let handles = self.common.lock().unwrap().connections.clone();
+        for h in handles {
+            h.close();
+        }
     }
 }
 
@@ -1330,4 +1366,18 @@ fn the_binding_is_identified_by_its_surface_not_by_the_harness() {
         ])
         .is_err()
     );
+}
+
+#[test]
+fn the_suite_still_catches_stalled_shutdown_and_late_hand_off_after_factory_migration() {
+    let stalled = channel_report(ChannelBreach::WaitsBeforeClose, MidTurnRelease::default());
+    assert_caught(&stalled, "wait before connection close", &["IFC-ADP-119"]);
+    let late = channel_report(ChannelBreach::LateHandOff, MidTurnRelease::default());
+    assert_caught(
+        &late,
+        "admitted write completes after shutdown",
+        &["IFC-ADP-073", "IFC-ADP-070"],
+    );
+    let settlement = channel_report(ChannelBreach::LateSettlement, MidTurnRelease::default());
+    assert_caught(&settlement, "40 ms late failed result", &["IFC-ADP-109"]);
 }

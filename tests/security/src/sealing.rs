@@ -305,7 +305,7 @@ impl SealedDevice {
 
     /// A harness session bound to `session`.
     pub fn session(&self, session: &SessionId) -> Attachment {
-        let conn = Connection::accept(std::io::empty(), std::io::sink());
+        let conn = Connection::accept(Default::default(), Default::default());
         let a = conn.handle().clone();
         self.pipes
             .connect(self.adapter_id, conn)

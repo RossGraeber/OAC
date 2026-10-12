@@ -121,7 +121,7 @@ fn send_request(to: &SessionId, content: &Json) -> Result<SendRequest, String> {
         .map(|p| ContentPart::from_json(p).ok_or_else(|| format!("content part {p:?}")))
         .collect::<Result<Vec<_>, _>>()?;
     Ok(SendRequest {
-        attachment: Connection::accept(std::io::empty(), std::io::sink())
+        attachment: Connection::accept(Default::default(), Default::default())
             .handle()
             .clone(),
         to: to.clone(),

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! [`ClaudeAdapter`]: `ProviderAdapter` (`spec/interfaces.md` Table 5.2) for the Claude Code
-//! channel path.
+//! Channels path (research preview).
 //!
 //! Each connection the core gives it ([`ProviderAdapter::take_connection`]) is one channel
 //! server's stdio stream, relayed by the shim Claude Code spawned
@@ -16,24 +16,30 @@
 //! the harness, or anything else, for pending messages ([IFC-ADP-040]; no polling of any
 //! kind).
 //!
-//! Known residual (lead decision, 2026-10-10; 11-risks row 82): shutdown waits for
-//! in-flight writes. The frozen `Connection` supplies a blocking `Write` without
-//! cancel/close, so shutdown can block while the harness has stopped reading. Returning
-//! earlier could hand off content after shutdown returns, violating [IFC-ADP-070].
-//! Owner: #376 (the connection-cancellation spec change).
+//! Interfaces 0.6: the local adapter budget is `shutdown_bound_ms = 1000`.
+//! `event_callback_bound_ms = 11000`, `stop_callback_bound_ms = 200`.
+//! At most four connections and 64 core invocations are admitted; stream closure costs
+//! at most 400 ms sequentially, leaving 600 ms for callback/worker coordination.
+//! The core adds its own aggregate reporting/settlement budget. Awaited publication adds
+//! the transport's OPTIONAL bound; an undeclared contribution is unbounded. Every
+//! committed request still settles before shutdown returns, with no post-return input,
+//! report or callback (IFC-ADP-109..125). Legacy event handlers are test compatibility;
+//! production installs the cooperative local handler before admitting connections.
 
 use std::collections::{HashMap, VecDeque};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::RecvTimeoutError;
 use std::sync::{Arc, Mutex, MutexGuard, RwLock};
 use std::time::Duration;
 
 use oac_core::adapter::{
     AdapterCapabilities, AdapterEvent, AdapterEventHandler, Attachment, Connection,
-    DiscoveryRequest, HandOff, HandOffOutcome, ProviderAdapter, RequestSink,
+    DiscoveryRequest, HandOff, HandOffOutcome, LocalEventHandler, ProviderAdapter, RequestSink,
 };
 use oac_core::delivery::ErrorCode;
 use oac_core::health::{HealthState, HealthStatus};
 use oac_core::ids::SessionId;
+use oac_core::local_call::{CallAdmission, CallContext, LocalResult};
 use oac_mcp_tools::{ToolCall, Value};
 use rmcp::model::{CallToolResult, CustomNotification, JsonObject, ServerNotification};
 use rmcp::service::{Peer, RoleServer, RunningServiceCancellationToken};
@@ -46,6 +52,9 @@ use crate::server::{ChannelServer, ChannelTransport};
 
 /// How long `deliver` waits for the notification's write to complete before it reports
 /// `indeterminate` ([IFC-ADP-053]): the write neither completed nor failed in that time.
+/// Binding shutdown bound, including connection closure and pending call settlement.
+pub const SHUTDOWN_BOUND_MS: u64 = 1000;
+
 pub const HANDOFF_WAIT: Duration = Duration::from_secs(10);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -83,6 +92,7 @@ pub const HANDED_KEPT: usize = 1024;
 #[derive(Default)]
 struct State {
     handler: Option<AdapterEventHandler>,
+    local_handler: Option<LocalEventHandler>,
     sink: Option<Arc<dyn RequestSink>>,
     attachments: HashMap<Attachment, Att>,
     connections: HashMap<
@@ -100,15 +110,14 @@ pub(crate) struct Inner {
     /// Held while an event is reported, so that an attachment's `attachment-opened` always
     /// reaches the core before its `attachment-closed`. No operation the core may call from
     /// inside the handler (`set_binding`, `capabilities`) takes it.
-    events: Mutex<()>,
-    /// `true` once `shutdown` has begun. A hand-off or request holds the read side for its
-    /// whole call. Shutdown also joins connection runtimes, including writes that outlived
-    /// a deliver timeout, before returning ([IFC-ADP-070]).
-    down: RwLock<bool>,
+    events: crate::gate::Serial,
+    /// Set under state lock when shutdown begins. New calls refuse; already admitted
+    /// calls settle after stream closure before shutdown returns ([IFC-ADP-070]).
+    down: AtomicBool,
+    calls: RwLock<()>,
     /// How long `deliver` waits for a write ([`HANDOFF_WAIT`] unless set).
     handoff_wait: Duration,
-    /// Serializes shutdown callers through the final connection-thread joins.
-    shutdown: Mutex<()>,
+    admission: Mutex<(CallAdmission, u64, u64)>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -117,6 +126,35 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 
 impl Inner {
     fn emit(&self, h: Option<AdapterEventHandler>, e: AdapterEvent) {
+        let (handler, admission, bound) = {
+            let st = lock(&self.state);
+            let (admission, ordinary, stop) = &*lock(&self.admission);
+            (
+                st.local_handler.clone(),
+                admission.clone(),
+                if self.down.load(Ordering::SeqCst) {
+                    *stop
+                } else {
+                    *ordinary
+                },
+            )
+        };
+        if let Some(handler) = handler {
+            let (attachment, final_report) = match &e {
+                AdapterEvent::AttachmentClosed { attachment } => (Some(attachment.clone()), true),
+                AdapterEvent::AttachmentOpened { attachment, .. }
+                | AdapterEvent::CapabilitiesChanged { attachment } => {
+                    (Some(attachment.clone()), false)
+                }
+                _ => (None, false),
+            };
+            let mut call = admission.call(attachment, bound);
+            if final_report {
+                call = call.final_report();
+            }
+            let _ = handler(&mut call, e);
+            return;
+        }
         if let Some(h) = h {
             h(e);
         }
@@ -124,9 +162,9 @@ impl Inner {
 
     /// The first `tools/list` answer is written: the attachment is open.
     pub(crate) fn listed(&self, a: &Attachment) {
-        let _ev = lock(&self.events);
+        let _ev = self.events.enter();
         let h = {
-            if *self.down.read().unwrap_or_else(|e| e.into_inner()) {
+            if self.down.load(Ordering::SeqCst) {
                 return;
             }
             let mut st = lock(&self.state);
@@ -150,7 +188,7 @@ impl Inner {
 
     /// The connection ended.
     fn ended(&self, a: &Attachment) {
-        let _ev = lock(&self.events);
+        let _ev = self.events.enter();
         let h = {
             let mut st = lock(&self.state);
             let was_open = st
@@ -193,8 +231,8 @@ impl Inner {
     /// request is labelled with the connection it came on, never with a session the call
     /// claims ([IFC-ADP-031]).
     pub(crate) fn request(&self, a: &Attachment, call: ToolCall) -> CallToolResult {
-        let down = self.down.read().unwrap_or_else(|e| e.into_inner());
-        if *down {
+        let _call = self.calls.read().unwrap_or_else(|e| e.into_inner());
+        if self.down.load(Ordering::SeqCst) {
             // Answered without reaching the core ([IFC-ADP-070]).
             return oac_mcp_tools::refusal(ErrorCode::InternalError);
         }
@@ -227,19 +265,28 @@ impl Inner {
         let Some(sink) = sink else {
             return oac_mcp_tools::refusal(ErrorCode::InternalError);
         };
+        let (admission, ordinary, _) = lock(&self.admission).clone();
+        let mut local = admission.call(Some(a.clone()), ordinary);
+        let render_send = |result| match result {
+            LocalResult::Completed(value) => oac_mcp_tools::send_result(&value),
+            _ => oac_mcp_tools::refusal(ErrorCode::InternalError),
+        };
         match call {
             ToolCall::Send {
                 to,
                 content,
                 conversation_id,
                 correlation_id,
-            } => oac_mcp_tools::send_result(&sink.send(oac_mcp_tools::send_request(
-                a.clone(),
-                to,
-                content,
-                conversation_id,
-                correlation_id,
-            ))),
+            } => render_send(sink.send_local(
+                &mut local,
+                oac_mcp_tools::send_request(
+                    a.clone(),
+                    to,
+                    content,
+                    conversation_id,
+                    correlation_id,
+                ),
+            )),
             ToolCall::Reply {
                 in_reply_to,
                 to,
@@ -251,7 +298,8 @@ impl Inner {
                     return oac_mcp_tools::refusal(ErrorCode::Unauthorized);
                 }
                 match to.or(record) {
-                    Some(to) => oac_mcp_tools::send_result(&sink.send(
+                    Some(to) => render_send(sink.send_local(
+                        &mut local,
                         oac_mcp_tools::reply_request(a.clone(), to, content, in_reply_to),
                     )),
                     // No `to`, and no record of the message on this attachment.
@@ -259,13 +307,19 @@ impl Inner {
                 }
             }
             ToolCall::ListSessions => {
-                oac_mcp_tools::discovery_result(&sink.discover(DiscoveryRequest {
-                    attachment: a.clone(),
-                }))
+                match sink.discover_local(
+                    &mut local,
+                    DiscoveryRequest {
+                        attachment: a.clone(),
+                    },
+                ) {
+                    LocalResult::Completed(value) => oac_mcp_tools::discovery_result(&value),
+                    _ => oac_mcp_tools::refusal(ErrorCode::InternalError),
+                }
             }
             // [MCPB-ATT-002]: no session to name on an unbound attachment. On a bound one
-            // the device fingerprint is not something the frozen adapter interface gives
-            // the adapter; `whoami` waits for session registration (G5, #66).
+            // the identity request path is ready in core; the tool and registration
+            // integration remain #66; `whoami` waits for session registration (G5, #66).
             ToolCall::Whoami => oac_mcp_tools::refusal(if bound.is_none() {
                 ErrorCode::Unauthorized
             } else {
@@ -295,13 +349,18 @@ impl ClaudeAdapter {
     /// An adapter whose `deliver` waits `wait` for a notification's write before it
     /// reports `indeterminate` ([IFC-ADP-053]).
     pub fn with_handoff_wait(wait: Duration) -> ClaudeAdapter {
+        assert!(
+            wait <= HANDOFF_WAIT,
+            "handoff wait exceeds the declared callback budget"
+        );
         ClaudeAdapter {
             inner: Arc::new(Inner {
                 state: Mutex::default(),
-                events: Mutex::new(()),
-                down: RwLock::new(false),
+                events: crate::gate::Serial::default(),
+                down: AtomicBool::new(false),
+                calls: RwLock::new(()),
                 handoff_wait: wait,
-                shutdown: Mutex::new(()),
+                admission: Mutex::new((CallAdmission::default(), 1000, 100)),
             }),
         }
     }
@@ -356,6 +415,7 @@ fn serve(
             }
         });
     }
+    attachment.close();
     inner.ended(&attachment);
 }
 
@@ -383,14 +443,82 @@ fn spawn_runtime(
 }
 
 impl ProviderAdapter for ClaudeAdapter {
+    fn local_calls(&self) -> bool {
+        true
+    }
+    fn connection_limit(&self) -> usize {
+        4
+    }
+    fn set_binding_local(
+        &self,
+        call: &mut CallContext,
+        attachment: &Attachment,
+        session: Option<SessionId>,
+    ) -> LocalResult<()> {
+        let mut state = match call.lock(&self.inner.state) {
+            Ok(v) => v,
+            Err(v) => return v,
+        };
+        call.commit(|| {
+            if let Some(att) = state.attachments.get_mut(attachment) {
+                att.bound = session;
+            }
+        })
+    }
+
+    fn capabilities_local(
+        &self,
+        call: &mut CallContext,
+        attachment: &Attachment,
+    ) -> LocalResult<AdapterCapabilities> {
+        call.commit(|| self.capabilities(attachment))
+    }
+
+    fn deliver_local(
+        &self,
+        call: &mut CallContext,
+        hand_off: HandOff,
+    ) -> LocalResult<HandOffOutcome> {
+        if let Some(v) = call.cancellation() {
+            return v.map(|()| unreachable!());
+        }
+        LocalResult::Completed(self.deliver(hand_off))
+    }
+    fn configure_local_calls(&self, admission: CallAdmission, ordinary_ms: u64, stop_ms: u64) {
+        assert!(
+            ordinary_ms > 0
+                && stop_ms > 0
+                && stop_ms <= ordinary_ms
+                && ordinary_ms <= oac_core::local_call::CORE_CALL_BOUND_MS
+                && stop_ms <= oac_core::local_call::STOP_CALL_BOUND_MS,
+            "call costs exceed the declared core settlement budget"
+        );
+        *lock(&self.inner.admission) = (admission, ordinary_ms, stop_ms);
+    }
+
+    fn watch_local_attachments(&self, handler: LocalEventHandler) {
+        lock(&self.inner.state).local_handler = Some(handler);
+    }
+    fn shutdown_bound_ms(&self) -> u64 {
+        SHUTDOWN_BOUND_MS
+    }
+
     fn take_connection(&self, connection: Connection) {
         let (attachment, reader, writer) = connection.into_parts();
-        let down = self.inner.down.read().unwrap_or_else(|e| e.into_inner());
-        if *down {
+        let _call = self.inner.calls.read().unwrap_or_else(|e| e.into_inner());
+        if self.inner.down.load(Ordering::SeqCst) {
+            attachment.close();
             return;
         }
         {
-            lock(&self.inner.state).attachments.insert(
+            let mut state = lock(&self.inner.state);
+            if self.inner.down.load(Ordering::SeqCst)
+                || state.attachments.len() >= self.connection_limit()
+            {
+                attachment.close();
+                return;
+            }
+            state.attachments.insert(
                 attachment.clone(),
                 Att {
                     phase: Phase::Opening,
@@ -411,6 +539,7 @@ impl ProviderAdapter for ClaudeAdapter {
         })
         .is_err()
         {
+            attachment.close();
             lock(&self.inner.state).attachments.remove(&attachment);
         }
     }
@@ -444,8 +573,8 @@ impl ProviderAdapter for ClaudeAdapter {
     /// boundary, in order; the adapter neither waits for nor depends on how many it takes
     /// at once (11-risks row 49; `spec/bindings/mcp.md` §8.1).
     fn deliver(&self, hand_off: HandOff) -> HandOffOutcome {
-        let down = self.inner.down.read().unwrap_or_else(|e| e.into_inner());
-        if *down {
+        let _call = self.inner.calls.read().unwrap_or_else(|e| e.into_inner());
+        if self.inner.down.load(Ordering::SeqCst) {
             return HandOffOutcome::Failed;
         }
         let message = hand_off.message();
@@ -502,14 +631,29 @@ impl ProviderAdapter for ClaudeAdapter {
             }
         }
         let (tx, rx) = std::sync::mpsc::channel();
-        runtime.spawn(async move {
-            let _ = tx.send(peer.send_notification(notification).await.is_ok());
-        });
-        let outcome = match rx.recv_timeout(self.inner.handoff_wait) {
-            Ok(true) => HandOffOutcome::Completed,
-            Ok(false) => HandOffOutcome::Failed,
-            Err(RecvTimeoutError::Timeout | RecvTimeoutError::Disconnected) => {
-                HandOffOutcome::Indeterminate
+        {
+            let _st = lock(&self.inner.state);
+            if self.inner.down.load(Ordering::SeqCst) {
+                return HandOffOutcome::Failed;
+            }
+            runtime.spawn(async move {
+                let _ = tx.send(peer.send_notification(notification).await.is_ok());
+            });
+        }
+        let end = std::time::Instant::now() + self.inner.handoff_wait;
+        let outcome = loop {
+            match rx.recv_timeout(Duration::from_millis(1)) {
+                Ok(true) => break HandOffOutcome::Completed,
+                Ok(false) => break HandOffOutcome::Failed,
+                Err(RecvTimeoutError::Disconnected) => break HandOffOutcome::Indeterminate,
+                Err(RecvTimeoutError::Timeout) => {
+                    if self.inner.down.load(Ordering::SeqCst) {
+                        break HandOffOutcome::Indeterminate;
+                    }
+                    if std::time::Instant::now() >= end {
+                        break HandOffOutcome::Indeterminate;
+                    }
+                }
             }
         };
         if outcome == HandOffOutcome::Completed {
@@ -533,7 +677,7 @@ impl ProviderAdapter for ClaudeAdapter {
     }
 
     fn health(&self) -> HealthStatus {
-        if *self.inner.down.read().unwrap_or_else(|e| e.into_inner()) {
+        if self.inner.down.load(Ordering::SeqCst) {
             HealthStatus::new(HealthState::Unavailable)
         } else {
             HealthStatus::new(HealthState::Healthy)
@@ -541,11 +685,27 @@ impl ProviderAdapter for ClaudeAdapter {
     }
 
     fn shutdown(&self) {
-        let _shutdown = lock(&self.inner.shutdown);
-        let _ev = lock(&self.inner.events);
-        let mut down = self.inner.down.write().unwrap_or_else(|e| e.into_inner());
-        *down = true;
-        let (h, open, cancels, connections) = {
+        lock(&self.inner.admission).0.stop();
+        {
+            let _st = lock(&self.inner.state);
+            self.inner.down.store(true, Ordering::SeqCst);
+        }
+        // Revoke I/O before waiting for calls that might be blocked on it.
+        let handles: Vec<_> = lock(&self.inner.state)
+            .attachments
+            .keys()
+            .cloned()
+            .collect();
+        for h in &handles {
+            h.begin_close();
+        }
+        for h in handles {
+            h.close();
+        }
+        let calls = self.inner.calls.write().unwrap_or_else(|e| e.into_inner());
+        drop(calls);
+        let events = self.inner.events.enter();
+        let (handler, open, cancels, stops) = {
             let mut st = lock(&self.inner.state);
             let mut open = Vec::new();
             let mut cancels = Vec::new();
@@ -562,26 +722,41 @@ impl ProviderAdapter for ClaudeAdapter {
                 st.handler.clone(),
                 open,
                 cancels,
-                std::mem::take(&mut st.connections),
+                st.connections
+                    .values()
+                    .map(|(stop, _)| stop.clone())
+                    .collect::<Vec<_>>(),
             )
         };
-        drop(down);
-        for (stop, _) in connections.values() {
+        for stop in stops {
             let _ = stop.send(true);
         }
-        for c in cancels {
-            c.cancel();
+        for cancel in cancels {
+            cancel.cancel();
         }
-        for a in open {
-            self.inner
-                .emit(h.clone(), AdapterEvent::AttachmentClosed { attachment: a });
+        // No call lock across a callback; handlers may re-enter shutdown.
+        for attachment in open {
+            self.inner.emit(
+                handler.clone(),
+                AdapterEvent::AttachmentClosed { attachment },
+            );
         }
-        // No callback lock may be held while joining: a connection finishes through ended().
-        drop(_ev);
-        // Blocking std::io writes cannot be interrupted. Join the runtime that owns them,
-        // including its pending notification tasks, before shutdown returns [IFC-ADP-070].
-        for (_, thread) in connections.into_values() {
-            let _ = thread.join();
+        drop(events);
+        let me = std::thread::current().id();
+        let workers = {
+            let mut st = lock(&self.inner.state);
+            let ids: Vec<_> = st
+                .connections
+                .keys()
+                .copied()
+                .filter(|id| *id != me)
+                .collect();
+            ids.into_iter()
+                .filter_map(|id| st.connections.remove(&id))
+                .collect::<Vec<_>>()
+        };
+        for (_, worker) in workers {
+            let _ = worker.join();
         }
     }
 }
