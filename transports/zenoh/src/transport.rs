@@ -66,9 +66,11 @@ struct Running {
     /// and this transport's own token.
     liveliness: Mutex<Option<Subscriber<()>>>,
     token: Mutex<Option<LivelinessToken>>,
+    #[cfg(feature = "test-support")]
     links: Arc<Links>,
     partition: Partition,
     local: KeyId,
+    #[cfg(feature = "test-support")]
     link: Digest128,
     gate: Arc<Gate>,
     subs: Arc<Subs>,
@@ -214,8 +216,10 @@ impl PeerTransport {
     }
 
     /// The number of other transports whose native liveliness token this transport has seen
-    /// alive, by history replay or live event; 0 when not started. A diagnostic, for tests
-    /// that wait for presence to propagate: nothing in the contract uses it.
+    /// alive, by history replay or live event; 0 when not started. For tests that wait for
+    /// presence to propagate, behind the `test-support` feature: nothing in the contract or
+    /// in product code uses it.
+    #[cfg(feature = "test-support")]
     pub fn observed_live_links(&self) -> usize {
         self.running().map(|r| r.links.online()).unwrap_or(0)
     }
@@ -508,9 +512,11 @@ impl Transport for PeerTransport {
             subscriber: Mutex::new(Some(subscriber)),
             liveliness: Mutex::new(Some(liveliness)),
             token: Mutex::new(Some(token)),
+            #[cfg(feature = "test-support")]
             links,
             partition,
             local: local_device.clone(),
+            #[cfg(feature = "test-support")]
             link,
             gate,
             subs,

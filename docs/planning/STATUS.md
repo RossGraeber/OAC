@@ -11,11 +11,15 @@ deletion of a token never seen alive, or of a token that is not ours, reports no
 (`unknown`). No heartbeat, timer, probe or gossip is added; the link lease is Zenoh's
 own, set explicitly to 10000 ms. Measured on Windows over loopback: a graceful exit in
 about 2 to 13 ms, a killed process in 27 to 136 ms, a silent link loss in 9.5 to 9.7 s.
-**Stated bound for a silent loss: the 10 s lease.** Residuals for the lead, with no
-compensating code: one shared stream handle means a loss makes every announcement received
-on it stale, not only the departed issuer's (risk row 83); the frozen interface has no
-neutral way for a late joiner to ask for presence (row 84); Zenoh's detection and relay-loss
-behaviour, and the unmeasured cross-host values (row 85). No gate verdict, protocol
+**Stated bound for a silent loss: the 10 s lease.** Residuals, with no compensating code, and
+the lead's decisions of 2026-10-12: one shared stream handle means a loss makes every
+announcement received on it stale, not only the departed issuer's, until the next refresh
+(risk row 83, ACCEPTED; #374's privacy choice is kept); the frozen interface has no neutral
+way for a late joiner to ask for presence (row 84, a carrier-appeared event DEFERRED to the
+next interfaces revision as a spec item; #63 stays open via Refs); a relay loss reading as
+the loss of all peers is ACCEPTED as Zenoh behaviour, and the unmeasured cross-host lease is
+a residual: two-host integration step 8 MUST run before Gate S4 (row 85). The `liveness`
+ACL rule is minimal (token and subscriber only; a liveliness query is refused). No gate verdict, protocol
 requirement, dependency pin or ADR change. Binding and evidence: `transports/zenoh/src/lib.rs`,
 `transports/zenoh/src/liveness_tests.rs`.
 

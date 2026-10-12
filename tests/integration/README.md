@@ -126,7 +126,8 @@ they do not prove host firewall, multicast, interface or clock behavior.
    Replacing it with an untrusted/plain holder must refuse traffic. Record holder gaps
    and fixed-port denial of service as residuals, not failed authentication.
 
-8. Presence and carrier loss (#63, planned, NOT RUN). With both hosts linked, start a third
+8. Presence and carrier loss (#63, planned, NOT RUN; the lead's decision of 2026-10-12: this
+   step MUST run before Gate S4). With both hosts linked, start a third
    transport on one host and confirm the other learns of the first two from native
    liveliness history. Then stop a transport three ways and record, from the instant of the
    action to the carrier-loss event on the other host: a clean `shutdown`; a killed process;

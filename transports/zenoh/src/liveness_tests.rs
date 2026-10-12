@@ -9,7 +9,7 @@
 use std::io::{Read, Write};
 use std::net::{Ipv4Addr, TcpListener, TcpStream};
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU16, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
@@ -165,7 +165,7 @@ fn a_late_started_peer_learns_of_peers_already_online() {
     );
     println!("MEASURED late peer learned 2 online peers from history in {took:?}");
     // The native control: without `history(true)` Zenoh tells a subscriber nothing about a
-    // token declared before it subscribed; `liveliness().get` and history both do.
+    // token declared before it subscribed; history does.
     let raw = raw_session(&c);
     let pattern = Partition::new(c.partition()).token_pattern();
     let (plain_tx, plain_rx) = mpsc::channel();
@@ -211,15 +211,20 @@ fn a_late_started_peer_learns_of_peers_already_online() {
         plain.is_empty(),
         "a subscriber without history saw {plain:?}"
     );
-    // The native query answers the same question.
-    let replies = raw.liveliness().get(&pattern).wait().unwrap();
+    // A native `liveliness().get` is a `liveliness_query`, which the ACL does not allow:
+    // history returns the same set, so the rule stays minimal. Asked from a fresh session with
+    // no liveliness subscription, so that nothing can answer from local knowledge.
+    let probe = raw_session(&c);
+    let replies = probe.liveliness().get(&pattern).wait().unwrap();
     let mut got = 0;
-    while let Ok(Some(reply)) = replies.recv_timeout(Duration::from_secs(5)) {
-        assert!(reply.result().is_ok());
-        got += 1;
+    while let Ok(Some(reply)) = replies.recv_timeout(Duration::from_secs(2)) {
+        if reply.result().is_ok() {
+            got += 1;
+        }
     }
-    assert_eq!(got, 3);
+    assert_eq!(got, 0, "the ACL refuses a liveliness query");
     drop((_plain, _hist));
+    let _ = probe.close().wait();
     let _ = raw.close().wait();
     for t in [a, b, late] {
         t.shutdown();
@@ -633,23 +638,63 @@ fn a_stalled_presence_watcher_blocks_neither_frames_nor_other_peers() {
     }
 }
 
-/// [IFC-TRN-071]: nothing is handed to a watcher once `shutdown` has returned.
+/// [IFC-TRN-071]: nothing is handed to a watcher once `shutdown` has begun to close. One
+/// handler is held in flight while a second loss is pending in the native signal ring, and
+/// the transport's own session is still alive when `shutdown` starts: the pending loss
+/// must not reach the watcher, before or after `shutdown` returns.
 #[test]
-fn no_loss_reaches_a_watcher_after_shutdown() {
+fn no_loss_reaches_a_watcher_once_shutdown_has_begun() {
     let c = conf("after-shutdown");
-    let (a, b) = (PeerTransport::new(), PeerTransport::new());
-    a.start(&key('a'), c.clone().wrap()).unwrap();
+    let (relay, a1, a2, b) = (
+        PeerTransport::new(),
+        PeerTransport::new(),
+        PeerTransport::new(),
+        PeerTransport::new(),
+    );
+    relay.start(&key('d'), c.clone().wrap()).unwrap();
+    a1.start(&key('a'), c.clone().wrap()).unwrap();
+    a2.start(&key('c'), c.clone().wrap()).unwrap();
     b.start(&key('b'), c.wrap()).unwrap();
-    let events = Events::default();
-    events.watch(&b);
+    let (calls, release) = (
+        Arc::new(AtomicUsize::new(0)),
+        Arc::new(AtomicBool::new(false)),
+    );
+    let (n, r) = (calls.clone(), release.clone());
+    b.watch_presence(Arc::new(move |_| {
+        n.fetch_add(1, Ordering::SeqCst);
+        let t = Instant::now();
+        while !r.load(Ordering::SeqCst) && t.elapsed() < Duration::from_secs(20) {
+            thread::sleep(Duration::from_millis(5));
+        }
+    }))
+    .unwrap();
     wait_for("visibility", Duration::from_secs(15), || {
-        b.observed_live_links() == 1
+        b.observed_live_links() == 3
     });
-    b.shutdown();
-    assert_eq!(b.observed_live_links(), 0);
-    a.shutdown();
-    thread::sleep(Duration::from_secs(1));
-    assert_eq!(events.all(), 0);
+    // The first loss puts the handler in flight (it waits for `release`)...
+    a1.shutdown();
+    wait_for("the handler in flight", Duration::from_secs(15), || {
+        calls.load(Ordering::SeqCst) == 1
+    });
+    // ...the second is seen by the native subscriber and waits in the ring behind it.
+    a2.shutdown();
+    wait_for(
+        "the second loss to be seen",
+        Duration::from_secs(15),
+        || b.observed_live_links() == 1,
+    );
+    let closing = {
+        let b = b.clone();
+        thread::spawn(move || b.shutdown())
+    };
+    // `shutdown` closes the gate, then waits for the handler in flight; `b`'s session is
+    // still alive until the handler returns.
+    thread::sleep(Duration::from_millis(300));
+    release.store(true, Ordering::SeqCst);
+    closing.join().unwrap();
+    thread::sleep(Duration::from_millis(500));
+    assert_eq!(calls.load(Ordering::SeqCst), 1, "a loss followed shutdown");
+    relay.shutdown();
 }
 
 // ---- acceptance 4: nothing Zenoh-specific is visible ------------------------------------

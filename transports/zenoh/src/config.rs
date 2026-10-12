@@ -294,7 +294,7 @@ impl PeerConfiguration {
                     // Native liveliness (#63): tokens and the history-capable subscriber,
                     // on this partition's token keys only.
                     {"id":"liveness", "permission":"allow", "flows":["ingress","egress"],
-                        "messages":["liveliness_token","declare_liveliness_subscriber","liveliness_query"],
+                        "messages":["liveliness_token","declare_liveliness_subscriber"],
                         "key_exprs":[partition.token_pattern()]}
                 ],
                 "subjects":subjects, "policies":policies

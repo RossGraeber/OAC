@@ -104,7 +104,8 @@ impl Links {
         })
     }
 
-    /// The number of remote transports now seen alive.
+    /// The number of remote transports now seen alive (tests only).
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn online(&self) -> usize {
         self.online.lock().unwrap_or_else(|e| e.into_inner()).len()
     }

@@ -9,8 +9,8 @@
 //! [`PairingAuthority`], [`IssuedCertificate`], [`DEFAULT_PARTITION`],
 //! [`DEFAULT_RENDEZVOUS_PORT`], [`MAX_PAYLOAD_OCTETS`], [`LINK_LEASE_MILLIS`] and
 //! [`KEEP_ALIVE_PER_LEASE`]; no signature names a Zenoh type.
-//! `PeerTransport::identifiers_for_leak_checks` exists only with the `test-support`
-//! feature, which only this crate's own tests turn on.
+//! `PeerTransport::identifiers_for_leak_checks` and `PeerTransport::observed_live_links`
+//! exist only with the `test-support` feature, which only this crate's own tests turn on.
 //!
 //! ```no_run
 //! use oac_core::ids::KeyId;
@@ -91,7 +91,9 @@
 //! configured roots only. Public CAs are not expected to issue for private or reserved IP SANs.
 //! Every peer defaults to native `access_control` deny and permits only configured
 //! certificate common names on its partition's frame key (`put`, `declare_subscriber`,
-//! ingress and egress). A CA-valid but unlisted peer may establish a TLS link; Zenoh
+//! ingress and egress) and, for native liveliness (#63), on its partition's token keys only
+//! (`liveliness_token`, `declare_liveliness_subscriber`; see "Presence and carrier loss").
+//! A CA-valid but unlisted peer may establish a TLS link; Zenoh
 //! drops its disallowed operations rather than rejecting the link. ACLs do not make
 //! sealed payloads authentic: core signatures and authorization still govern delivery.
 //! Authenticated peer messages remain untrusted instructions.
@@ -292,7 +294,7 @@
 //!   subscription, so a transport started after others learns of them with no event since
 //!   its own start. `a_late_started_peer_learns_of_peers_already_online` shows that a
 //!   subscriber without history is told nothing about tokens declared before it subscribed,
-//!   and that native `liveliness().get` and history return the same set.
+//!   while a history subscriber is told all of them.
 //! * *Mapping.* A token alive (history or live put) is `online`. A token seen alive that is
 //!   deleted is `unreachable` and becomes exactly one neutral `carrier-loss` for the
 //!   stream handle. A deletion of a token never seen alive, this transport's own token, a
@@ -307,9 +309,12 @@
 //!   behind the same gate as frames ([IFC-TRN-071]). A stalled watcher holds up only its own
 //!   transport's later watchers; frames and other peers continue
 //!   (`a_stalled_presence_watcher_blocks_neither_frames_nor_other_peers`).
-//! * *Access control.* Default deny; the `liveness` rule allows the liveliness token, query
-//!   and subscriber declarations on this partition's token keys only, for the same listed
-//!   certificate common names as frames.
+//! * *Access control.* Default deny; the `liveness` rule allows only the liveliness token
+//!   and liveliness subscriber declarations (`liveliness_token`,
+//!   `declare_liveliness_subscriber`; the latter covers the `history(true)` replay) on this
+//!   partition's token keys, for the same listed certificate common names as frames. A
+//!   native `liveliness().get` is a `liveliness_query` and is refused (tested); history
+//!   returns the same set.
 //!
 //! **Unreachable bound (measured, Zenoh's own lease).** Zenoh reports a token deleted when
 //! its owner undeclares it, when its link is reported closed, or when its link carries
@@ -341,24 +346,30 @@
 //! no relay it has no peers to lose and reports nothing more; announcements age out by
 //! lifetime. OAC adds no reconnect or resynchronisation code.
 //!
-//! **Residuals and items for the lead (no compensating code is built; risk rows 83 to 85).**
-//! (1) *One handle for all issuers.* Sealed carriage puts no sender beside a frame
-//! ([IFC-TRN-107], [IFC-TRN-108]) and the stable API gives a receiver no sender for a
+//! **Residuals and the lead's decisions of 2026-10-12 (no compensating code is built; risk
+//! rows 83 to 85).**
+//! (1) *One handle for all issuers: accepted.* Sealed carriage puts no sender beside a
+//! frame ([IFC-TRN-107], [IFC-TRN-108]) and the stable API gives a receiver no sender for a
 //! sample, so liveliness names the departed transport but frames cannot be tied to it. A
 //! loss therefore makes every announcement that arrived on the stream handle stale, not
 //! only the departed issuer's, until each live issuer announces again ([SC-DLV-054]). The
-//! spec allows this direction (`spec/interfaces.md` §6.6). Exact per-issuer handles need a
-//! per-start opaque sender suffix on the frame key, which makes one start's frames
-//! linkable to each other and reverses a #374 decision: the lead decides. (2) *No neutral
-//! way to ask for presence.* `PresenceEvent` has no carrier-appeared event and a sealing
-//! transport cannot hand the core a record ([IFC-TRN-103]), so history teaches the
-//! transport which peers live but cannot make a peer announce to a late joiner; that waits
-//! for the issuer's next announcement. Closing it needs a frozen-interface amendment.
-//! (3) *Visible liveness.* Every partition member sees a token appear and go, and when; it
-//! shows that a transport started or stopped, not whose. (4) *Unbounded token table.* The
-//! tracked set is one 32-character name per live remote transport, bounded by Zenoh's own
-//! token table and by the certificate ACL; OAC adds no cap. (5) *Unmeasured:* cross-host
-//! lease behaviour, interface changes and sleep/resume.
+//! spec allows this direction (`spec/interfaces.md` §6.6). The lead accepted it, which
+//! keeps #374's choice of no per-sender value beside a frame (a per-start sender suffix
+//! on the frame key would have made one start's frames linkable to each other). Announcements
+//! may be briefly stale until the next refresh.
+//! (2) *No neutral way to ask for presence: deferred.* `PresenceEvent` has no
+//! carrier-appeared event and a sealing transport cannot hand the core a record
+//! ([IFC-TRN-103]), so history teaches the transport which peers live but cannot make a peer
+//! announce to a late joiner; that waits for the issuer's next announcement. The lead
+//! deferred a neutral carrier-appeared event to the next interfaces revision as a spec item.
+//! #63 stays open (Refs). (3) *Relay loss reads as the loss of all peers: accepted* as
+//! Zenoh's own behaviour (above). (4) *Visible liveness.* Every partition member sees a
+//! token appear and go, and when; it shows that a transport started or stopped, not whose.
+//! (5) *Unbounded token table.* The tracked set is one 32-character name per live remote
+//! transport, bounded by Zenoh's own token table and by the certificate ACL; OAC adds no
+//! cap. (6) *Cross-host lease: a residual.* It is unmeasured (interface changes and
+//! sleep/resume too). Two-host integration step 8 (`tests/integration/README.md`) MUST run
+//! before Gate S4.
 //!
 //! **Why OAC still owns custom code (#377).** Zenoh has no first-holder rendezvous
 //! election, byte-bounded receive handler, neutral payload-size/error/health semantics,
