@@ -94,7 +94,9 @@ they do not prove host firewall, multicast, interface or clock behavior.
 
 1. On two operator-controlled Windows/Linux/macOS hosts, record OS, Zenoh 1.10.1,
    OAC SHA, IPs, firewall policy, UTC offset and measured wall-clock skew. Synchronize
-   clocks through the hosts' existing OS service; do not add OAC clock sync.
+   clocks through the hosts' existing OS service (NTP or OS time sync); do not add OAC
+   clock sync. Pass criterion for the clock condition: measured skew at most 5 s, the
+   operating limit stated in the transport binding document (`transports/zenoh/src/lib.rs`).
 2. Authorize pairing before provisioning: create `PairingAuthority`, issue distinct
    opaque CNs with each host's IP SAN, and install each `IssuedCertificate` into a fresh
    owner-only directory. Provision through the approved operator/pairing path; never
@@ -107,7 +109,7 @@ they do not prove host firewall, multicast, interface or clock behavior.
 4. Repeat with `with_lan_multicast(true)` and no explicit remote endpoints. Capture
    native discovery and verify TLS-only links. Disable multicast at the network and
    repeat step 3 (G3 fallback); never silently downgrade to plaintext.
-5. Negative controls: wrong CA/pin, absent client certificate, wrong IP SAN, and a
+5. Negative controls: wrong CA or wrong key, absent client certificate, wrong IP SAN, and a
    CA-valid unlisted CN. The first three must fail native authentication; the last may
    open a native link but must carry no frames through the ACL. Try a plaintext
    discovered locator: native protocol allowlist must refuse it.
@@ -115,10 +117,12 @@ they do not prove host firewall, multicast, interface or clock behavior.
    Delay receipt beyond the encrypted deadline and assert receiving-core discard
    (SEC-SEL-036). Record native arrival independently. No native TTL/sender-copy expiry
    claim: slow receiver skew can extend effective validity and fast skew reject early.
-   Report observed skew/expiry against operational clock tolerance; sender retention
-   remains risk row 77 for the lead's spec decision.
+   Compare measured skew against the 5 s operating limit: a measurement above 5 s fails
+   this clock condition, and the leg must not be recorded as passed. Report observed
+   skew and expiry against that limit. Sender retention remains risk row 77, pending the
+   separate IFC-TRN-034 spec amendment.
 7. Replace the authenticated local relay on each host with another same-user process;
-   the persisted pin must remain unchanged and native reconnect must resume delivery.
+   the persisted certificate must remain unchanged and native reconnect must resume delivery.
    Replacing it with an untrusted/plain holder must refuse traffic. Record holder gaps
    and fixed-port denial of service as residuals, not failed authentication.
 

@@ -19,7 +19,8 @@
 //! datagrams any other socket on the host joined on any interface (`IP_MULTICAST_ALL`). So
 //! local mode fails closed: scouting off and the fixed rendezvous everywhere. This reverses
 //! C7 §5's "multicast scouting on by default" by its own named reversal path (the G3
-//! fallback); the dated note in C7 §5 records it. G3 (#64) adds pinned local TLS and explicit paired LAN TLS.
+//! fallback); the dated note in C7 §5 records it. G3 (#64) adds per-user local relay TLS
+//! under the accepted trust rule and explicit paired LAN TLS.
 
 use crate::certificates::{self, CertificateFiles};
 use std::net::{Ipv4Addr, SocketAddr, TcpStream};
@@ -237,6 +238,10 @@ impl PeerConfiguration {
                 .get_or_init(|| certificates::local_files(&certificates::default_directory()?))
                 .clone()?
         };
+        // `root_ca_certificate` is an additional root: Zenoh's TLS client extends its web-PKI
+        // roots with it and does not replace them. Trust is the accepted key-possession rule
+        // in the transport binding document (lib.rs), not an exclusive certificate pin.
+        // Zenoh verifies the peer's name and expiration; OAC adds no handshake of its own.
         for (name, path) in [
             ("root_ca_certificate", &files.trusted_roots),
             ("listen_certificate", &files.certificate),

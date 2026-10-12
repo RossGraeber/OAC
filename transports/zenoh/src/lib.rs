@@ -25,10 +25,13 @@
 //!
 //! # Transport binding document
 //!
-//! **Real local traffic is now permitted:** core-signed, per-recipient sealed payloads
-//! may traverse the per-user pinned mTLS loopback relay. Core sealing (#370/#374) and
-//! the relay authentication condition (#64, PR #364) are both implemented. This does
-//! not declare Gate S4, live harness interoperability, or the two-host LAN leg passed.
+//! **Real local traffic is permitted under the accepted relay trust rule:** core-signed,
+//! per-recipient sealed payloads may traverse the per-user mTLS loopback relay. Its trust
+//! is Zenoh's native rule as described under "Per-user relay authentication" below, which
+//! the lead accepted on 2026-10-11. That rule is not an exclusive certificate pin. Core
+//! sealing (#370/#374) and the relay authentication condition (#64, PR #364) are both
+//! implemented. This does not declare Gate S4, live harness interoperability, or the
+//! two-host LAN leg passed.
 //!
 //! This section is the transport binding document that [IFC-TRN-090] requires, for the
 //! publish, subscribe and presence-carriage half (G1). G2 (#63) adds carrier loss, and G3
@@ -49,13 +52,24 @@
 //! the first transport on a host is the relay for the others (in the daemon model of C2 the
 //! host has one).
 //!
-//! **Per-user pinned relay authentication (#64).** One generated self-signed certificate
-//! with IP SAN `127.0.0.1` and CN `oac-local` is stored under the OS user's OAC state
-//! directory (`LOCALAPPDATA/OAC/relay-tls` on Windows, `HOME/.local/state/OAC/relay-tls`
-//! on Unix). The owner-only directory holds one atomically published PEM bundle.
-//! Existing state is never regenerated on connection failure. Both roles use that exact
-//! certificate as the sole trust anchor and mTLS identity; Zenoh verifies certificates,
-//! names and expiration. The same user's next holder reuses the pin. Another user's
+//! **Per-user relay authentication (#64): the accepted Zenoh trust rule.** One generated
+//! self-signed certificate with IP SAN `127.0.0.1` and CN `oac-local` is stored under the
+//! OS user's OAC state directory (`LOCALAPPDATA/OAC/relay-tls` on Windows,
+//! `HOME/.local/state/OAC/relay-tls` on Unix). The owner-only directory holds one
+//! atomically published PEM bundle. Existing state is never regenerated on connection
+//! failure. Both roles configure that certificate as their mTLS identity and as an
+//! additional trust root. Zenoh's TLS client extends its web-PKI roots with the configured
+//! root (zenoh 1.10.1, `io/zenoh-link-tls/src/utils.rs` L351-L357), so the root is not
+//! exclusive. Zenoh verifies the relay's name (`127.0.0.1`) and expiration, and the relay
+//! verifies client certificates against the same root with native certificate-CN ACLs.
+//! Public CAs may not issue certificates for loopback, so the public-root path is not
+//! expected to apply here. The effective trust is therefore possession of this user's
+//! private key: a certificate that key signs for the same name and IP SAN is accepted.
+//! Same-key certificate replacement was verified accepted, while a foreign key and an
+//! expired certificate were refused (review of head f12721549, 2026-10-11). Replacing only
+//! the certificate under the same key does not revoke the old certificate, so rotation
+//! must change the key (see the re-provisioning steps below). This is not an exclusive
+//! pin. The same user's next holder reuses the persisted certificate. Another user's
 //! certificate, plaintext Zenoh router, or arbitrary port holder is refused before
 //! native sample traffic. A responding port is never retried as a competing holder.
 //! Port denial of service, holder gaps and the unregistered fixed port remain; a process
@@ -111,8 +125,10 @@
 //! 3. Start one intended holder through normal provisioning. It creates a new key and
 //!    complete bundle in private storage. Restart all joiners with that same directory;
 //!    check native link establishment before resuming sends. Retire old backups under
-//!    the operator's key-disposal policy. Certificate-only replacement with an old key
-//!    is not revocation; this sequence makes no new exclusive-pin claim (finding 1).
+//!    the operator's key-disposal policy. Rotation must use a fresh private key: a
+//!    certificate-only replacement under the old key is not revocation, because the old
+//!    certificate still verifies under the accepted rule. This sequence does not
+//!    establish an exclusive pin (review finding 1).
 //!
 //! **Explicit LAN re-provisioning/rotation (planned group outage).**
 //! 1. Coordinate all peers in the affected pairing trust group, stop sends and all live
@@ -134,8 +150,9 @@
 //!
 //! This is operator coordination through existing provisioning/configuration seams,
 //! not a custom rotation protocol. Daemon/CLI wiring and two-host validation remain
-//! unimplemented/unrun; root changes do not assert the exclusive-pin condition awaiting
-//! the lead's decision in review finding 1. TLS rotation does not rotate core signing
+//! unimplemented/unrun; root changes do not establish an exclusive pin. Replacement is
+//! governed by the accepted key-possession rule above, so a LAN rotation must also change
+//! the key. TLS rotation does not rotate core signing
 //! or agreement keys or change core authorization.
 //!
 //! Sources: Zenoh supported stable configuration / TLS / ACL implementation, version
@@ -199,12 +216,17 @@
 //! callbacks; the ring continues draining the link and other peers keep receiving.
 //!
 //! **Cross-host clocks (#64, C7 §6).** No custom clock synchronization is provided.
-//! The sender uses monotonic admission; after decrypting, the receiving core applies
-//! SEC-SEL-036 using its own wall clock. A slow receiving clock can extend effective
-//! validity by its skew, and a fast one can discard early. Operators must bound host
-//! clock skew operationally; no measured cross-host skew bound is claimed. Zenoh has
-//! no publication TTL: accept native retention and receiver late discard (#377); the
-//! frozen sender requirement's residual remains for the lead (risk row 77).
+//! Hosts in LAN mode must keep their clocks synchronised through NTP or the OS time
+//! service. OAC supports up to 5 s difference between hosts (lead decision, 2026-10-11).
+//! That is an operating limit, not a measured bound: the two-host plan in
+//! `tests/integration/README.md` measures skew against it and has not run. The sender
+//! uses monotonic admission; after decrypting, the receiving core applies SEC-SEL-036
+//! using its own wall clock. A slow receiving clock can extend effective validity by up
+//! to the skew, and a fast one may discard up to 5 s early. Zenoh has no publication TTL:
+//! native retention and receiver late discard are accepted (#377). The frozen IFC-TRN-034
+//! sender requirement is to be amended in a separate spec PR to match this behaviour
+//! (sender admission check plus receiver late discard). This binding does not edit
+//! `spec/` and claims no sender-copy bound (risk row 77).
 //!
 //! **Deadlines (IFC-TRN-034), review round 1.** Sender admission checks the monotonic
 //! deadline before copying and again immediately before resolving native `put`.
@@ -301,7 +323,7 @@
 //! | `ordering` | absent | No cross-link/restart ordering guarantee claimed. |
 //! | `multicast_discovery` | local absent; LAN configurable | Scouting explicit opt-in; gossip off. |
 //! | `routing_federation` | absent | Loopback relay only. |
-//! | `reach` | `cross-implementation` | Pinned local relay or configured paired TLS LAN peers. |
+//! | `reach` | `cross-implementation` | Per-user local relay (accepted trust rule) or configured paired TLS LAN peers. |
 //! | `destination_restricted` | absent | All peers receive all frames; sealing satisfies IFC-TRN-081. |
 //! | `max_payload_octets` | 1048576 | Contract suite exercises exact cap and one-octet overflow. |
 

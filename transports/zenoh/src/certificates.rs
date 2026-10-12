@@ -257,7 +257,8 @@ foreach ($d in @((Get-Item -LiteralPath $p)) + @(Get-ChildItem -LiteralPath $p -
     ordinary(path, true)
 }
 
-/// One self-signed certificate is both the per-user pin and the local mTLS identity.
+/// One self-signed certificate is both the per-user relay trust root and the local mTLS
+/// identity; the trust rule is the one stated in the transport binding document (lib.rs).
 /// A complete PEM bundle is published with an atomic no-overwrite hard link. Losing
 /// creators read the winner; partial/corrupt existing state fails closed in native TLS.
 /// Unix directories use mode 0700 at creation; temporary files use O_EXCL and mode 0600.
