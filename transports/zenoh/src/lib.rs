@@ -5,7 +5,8 @@
 //! synchronous `Wait` path.
 //!
 //! Every Zenoh type, identifier and concept stays inside this crate (C7 §2). The public
-//! surface is [`PeerTransport`], [`PeerConfiguration`], [`DEFAULT_PARTITION`],
+//! surface is [`PeerTransport`], [`PeerConfiguration`], [`CertificateFiles`],
+//! [`PairingAuthority`], [`IssuedCertificate`], [`DEFAULT_PARTITION`],
 //! [`DEFAULT_RENDEZVOUS_PORT`] and [`MAX_PAYLOAD_OCTETS`]; no signature names a Zenoh type.
 //! `PeerTransport::identifiers_for_leak_checks` exists only with the `test-support`
 //! feature, which only this crate's own tests turn on.
@@ -24,9 +25,13 @@
 //!
 //! # Transport binding document
 //!
-//! **Not for real traffic yet.** Core sealing has landed (#370), and this binding now
-//! declares `sealing`. The restriction remains until #64 also authenticates the relay
-//! with a per-user pinned TLS certificate (lead's condition of 2026-10-09).
+//! **Real local traffic is permitted under the accepted relay trust rule:** core-signed,
+//! per-recipient sealed payloads may traverse the per-user mTLS loopback relay. Its trust
+//! is Zenoh's native rule as described under "Per-user relay authentication" below, which
+//! the lead accepted on 2026-10-11. That rule is not an exclusive certificate pin. Core
+//! sealing (#370/#374) and the relay authentication condition (#64, PR #364) are both
+//! implemented. This does not declare Gate S4, live harness interoperability, or the
+//! two-host LAN leg passed.
 //!
 //! This section is the transport binding document that [IFC-TRN-090] requires, for the
 //! publish, subscribe and presence-carriage half (G1). G2 (#63) adds carrier loss, and G3
@@ -47,29 +52,120 @@
 //! the first transport on a host is the relay for the others (in the daemon model of C2 the
 //! host has one).
 //!
-//! **The rendezvous holder is not authenticated (port squatting).** Whatever binds the
-//! loopback rendezvous port first, or first after the holder exits, is the relay every
-//! other transport on the host uses. Nothing proves it is an OAC transport. So:
+//! **Per-user relay authentication (#64): the accepted Zenoh trust rule.** One generated
+//! self-signed certificate with IP SAN `127.0.0.1` and CN `oac-local` is stored under the
+//! OS user's OAC state directory (`LOCALAPPDATA/OAC/relay-tls` on Windows,
+//! `HOME/.local/state/OAC/relay-tls` on Unix). The owner-only directory holds one
+//! atomically published PEM bundle. Existing state is never regenerated on connection
+//! failure. Both roles configure that certificate as their mTLS identity and as an
+//! additional trust root. The connecting side extends its web-PKI roots with the configured
+//! root (zenoh 1.10.1, `io/zenoh-link-tls/src/utils.rs` L351-L357), so that root is not
+//! exclusive there. Zenoh verifies the relay's name (`127.0.0.1`) and expiration. The relay
+//! (listening side) checks client certificates against the configured root only
+//! (`utils.rs` L238-L243), so the stored certificate is its only root, with native
+//! certificate-CN ACLs on top.
+//! Public CAs may not issue certificates for loopback, so the public-root path is not
+//! expected to apply here. The effective trust is therefore possession of this user's
+//! private key: a certificate that key signs for the same name and IP SAN is accepted.
+//! Same-key certificate replacement was verified accepted, while a foreign key and an
+//! expired certificate were refused (review of head f12721549, 2026-10-11). Replacing only
+//! the certificate under the same key does not revoke the old certificate, so rotation
+//! must change the key (see the re-provisioning steps below). This is not an exclusive
+//! pin. The same user's next holder reuses the persisted certificate. Another user's
+//! certificate, plaintext Zenoh router, or arbitrary port holder is refused before
+//! native sample traffic. A responding port is never retried as a competing holder.
+//! Port denial of service, holder gaps and the unregistered fixed port remain; a process
+//! with access to the user's secret or root/admin authority remains trusted by the OS.
+//! Certificate names authorize transport links only, never OAC envelope signers.
 //!
-//! - a squatting program, run by any local user, receives every frame and can drop, delay
-//!   or withhold any of them, silently (envelope signatures and replay protection still
-//!   hold);
-//! - any program on the port that is not a Zenoh session stops OAC from starting at all
-//!   (`start` names the port and says it is held by something else);
-//! - one process, possibly another OS user's, relays the whole host, since every install
-//!   uses the same default port and partition;
-//! - between holders, transports are cut off;
-//! - [`DEFAULT_RENDEZVOUS_PORT`] (`17447`) is fixed and unregistered, so other software may
-//!   use it.
+//! **LAN mode, explicit opt-in configuration.** `PeerConfiguration::lan` uses native
+//! TLS peer mode with explicit IP endpoints and pairing-issued certificate files.
+//! `PairingAuthority::issue` and `IssuedCertificate::install` are provisioning seams:
+//! the caller must first authorize pairing and deliver credentials through that approved
+//! provisioning path. They do not authorize themselves from an incoming message and
+//! are not wired into a daemon/CLI pairing command yet (G9/G11). Use opaque TLS common
+//! names, never OAC device/session ids. Keep the issuer on the provisioning host.
+//! The same web-PKI widening applies to paired LAN roots: the connecting side adds them to
+//! Zenoh's web-PKI roots, while the listening side checks client certificates against the
+//! configured roots only. Public CAs are not expected to issue for private or reserved IP SANs.
+//! Every peer defaults to native `access_control` deny and permits only configured
+//! certificate common names on its partition's frame key (`put`, `declare_subscriber`,
+//! ingress and egress). A CA-valid but unlisted peer may establish a TLS link; Zenoh
+//! drops its disallowed operations rather than rejecting the link. ACLs do not make
+//! sealed payloads authentic: core signatures and authorization still govern delivery.
+//! Authenticated peer messages remain untrusted instructions.
 //!
-//! The lead ratified this design on 2026-10-09 on condition that G3 (#64) authenticates the
-//! relay with a per-user pinned TLS certificate before OAC carries real traffic
-//! (`11-risks.md` row 81; C7 §9 threat row; C7 §5 dated note).
+//! Scouting and gossip default off. Explicit endpoints are the G3 fallback on every
+//! platform. `with_lan_multicast(true)` enables native multicast scouting only in LAN
+//! mode; gossip stays off. Native `transport/link/protocols=["tls"]` excludes plaintext
+//! locators, including discovered ones. Both `transport_tcp` (native probes/tests) and
+//! approved `transport_tls` are compiled; QUIC, unstable and shared memory are not.
+//! LAN host reachability/scouting requires the unrun two-host leg in the integration
+//! README; default tests exercise this configuration only on loopback.
 //!
-//! Multicast scouting was the earlier default; it reached
-//! the LAN (PR #364 review, finding 1), and confining it to loopback cannot be guaranteed
-//! with the stable configuration (see `config.rs`), so it is not used. Only the
-//! `transport_tcp` link is compiled in. No `unstable` or `shared-memory` feature is used.
+//! **Certificate lifetime and recovery (#384, review finding 3).** Local self-signed
+//! certificates, pairing CAs and paired leaves retain rcgen 0.14.10 defaults:
+//! 1975-01-01 00:00:00 UTC to 4096-01-01 00:00:00 UTC. This is a very long credential
+//! lifetime, not an implemented renewal schedule. OAC sets no explicit validity and
+//! performs no automatic regeneration/renewal on expiry, corruption, non-private
+//! storage or failed connections. The valid/expired loopback control
+//! `native_tls_refuses_expired_certificate_without_regenerating_state` verifies native
+//! expiry refusal on join and unchanged stored material. Both roles enable Zenoh's
+//! `close_link_on_expiration`; upstream source implements closure at peer-chain expiry.
+//! Scheduled closure is source-verified, not a live timed-expiry test. Native TLS and
+//! the host clock own these checks; OAC adds no expiry handshake or clock protocol.
+//! Default-date source: <https://github.com/rustls/rcgen/blob/f4a3b165c467c070d5c74b86acc2c3f0a0be10ab/rcgen/src/certificate.rs>,
+//! rcgen 0.14.10, cached first-party source inspected 2026-10-11. Zenoh expiry source:
+//! <https://github.com/eclipse-zenoh/zenoh/blob/1.10.1/io/zenoh-link-tls/src/unicast.rs>,
+//! version 1.10.1, cached first-party source inspected 2026-10-11.
+//!
+//! **Explicit local re-provisioning/rotation (planned outage).**
+//! 1. Stop sends, shut down every local joiner and the live rendezvous holder, and
+//!    disable automatic restarts. Confirm that the holder has released the port and
+//!    no old session remains: file changes do not update credentials already in memory.
+//! 2. Retire the old owner-only `relay-tls` directory offline; keep any required backup
+//!    owner-only and inaccessible to running peers. Do not reset state while a holder
+//!    is active or merely because a connection failed. Investigate privacy failures
+//!    before deliberately replacing storage. Use a fresh absent state directory.
+//! 3. Start one intended holder through normal provisioning. It creates a new key and
+//!    complete bundle in private storage. Restart all joiners with that same directory;
+//!    check native link establishment before resuming sends. Retire old backups under
+//!    the operator's key-disposal policy. Rotation must use a fresh private key: a
+//!    certificate-only replacement under the old key is not revocation, because the old
+//!    certificate still verifies under the accepted rule. This sequence does not
+//!    establish an exclusive pin (review finding 1).
+//!
+//! **Explicit LAN re-provisioning/rotation (planned group outage).**
+//! 1. Coordinate all peers in the affected pairing trust group, stop sends and all live
+//!    listeners/joiners, and disable restarts. Include offline peers in the rollout;
+//!    leave an unupdated peer stopped. Live sessions retain loaded credentials.
+//! 2. Through the authorized offline provisioning path, issue fresh keys/leaves with
+//!    correct IP SANs and approved opaque CNs. For authority expiry, compromise or
+//!    revocation, create a fresh `PairingAuthority` and reissue every group's leaf;
+//!    replacing a leaf under the old CA does not revoke other old CA-valid leaves.
+//! 3. Install each credential into a fresh owner-only directory (`install` refuses
+//!    replacement). Update every peer's `CertificateFiles`, trusted roots, endpoints
+//!    and CN allowlist together. Remove the old group's roots everywhere when retiring
+//!    that authority; do not leave a dual-root transition for revocation. Retire old
+//!    credential directories offline with owner-only backup/key-disposal handling.
+//! 4. Restart intended listening peers, then their connecting peers using the new
+//!    configuration. Verify native TLS links and allowed/denied CN operations before
+//!    resuming sends. On failure keep traffic stopped and repair provisioning explicitly;
+//!    never regenerate or trust a newly encountered peer automatically.
+//!
+//! This is operator coordination through existing provisioning/configuration seams,
+//! not a custom rotation protocol. Daemon/CLI wiring and two-host validation remain
+//! unimplemented/unrun; root changes do not establish an exclusive pin. Replacement is
+//! governed by the accepted key-possession rule above, so a LAN rotation must also change
+//! the key. TLS rotation does not rotate core signing
+//! or agreement keys or change core authorization.
+//!
+//! Sources: Zenoh supported stable configuration / TLS / ACL implementation, version
+//! 1.10.1, retrieved/inspected 2026-10-11:
+//! <https://github.com/eclipse-zenoh/zenoh/blob/1.10.1/DEFAULT_CONFIG.json5>,
+//! <https://github.com/eclipse-zenoh/zenoh/blob/1.10.1/io/zenoh-link-tls/src/utils.rs>,
+//! <https://github.com/eclipse-zenoh/zenoh/blob/1.10.1/io/zenoh-link-tls/src/unicast.rs>,
+//! <https://github.com/eclipse-zenoh/zenoh/blob/1.10.1/zenoh/src/net/routing/interceptor/access_control.rs>.
 //!
 //! The evidence that local mode reaches nothing beyond loopback is
 //! `tests/peer_transport.rs` `local_mode_reaches_nothing_beyond_loopback`: a LAN-address
@@ -123,6 +219,19 @@
 //! not a bound on Zenoh's link buffers or process RSS. One dispatch thread calls core
 //! handlers behind lifecycle gates. A stalled handler holds up only its own transport's
 //! callbacks; the ring continues draining the link and other peers keep receiving.
+//!
+//! **Cross-host clocks (#64, C7 §6).** No custom clock synchronization is provided.
+//! Hosts in LAN mode must keep their clocks synchronised through NTP or the OS time
+//! service. OAC supports up to 5 s difference between hosts (lead decision, 2026-10-11).
+//! That is an operating limit, not a measured bound: the two-host plan in
+//! `tests/integration/README.md` measures skew against it and has not run. The sender
+//! uses monotonic admission; after decrypting, the receiving core applies SEC-SEL-036
+//! using its own wall clock. A slow receiving clock can extend effective validity by up
+//! to the skew, and a fast one may discard up to 5 s early. Zenoh has no publication TTL:
+//! native retention and receiver late discard are accepted (#377). The frozen IFC-TRN-034
+//! sender requirement is to be amended in a separate spec PR to match this behaviour
+//! (sender admission check plus receiver late discard). This binding does not edit
+//! `spec/` and claims no sender-copy bound (risk row 77).
 //!
 //! **Deadlines (IFC-TRN-034), review round 1.** Sender admission checks the monotonic
 //! deadline before copying and again immediately before resolving native `put`.
@@ -217,21 +326,25 @@
 //! | `reliability` | absent | Native ring drops oldest on overflow; no retry across lost links. |
 //! | `persistence`, `offline_queueing` | absent | No durable store or OAC retry queue. |
 //! | `ordering` | absent | No cross-link/restart ordering guarantee claimed. |
-//! | `multicast_discovery` | absent | Scouting and gossip off. |
+//! | `multicast_discovery` | local absent; LAN configurable | Scouting explicit opt-in; gossip off. |
 //! | `routing_federation` | absent | Loopback relay only. |
-//! | `reach` | `cross-implementation` | Peers in one partition through the loopback relay. |
+//! | `reach` | `cross-implementation` | Per-user local relay (accepted trust rule) or configured paired TLS LAN peers. |
 //! | `destination_restricted` | absent | All peers receive all frames; sealing satisfies IFC-TRN-081. |
 //! | `max_payload_octets` | 1048576 | Contract suite exercises exact cap and one-octet overflow. |
 
 mod addressing;
+mod certificates;
 mod config;
 mod gate;
 mod presence;
 mod transport;
 
 #[cfg(test)]
+mod security_tests;
+#[cfg(test)]
 mod tests;
 
+pub use certificates::{CertificateFiles, IssuedCertificate, PairingAuthority};
 pub use config::{DEFAULT_PARTITION, DEFAULT_RENDEZVOUS_PORT, PeerConfiguration};
 pub use transport::{MAX_PAYLOAD_OCTETS, PeerTransport};
 

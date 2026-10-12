@@ -1,5 +1,22 @@
 # OAC status
 
+**Last updated:** 2026-10-11 (**#64, native TLS local/LAN configuration; Refs #377**).
+Local mode uses one persisted per-user certificate as an additional root and mTLS identity,
+with native name/expiration checks and native default-deny certificate-CN ACLs. Plain or
+foreign-key holders fail; same-user replacement reuses the persisted certificate and Zenoh
+reconnects. Trust is possession of the user's private key, the rule the lead accepted on
+2026-10-11; it is not an exclusive pin (risk row 81). Local core-signed sealed
+traffic is permitted once this change lands. LAN TLS peer configuration accepts
+pairing-issued files and approved CN subjects; multicast is opt-in, explicit endpoints
+are the fallback. Loopback tests cover allowed/denied subjects and wrong IP names.
+Two-host LAN/scouting/clock evidence is planned, not run; daemon/CLI pairing wiring
+remains G9/G11 work. No gate verdict, protocol requirement, dependency pin or ADR change.
+Zenoh's no-TTL behavior and receiver-local late discard are accepted per #377; no
+custom clock synchronization. Sender retention and measured host skew remain lead
+residuals (risk row 77). Security configuration source: supported Zenoh 1.10.1,
+https://github.com/eclipse-zenoh/zenoh/blob/1.10.1/DEFAULT_CONFIG.json5,
+retrieved/inspected 2026-10-11. Binding and evidence: `transports/zenoh/src/lib.rs`.
+
 **Last updated:** 2026-10-10 (**#374, sealed Zenoh binding; Refs #62, #64, #377**).
 The reference transport declares `sealing`, publishes core frame bytes directly on one
 destination-independent partition key with fixed encoding, and delivers all frames to the
@@ -9,7 +26,7 @@ Zenoh RingChannel owns overflow (drop-oldest, 16 frames, 16 MiB queued-payload b
 ephemeral listeners use `:0`. The binding-specific contract harness captures native sample
 carriage for the unchanged sealing-aware shared suite. Appendix A evidence cells for
 IFC-TRN-043/050 are updated; frozen requirement text and suites are unchanged.
-No real traffic until #64 authenticates the relay with the per-user pinned TLS certificate.
+Dated update 2026-10-11 (#64, PR #384): per-user native mTLS, with the persisted certificate as an additional root, authenticates the local relay under the lead's accepted key-possession rule (not an exclusive pin); core-signed sealed local traffic is permitted on that path under that rule. No S4/live-harness/two-host LAN verdict is claimed. See the current binding and risk row 81.
 **Review round 1 (#382):** native ingress `low_pass_filter` replaces the receive-size
 predicate; outgoing frames use fixed `Drop`, `Data`, express publication and a flat 1 ms native
 batch-refill budget, without fragment extensions. Zenoh preallocates its 16-batch data pool at link initialization.

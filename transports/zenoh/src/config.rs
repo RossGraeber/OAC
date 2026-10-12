@@ -3,7 +3,7 @@
 //! [`PeerConfiguration`]: what `start` is given, in neutral words, and the native
 //! configuration built from it inside this crate.
 //!
-//! Local mode only (C7 §5): in-process sessions, every listener bound to `127.0.0.1`, no
+//! Local mode (C7 §5): in-process sessions, every listener bound to `127.0.0.1`, no
 //! separately run router daemon, and **no multicast scouting and no gossip**. Peers
 //! meet at a fixed loopback rendezvous port. The first transport to start listens on it, in
 //! Zenoh's router mode inside this process, and relays between the others. Every later
@@ -19,9 +19,12 @@
 //! datagrams any other socket on the host joined on any interface (`IP_MULTICAST_ALL`). So
 //! local mode fails closed: scouting off and the fixed rendezvous everywhere. This reverses
 //! C7 §5's "multicast scouting on by default" by its own named reversal path (the G3
-//! fallback); the dated note in C7 §5 records it. LAN mode and TLS are G3's (#64).
+//! fallback); the dated note in C7 §5 records it. G3 (#64) adds per-user local relay TLS
+//! under the accepted trust rule and explicit paired LAN TLS.
 
+use crate::certificates::{self, CertificateFiles};
 use std::net::{Ipv4Addr, SocketAddr, TcpStream};
+use std::path::PathBuf;
 use std::time::Duration;
 
 use oac_core::transport::TransportConfiguration;
@@ -32,6 +35,17 @@ use oac_core::transport::TransportConfiguration;
 pub struct PeerConfiguration {
     port: u16,
     partition: String,
+    local_directory: Option<PathBuf>,
+    lan: Option<Lan>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Lan {
+    listen: SocketAddr,
+    connect: Vec<SocketAddr>,
+    certificates: CertificateFiles,
+    subjects: Vec<String>,
+    multicast: bool,
 }
 
 /// The partition label of [`PeerConfiguration::local`].
@@ -72,7 +86,45 @@ impl PeerConfiguration {
         PeerConfiguration {
             port,
             partition: DEFAULT_PARTITION.to_owned(),
+            local_directory: None,
+            lan: None,
         }
+    }
+
+    /// Isolated owner-only state directory (normally the OS user's OAC state directory).
+    /// Never share this directory with another user; never reset it on connection failure.
+    pub fn with_local_certificate_directory(mut self, directory: impl Into<PathBuf>) -> Self {
+        self.local_directory = Some(directory.into());
+        self
+    }
+
+    /// Explicit LAN TLS peer mode. Certificates are installed by authorized pairing,
+    /// with IP SANs matching configured addresses. Subjects are certificate common names,
+    /// opaque transport names, never device/session ids. An empty allowlist denies all.
+    /// Scouting defaults off: explicit endpoints are the G3 rendezvous fallback.
+    pub fn lan(
+        listen: SocketAddr,
+        connect: Vec<SocketAddr>,
+        certificates: CertificateFiles,
+        allowed_subjects: Vec<String>,
+    ) -> Self {
+        let mut conf = Self::local();
+        conf.lan = Some(Lan {
+            listen,
+            connect,
+            certificates,
+            subjects: allowed_subjects,
+            multicast: false,
+        });
+        conf
+    }
+
+    /// Enable native LAN multicast scouting explicitly. Local mode cannot enable it.
+    pub fn with_lan_multicast(mut self, enabled: bool) -> Self {
+        if let Some(lan) = &mut self.lan {
+            lan.multicast = enabled;
+        }
+        self
     }
 
     /// The same configuration in partition `label`. Peers in different partitions never
@@ -88,6 +140,25 @@ impl PeerConfiguration {
         &self.partition
     }
 
+    pub(crate) fn multicast_enabled(&self) -> bool {
+        self.lan.as_ref().is_some_and(|lan| lan.multicast)
+    }
+
+    #[cfg(feature = "test-support")]
+    pub(crate) fn configured_endpoints(&self) -> Vec<String> {
+        if let Some(lan) = &self.lan {
+            std::iter::once(lan.listen)
+                .chain(lan.connect.iter().copied())
+                .map(|a| format!("tls/{a}"))
+                .collect()
+        } else {
+            vec![
+                "tls/127.0.0.1:0".into(),
+                format!("tls/127.0.0.1:{}", self.port),
+            ]
+        }
+    }
+
     /// The loopback rendezvous port.
     pub fn rendezvous_port(&self) -> u16 {
         self.port
@@ -99,14 +170,18 @@ impl PeerConfiguration {
     }
 
     /// The roles to try, in order: whether something already accepts connections on the
-    /// port decides which side is tried first. A listen alone cannot decide it: some
+    /// port selects joiner only, failing closed on untrusted holders. Otherwise try
+    /// holding it, then joining a concurrent winner. A listen alone cannot decide: some
     /// platforms let a second listener bind a port that is in use.
-    pub(crate) fn roles(&self) -> [Role; 2] {
+    pub(crate) fn roles(&self) -> Vec<Role> {
+        if self.lan.is_some() {
+            return vec![Role::First];
+        }
         let a = SocketAddr::from((Ipv4Addr::LOCALHOST, self.port));
         if TcpStream::connect_timeout(&a, Duration::from_millis(500)).is_ok() {
-            [Role::Joiner, Role::First]
+            vec![Role::Joiner]
         } else {
-            [Role::First, Role::Joiner]
+            vec![Role::First, Role::Joiner]
         }
     }
 
@@ -135,6 +210,9 @@ impl PeerConfiguration {
             Role::Joiner => r#""client""#,
         };
         set("mode", mode.into())?;
+        if self.lan.is_some() {
+            set("mode", r#""peer""#.into())?;
+        }
         set("adminspace/enabled", "false".into())?;
         // Router mode defaults to automatic timestamps. Sealed samples carry no
         // application time value beside the core frame, including at the relay.
@@ -143,6 +221,69 @@ impl PeerConfiguration {
         // to a locator a peer was told rather than configured with.
         set("scouting/multicast/enabled", "false".into())?;
         set("scouting/gossip/enabled", "false".into())?;
+        if self.lan.as_ref().is_some_and(|lan| lan.multicast) {
+            set("scouting/multicast/enabled", "true".into())?;
+        }
+        // Native protocol allowlist also rejects plaintext discovered locators.
+        set("transport/link/protocols", r#"["tls"]"#.into())?;
+        let files = if let Some(lan) = &self.lan {
+            lan.certificates.validate()?;
+            lan.certificates.clone()
+        } else if let Some(dir) = &self.local_directory {
+            certificates::local_files(dir)?
+        } else {
+            static FILES: std::sync::OnceLock<Result<CertificateFiles, String>> =
+                std::sync::OnceLock::new();
+            FILES
+                .get_or_init(|| certificates::local_files(&certificates::default_directory()?))
+                .clone()?
+        };
+        // `root_ca_certificate` is an additional root: Zenoh's TLS client extends its web-PKI
+        // roots with it and does not replace them. Trust is the accepted key-possession rule
+        // in the transport binding document (lib.rs), not an exclusive certificate pin.
+        // Zenoh verifies the peer's name and expiration; OAC adds no handshake of its own.
+        for (name, path) in [
+            ("root_ca_certificate", &files.trusted_roots),
+            ("listen_certificate", &files.certificate),
+            ("listen_private_key", &files.private_key),
+            ("connect_certificate", &files.certificate),
+            ("connect_private_key", &files.private_key),
+        ] {
+            set(
+                &format!("transport/link/tls/{name}"),
+                serde_json::to_string(path).map_err(|_| "invalid certificate path")?,
+            )?;
+        }
+        set("transport/link/tls/enable_mtls", "true".into())?;
+        set("transport/link/tls/verify_name_on_connect", "true".into())?;
+        set("transport/link/tls/close_link_on_expiration", "true".into())?;
+        let subjects = self
+            .lan
+            .as_ref()
+            .map(|lan| lan.subjects.clone())
+            .unwrap_or_else(|| vec![certificates::local_subject().into()]);
+        if subjects.iter().any(|s| s.is_empty()) {
+            return Err("empty certificate subject".into());
+        }
+        let (subjects, policies) = if subjects.is_empty() {
+            (serde_json::json!([]), serde_json::json!([]))
+        } else {
+            (
+                serde_json::json!([{"id":"paired", "cert_common_names":subjects, "link_protocols":["tls"]}]),
+                serde_json::json!([{"rules":["frames"], "subjects":["paired"]}]),
+            )
+        };
+        set(
+            "access_control",
+            serde_json::json!({
+                "enabled":true, "default_permission":"deny",
+                "rules":[{"id":"frames", "permission":"allow", "flows":["ingress","egress"],
+                    "messages":["put","declare_subscriber"],
+                    "key_exprs":[crate::addressing::Partition::new(&self.partition).key()]}],
+                "subjects":subjects, "policies":policies
+            })
+            .to_string(),
+        )?;
         // Native ingress admission includes payload + attachment, before OAC's callback.
         // The link defragmentation limit counts protocol bytes, so it cannot express
         // the exact inclusive payload cap (and does not filter unfragmented samples).
@@ -182,13 +323,31 @@ impl PeerConfiguration {
         set("open/return_conditions/declares", "true".into())?;
         set(
             "listen/endpoints",
-            format!(r#"["tcp/127.0.0.1:{listen_port}"]"#),
+            format!(r#"["tls/127.0.0.1:{listen_port}"]"#),
         )?;
         set("listen/exit_on_failure", "true".into())?;
         if role == Role::Joiner {
             set(
                 "connect/endpoints",
-                format!(r#"["tcp/127.0.0.1:{}"]"#, self.port),
+                format!(r#"["tls/127.0.0.1:{}"]"#, self.port),
+            )?;
+            set("connect/timeout_ms", "5000".into())?;
+            set("connect/exit_on_failure", "true".into())?;
+        }
+        if let Some(lan) = &self.lan {
+            set(
+                "listen/endpoints",
+                serde_json::json!([format!("tls/{}", lan.listen)]).to_string(),
+            )?;
+            set(
+                "connect/endpoints",
+                serde_json::json!(
+                    lan.connect
+                        .iter()
+                        .map(|a| format!("tls/{a}"))
+                        .collect::<Vec<_>>()
+                )
+                .to_string(),
             )?;
             set("connect/timeout_ms", "5000".into())?;
             set("connect/exit_on_failure", "true".into())?;
@@ -226,7 +385,7 @@ mod tests {
                 let v = json(&n, k);
                 let endpoints: Vec<&str> = v.split('"').filter(|s| s.contains('/')).collect();
                 assert!(
-                    endpoints.iter().all(|e| e.starts_with("tcp/127.0.0.1:")),
+                    endpoints.iter().all(|e| e.starts_with("tls/127.0.0.1:")),
                     "{k}: {v}"
                 );
             }
@@ -237,7 +396,7 @@ mod tests {
     fn the_two_roles() {
         let c = PeerConfiguration::rendezvous(17448).with_partition("t");
         assert_eq!(c.rendezvous_port(), 17448);
-        assert_eq!(c.roles().len(), 2);
+        assert!(!c.roles().is_empty());
         let first = c.native(Role::First, c.listen_port(Role::First)).unwrap();
         assert!(json(&first, "listen/endpoints").contains("127.0.0.1:17448"));
         assert_eq!(json(&first, "connect/endpoints"), "[]");

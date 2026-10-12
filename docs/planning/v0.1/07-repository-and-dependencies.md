@@ -317,7 +317,7 @@ adds over C1: the "which module consumes it" mapping onto §2's module table.
 | `rmcp` | `3.4.0` (`=3.4.0`; `default-features = false`, features `server` and `transport-async-rw` only; `macros` refused on the dependency line, in the adapter's own `[features]`, and as `rmcp-macros` anywhere in the graph, G-7 §5) | Apache-2.0 | Rust MCP SDK — the MCP server side of both adapters (G-7 §2, §5) | No | Yes — same license | C1 §3, §10; G-7 §3.1 | `adapters/mcp-tools/`, `adapters/claude/`, `adapters/codex/` (dated note below) |
 | `zenoh` | `1.10.1` (`=1.10.1`; `default-features = false`, features `transport_tcp` and `transport_tls` only; no `unstable`, no `shared-memory`) | EPL-2.0 / Apache-2.0 (dual) | Reference peer-to-peer transport plugin | **Yes — EPL-2.0 is the other arm of the dual license; flagged** (§6) | Yes — OAC elects the Apache-2.0 arm | C1 §7, §10; G-7 §3.1 | `transports/zenoh/` only |
 | `tokio` (added 2026-10-08, #7) | `1.53.2` (`=1.53.2`; features per consumer; in adapters only those `rmcp` enables: `sync`, `macros`, `rt`, `time`, `io-util`, held on the dependency line, in the adapter's own `[features]`, and in the resolved package (registry copies under `$CARGO_HOME/registry/src`; no tracked `.cargo/config*` naming `source`, `patch` or `paths`, `check-crate-deps.mjs` rule 7), for every member under `adapters/`; a feature another member turns on fails `check-crate-deps.mjs --adapters-alone` in CI, which builds the adapters alone with default features and with `--all-features`, each in dev and release profiles; rule 8 refuses an excluded or non-member path crate inside the workspace; the checks trust CI's cargo command lines and environment, held by `check-workflows.mjs` W6, G-7 §5) | MIT | Async runtime: `rmcp`'s runtime, the daemon's runtime and local IPC (G-7 §8.1) | No | Yes — permissive | G-7 §3.1 | `cli/`, `adapters/*`, `adapters/mcp-tools/`, `transports/zenoh/` |
-| `rcgen` (added 2026-10-08, #7) | `0.14.10` (`=0.14.10`; `default-features = false`, features `pem`, `ring`) | MIT OR Apache-2.0 | The automatically generated local-mode TLS certificate (C7 §5) | No | Yes — OAC elects the Apache-2.0 arm | G-7 §3.1 | `transports/zenoh/` or the daemon's state code in `cli/`, as G3 (#64) decides |
+| `rcgen` (added 2026-10-08, #7) | `0.14.10` (`=0.14.10`; `default-features = false`, features `pem`, `ring`) | MIT OR Apache-2.0 | Local per-user relay certificate and authorized LAN pairing issuance (#64, C7 §5) | No | Yes — OAC elects the Apache-2.0 arm | G-7 §3.1 | `transports/zenoh/` (#64) |
 | `windows-sys` (added 2026-10-08, #7) | `0.61.2` (`=0.61.2`; `Win32_Foundation`, `Win32_System_Pipes`) | MIT OR Apache-2.0 | Peer PID of a named-pipe client (`GetNamedPipeClientProcessId`) for local IPC peer auth; already in the graph at this version | No | Yes — OAC elects the Apache-2.0 arm | G-7 §3.1, §8.1 | `cli/` (Windows) |
 | `libc` (added 2026-10-08, #7) | `0.2.190` (`=0.2.190`) | MIT OR Apache-2.0 | Peer credentials on Unix sockets (`SO_PEERCRED`; macOS `LOCAL_PEEREPID`) where `tokio` does not cover them; already a Unix dependency of `cli/` (dated note below) | No | Yes — OAC elects the Apache-2.0 arm | G-7 §3.1, §8.1 | `cli/` (Unix) |
 | `keyring` | `4.2.0` | MIT OR Apache-2.0 | OS-native credential store facade for OAC's own device keys (Windows Credential Manager / macOS Keychain / Linux Secret Service or keyutils) | No | Yes — OAC elects the Apache-2.0 arm | C1 §8, §10 | Daemon binary's own identity code (not `core/`, per §1's daemon note) |
@@ -711,3 +711,14 @@ Per `oac-boundaries`' pre-commit self-check:
   `docs/planning/DESIGN.md`'s sketch beyond the daemon note (§1) already explained by
   `docs/planning/v0.1/04-architecture.md` §2 — no new conflict is recorded in
   `docs/planning/v0.1/03-decisions-and-amendments.md`.
+
+
+G3 implementation dependency note (2026-10-11, #64): `transports/zenoh/` enables the
+already-approved `transport_tls` feature on Zenoh `=1.10.1` alongside `transport_tcp`
+(native plaintext refusal/probe tests). Production configuration allows TLS only.
+It consumes approved `rcgen =0.14.10`, default features off, `pem`, `ring`, for local
+certificates and authorized LAN pairing issuance, and existing `serde_json =1.0.151`
+(MIT OR Apache-2.0, Apache-2.0 elected) for native configuration serialization.
+The new TLS/rcgen lockfile entries are the graph already inventoried and accepted in
+G-7 §3.1 and its license appendix; no new pin, crypto backend, license exception or
+download. OAC owns storage/provisioning only; Zenoh owns TLS verification and ACLs.
