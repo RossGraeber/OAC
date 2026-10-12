@@ -438,6 +438,24 @@ struct TrackerEntry {
 
 type TrackerKey = (Token, SessionId);
 
+/// Local bookkeeping that follows a publication once the transport has settled it. The
+/// ownership result of a committed send is known at that point, so it never waits on the
+/// core lock for these: they are recorded here under a short lock of their own and applied
+/// by the core before any state they touch is exposed (see `Inner::apply_tracking`).
+enum TrackingUpdate {
+    /// The transport took the envelope: its tracker is `passed`.
+    Passed(TrackerKey),
+    /// The envelope was not passed: nothing more will come for it, so it is not tracked.
+    Untrack(TrackerKey),
+    /// Whether the transport took the announcement issued at `at`.
+    Announcement {
+        session: SessionId,
+        device: KeyId,
+        at: Instant,
+        result: PublishResult,
+    },
+}
+
 /// An announcement issued to one device: when, and whether the transport took it. Until it
 /// is taken, every send to that device issues its own ([SEC-PRS-010]), so no envelope can
 /// overtake the only announcement on another thread.
@@ -496,6 +514,12 @@ struct Inner {
     closures: Mutex<LocalClosures>,
     peer_workers: Mutex<Vec<std::thread::JoinHandle<()>>>,
     committed_sends: Mutex<HashMap<AdapterId, usize>>,
+    /// Post-publication bookkeeping not yet applied by the core (see [`TrackingUpdate`]).
+    /// A leaf lock: nothing else is taken while it is held.
+    tracking: Mutex<Vec<TrackingUpdate>>,
+    /// Set while the one core-owned worker applying `tracking` is live.
+    tracking_worker: AtomicBool,
+    tracking_handles: Mutex<Vec<std::thread::JoinHandle<()>>>,
     local_workers: AtomicUsize,
     identity: DeviceIdentity,
     clock: Arc<dyn Clock>,
@@ -624,6 +648,9 @@ impl Pipelines {
                 closures: Mutex::default(),
                 peer_workers: Mutex::default(),
                 committed_sends: Mutex::default(),
+                tracking: Mutex::default(),
+                tracking_worker: AtomicBool::new(false),
+                tracking_handles: Mutex::default(),
                 local_workers: AtomicUsize::new(0),
                 identity,
                 store: DuplicateStore::new(clock.clone()),
@@ -1210,6 +1237,15 @@ impl Pipelines {
         for worker in workers {
             let _ = worker.join();
         }
+        let tracking = std::mem::take(
+            &mut *inner
+                .tracking_handles
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner),
+        );
+        for worker in tracking {
+            let _ = worker.join();
+        }
         inner.transport.shutdown();
     }
 }
@@ -1448,6 +1484,7 @@ impl Inner {
     fn lock(&self) -> MutexGuard<'_, Core> {
         let mut core = self.core.lock().unwrap_or_else(PoisonError::into_inner);
         self.apply_closures(&mut core);
+        self.apply_tracking(&mut core);
         core
     }
 
@@ -1457,7 +1494,85 @@ impl Inner {
     ) -> Result<MutexGuard<'a, Core>, crate::local_call::LocalResult<()>> {
         let mut core = call.lock(&self.core)?;
         self.apply_closures(&mut core);
+        self.apply_tracking(&mut core);
         Ok(core)
+    }
+
+    /// Applies the bookkeeping recorded after settled publications, in order. Every core
+    /// snapshot does this first, so no reader sees a tracker or an announcement state
+    /// older than a publication result already returned.
+    fn apply_tracking(&self, core: &mut Core) {
+        let updates =
+            std::mem::take(&mut *self.tracking.lock().unwrap_or_else(PoisonError::into_inner));
+        for update in updates {
+            match update {
+                TrackingUpdate::Passed(key) => {
+                    if let Some(t) = core.trackers.get_mut(&key) {
+                        t.tracker.passed();
+                    }
+                }
+                TrackingUpdate::Untrack(key) => {
+                    core.trackers.remove(&key);
+                }
+                TrackingUpdate::Announcement {
+                    session,
+                    device,
+                    at,
+                    result,
+                } => {
+                    let pair = (session, device);
+                    match (core.announced.get_mut(&pair), result) {
+                        (Some(a), PublishResult::Taken) if a.at == at => a.taken = true,
+                        (Some(a), PublishResult::NotTaken) if a.at == at => {
+                            core.announced.remove(&pair);
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+
+    /// Records `update` after a publication settled, without waiting for the core: applied
+    /// at once when the core is free, otherwise left to the one core-owned worker, which
+    /// applies it when the core lock is next available. The caller's result does not depend
+    /// on either, and the update is never dropped or timed out.
+    fn settle_tracking(self: &Arc<Self>, update: TrackingUpdate) {
+        self.tracking
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(update);
+        match self.core.try_lock() {
+            Ok(mut core) => return self.apply_tracking(&mut core),
+            Err(std::sync::TryLockError::Poisoned(p)) => {
+                return self.apply_tracking(&mut p.into_inner());
+            }
+            Err(std::sync::TryLockError::WouldBlock) => {}
+        }
+        if self.tracking_worker.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let inner = self.clone();
+        let worker = std::thread::spawn(move || {
+            loop {
+                drop(inner.lock());
+                inner.tracking_worker.store(false, Ordering::SeqCst);
+                let more = !inner
+                    .tracking
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .is_empty();
+                if !more || inner.tracking_worker.swap(true, Ordering::SeqCst) {
+                    break;
+                }
+            }
+        });
+        let mut handles = self
+            .tracking_handles
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        handles.retain(|h| !h.is_finished());
+        handles.push(worker);
     }
 
     fn apply_closures(&self, core: &mut Core) {
@@ -1600,7 +1715,7 @@ impl Inner {
 
     // ---- send path --------------------------------------------------------------------
 
-    fn send(&self, adapter: AdapterId, request: SendRequest) -> SendRequestResult {
+    fn send(self: &Arc<Self>, adapter: AdapterId, request: SendRequest) -> SendRequestResult {
         let mut call = crate::local_call::CallAdmission::default().call(None, 1000);
         match self.send_local(adapter, &mut call, request) {
             crate::local_call::LocalResult::Completed(v) => v,
@@ -1611,7 +1726,7 @@ impl Inner {
     }
 
     fn send_local(
-        &self,
+        self: &Arc<Self>,
         adapter: AdapterId,
         call: &mut crate::local_call::CallContext,
         request: SendRequest,
@@ -1732,12 +1847,19 @@ impl Inner {
                 payload,
                 self.control_deadline(),
             );
-            self.announcement_taken(env.from(), &to_key, mono, result);
+            // The publication has settled: nothing below waits for the core lock, so the
+            // ownership result is returned within the local budget ([IFC-ADP-117]).
+            self.settle_tracking(TrackingUpdate::Announcement {
+                session: env.from().clone(),
+                device: to_key.clone(),
+                at: mono,
+                result,
+            });
             if result == PublishResult::NotTaken {
                 // [SEC-PRS-010]: the announcement was not issued, so the envelope is not
                 // passed either: `failed` with `transport-failure`, no copy passed (§8.4.1).
                 // The sent record stays; no copy of its envelope exists to answer.
-                self.lock().trackers.remove(&key);
+                self.settle_tracking(TrackingUpdate::Untrack(key));
                 return LocalResult::Completed(SendRequestResult::NotPassed {
                     id,
                     error: ErrorCode::TransportFailure,
@@ -1752,12 +1874,9 @@ impl Inner {
             Payload::new(PayloadKind::Envelope, env.octets().to_vec()),
             deadline,
         );
-        let mut core = self.lock();
         LocalResult::Completed(match result {
             PublishResult::Taken => {
-                if let Some(t) = core.trackers.get_mut(&key) {
-                    t.tracker.passed();
-                }
+                self.settle_tracking(TrackingUpdate::Passed(key));
                 SendRequestResult::Sent {
                     id,
                     correlation: prepared.correlation,
@@ -1767,7 +1886,7 @@ impl Inner {
             PublishResult::NotTaken => {
                 // `failed` with `transport-failure`: no copy was passed (§8.4.1); nothing
                 // more will come for it, so it is not tracked.
-                core.trackers.remove(&key);
+                self.settle_tracking(TrackingUpdate::Untrack(key));
                 SendRequestResult::NotPassed {
                     id,
                     error: ErrorCode::TransportFailure,

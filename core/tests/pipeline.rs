@@ -68,6 +68,11 @@ struct BusState {
     /// Run once, on the sender's thread, when the next presence record is passed and
     /// before it is taken.
     on_presence: Option<Box<dyn FnOnce() + Send>>,
+    /// Declared `publish_bound_ms` of every endpoint ([IFC-TRN-114]).
+    publish_bound: Option<u64>,
+    /// Take payloads without delivering them: the medium is paused after ownership, so a
+    /// test holding a device's core lock is not met by an inline delivery.
+    no_delivery: bool,
 }
 
 /// A loopback medium for several endpoints, one per device key.
@@ -118,6 +123,15 @@ impl Endpoint {
 }
 
 impl Transport for Endpoint {
+    fn publish_bound_ms(&self) -> Option<std::num::NonZeroU64> {
+        self.bus
+            .0
+            .lock()
+            .unwrap()
+            .publish_bound
+            .and_then(std::num::NonZeroU64::new)
+    }
+
     fn start(
         &self,
         local_device: &KeyId,
@@ -166,10 +180,12 @@ impl Transport for Endpoint {
             }
             st.log
                 .push((me.clone(), payload.kind(), destination.clone()));
+            let no_delivery = st.no_delivery;
             st.subs
                 .iter()
                 .filter(|(_, owner, d, _)| {
-                    d == destination
+                    !no_delivery
+                        && d == destination
                         && match destination {
                             Destination::Device(k) => owner == k,
                             Destination::Session(_) => true,
@@ -604,6 +620,140 @@ fn local_core_send_waits_for_ownership_after_commit_and_keeps_the_original_id() 
                 .is_some()
         );
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Ownership {
+    Taken,
+    NotTaken,
+    AnnouncementRefused,
+}
+
+/// IFC-ADP-117, IFC-ADP-118: once the transport has settled the publication, the ownership
+/// result is returned within the local budget however long the core lock stays held. The
+/// transport is paused in `publish` (or `send_presence`) and declares a 500 ms bound, the core
+/// lock is held through `with_engine`, closure may have begun, and only then is the
+/// publication released. The result must arrive while the lock is still held.
+fn check_post_publication_core_contention(case: Ownership, closing: bool) {
+    use oac_core::local_call::{CallAdmission, LocalResult};
+    let t = two_devices(false);
+    let (entered, entered_rx) = std::sync::mpsc::channel();
+    let (release, release_rx) = std::sync::mpsc::channel();
+    {
+        let mut st = t.bus.0.lock().unwrap();
+        st.publish_bound = Some(500);
+        st.no_delivery = true;
+        match case {
+            Ownership::AnnouncementRefused => {
+                st.refuse_presence = 1;
+                st.on_presence = Some(Box::new(move || {
+                    entered.send(()).unwrap();
+                    release_rx.recv().unwrap();
+                }));
+            }
+            Ownership::Taken | Ownership::NotTaken => {
+                st.refuse_envelopes = case == Ownership::NotTaken;
+                st.on_publish = Some(Box::new(move |_| {
+                    entered.send(()).unwrap();
+                    release_rx.recv().unwrap();
+                }));
+            }
+        }
+    }
+    assert_eq!(
+        t.x.pipes
+            .shutdown_guarantee(t.x.adapter_id)
+            .unwrap()
+            .publish_ms,
+        Some(500)
+    );
+    let scope = CallAdmission::default();
+    let scope2 = scope.clone();
+    let sink = t.x.adapter.sink();
+    let request = request(&t.xa, &t.sy, "contended");
+    let (done, done_rx) = std::sync::mpsc::channel();
+    let worker = std::thread::spawn(move || {
+        let mut call = scope2.call(Some(request.attachment.clone()), 1000);
+        done.send(sink.send_local(&mut call, request)).unwrap();
+    });
+    entered_rx.recv_timeout(WAIT).unwrap();
+    let pipes = t.x.pipes.clone();
+    let (locked, locked_rx) = std::sync::mpsc::channel();
+    let (unlock, unlock_rx) = std::sync::mpsc::channel();
+    let blocker = std::thread::spawn(move || {
+        pipes.with_engine(|_| {
+            locked.send(()).unwrap();
+            unlock_rx.recv().unwrap();
+        })
+    });
+    locked_rx.recv_timeout(WAIT).unwrap();
+    if closing {
+        scope.stop();
+        t.xa.begin_close();
+    }
+    release.send(()).unwrap();
+    let released = Instant::now();
+    let LocalResult::Completed(result) = done_rx
+        .recv_timeout(Duration::from_millis(500))
+        .unwrap_or_else(|_| panic!("{case:?}: no result while the core lock is held"))
+    else {
+        panic!("{case:?}: committed request lost its result");
+    };
+    assert!(released.elapsed() < Duration::from_millis(500));
+    match case {
+        Ownership::Taken => assert_eq!(result.outcome(), "sent"),
+        Ownership::NotTaken | Ownership::AnnouncementRefused => {
+            assert_eq!(result.outcome(), "not-passed");
+            assert_eq!(result.error(), Some(ErrorCode::TransportFailure));
+        }
+    }
+    assert!(result.id().is_some(), "the original id is returned");
+    worker.join().unwrap();
+    assert!(done_rx.try_recv().is_err(), "exactly one result");
+    unlock.send(()).unwrap();
+    blocker.join().unwrap();
+    if case == Ownership::AnnouncementRefused && !closing {
+        // The deferred update was applied before the core served the next send: the refused
+        // announcement is issued again, ahead of the envelope.
+        sent(t.x.adapter.sink().send(request_from(&t, "again")));
+        assert_eq!(t.count_from_x(PayloadKind::Presence), 1);
+    }
+    // Shutdown also joins the core-owned bookkeeping worker.
+    t.x.pipes.shutdown();
+}
+
+fn request_from(t: &TwoDevices, s: &str) -> SendRequest {
+    request(&t.xa, &t.sy, s)
+}
+
+#[test]
+fn a_committed_send_returns_taken_while_the_core_lock_is_held_after_publication() {
+    check_post_publication_core_contention(Ownership::Taken, false);
+}
+
+#[test]
+fn a_committed_send_returns_not_taken_while_the_core_lock_is_held_after_publication() {
+    check_post_publication_core_contention(Ownership::NotTaken, false);
+}
+
+#[test]
+fn a_refused_announcement_returns_while_the_core_lock_is_held_after_publication() {
+    check_post_publication_core_contention(Ownership::AnnouncementRefused, false);
+}
+
+#[test]
+fn shutdown_gets_a_taken_result_while_the_core_lock_is_held_after_publication() {
+    check_post_publication_core_contention(Ownership::Taken, true);
+}
+
+#[test]
+fn shutdown_gets_a_not_taken_result_while_the_core_lock_is_held_after_publication() {
+    check_post_publication_core_contention(Ownership::NotTaken, true);
+}
+
+#[test]
+fn shutdown_gets_a_refused_announcement_result_while_the_core_lock_is_held_after_publication() {
+    check_post_publication_core_contention(Ownership::AnnouncementRefused, true);
 }
 
 #[test]
