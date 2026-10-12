@@ -567,7 +567,7 @@ mod tests {
         use oac_core::adapter::LocalIdentity;
         use oac_core::ids::KeyId;
         let identity = LocalIdentity {
-            session_id: SessionId::from_random_octets([7; 16]),
+            session_id: SessionId::parse("0123456789abcdefghjkmnpqrs").unwrap(),
             device_fingerprint: KeyId::parse(&"b3".repeat(32)).unwrap(),
         };
         let r = whoami_result(&IdentityRequestResult::LocalIdentity(identity.clone()));
