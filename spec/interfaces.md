@@ -2,15 +2,16 @@
 
 **Document:** `spec/interfaces.md`, the normative interface contracts of OAC Session
 Channels: the core neutral types, the provider adapter contract and the transport contract.
-**Revision:** 0.6 (proposed; lead PR approval pending), a minor revision of the 0.1 frozen
+**Revision:** 0.7 (proposed; lead approval pending), a minor revision of the 0.1 frozen
 at Gate S2 (signed off 2026-10-06, in
 force from the merge of PR #276; E7, #47), made under
 `docs/planning/decisions/E7-interface-freeze.md` §7: 0.2 (issue #69, PR #350), 0.3
 (sealing transports, §6.10; the lead's ruling of 2026-10-09 on PR #364), 0.4
 (bounded connection closure and local identity requests, #376 and #66, merged in PR #378),
 0.5 (bounded core calls and event callbacks, §5.3.1; lead decision 2026-10-10,
-Refs #376, Refs #380, Refs #66), and 0.6 (shutdown given the transport, §5.3.2;
-lead decision 2026-10-10, Refs #380, Refs #376). Written by #273.
+Refs #376, Refs #380, Refs #66), 0.6 (shutdown given the transport, §5.3.2;
+lead decision 2026-10-10, Refs #380, Refs #376), and 0.7 (transport deadline, §6.4,
+IFC-TRN-034 and IFC-TRN-038; lead decision 2026-10-11, Refs #377). Written by #273.
 Appendix B records the changes.
 **Companion documents:** `spec/session-channels.md` (the protocol), `spec/security.md` (the
 security model) and `spec/bindings/mcp.md` (the MCP binding). This document does not restate
@@ -555,7 +556,9 @@ or `device`, a key id, for an authenticated presence record or an authenticated 
 `octets`.
 
 **`Deadline`** — an instant, read on the clock of the implementation that passes the
-payload, after which no copy of the payload is delivered (§6.4).
+payload, at or after which no transport accepts or re-sends a copy of the payload
+([IFC-TRN-034]). A copy handed over before it may still arrive after it, and the receiving
+core refuses such a copy under the rules of §6.4.
 
 **`Inbound`** — what a transport hands to the core: a `Payload` and the `CarrierHandle` of
 the link it arrived on.
@@ -1385,14 +1388,14 @@ flight, for example to retransmit it. It keeps nothing else.
 
 [IFC-TRN-033] A transport MUST NOT hold a copy of a payload except while that copy is in flight.
 
-[IFC-TRN-034] A transport MUST NOT hold, or deliver, a copy of a payload at or after the
-payload's `Deadline`, except that the receiving end of a sealing transport (§6.10), which holds
-no `Deadline` ([IFC-TRN-107]), is bound only by [IFC-TRN-033] and [IFC-TRN-036].
+[IFC-TRN-034] A transport MUST NOT accept a payload for publication, begin to publish it, or
+re-send a copy of it, at or after the payload's `Deadline`.
 
-The receiving end of a sealing transport hands a late copy over, and the receiving core drops
-it silently on opening (`spec/security.md` [SEC-SEL-036]). The obligation moves from one part
-of the receiving implementation to another, and only for an implementation that uses a
-sealing transport (`spec/session-channels.md` §5.2 item 9).
+A transport refuses such a payload by returning `not-taken`, which [IFC-TRN-031] permits, because
+no copy of it can then be delivered. A copy that the transport handed to the carrier before the
+`Deadline` may still arrive after it, since a carrier may be unable to recall it. That late
+arrival is not a breach of [IFC-TRN-034] or [IFC-TRN-038]. The receiving core refuses it instead
+(see below).
 
 [IFC-TRN-035] A transport MUST NOT keep a payload across a restart of the transport, or deliver
 a payload again after the destination's implementation restarted.
@@ -1406,6 +1409,20 @@ not reachable when the payload is in flight.
 
 [IFC-TRN-037] The core MUST pass with each payload the `Deadline` that Table 6.1 gives for its
 kind.
+
+[IFC-TRN-038] A transport SHOULD release each copy it holds when the payload's `Deadline` comes.
+
+A transport that keeps a copy past its `Deadline` deviates from [IFC-TRN-038]. Such a copy may
+arrive late, and the receiving core refuses it under the rules below.
+
+**Late arrival.** The receiving core refuses a late copy by the rule of the payload's kind: an
+envelope by the replay window at arrival (`spec/security.md` [SEC-RPL-002]) and by [SC-RCP-091]
+before hand-off; a presence record by [SEC-PRS-006]; and a sealed payload by [SEC-SEL-036]. Each
+is read on the receiver's own clock. A receipt has no receiving-side deadline rule of its own;
+§7.4 records why. A sealing transport cannot drop a late copy itself, because no `Deadline`
+travels beside its frame ([IFC-TRN-107]). The protocol assumes that hosts which exchange payloads
+keep their clocks synchronised. A binding states the skew it operates under (§6.9); this document
+fixes no value.
 
 **`subscribe`.**
 
@@ -1806,6 +1823,43 @@ for composed-budget and pending-publication regressions, the core owner F6 for s
 and G1 (#62) for any transport binding that elects to declare a bound. Appendix A records
 owned `TODO(fixture)` cells; this spec-only PR claims no implementation completion.
 
+### 7.4 Revision 0.7 classification and implementation work
+
+Lead decision, 2026-10-11 (Refs #377): the transport deadline is stated as what a transport can
+guarantee. A carrier may have no per-message expiry, and it may deliver a copy handed over
+before the deadline after the deadline. Revision 0.7 is **minor under E7 §7 item 2's
+no-wire-form rule**, with the same major version and extension identifier. It changes no payload
+octet, envelope member, delivery state, error code, signature scope or verification procedure,
+so no §5.3 items 1-10 wire-breaking case applies. Against `spec/session-channels.md` §5.2 / §5.3:
+
+- The transport's obligations change locally. [IFC-TRN-034] adds a prohibition on accepting or
+  re-sending a payload at or after its `Deadline`, which a peer cannot observe except through
+  `not-taken`, and it drops the prohibition on late delivery of a copy already handed over.
+  The second is a relaxation, and it is not breaking because the late copy is refused by the
+  receiving core. [IFC-TRN-038] is a recommendation that an earlier peer need not follow.
+- No new obligation is placed on the receiving core. An envelope is refused under [SC-RCP-091]
+  and the replay window, a presence record under [SEC-PRS-006], and a sealed payload under
+  [SEC-SEL-036] (revision 0.3). An implementation conformant to 0.6 already refuses these, so
+  it stays conformant.
+- A receipt has no receiving-side deadline rule, and this revision adds none. A late receipt
+  reports a state that the receiver reached on its own clock, and the combined-state rules of
+  §8.4.1 (`spec/session-channels.md`, where rule 1 keeps a late `duplicate` from overwriting
+  `handed-to-harness`) govern it. A receipt-specific deadline rule would bind earlier peers with a
+  new obligation, so it would need a separate §5.3 item 11 decision by the lead.
+
+Implementation work after lead approval, with no code changes in this PR:
+
+- Each transport implementation: refuse admission at or after the `Deadline` with `not-taken`,
+  re-send nothing after it, and release held copies at the `Deadline` ([IFC-TRN-038]). A
+  transport that cannot bound the time a handed-over copy may still arrive states that in its
+  binding document (§6.9). This revision claims no binding's conformance.
+- F10 (#59) with G1 (#62): fixtures for [IFC-TRN-034] and [IFC-TRN-038] on a scripted clock. The
+  contract check named ifc_trn_034 in tests/protocol/contract/transport still tests the 0.6
+  reading, nothing delivered at or after the deadline. It is not edited in this PR; the lead
+  decides its revision.
+- Cross-host deployments: each binding that carries payloads between hosts states its skew
+  operating value and the bound it enforces (G3, #64). This document fixes none.
+
 ---
 
 ## 8. Security considerations
@@ -1822,7 +1876,7 @@ document draws, and the rules that answer them. The threats of the protocol itse
 | A turned-away holding hand-off is retried through a steering operation | [IFC-ADP-057]; [SEC-AUZ-022], [SEC-AUZ-027] |
 | A transport identity, address or discovered peer is taken as a device or a session | [IFC-TRN-012], [IFC-TRN-013], [IFC-NEU-003] |
 | A transport reports a failure for a payload it may still deliver, inviting a double hand-off | [IFC-TRN-031], [IFC-TRN-032] |
-| A transport stores a payload and delivers it late, or again after the receiver restarts, causing a second hand-off | [IFC-TRN-026], [IFC-TRN-033] to [IFC-TRN-037]; [SC-RCP-091] |
+| A transport stores a payload and delivers it late, or again after the receiver restarts, causing a second hand-off | [IFC-TRN-026], [IFC-TRN-033] to [IFC-TRN-038]; [SC-RCP-091]; [SEC-SEL-036] (the receiving core refuses a late copy) |
 | A transport reveals which session ids are subscribed, outside the authorization path | [IFC-TRN-043], [IFC-TRN-044] |
 | A presence record reaches a peer that may not discover the session | [IFC-TRN-080], [IFC-TRN-081]; [SEC-AUZ-011], [SEC-PRS-013] |
 | A received presence state is trusted as if it were a record | [IFC-TYP-061] |
@@ -1862,7 +1916,7 @@ the operation's meaning changed.
 | `deliver(session, message) -> DeliveryReceipt` | `deliver(HandOff) -> HandOffOutcome`, mapped by the core (§5.5) | Same meaning, one hand-off; the adapter reports what it observed, and the core owns states and receipts ([SC-RCP-003]). It uses the holding hand-off and never steers ([SEC-AUZ-022], [SEC-AUZ-025]) |
 | `publish_output(callback)` | `accept_requests(request sink)`, returning a `RequestResult` and later receipts (§5.6) | Renamed. The conceptual name reads as the adapter publishing output, which [IFC-ADP-001] forbids; the operation registers the core's sink for what the harness requests, which is refused or turned into an envelope by the core |
 | `Transport.start(identity, config)` | `start(device key id, configuration) -> TransportCapabilities` (§6.4) | Same meaning; the identity is the device's key id, and the capability declaration is returned, not assumed |
-| `publish(destination, envelope)` | `publish(Destination, Payload, Deadline)` for envelopes and receipts, returning `taken` or `not-taken` (§6.4) | Same meaning, widened to receipts (`spec/session-channels.md` §8.1.5); the deadline bounds what a transport may hold ([IFC-TRN-034]) |
+| `publish(destination, envelope)` | `publish(Destination, Payload, Deadline)` for envelopes and receipts, returning `taken` or `not-taken` (§6.4) | Same meaning, widened to receipts (`spec/session-channels.md` §8.1.5); the deadline bounds what a transport may accept or re-send ([IFC-TRN-034]); the receiving core refuses a late copy ([SC-RCP-091]) |
 | `subscribe(address, handler)` | `subscribe(Destination, handler)` returning an endable subscription (§6.4) | Same meaning; bindings end ([IFC-TRN-042]), and a subscription is not revealed ([IFC-TRN-043]) |
 | `announce_presence(record)` | `send_presence(device, authenticated presence record, Deadline)` (§6.5) | Renamed: it is not a broadcast announcement but a directed send of one record, announcement or withdrawal, to one audience ([SEC-PRS-011]); reachability alone is not a record (C7 §4 gap) |
 | `watch_presence(handler)` | records and carrier losses, each with a carrier handle (§6.6) | Same meaning; carrier loss is per link ([SC-DLV-046]) |
@@ -2024,10 +2078,11 @@ the requirement whose fixtures exercise it. Appendix C gives each requirement's 
 | IFC-TRN-031 | MUST NOT | 6.4 | TODO(fixture): F10 transport suite with F7's fault injection |
 | IFC-TRN-032 | MUST | 6.4 | covered by SC-RCP-085 for the state it drives (`sc-rcp/SC-RCP-085.p06`); the mapping: TODO(fixture), F6, F10 |
 | IFC-TRN-033 | MUST NOT | 6.4 | TODO(fixture): F7, F10 transport suite |
-| IFC-TRN-034 | MUST NOT | 6.4 | TODO(fixture): F7, F10 transport suite with a scripted clock |
+| IFC-TRN-034 | MUST NOT | 6.4 | TODO(fixture): F7, F10 transport suite; on a scripted clock, admission at or after the deadline is refused with `not-taken`, and no copy is re-sent after it |
 | IFC-TRN-035 | MUST NOT | 6.4 | TODO(fixture): F10 transport suite, a restart of each side; H3 |
 | IFC-TRN-036 | MUST NOT | 6.4 | TODO(fixture): F7, F10 transport suite |
 | IFC-TRN-037 | MUST | 6.4 | TODO(fixture): F6, F10 |
+| IFC-TRN-038 | SHOULD | 6.4 | none (SHOULD) |
 | IFC-TRN-040 | MUST | 6.4 | TODO(fixture): F10 transport suite |
 | IFC-TRN-041 | MUST NOT | 6.4 | TODO(fixture): F10 transport suite asserts no polling; H1 |
 | IFC-TRN-042 | MUST | 6.4 | TODO(fixture): F6, F10 |
@@ -2085,6 +2140,7 @@ a frame, so the id was reused for the rule it holds now and is not retired.
 | 0.4 | 2026-10-10 | Refs #376, Refs #66, Refs #375. Adds Connection.close and close_bound_ms with a terminal write/closure barrier (IFC-ADP-014 to IFC-ADP-019); bounded shutdown using closure (IFC-ADP-072 to IFC-ADP-078); IdentityRequest and LocalIdentity through the core request sink (IFC-ADP-094 to IFC-ADP-098), with only the public signing-key fingerprint exposed. Appendix A records owned TODO(fixture) cells and Appendix C assigns owners. §7.1 classifies both as minor no-wire-form amendments under E7 §7 item 2, explicitly breaking for local implementations but not for the protocol, lists implementation work, and defers all #375 items to a separate security amendment. The existing identity tool wire form needs no change; each transport/binding document still needs to state its applicable shutdown/close bound under E7 change control. |
 | 0.5 (proposed; lead approval pending) | 2026-10-10 | Refs #376, Refs #380 (implementation PR), Refs #66; lead decision 2026-10-10 following PR #380 review issuecomment-6101230133. Adds §5.3.1 IFC-ADP-100 to IFC-ADP-115 and §5.6 IFC-ADP-116: core-owned bounds on all adapter-to-core synchronous calls, adapter-owned core-to-adapter event-callback bounds, prompt lifecycle settlement with definite local results, enumerated callback output/failure contracts, atomic per-request commit boundaries preserving created-not-passed and taken sends, existing harness refusal mapping for pre-commit failures, bounded final closure reporting, aggregate end-to-end shutdown budgeting and no post-return reports/callbacks. Appendix A records owned TODO(fixture) cells; Appendix C assigns owners. §7.2 classifies this as minor under E7 §7 item 2 and explicitly breaking for unbounded local implementations, with no wire change or new extension identifier. Implementation work remains in core, adapters and PR #380. |
 | 0.6 (proposed; lead approval pending) | 2026-10-10 | Refs #380, Refs #376; lead decision 2026-10-10. Shutdown/settlement given the transport (§5.3.2): adapter + core + declared publish contribution, unbounded at an awaited undeclared step; committed unresolved publication stays pending until one truthful result, with unchanged ownership/commit and return barriers (IFC-ADP-117/118). Optional binding publish_bound_ms with conditional scope/return obligations (IFC-TRN-114 to IFC-TRN-116, §6.3.1); no mandatory transport bound, wire field or signature change. Retires IFC-ADP-074, IFC-ADP-100 to IFC-ADP-103 and IFC-ADP-107/108 in revision 0.6; replacement timing requirements are IFC-ADP-119 to IFC-ADP-125, respectively, under the ID-stability rule. Owned Appendix A TODO(fixture) cells, Appendix C owners move to the replacements; explicit minor/local timing classification (§7.3). |
+| 0.7 (proposed; lead approval pending) | 2026-10-11 | Refs #377; lead decision 2026-10-11 (approved in principle). Transport deadline stated as a guarantee a transport can give: [IFC-TRN-034] now forbids a transport to accept, begin publishing or re-send a payload at or after its `Deadline`, and no longer forbids late delivery of a copy already handed to the carrier; [IFC-TRN-038] (SHOULD) releases held copies at the deadline. The receiving core refuses a late copy under [SC-RCP-091], [SEC-PRS-006] and [SEC-SEL-036], each on the receiver's own clock; cross-host clock skew is a binding's stated limit, not fixed here. No wire form, requirement of `spec/session-channels.md` or `spec/security.md`, or Appendix C owner changes. Minor revision under E7 §7, classified in §7.4. |
 
 ## Appendix C. Owner index
 
