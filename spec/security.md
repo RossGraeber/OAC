@@ -1899,9 +1899,9 @@ A sealing transport carries no deadline beside a frame (`spec/interfaces.md` [IF
 the transport cannot itself withhold a copy that arrives late, and the receiving core discards it
 after opening, in place of the transport. The discard stays silent: a late sealed envelope draws
 no `expired` or `outside-replay-window` receipt, and so no frame that other peers could see. On a
-non-sealing transport the core receives the same late copy and refuses it under [SC-RCP-092] or
-the replay window ([SEC-RPL-002]), which reports `expired` or `outside-replay-window` as those
-rules require. [SEC-SEL-036] applies once, on opening. A copy that passes it and reaches its deadline
+non-sealing transport the core receives the same late copy and refuses it under [SC-RCP-091]
+(reporting under [SC-RCP-092]) or the replay window ([SEC-RPL-002]), and reports `expired` or
+`outside-replay-window` as those rules and [SC-RCP-042] allow. [SEC-SEL-036] applies once, on opening. A copy that passes it and reaches its deadline
 before its hand-off is reported under [SC-RCP-091] and [SC-RCP-092], as without sealing. For a
 receipt the deadline is that of the envelope it describes, which the receiver sent.
 

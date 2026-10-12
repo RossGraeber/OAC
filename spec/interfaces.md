@@ -1389,9 +1389,9 @@ flight, for example to retransmit it. It keeps nothing else.
 [IFC-TRN-033] A transport MUST NOT hold a copy of a payload except while that copy is in flight.
 
 [IFC-TRN-034] A transport MUST NOT accept a payload for publication, or begin publishing it, at or
-after the payload's `Deadline`. A transport MUST NOT hand any copy of a payload to the underlying
-network or carrier at or after that `Deadline`, whether as the first hand-over of a copy it
-queued, a retransmission, a retry after a link failure, or a replay after reconnection.
+after the payload's `Deadline`, and MUST NOT hand any copy of the payload to the underlying network
+or carrier at or after that `Deadline`, whether as the first hand-over of a copy it queued, a
+retransmission, a retry after a link failure, or a replay after reconnection.
 
 A transport refuses such a payload by returning `not-taken`, which [IFC-TRN-031] permits, because
 no copy of it can then be handed over. A copy that the transport handed to the carrier before the
@@ -1647,8 +1647,8 @@ the payload's octets, its `Destination` or its `Deadline`, other than the octets
 A deadline beside a frame would show its kind, since each kind's deadline is a different
 offset from its sending time, and would pair a receipt with its envelope, whose deadline it
 shares (Table 6.1). The transport therefore keeps the `Deadline` at the sending end only. It hands
-no copy to the carrier at or after that `Deadline` ([IFC-TRN-034]) and SHOULD release held copies
-then ([IFC-TRN-038]), and the receiving core discards a payload whose deadline has passed after
+no copy to the carrier at or after that `Deadline` ([IFC-TRN-034]), and [IFC-TRN-038] recommends
+releasing held copies then, and the receiving core discards a payload whose deadline has passed after
 opening it (`spec/security.md` [SEC-SEL-036]). The transport can
 still carry values of its own link, such as a carrier handle (§6.6), within [IFC-TRN-108].
 
@@ -1859,9 +1859,9 @@ member, delivery state, error code, signature scope or verification procedure, s
   payload under [SEC-SEL-036] (revision 0.3). An implementation conformant to 0.6 already refuses
   these, so it stays conformant. One behaviour is visible: on a non-sealing transport a late
   envelope now reaches the core, which refuses it and reports `expired` ([SC-RCP-092]) or
-  `outside-replay-window` ([SEC-RPL-002]), so a receipt follows where 0.6 was silent. On a sealing
+  `outside-replay-window` ([SEC-RPL-002]), so a receipt may follow where 0.6 was silent. On a sealing
   transport a late payload is still discarded silently ([SEC-SEL-036]). Both are existing states,
-  and implementers should expect these extra receipts.
+  and implementers can expect these extra receipts.
 - **Receipts: considered and declined.** A receipt-specific deadline rule was considered during
   review of this PR, and the lead declined it (2026-10-11). Retry safety rests on [SC-RCP-091] at
   the receiver and on the retry deadline (§8.4.2 there), not on when a receipt arrives. A late
@@ -1873,7 +1873,7 @@ member, delivery state, error code, signature scope or verification procedure, s
   not a wire form, and it does not bind a peer. A binding document describes how one transport maps
   onto its carrier, so the obligation is documentary, and it falls under E7 §7 item 2 with the
   other changes. A binding document that omits the skew limit fails IFC-TRN-117 and not any wire
-  rule. The lead confirms this classification.
+  rule. Lead confirmation of this classification is requested in the approval PR.
 - **Security document.** `spec/security.md` 0.4 changes explanatory text in §14.5 only. The rule
   of [SEC-SEL-036] is unchanged. The change is editorial under `spec/session-channels.md` §5.2
   item 8, applied through E7 §7, and its version is bumped under spec change control.
