@@ -171,7 +171,7 @@ impl PipelineDevice {
     /// A harness session: a connection given to the stub adapter, bound to `session`
     /// registered under working directory `wd`.
     pub fn session(&self, session: &SessionId, wd: &str) -> Attachment {
-        let conn = Connection::accept(std::io::empty(), std::io::sink());
+        let conn = Connection::accept(Default::default(), Default::default());
         let a = conn.handle().clone();
         self.pipes
             .connect(self.adapter_id, conn)
@@ -201,7 +201,7 @@ impl PipelineDevice {
         cross_check: Option<&str>,
     ) -> Attachment {
         *self.adapter.cross_check_next.lock().unwrap() = cross_check.map(str::to_owned);
-        let conn = Connection::accept(std::io::empty(), std::io::sink());
+        let conn = Connection::accept(Default::default(), Default::default());
         let a = conn.handle().clone();
         self.pipes
             .connect_observed(self.adapter_id, conn, observation)

@@ -78,17 +78,20 @@
 //! Requirement ids in square brackets name the requirement a rule implements.
 
 pub mod adapter;
+mod adapter_boundary;
 pub mod authorization;
 mod base64url;
 pub mod canonical;
 pub mod capabilities;
 pub mod clock;
+pub mod connection;
 pub mod delivery;
 pub mod envelope;
 pub mod health;
 pub mod ids;
 pub mod json;
 pub mod keys;
+pub mod local_call;
 pub mod pairing;
 pub mod pipeline;
 pub mod presence;

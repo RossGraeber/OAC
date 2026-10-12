@@ -201,3 +201,38 @@ to these rules, not an exception to them.
 
 An adapter's `tests/` directory is checked for the `TEST-PLANT` row only. Its tests may do
 what adapter code may not, such as make a connection or define a test macro.
+
+## Interfaces 0.4 connection factory revision (2026-10-10)
+
+The lead authorized this spec-driven suite revision for #376. CoreSide::accept and
+Claude's pipe helpers now take core-owned cancellable halves, replacing arbitrary
+blocking Read/Write. There is no non-cancellable compatibility constructor. Every
+existing check and planted breach remains; the pre-shutdown attachment snapshot stays
+before the new probe, so attachment-closed reporting is still checked at the barrier.
+The stand-ins close their supplied handles before reporting shutdown, including
+Codex native-signal connections. Existing shutdown assertions use the event and request
+snapshots captured at the first return barrier, before the probe resumes the peer.
+
+The added factory probe pauses an admitted write, times shutdown against the binding's
+bound, checks every issued handle is closed at return, then resumes the peer and checks
+its fake observations for late input. The planted WaitsBeforeClose and LateHandOff
+adapters fail these checks; WorksAfterShutdown and KeepsAttachmentsAtShutdown retain
+their original failures. No real harness runs or gate verdicts change.
+
+Gate S4 suite baseline: `92a444d5e4bee86c3f8a782f5d9ab466966ca718` (2026-10-10).
+The same pin is recorded in docs/planning/STATUS.md.
+`adapters/claude/tests/contract.rs` remains unchanged.
+
+
+## Interfaces 0.5/0.6 settlement revision (PR #380)
+
+The requested spec-driven revision removes the post-return result fallback. Every
+pending outcome must exist at the first shutdown return; event and request snapshots
+must also remain unchanged after the stalled peer resumes. The 40 ms LateSettlement
+plant returns a truthful failure too late and fails IFC-ADP-109. The shutdown timing
+check uses replacement ID IFC-ADP-119. The suite sink also implements the additive
+cancellation-aware request surface; all original assertions and planted breaches remain.
+The real Claude adapter was separately mutated to release its call guard and delay its
+cancellation outcome by 40 ms: both release profiles fail IFC-ADP-109 and IFC-ADP-070.
+No other contract suite or Claude contract harness was changed. The suite baseline above
+is the dedicated suite revision commit; implementation evidence uses its passing descendant.

@@ -104,6 +104,24 @@ identifier derivations remain binding-review obligations; the black-box trait ca
 expose them independently. This revision does not claim complete metadata
 confidentiality, transport authentication, or fulfilment of #374.
 
+
+**PR #380, interfaces 0.5/0.6 settlement revision:** the lead-requested shared adapter
+suite checks every pending outcome at the first shutdown return, with no grace-period
+fallback. The 40 ms late-settlement plant is caught; event/request snapshots remain fixed
+after peer release. New timing ID IFC-ADP-119 replaces retired IFC-ADP-074. The dedicated
+suite baseline is `92a444d5e4bee86c3f8a782f5d9ab466966ca718`; all original assertions and plants remain.
+The Claude contract harness and every other contract suite are unchanged. No gate verdict
+changes. The implementation composes finite adapter/core local budgets with an OPTIONAL
+transport publication bound: undeclared awaited publication keeps a committed request and
+shutdown pending until ownership settles, preserving exactly one truthful result.
+
+**Last updated:** 2026-10-10 (**Interfaces 0.4, #376:** spec-driven adapter suite
+connection-factory revision, authorized by the lead on 2026-10-10. Arbitrary blocking
+Read/Write factories are replaced by core-owned cancellable halves; no compatibility
+constructor. Existing checks and planted breaches are retained, with new stalled-write
+and late-hand-off plants. Gate S4 suite baseline: `92a444d5e4bee86c3f8a782f5d9ab466966ca718`
+(latest dedicated suite revision commit; initial factory migration `f77a3a3`). No gate verdict changes.)
+
 **Last updated:** 2026-10-09 (**PR #370 review round 1:** trusted-other-device
 pairing and seal-failure paths have mutation-backed tests; unknown transport
 capabilities refuse sends and startup failures shut down the transport. The reference

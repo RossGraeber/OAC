@@ -22,7 +22,8 @@
 
 pub mod adapter;
 pub mod channel;
+mod gate;
 mod io;
 mod server;
 
-pub use adapter::ClaudeAdapter;
+pub use adapter::{ClaudeAdapter, SHUTDOWN_BOUND_MS};
