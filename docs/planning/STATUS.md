@@ -1,5 +1,24 @@
 # OAC status
 
+**Last updated:** 2026-10-12 (**#63, Zenoh carrier loss from native liveliness; Refs #377**).
+Each started transport declares one native liveliness token under an opaque hash of its
+random native session id (never a device key id or session id, [IFC-TRN-108]) and watches
+the partition's tokens with a `history(true)` liveliness subscriber, so a late-started
+transport learns of peers already online. A token that was seen alive and goes (undeclared,
+link closed, or Zenoh's link lease run out) becomes one neutral `carrier-loss` for the
+receiver-local stream handle, delivered on a thread of its own behind the shutdown gate. A
+deletion of a token never seen alive, or of a token that is not ours, reports nothing
+(`unknown`). No heartbeat, timer, probe or gossip is added; the link lease is Zenoh's
+own, set explicitly to 10000 ms. Measured on Windows over loopback: a graceful exit in
+about 2 to 13 ms, a killed process in 27 to 136 ms, a silent link loss in 9.5 to 9.7 s.
+**Stated bound for a silent loss: the 10 s lease.** Residuals for the lead, with no
+compensating code: one shared stream handle means a loss makes every announcement received
+on it stale, not only the departed issuer's (risk row 83); the frozen interface has no
+neutral way for a late joiner to ask for presence (row 84); Zenoh's detection and relay-loss
+behaviour, and the unmeasured cross-host values (row 85). No gate verdict, protocol
+requirement, dependency pin or ADR change. Binding and evidence: `transports/zenoh/src/lib.rs`,
+`transports/zenoh/src/liveness_tests.rs`.
+
 **Last updated:** 2026-10-11 (**#64, native TLS local/LAN configuration; Refs #377**).
 Local mode uses one persisted per-user certificate as an additional root and mTLS identity,
 with native name/expiration checks and native default-deny certificate-CN ACLs. Plain or

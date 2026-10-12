@@ -126,5 +126,15 @@ they do not prove host firewall, multicast, interface or clock behavior.
    Replacing it with an untrusted/plain holder must refuse traffic. Record holder gaps
    and fixed-port denial of service as residuals, not failed authentication.
 
+8. Presence and carrier loss (#63, planned, NOT RUN). With both hosts linked, start a third
+   transport on one host and confirm the other learns of the first two from native
+   liveliness history. Then stop a transport three ways and record, from the instant of the
+   action to the carrier-loss event on the other host: a clean `shutdown`; a killed process;
+   a silent loss (unplug the cable, or drop the packets by a means the operator controls and
+   then undoes). Compare the silent loss with the stated bound, the 10 s
+   Zenoh link lease (`LINK_LEASE_MILLIS`; loopback measured 9.5 to 9.7 s). A silent loss
+   reported later than the lease plus a few seconds of scheduling fails this step. Record
+   the observed values as residuals, not as new bounds, if they differ from loopback.
+
 Do not promote the G3 two-host leg or Gate S4 until the evidence is captured. No part
 of this task runs that leg or any provider harness.
