@@ -138,7 +138,7 @@ fn plain_native_router_and_different_user_tls_holder_are_refused() {
 }
 
 #[test]
-fn same_user_pin_survives_holder_replacement_and_native_reconnect() {
+fn same_user_persisted_certificate_survives_holder_replacement_and_native_reconnect() {
     let directory = StateDirectory::new();
     let conf = local(&directory);
     let first = PeerTransport::new();
@@ -344,7 +344,7 @@ fn native_tls_refuses_expired_certificate_without_regenerating_state() {
 }
 
 #[test]
-fn corrupt_existing_pin_is_not_regenerated_and_native_configuration_is_default_deny() {
+fn corrupt_existing_certificate_is_not_regenerated_and_native_configuration_is_default_deny() {
     let dir = StateDirectory::new();
     let conf = local(&dir);
     let native = conf.native(Role::First, conf.rendezvous_port()).unwrap();
@@ -373,11 +373,11 @@ fn corrupt_existing_pin_is_not_regenerated_and_native_configuration_is_default_d
     );
     // Native config serializes unused optional subject fields as null.
     assert!(acl["subjects"][0]["zids"].is_null());
-    std::fs::write(dir.0.join("identity.pem"), b"corrupt pin").unwrap();
+    std::fs::write(dir.0.join("identity.pem"), b"corrupt certificate").unwrap();
     assert!(PeerTransport::new().start(&key('a'), conf.wrap()).is_err());
     assert_eq!(
         std::fs::read(dir.0.join("identity.pem")).unwrap(),
-        b"corrupt pin"
+        b"corrupt certificate"
     );
 }
 

@@ -58,10 +58,12 @@
 //! `HOME/.local/state/OAC/relay-tls` on Unix). The owner-only directory holds one
 //! atomically published PEM bundle. Existing state is never regenerated on connection
 //! failure. Both roles configure that certificate as their mTLS identity and as an
-//! additional trust root. Zenoh's TLS client extends its web-PKI roots with the configured
-//! root (zenoh 1.10.1, `io/zenoh-link-tls/src/utils.rs` L351-L357), so the root is not
-//! exclusive. Zenoh verifies the relay's name (`127.0.0.1`) and expiration, and the relay
-//! verifies client certificates against the same root with native certificate-CN ACLs.
+//! additional trust root. The connecting side extends its web-PKI roots with the configured
+//! root (zenoh 1.10.1, `io/zenoh-link-tls/src/utils.rs` L351-L357), so that root is not
+//! exclusive there. Zenoh verifies the relay's name (`127.0.0.1`) and expiration. The relay
+//! (listening side) checks client certificates against the configured root only
+//! (`utils.rs` L238-L243), so the stored certificate is its only root, with native
+//! certificate-CN ACLs on top.
 //! Public CAs may not issue certificates for loopback, so the public-root path is not
 //! expected to apply here. The effective trust is therefore possession of this user's
 //! private key: a certificate that key signs for the same name and IP SAN is accepted.
@@ -83,6 +85,9 @@
 //! provisioning path. They do not authorize themselves from an incoming message and
 //! are not wired into a daemon/CLI pairing command yet (G9/G11). Use opaque TLS common
 //! names, never OAC device/session ids. Keep the issuer on the provisioning host.
+//! The same web-PKI widening applies to paired LAN roots: the connecting side adds them to
+//! Zenoh's web-PKI roots, while the listening side checks client certificates against the
+//! configured roots only. Public CAs are not expected to issue for private or reserved IP SANs.
 //! Every peer defaults to native `access_control` deny and permits only configured
 //! certificate common names on its partition's frame key (`put`, `declare_subscriber`,
 //! ingress and egress). A CA-valid but unlisted peer may establish a TLS link; Zenoh

@@ -844,9 +844,17 @@ v0.1/06-security.md` (the normative-adjacent landing site named in §14).
 
 ## G3 implementation note (2026-10-11; #64, #377)
 
+Dated note, 2026-10-11 (PR #384): the original exclusive-pin condition for local relay
+trust is superseded by the lead decision of 2026-10-11, which accepts Zenoh's native
+rule. The per-user certificate is an additional root, and trust is possession of the
+user's private key (any certificate that key signs for the same name and IP SAN is
+accepted). This is not an exclusive pin. Risk row 81 and the transport binding in
+`transports/zenoh/src/lib.rs` state the rule. Earlier entries that name a per-user pinned
+certificate record the original condition and are not current.
+
 Local fixed rendezvous now uses Zenoh supported native TLS with a persisted per-user
-certificate pin, mTLS, IP SAN name verification, expiration checks, and native
-default-deny certificate-CN ACLs. No trust-on-connect or custom authentication protocol.
+certificate as an additional root and mTLS identity, IP SAN name verification, expiration
+checks, and native default-deny certificate-CN ACLs. No trust-on-connect or custom authentication protocol.
 Core-signed sealed local traffic may now traverse that relay once this change lands;
 this updates the earlier no-real-traffic condition, not a live harness or S4 verdict.
 Authentication evidence and remaining port/holder availability risks: risk row 81 and

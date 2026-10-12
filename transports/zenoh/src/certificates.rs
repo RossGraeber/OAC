@@ -309,7 +309,7 @@ pub(crate) fn local_files(directory: &Path) -> Result<CertificateFiles, String> 
             match fs::hard_link(&temp, &bundle) {
                 Ok(()) => Ok(()),
                 Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Ok(()),
-                Err(_) => Err("cannot publish certificate pin"),
+                Err(_) => Err("cannot publish persisted certificate"),
             }
         })();
         drop(file);

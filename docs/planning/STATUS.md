@@ -1,9 +1,11 @@
 # OAC status
 
 **Last updated:** 2026-10-11 (**#64, native TLS local/LAN configuration; Refs #377**).
-Local mode pins one persisted per-user certificate, native mTLS/name/expiration checks,
-and native default-deny certificate-CN ACLs. Plain or foreign-certificate holders fail;
-same-user replacement reuses the pin and Zenoh reconnects. Local core-signed sealed
+Local mode uses one persisted per-user certificate as an additional root and mTLS identity,
+with native name/expiration checks and native default-deny certificate-CN ACLs. Plain or
+foreign-key holders fail; same-user replacement reuses the persisted certificate and Zenoh
+reconnects. Trust is possession of the user's private key, the rule the lead accepted on
+2026-10-11; it is not an exclusive pin (risk row 81). Local core-signed sealed
 traffic is permitted once this change lands. LAN TLS peer configuration accepts
 pairing-issued files and approved CN subjects; multicast is opt-in, explicit endpoints
 are the fallback. Loopback tests cover allowed/denied subjects and wrong IP names.
@@ -24,7 +26,7 @@ Zenoh RingChannel owns overflow (drop-oldest, 16 frames, 16 MiB queued-payload b
 ephemeral listeners use `:0`. The binding-specific contract harness captures native sample
 carriage for the unchanged sealing-aware shared suite. Appendix A evidence cells for
 IFC-TRN-043/050 are updated; frozen requirement text and suites are unchanged.
-Dated update 2026-10-11 (#64): per-user pinned native mTLS now authenticates the local relay; core-signed sealed local traffic is permitted on that path once this change lands. No S4/live-harness/two-host LAN verdict is claimed. See the current binding and risk row 81.
+Dated update 2026-10-11 (#64, PR #384): per-user native mTLS, with the persisted certificate as an additional root, authenticates the local relay under the lead's accepted key-possession rule (not an exclusive pin); core-signed sealed local traffic is permitted on that path under that rule. No S4/live-harness/two-host LAN verdict is claimed. See the current binding and risk row 81.
 **Review round 1 (#382):** native ingress `low_pass_filter` replaces the receive-size
 predicate; outgoing frames use fixed `Drop`, `Data`, express publication and a flat 1 ms native
 batch-refill budget, without fragment extensions. Zenoh preallocates its 16-batch data pool at link initialization.
