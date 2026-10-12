@@ -707,11 +707,21 @@ fn check_post_publication_core_contention(case: Ownership, closing: bool) {
             assert_eq!(result.error(), Some(ErrorCode::TransportFailure));
         }
     }
-    assert!(result.id().is_some(), "the original id is returned");
+    let id = result.id().expect("the original id is returned").clone();
     worker.join().unwrap();
     assert!(done_rx.try_recv().is_err(), "exactly one result");
     unlock.send(()).unwrap();
     blocker.join().unwrap();
+    // A snapshot taken once the lock is free reflects the deferred bookkeeping: a send not
+    // passed is no longer tracked, a taken one is.
+    let sender = SessionId::from_random_octets([1; 16]);
+    let state = t.x.pipes.delivery_state(&id, &sender);
+    match case {
+        Ownership::Taken => assert!(state.is_some(), "{state:?}"),
+        Ownership::NotTaken | Ownership::AnnouncementRefused => {
+            assert_eq!(state, None, "{case:?}: a send not passed is not tracked");
+        }
+    }
     if case == Ownership::AnnouncementRefused && !closing {
         // The deferred update was applied before the core served the next send: the refused
         // announcement is issued again, ahead of the envelope.

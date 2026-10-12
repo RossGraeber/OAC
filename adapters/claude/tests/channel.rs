@@ -777,21 +777,26 @@ fn shutdown_settles_an_inflight_deliver_before_return() {
     a.set_binding(&att, Some(SessionId::from_random_octets([2; 16])));
     w.stall.pause(true);
     let (msg, _) = message("pending notification", None);
-    let (started, start_rx) = mpsc::channel();
     let (done, done_rx) = mpsc::channel();
     let a2 = a.clone();
     let t = std::thread::spawn(move || {
-        started.send(()).unwrap();
         let result = a2.deliver(HandOff::new(att, msg).unwrap());
         done.send(result).unwrap();
     });
-    start_rx.recv().unwrap();
-    std::thread::sleep(Duration::from_millis(50));
+    // The deliver is admitted and its write is stalled, not merely scheduled to start.
+    let end = Instant::now() + WAIT;
+    while w.stall.pending_transfers() == 0 && Instant::now() < end {
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    assert_ne!(w.stall.pending_transfers(), 0, "deliver never stalled");
     assert!(done_rx.try_recv().is_err());
     a.shutdown();
     assert!(h.is_closed());
+    // The adapter settled the call before `shutdown` returned; the tolerance covers only
+    // the thread hop that sends the outcome after `deliver` returns, far below a late
+    // settlement.
     let outcome = done_rx
-        .try_recv()
+        .recv_timeout(Duration::from_millis(10))
         .expect("result settled at first shutdown return");
     assert!(matches!(
         outcome,
