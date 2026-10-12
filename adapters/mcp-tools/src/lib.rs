@@ -13,15 +13,17 @@
 //! What is here (G4, #65): the tool list ([`tools`], [MCPB-TOOL-001], [MCPB-TOOL-004]),
 //! argument parsing with `invalid-request` for a schema failure ([`parse`],
 //! [MCPB-TOOL-005]), and the result shapes ([`send_result`], [`discovery_result`],
-//! [`refusal`]; [MCPB-TOOL-006] to [MCPB-TOOL-011], [MCPB-TOOL-015]). What is not: session
-//! registration, reply correlation through hand-off records and `whoami`'s device
-//! fingerprint, which G5 (#66) owns, and the Codex pairing of `spec/bindings/mcp.md` §4.5,
-//! which G8 (#69) owns.
+//! [`refusal`]; [MCPB-TOOL-006] to [MCPB-TOOL-011], [MCPB-TOOL-015]) and, from G5 (#66),
+//! `whoami`'s result ([`whoami_result`], [MCPB-TOOL-006], [MCPB-TOOL-009]). What is not:
+//! session registration and reply correlation through hand-off records, which each adapter
+//! does inside its own module, and the Codex pairing of `spec/bindings/mcp.md` §4.5, which
+//! G8 (#69) owns.
 
 use std::sync::Arc;
 
 use oac_core::adapter::{
-    Attachment, Correlation, DiscoveryRequestResult, SendRequest, SendRequestResult,
+    Attachment, Correlation, DiscoveryRequestResult, IdentityRequestResult, SendRequest,
+    SendRequestResult,
 };
 use oac_core::delivery::{DeliveryState, ErrorCode};
 use oac_core::envelope::{ContentPart, TextPart};
@@ -428,6 +430,27 @@ pub fn discovery_result(r: &DiscoveryRequestResult) -> CallToolResult {
     }
 }
 
+/// The result of a `whoami` call: the core's `LocalIdentity` as exactly its two members,
+/// `session_id` and `device_fingerprint`, in text and in structured content
+/// ([MCPB-TOOL-006], [MCPB-TOOL-007]), or the core's refusal. The core builds the identity;
+/// nothing here reads a key, a token or a cached value ([MCPB-TOOL-009], [IFC-ADP-094] to
+/// [IFC-ADP-098]).
+pub fn whoami_result(r: &IdentityRequestResult) -> CallToolResult {
+    match r {
+        IdentityRequestResult::Refused { error } => refusal(*error),
+        IdentityRequestResult::LocalIdentity(identity) => result(
+            Value::from(object(vec![
+                ("session_id", Value::from(identity.session_id.as_str())),
+                (
+                    "device_fingerprint",
+                    Value::from(identity.device_fingerprint.as_str()),
+                ),
+            ])),
+            false,
+        ),
+    }
+}
+
 fn object_of(o: &oac_core::json::JsonObject) -> JsonObject {
     let mut out = JsonObject::new();
     for (k, v) in o.iter() {
@@ -535,5 +558,55 @@ mod tests {
             assert!(text.starts_with(code.as_str()), "{text}");
             assert_eq!(r, refusal(code));
         }
+    }
+
+    /// [MCPB-TOOL-006], [MCPB-TOOL-007], [MCPB-TOOL-009]: the two local identity members in
+    /// text and in structured content, and nothing else.
+    #[test]
+    fn whoami_carries_exactly_the_two_identity_members_in_text_and_structured_content() {
+        use oac_core::adapter::LocalIdentity;
+        use oac_core::ids::KeyId;
+        let identity = LocalIdentity {
+            session_id: SessionId::from_random_octets([7; 16]),
+            device_fingerprint: KeyId::parse(&"b3".repeat(32)).unwrap(),
+        };
+        let r = whoami_result(&IdentityRequestResult::LocalIdentity(identity.clone()));
+        assert_ne!(r.is_error, Some(true));
+        let structured = r.structured_content.clone().expect("structured content");
+        let mut members: Vec<&str> = structured
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        members.sort_unstable();
+        assert_eq!(members, ["device_fingerprint", "session_id"]);
+        let text = match &r.content[0] {
+            ContentBlock::Text(t) => t.text.clone(),
+            other => panic!("{other:?}"),
+        };
+        // The same JSON value in the text block (member order is not significant).
+        let reread = oac_core::json::parse(text.as_bytes()).expect("the text is JSON");
+        let reread = reread.as_object().expect("an object");
+        assert_eq!(reread.len(), 2);
+        assert_eq!(
+            reread.get("session_id").and_then(Json::as_str),
+            Some(identity.session_id.as_str())
+        );
+        assert_eq!(
+            reread.get("device_fingerprint").and_then(Json::as_str),
+            Some(identity.device_fingerprint.as_str())
+        );
+        assert_eq!(structured["session_id"], identity.session_id.as_str());
+        assert_eq!(
+            structured["device_fingerprint"],
+            identity.device_fingerprint.as_str()
+        );
+        assert_eq!(
+            whoami_result(&IdentityRequestResult::Refused {
+                error: ErrorCode::Unauthorized
+            }),
+            refusal(ErrorCode::Unauthorized)
+        );
     }
 }

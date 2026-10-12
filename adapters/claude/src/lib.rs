@@ -12,6 +12,14 @@
 //!   (G-7 §3.1); the tool surface is `oac-mcp-tools`, shared with the Codex adapter
 //!   ([MCPB-TOOL-003]).
 //!
+//! - [`hook`] is the supported source of the harness-native id (G5, #66): a `SessionStart`
+//!   hook input (`session_id`, `source`) that arrives on a connection is reported as one
+//!   native signal, and the core pairs and binds it (`spec/session-channels.md` §6.7). The
+//!   adapter reads no environment variable, session file or transcript for it, and a
+//!   resumed session is a new one (C4 §6).
+//! - `whoami` is an identity request to the core; `send`, `reply` and `list_sessions` are
+//!   send and discovery requests. None of them decides anything the core owns.
+//!
 //! What the adapter never does ([ADR-001 Boundary]): call a model API, read a credential,
 //! scrape a terminal, poll for messages, or reach a transport. It routes every outbound
 //! request through the core's request sink ([IFC-ADP-001], [IFC-ADP-003]) and signs,
@@ -23,6 +31,7 @@
 pub mod adapter;
 pub mod channel;
 mod gate;
+pub mod hook;
 mod io;
 mod server;
 

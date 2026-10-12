@@ -1,5 +1,24 @@
 # OAC status
 
+**Last updated:** 2026-10-12 (**G5, #66: Claude adapter outbound tools and session registration**).
+`whoami` is an identity request to the core ([IFC-ADP-094]); the tool result is the core's
+`session_id` and `device_fingerprint`. The harness-native id N comes only from the `SessionStart`
+hook input (`session_id`, `source`; `adapters/claude/src/hook.rs`): a connection whose first line
+is a hook input is a carrier of one `native-signal`, never an attachment; `startup` is `fresh`,
+`resume`/`clear`/`fork`/`compact` are `transition`, a missing `source` reports no kind and an
+unknown one `unmapped`. `SessionEnd` is not a signal and deregisters nothing: an attachment ends
+with its connection. A different session id for an attachment drops its reply records.
+Evidence: Claude Code `2.1.285` captured on 2026-10-12 (`SessionStart` `source` `startup`, then
+`--resume <id>` reporting `source` `resume` with the same `session_id`; `SessionEnd` `other`;
+the hook's `CLAUDE_CODE_SESSION_ID` equalled `session_id`); first-party hooks and channels
+reference pages retrieved the same day. Not claimed: a live OAC-enabled Claude leg (the hook
+handler command and the daemon are G9/G10), the cross-check value E on the shim side (no wire
+carries it to the adapter yet, so `attachment-opened` reports none and the core binds under
+case 3(c)), and any gate verdict. Open for the lead: the core reads a native signal's pairing
+key on a worker after the adapter's report returns, so a daemon that ends the carrier's
+connection at once loses it and the signal fails closed (SC-ID-129); the adapter's four-place
+connection limit is shared by hook carriers.
+
 **Last updated:** 2026-10-11 (**#64, native TLS local/LAN configuration; Refs #377**).
 Local mode uses one persisted per-user certificate as an additional root and mTLS identity,
 with native name/expiration checks and native default-deny certificate-CN ACLs. Plain or

@@ -16,14 +16,15 @@ use oac_adapter_claude::channel::{
 };
 use oac_core::adapter::{
     AdapterEvent, Attachment, Connection, DiscoveryRequest, DiscoveryRequestResult, HandOff,
-    HandOffOutcome, ProviderAdapter, ReceiptStream, RequestSink, SendRequest, SendRequestResult,
+    HandOffOutcome, IdentityRequest, IdentityRequestResult, LocalIdentity, NativeSignal,
+    ProviderAdapter, ReceiptStream, RequestSink, SendRequest, SendRequestResult, StartKind,
 };
 use oac_core::clock::{Clock, SystemClock};
 use oac_core::delivery::ErrorCode;
 use oac_core::envelope::{
     ChannelMessage, EnvelopeDraft, EnvelopeLimits, TextPart, receive_envelope,
 };
-use oac_core::ids::{EXTENSION_ID_V0, SessionId, Token};
+use oac_core::ids::{EXTENSION_ID_V0, KeyId, SessionId, Token};
 use oac_core::json::{self, Json};
 use oac_core::keys::{DeviceIdentity, DeviceKey};
 use oac_core::signing::authenticate;
@@ -109,6 +110,12 @@ fn number(v: &Json, path: &[&str]) -> Option<String> {
 struct Core {
     events: Mutex<Vec<AdapterEvent>>,
     sent: Mutex<Vec<SendRequest>>,
+    /// What the core serves as the identity of a bound attachment; `None`: no bound session.
+    identity: Mutex<Option<LocalIdentity>>,
+    /// The attachments of every identity request the sink took.
+    identity_requests: Mutex<Vec<Attachment>>,
+    /// What the sink answers a send with.
+    send_result: Mutex<Option<SendRequestResult>>,
 }
 
 struct Sink(Arc<Core>);
@@ -128,12 +135,37 @@ impl RequestSink for Sink {
     ) -> oac_core::local_call::LocalResult<DiscoveryRequestResult> {
         call.commit(|| self.discover(request))
     }
+    fn identity_local(
+        &self,
+        call: &mut oac_core::local_call::CallContext,
+        request: IdentityRequest,
+    ) -> oac_core::local_call::LocalResult<IdentityRequestResult> {
+        call.commit(|| self.identity(request))
+    }
     fn send(&self, request: SendRequest) -> SendRequestResult {
         self.0.sent.lock().unwrap().push(request);
-        SendRequestResult::Sent {
-            id: Token::parse("m1").unwrap(),
-            correlation: None,
-            receipts: ReceiptStream(mpsc::channel().1),
+        self.0
+            .send_result
+            .lock()
+            .unwrap()
+            .take()
+            .unwrap_or_else(|| SendRequestResult::Sent {
+                id: Token::parse("m1").unwrap(),
+                correlation: None,
+                receipts: ReceiptStream(mpsc::channel().1),
+            })
+    }
+    fn identity(&self, request: IdentityRequest) -> IdentityRequestResult {
+        self.0
+            .identity_requests
+            .lock()
+            .unwrap()
+            .push(request.attachment);
+        match self.0.identity.lock().unwrap().clone() {
+            Some(identity) => IdentityRequestResult::LocalIdentity(identity),
+            None => IdentityRequestResult::Refused {
+                error: ErrorCode::Unauthorized,
+            },
         }
     }
     fn discover(&self, _request: DiscoveryRequest) -> DiscoveryRequestResult {
@@ -1179,4 +1211,411 @@ fn shutdown_records_core_closure_despite_core_lock_contention() {
     );
     assert!(wire.next(Duration::from_millis(50)).is_none());
     pipes.shutdown();
+}
+
+// ---- G5 (#66): whoami, session registration from the hook surface, reply correlation ---------
+
+/// A `SessionStart` hook input as Claude Code `2.1.285` wrote it on 2026-10-12 (paths
+/// shortened). `source` is spliced in.
+fn session_start(session_id: &str, source: &str) -> String {
+    format!(
+        "{{\"session_id\":\"{session_id}\",\"transcript_path\":\"C:\\\\Users\\\\u\\\\.claude\\\\projects\\\\p\\\\{session_id}.jsonl\",\"cwd\":\"C:\\\\work\",\"hook_event_name\":\"SessionStart\"{source}}}"
+    )
+}
+
+impl Core {
+    fn signals(&self) -> Vec<NativeSignal> {
+        self.events
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|e| match e {
+                AdapterEvent::NativeSignal(s) => Some(s.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn event_count(&self) -> usize {
+        self.events.lock().unwrap().len()
+    }
+}
+
+/// Waits until the core has `n` events; test-side only.
+fn wait_for_events(core: &Core, n: usize) {
+    let end = Instant::now() + WAIT;
+    while core.event_count() < n {
+        assert!(Instant::now() < end, "fewer than {n} events");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+/// Waits until the adapter has closed the connection `handle`; test-side only.
+fn wait_for_closed(handle: &Attachment) {
+    let end = Instant::now() + WAIT;
+    while !handle.is_closed() {
+        assert!(Instant::now() < end, "connection not closed");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+/// G5, C4 §3, [IFC-ADP-020]: a `SessionStart` hook input on a connection is one
+/// `native-signal` carrying the hook's `session_id` as N, the start kind its `source` maps
+/// to, and the connection it arrived on: no key, no cross-check value, no attachment.
+/// Every documented `source` maps (`startup` fresh, the rest transitions). The carrier
+/// is never an attachment, so nothing opens or closes, and nothing is written back (a
+/// `SessionStart` hook's standard output reaches Claude's context).
+#[test]
+fn a_session_start_hook_input_is_one_native_signal_on_its_connection() {
+    let (a, core) = adapter_with(WAIT);
+    let cases = [
+        ("startup", Some(StartKind::Fresh)),
+        ("resume", Some(StartKind::Transition)),
+        ("clear", Some(StartKind::Transition)),
+        ("fork", Some(StartKind::Transition)),
+        ("compact", Some(StartKind::Transition)),
+        ("something-new", Some(StartKind::Unmapped)),
+    ];
+    for (i, (source, kind)) in cases.into_iter().enumerate() {
+        let (mut w, handle) = connect(&a);
+        let id = format!("f40e86db-b0cb-439a-bb2d-17f1dd86c1d{i}");
+        w.send(&session_start(&id, &format!(",\"source\":\"{source}\"")));
+        wait_for_events(&core, i + 1);
+        let signals = core.signals();
+        let s = signals.last().unwrap();
+        assert_eq!(s.native_id, id, "{source}");
+        assert_eq!(s.start_kind, kind, "{source}");
+        assert_eq!(s.cross_check, None, "{source}");
+        assert_eq!(s.connection.as_ref(), Some(&handle), "{source}");
+        assert!(
+            w.next(Duration::from_millis(100)).is_none(),
+            "{source}: the adapter wrote to a carrier"
+        );
+        wait_for_closed(&handle);
+    }
+    assert_eq!(core.signals().len(), 6);
+    assert_eq!(core.event_count(), 6, "no attachment event for a carrier");
+    a.shutdown();
+}
+
+/// G5: the input may end at end of stream instead of a newline (a hook handler that relays
+/// its standard input to its end), and a `source` that is missing reports no start kind.
+#[test]
+fn a_hook_input_may_end_at_end_of_stream_and_a_missing_source_reports_no_kind() {
+    let (a, core) = adapter_with(WAIT);
+    let (mut w, handle) = connect(&a);
+    w.to_adapter
+        .take()
+        .unwrap()
+        .send(session_start("s-1", "").into_bytes())
+        .unwrap();
+    wait_for_events(&core, 1);
+    let s = core.signals().pop().unwrap();
+    assert_eq!(s.native_id, "s-1");
+    assert_eq!(s.start_kind, None);
+    assert_eq!(s.connection.as_ref(), Some(&handle));
+    a.shutdown();
+}
+
+/// G5, C4 §3: only `SessionStart` is a native signal. `SessionEnd` and every other hook input
+/// report nothing and deregister nothing (deregistration is the attachment ending, [SC-ID-155]),
+/// and an input without a usable `session_id` reports nothing either. Nothing is guessed from
+/// content, the transcript or the environment.
+#[test]
+fn only_a_session_start_with_a_session_id_is_a_native_signal() {
+    let (a, core) = adapter_with(WAIT);
+    let inputs = [
+        "{\"session_id\":\"s-1\",\"hook_event_name\":\"SessionEnd\",\"reason\":\"other\"}",
+        "{\"session_id\":\"s-1\",\"hook_event_name\":\"UserPromptSubmit\",\"prompt\":\"hi\"}",
+        "{\"hook_event_name\":\"SessionStart\",\"source\":\"startup\"}",
+        "{\"session_id\":\"\",\"hook_event_name\":\"SessionStart\",\"source\":\"startup\"}",
+        "{\"session_id\":7,\"hook_event_name\":\"SessionStart\",\"source\":\"startup\"}",
+    ];
+    for input in inputs {
+        let (w, handle) = connect(&a);
+        w.send(input);
+        // The adapter ends a carrier once it has handled its input.
+        wait_for_closed(&handle);
+    }
+    assert_eq!(core.event_count(), 0, "no signal, no attachment event");
+    a.shutdown();
+}
+
+/// G5: an MCP stream is still served as the channel server after the adapter looked at its
+/// first line, and a hook-shaped object that claims to be JSON-RPC is MCP, not a signal.
+#[test]
+fn a_connection_whose_first_line_is_mcp_is_still_the_channel_server() {
+    let (a, core) = adapter_with(WAIT);
+    let (mut w, _h) = connect(&a);
+    open(&mut w, true);
+    wait_for_open(&core);
+    assert!(core.signals().is_empty());
+    let (w2, h2) = connect(&a);
+    w2.send("{\"jsonrpc\":\"2.0\",\"hook_event_name\":\"SessionStart\",\"session_id\":\"s\"}");
+    std::thread::sleep(Duration::from_millis(100));
+    assert!(core.signals().is_empty(), "claimed JSON-RPC: no hook input");
+    assert!(!h2.is_closed(), "served as MCP, which waits for more");
+    a.shutdown();
+}
+
+/// G5, [IFC-ADP-094], [MCPB-TOOL-006], [MCPB-TOOL-009]: `whoami` is an identity request to
+/// the core, attributed to the attachment the call arrived on. The result carries the
+/// session id and device fingerprint the core returned, in text and in structured content,
+/// and nothing else; before the core serves a bound session it is the core's `unauthorized`.
+#[test]
+fn whoami_is_the_cores_identity_for_the_attachment() {
+    let (a, core) = adapter_with(WAIT);
+    let (mut w, _h) = connect(&a);
+    open(&mut w, true);
+    let att = wait_for_open(&core);
+
+    let r = tool_call(&mut w, 2, "whoami", "{}");
+    assert!(result_text(&r).starts_with("unauthorized"), "{r:?}");
+    assert_eq!(
+        get(&r, &["result", "isError"]).and_then(Json::as_bool),
+        Some(true)
+    );
+
+    let session = SessionId::from_random_octets([2; 16]);
+    let fingerprint = KeyId::parse(&"ab".repeat(32)).unwrap();
+    *core.identity.lock().unwrap() = Some(LocalIdentity {
+        session_id: session.clone(),
+        device_fingerprint: fingerprint.clone(),
+    });
+    a.set_binding(&att, Some(session.clone()));
+    let r = tool_call(&mut w, 3, "whoami", "{}");
+    assert_ne!(
+        get(&r, &["result", "isError"]).and_then(Json::as_bool),
+        Some(true),
+        "{r:?}"
+    );
+    let reread = json::parse(result_text(&r).as_bytes()).expect("text is JSON");
+    for v in [&reread, get(&r, &["result", "structuredContent"]).unwrap()] {
+        let o = v.as_object().unwrap();
+        assert_eq!(o.len(), 2, "exactly the two identity members");
+        assert_eq!(
+            o.get("session_id").and_then(Json::as_str),
+            Some(session.as_str())
+        );
+        assert_eq!(
+            o.get("device_fingerprint").and_then(Json::as_str),
+            Some(fingerprint.as_str())
+        );
+    }
+    // Every call went to the core, labelled with the connection. A caller's claim in the
+    // arguments changes nothing: the identity is the core's.
+    let r = tool_call(
+        &mut w,
+        4,
+        "whoami",
+        "{\"session_id\":\"x\",\"device_fingerprint\":\"y\"}",
+    );
+    assert!(result_text(&r).contains(session.as_str()), "{r:?}");
+    assert!(!result_text(&r).contains("\"x\""), "{r:?}");
+    let asked = core.identity_requests.lock().unwrap().clone();
+    assert_eq!(asked, [att.clone(), att.clone(), att]);
+    a.shutdown();
+}
+
+/// [MCPB-TOOL-008], [SC-RCP-055], [IFC-ADP-060]: a `send` or `reply` result reports what the
+/// core returned and no later state: `sent` is `accepted-by-adapter` (never delivered,
+/// handed-to-harness or read), a reply says whether it was correlated, `not-passed` is a
+/// tool error with `failed`, and a refusal carries only its code.
+#[test]
+fn tool_results_never_assert_delivery() {
+    let (a, core) = adapter_with(WAIT);
+    let (mut w, _h) = connect(&a);
+    open(&mut w, true);
+    let att = wait_for_open(&core);
+    a.set_binding(&att, Some(SessionId::from_random_octets([2; 16])));
+    let to = "7gq3m8z2c5k9t1w4x6b0n2r8vd";
+    let content = "\"content\":[{\"type\":\"text\",\"text\":\"x\"}]";
+    let send = format!("{{\"to\":\"{to}\",{content}}}");
+    let sent_ok = |correlation| SendRequestResult::Sent {
+        id: Token::parse("m1").unwrap(),
+        correlation,
+        receipts: ReceiptStream(mpsc::channel().1),
+    };
+    let beyond = [
+        "delivered",
+        "handed-to-harness",
+        "rejected",
+        "expired",
+        "duplicate",
+        "unknown",
+        "unreachable",
+        "read",
+        "seen",
+    ];
+
+    *core.send_result.lock().unwrap() = Some(sent_ok(None));
+    let r = tool_call(&mut w, 2, "send", &send);
+    let t = result_text(&r);
+    assert_eq!(
+        text(&r, &["result", "structuredContent", "state"]).as_deref(),
+        Some("accepted-by-adapter")
+    );
+    assert_eq!(
+        text(&r, &["result", "structuredContent", "id"]).as_deref(),
+        Some("m1")
+    );
+    assert!(t.contains("accepted-by-adapter") && t.contains("m1"), "{t}");
+    for word in beyond {
+        assert!(!t.contains(word), "{word} in {t}");
+    }
+
+    *core.send_result.lock().unwrap() =
+        Some(sent_ok(Some(oac_core::adapter::Correlation::Uncorrelated)));
+    let r = tool_call(
+        &mut w,
+        3,
+        "reply",
+        &format!("{{\"in_reply_to\":\"never-handed-off\",\"to\":\"{to}\",{content}}}"),
+    );
+    assert_eq!(
+        text(&r, &["result", "structuredContent", "correlation"]).as_deref(),
+        Some("uncorrelated")
+    );
+    assert_eq!(
+        text(&r, &["result", "structuredContent", "state"]).as_deref(),
+        Some("accepted-by-adapter")
+    );
+
+    *core.send_result.lock().unwrap() = Some(SendRequestResult::NotPassed {
+        id: Token::parse("m2").unwrap(),
+        error: ErrorCode::TransportFailure,
+    });
+    let r = tool_call(&mut w, 4, "send", &send);
+    assert_eq!(
+        get(&r, &["result", "isError"]).and_then(Json::as_bool),
+        Some(true)
+    );
+    assert_eq!(
+        text(&r, &["result", "structuredContent", "state"]).as_deref(),
+        Some("failed")
+    );
+    assert!(result_text(&r).starts_with("transport-failure"), "{r:?}");
+
+    *core.send_result.lock().unwrap() = Some(SendRequestResult::Refused {
+        error: ErrorCode::UnknownDestination,
+    });
+    let r = tool_call(&mut w, 5, "send", &send);
+    assert!(result_text(&r).starts_with("unknown-destination"), "{r:?}");
+    assert!(get(&r, &["result", "structuredContent", "state"]).is_none());
+    a.shutdown();
+}
+
+/// G5, [SC-RCP-050] to [SC-RCP-052], C6 §10: correlation rests on the attributes the server
+/// asks the model to echo (`oac_message_id` as `in_reply_to`, `oac_sender` as `to`) and
+/// tolerates the model leaving them out or getting them wrong:
+///
+/// - both echoed: the reply goes to the sender with the echoed id as the requested target;
+/// - `to` left out: the destination is the sender of the message this attachment was handed
+///   with that id; the id is passed on unchanged;
+/// - the id wrong or never handed off, with `to` given: passed on as the requested target,
+///   which the core downgrades to an uncorrelated reply; the adapter picks nothing;
+/// - `to` left out and nothing to resolve it from, or the id left out: `invalid-request`,
+///   nothing reaches the core, and nothing is guessed from the only message in sight.
+#[test]
+fn reply_correlation_uses_the_echoed_attributes_and_tolerates_their_omission() {
+    let (a, core) = adapter_with(WAIT);
+    let (mut w, _h) = connect(&a);
+    open(&mut w, true);
+    let att = wait_for_open(&core);
+    let sender = SessionId::from_random_octets([1; 16]);
+    a.set_binding(&att, Some(SessionId::from_random_octets([2; 16])));
+    let (msg, _) = message("question", None);
+    assert_eq!(
+        a.deliver(HandOff::new(att.clone(), msg).unwrap()),
+        HandOffOutcome::Completed
+    );
+    // What the model saw: the five attributes, among them the two it is asked to echo.
+    let n = w.frame();
+    let echoed_id = text(&n, &["params", "meta", "oac_message_id"]).unwrap();
+    let echoed_sender = text(&n, &["params", "meta", "oac_sender"]).unwrap();
+    assert_eq!(echoed_sender, sender.as_str());
+    let body = "\"content\":[{\"type\":\"text\",\"text\":\"answer\"}]";
+
+    // Both echoed.
+    tool_call(
+        &mut w,
+        2,
+        "reply",
+        &format!("{{\"in_reply_to\":\"{echoed_id}\",\"to\":\"{echoed_sender}\",{body}}}"),
+    );
+    // `to` omitted.
+    tool_call(
+        &mut w,
+        3,
+        "reply",
+        &format!("{{\"in_reply_to\":\"{echoed_id}\",{body}}}"),
+    );
+    // The id wrong, `to` echoed.
+    tool_call(
+        &mut w,
+        4,
+        "reply",
+        &format!("{{\"in_reply_to\":\"made-up\",\"to\":\"{echoed_sender}\",{body}}}"),
+    );
+    let requests = core.sent.lock().unwrap().clone();
+    assert_eq!(requests.len(), 3);
+    for (r, target) in requests
+        .iter()
+        .zip([echoed_id.as_str(), echoed_id.as_str(), "made-up"])
+    {
+        assert_eq!(r.to, sender);
+        assert_eq!(r.requested_target.as_deref(), Some(target));
+        assert_eq!(r.attachment, att);
+    }
+
+    // Nothing to resolve `to` from: a wrong id without `to`.
+    let r = tool_call(
+        &mut w,
+        5,
+        "reply",
+        &format!("{{\"in_reply_to\":\"made-up\",{body}}}"),
+    );
+    assert!(result_text(&r).starts_with("invalid-request"), "{r:?}");
+    // The id omitted.
+    let r = tool_call(
+        &mut w,
+        6,
+        "reply",
+        &format!("{{\"to\":\"{echoed_sender}\",{body}}}"),
+    );
+    assert!(result_text(&r).starts_with("invalid-request"), "{r:?}");
+    assert_eq!(core.sent.lock().unwrap().len(), 3, "nothing guessed");
+    a.shutdown();
+}
+
+/// G5, C4 §3 case 4 and §6, [SC-ID-151]: when the core binds the attachment to a different
+/// session id (a transition: `--resume`, `/clear`, `/resume`, a fork), what the earlier
+/// session was handed carries nothing forward. A `reply` that names an earlier message
+/// without `to` finds no record; the same session bound again keeps its records.
+#[test]
+fn a_new_session_id_carries_no_reply_records_forward() {
+    let (a, core) = adapter_with(WAIT);
+    let (mut w, _h) = connect(&a);
+    open(&mut w, true);
+    let att = wait_for_open(&core);
+    let old = SessionId::from_random_octets([2; 16]);
+    a.set_binding(&att, Some(old.clone()));
+    let (msg, _) = message("question", None);
+    assert_eq!(
+        a.deliver(HandOff::new(att.clone(), msg).unwrap()),
+        HandOffOutcome::Completed
+    );
+    let _ = w.frame();
+    let args = "{\"in_reply_to\":\"msg-7\",\"content\":[{\"type\":\"text\",\"text\":\"a\"}]}";
+    // Withheld, then released as the same session: the record stays.
+    a.set_binding(&att, None);
+    a.set_binding(&att, Some(old));
+    let r = tool_call(&mut w, 2, "reply", args);
+    assert!(result_text(&r).contains("accepted-by-adapter"), "{r:?}");
+    // A transition: a new session id.
+    a.set_binding(&att, Some(SessionId::from_random_octets([3; 16])));
+    let r = tool_call(&mut w, 3, "reply", args);
+    assert!(result_text(&r).starts_with("invalid-request"), "{r:?}");
+    assert_eq!(core.sent.lock().unwrap().len(), 1);
+    a.shutdown();
 }
