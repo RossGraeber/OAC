@@ -251,11 +251,54 @@ impl Device {
             assert!(Instant::now() < end, "the carrier was not closed");
             std::thread::sleep(Duration::from_millis(5));
         }
-        // The core takes the pairing key of a signal on its own worker, after the adapter's
-        // report returned, so a daemon that ended the connection at once could lose the key
-        // (reported on the PR). Here the connection is released once the signal is decided.
-        std::thread::sleep(Duration::from_millis(300));
+        // The daemon sees the hook handler gone and ends the connection at once. The core
+        // took the signal's pairing key when the adapter reported it, so this changes
+        // nothing about how the signal pairs (B3).
         self.pipes.disconnect(&w.handle);
+    }
+
+    /// Waits until the binding log holds an entry for `requirement`.
+    fn wait_log(&self, what: &str, requirement: &str) {
+        let end = Instant::now() + WAIT;
+        while !self
+            .log
+            .entries()
+            .iter()
+            .any(|e| e.record.requirement == requirement)
+        {
+            assert!(
+                Instant::now() < end,
+                "{what}: no {requirement}; log {:?}",
+                self.log.entries()
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    /// Waits until a native signal is held as not yet pairable: it kept its key, and no
+    /// attachment has one equal to it ([SC-ID-123]).
+    fn wait_held(&self, what: &str) {
+        let end = Instant::now() + WAIT;
+        while self.pipes.next_native_signal_expiry().is_none() {
+            assert!(
+                Instant::now() < end,
+                "{what}: nothing held; log {:?}",
+                self.log.entries()
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    /// No signal lost its key: that would be an SC-ID-129 finding.
+    fn assert_no_unpairable(&self) {
+        assert!(
+            self.log
+                .entries()
+                .iter()
+                .all(|e| e.record.requirement != "SC-ID-129"),
+            "a signal lost its pairing key: {:?}",
+            self.log.entries()
+        );
     }
 
     fn binding(&self, a: &Attachment) -> Option<SessionId> {
@@ -295,9 +338,11 @@ fn the_hook_session_id_registers_the_session_across_start_resume_and_exit() {
     let r = shim.tool(2, "whoami");
     assert!(result_text(&r).starts_with("unauthorized"), "{r:?}");
 
-    // A hook input observed with another key pairs with no attachment: nothing is bound.
+    // A hook input observed with another key pairs with no attachment: it is held as not yet
+    // pairable (it kept its key, which no attachment has) and nothing is bound.
     d.hook("p-other", "11111111-2222-3333-4444-555555555555", "startup");
-    std::thread::sleep(Duration::from_millis(200));
+    d.wait_held("the other key");
+    d.assert_no_unpairable();
     assert_eq!(d.binding(&attachment), None);
 
     // `SessionStart` with `source` `startup`, from the same process: bound.
@@ -340,7 +385,9 @@ fn the_hook_session_id_registers_the_session_across_start_resume_and_exit() {
     let mut twin = d.shim("p3");
     let twin_at = twin.handle.clone();
     d.hook("p3", n1, "resume");
-    std::thread::sleep(Duration::from_millis(300));
+    // Case 2 (SC-ID-131, SC-ID-132): refused with a finding, not merely unbound.
+    d.wait_log("the twin", "SC-ID-132");
+    d.assert_no_unpairable();
     assert_eq!(d.binding(&twin_at), None);
     assert_eq!(d.binding(&resumed_at), Some(second));
     let r = twin.tool(2, "whoami");

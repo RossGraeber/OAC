@@ -18,14 +18,25 @@
 //!
 //! # The carrier connection
 //!
-//! The hook handler is an `oac` command that Claude Code starts. It relays the hook's
-//! standard input to the daemon over local IPC, and the core process hands that connection
-//! to this adapter like any other ([`ProviderAdapter::take_connection`]). A connection is a
-//! **carrier of native signals** rather than an attachment when its first line is not an MCP
-//! frame but a hook input: a JSON object with a `hook_event_name` and no `jsonrpc` member.
-//! The handler sends that object as one line, ended by a newline or by end of stream, and
-//! writes nothing else; this adapter never writes to a carrier, so a handler that prints
-//! nothing adds nothing to Claude's context (a `SessionStart` hook's standard output does).
+//! The hook handler is an `oac` command (G9/G10, `oac hook`) that Claude Code starts. It
+//! sends the hook's input to the daemon over local IPC, and the core process hands that
+//! connection to this adapter like any other ([`ProviderAdapter::take_connection`]). A
+//! connection is a **carrier of native signals** rather than an attachment when its first
+//! line is not an MCP frame but a hook input: a JSON object with a `hook_event_name` and no
+//! `jsonrpc` member.
+//!
+//! What the handler must do, because this adapter classifies by the first line:
+//!
+//! - **Parse its standard input as JSON and send it again as one compact line**, ended by a
+//!   newline or by end of stream. It must not copy the bytes through: the hooks reference
+//!   does not say the input is one line (its examples are written over several lines),
+//!   and a copy that began `{` and a newline would be taken for something that is not a
+//!   hook input, so the signal would be lost (fail closed, nothing bound). Claude Code
+//!   `2.1.285` wrote `SessionStart` as one line when captured on 2026-10-12, but nothing
+//!   documents that.
+//! - **Write nothing to its own standard output** (and exit 0): a `SessionStart` hook's
+//!   standard output is added to Claude's context. This adapter never writes to a carrier.
+//! - Configure only `SessionStart`: it is the only event that is a signal (below).
 //!
 //! Only `SessionStart` is a native signal. Any other event on a carrier is not one and is
 //! ignored: in particular `SessionEnd` does not deregister anything, because it is not

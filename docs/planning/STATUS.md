@@ -14,10 +14,13 @@ the hook's `CLAUDE_CODE_SESSION_ID` equalled `session_id`); first-party hooks an
 reference pages retrieved the same day. Not claimed: a live OAC-enabled Claude leg (the hook
 handler command and the daemon are G9/G10), the cross-check value E on the shim side (no wire
 carries it to the adapter yet, so `attachment-opened` reports none and the core binds under
-case 3(c)), and any gate verdict. Open for the lead: the core reads a native signal's pairing
-key on a worker after the adapter's report returns, so a daemon that ends the carrier's
-connection at once loses it and the signal fails closed (SC-ID-129); the adapter's four-place
-connection limit is shared by hook carriers.
+case 3(c)), and any gate verdict. Review round 1: the core now takes a native signal's pairing
+key and arrival order at report time (`core/src/pipeline.rs`, restoring the B3 rule that #380's
+worker hand-off had broken), so a daemon that ends a hook carrier's connection at once no
+longer loses the key; regression `a_local_native_signal_keeps_its_pairing_key_when_its_connection_ends_at_once`.
+The hook handler (`oac hook`, G9/G10) must parse stdin and send one compact JSON line and write
+nothing to stdout. Residuals owned by G9 are 11-risks rows 83 (the four-place connection limit
+is shared with hook carriers) and 84 (no cross-check value E yet).
 
 **Last updated:** 2026-10-11 (**#64, native TLS local/LAN configuration; Refs #377**).
 Local mode uses one persisted per-user certificate as an additional root and mTLS identity,

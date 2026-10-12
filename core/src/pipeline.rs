@@ -2580,6 +2580,16 @@ impl Inner {
                             paired_seq: None,
                         });
                 }
+                // A native signal's pairing key and arrival order are taken here, at report
+                // time, while its connection is still known: the worker below may run after
+                // the daemon ended the connection (a hook that sends and exits, B3), and
+                // after a later signal was reported (SC-ID-123).
+                let snapshot = match &event {
+                    AdapterEvent::NativeSignal(signal) => {
+                        Some(Inner::snapshot_signal(&mut core, adapter, signal))
+                    }
+                    _ => None,
+                };
                 let inner = self.clone();
                 std::thread::spawn(move || {
                     struct Worker(Arc<Inner>);
@@ -2589,7 +2599,7 @@ impl Inner {
                         }
                     }
                     let _worker = Worker(inner.clone());
-                    inner.on_adapter_event(adapter, event);
+                    inner.on_adapter_event_at(adapter, event, snapshot);
                 });
             })
             .map(|_| ());
@@ -2601,6 +2611,34 @@ impl Inner {
     }
 
     fn on_adapter_event(self: &Arc<Self>, adapter: AdapterId, event: AdapterEvent) {
+        self.on_adapter_event_at(adapter, event, None);
+    }
+
+    /// The pairing key observed for a native signal's connection and the signal's place in
+    /// arrival order, taken together under the core lock at the instant it is reported.
+    fn snapshot_signal(
+        core: &mut Core,
+        adapter: AdapterId,
+        signal: &NativeSignal,
+    ) -> (Option<PairingKey>, u64) {
+        let key = Inner::observed_key(core, adapter, signal);
+        let seq = core.next_signal_seq;
+        // One total arrival order; 2^64 signals never arrive, but say so rather than wrap
+        // silently in a release build.
+        core.next_signal_seq = seq
+            .checked_add(1)
+            .expect("fewer than 2^64 native signals in one process");
+        (key, seq)
+    }
+
+    /// [`Inner::on_adapter_event`], with the snapshot of a native signal when the report
+    /// path already took it ([`Inner::snapshot_signal`]); without one it is taken now.
+    fn on_adapter_event_at(
+        self: &Arc<Self>,
+        adapter: AdapterId,
+        event: AdapterEvent,
+        snapshot: Option<(Option<PairingKey>, u64)>,
+    ) {
         match event {
             AdapterEvent::AttachmentOpened {
                 attachment,
@@ -2646,14 +2684,10 @@ impl Inner {
             AdapterEvent::NativeSignal(signal) => {
                 let dropped = {
                     let mut core = self.lock();
-                    // The key is snapshot now, while the connection is known (B3).
-                    let key = Inner::observed_key(&core, adapter, &signal);
-                    let seq = core.next_signal_seq;
-                    // One total arrival order; 2^64 signals never arrive, but say so rather
-                    // than wrap silently in a release build.
-                    core.next_signal_seq = seq
-                        .checked_add(1)
-                        .expect("fewer than 2^64 native signals in one process");
+                    // The key is the snapshot of the report, while the connection was known
+                    // (B3); a report path that took none takes it now.
+                    let (key, seq) = snapshot
+                        .unwrap_or_else(|| Inner::snapshot_signal(&mut core, adapter, &signal));
                     let queued = QueuedSignal {
                         adapter,
                         signal,

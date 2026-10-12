@@ -77,8 +77,9 @@ enum Phase {
     Closed,
 }
 
-/// How long the rest of a connection's first line may take once some of it has arrived
-/// (a stalled hook input must not hold one of the few connection places).
+/// How long a connection's whole first line may take, counted from its first byte (a
+/// stalled or trickling hook input must not hold one of the few connection places). A
+/// connection that has sent nothing yet is not bounded, as before.
 pub const FIRST_LINE_STALL: Duration = Duration::from_secs(10);
 
 struct Att {

@@ -69,7 +69,7 @@ pub enum Head {
     Empty,
     /// More than the limit with no newline.
     TooLong,
-    /// Some bytes arrived and the rest of the line did not, within the stall bound.
+    /// Some bytes arrived and the line was not complete within the stall bound of the first.
     Stalled,
 }
 
@@ -77,11 +77,13 @@ impl ChannelReader {
     /// Waits for the first line of the stream without consuming it: the bytes stay in the
     /// reader and `rmcp` reads them as usual afterwards. It waits for bytes the peer writes
     /// (no request is made of it, so it is not polling). Nothing is bounded until the first
-    /// byte arrives, as for any idle connection; once some have, the rest of the line must
-    /// follow within `stall` and fit in `limit`.
+    /// byte arrives, as for any idle connection; from then on the whole line must be complete
+    /// within `stall` of that first byte (one deadline for the line, not one per chunk, so a
+    /// peer that trickles bytes cannot hold the place) and fit in `limit`.
     pub async fn peek_line(&mut self, limit: usize, stall: Duration) -> Head {
         // Nothing has been consumed yet: `buf` holds exactly what has been received.
         debug_assert_eq!(self.pos, 0);
+        let mut deadline = None;
         loop {
             if self.buf.contains(&b'\n') {
                 return Head::Line;
@@ -89,16 +91,20 @@ impl ChannelReader {
             if self.buf.len() > limit {
                 return Head::TooLong;
             }
-            let next = if self.buf.is_empty() {
-                self.rx.recv().await
-            } else {
-                match tokio::time::timeout(stall, self.rx.recv()).await {
+            let next = match deadline {
+                None => self.rx.recv().await,
+                Some(deadline) => match tokio::time::timeout_at(deadline, self.rx.recv()).await {
                     Ok(next) => next,
                     Err(_) => return Head::Stalled,
-                }
+                },
             };
             match next {
-                Some(chunk) => self.buf.extend_from_slice(&chunk),
+                Some(chunk) => {
+                    if deadline.is_none() && !chunk.is_empty() {
+                        deadline = Some(tokio::time::Instant::now() + stall);
+                    }
+                    self.buf.extend_from_slice(&chunk);
+                }
                 None if self.buf.is_empty() => return Head::Empty,
                 None => return Head::Line,
             }
@@ -219,6 +225,35 @@ mod tests {
             let (tx, mut r) = reader();
             drop(tx);
             assert_eq!(r.peek_line(1024, Duration::from_secs(5)).await, Head::Empty);
+        });
+    }
+
+    /// One deadline for the whole line: a peer that sends a byte now and then, each inside the
+    /// bound, still runs out the bound counted from its first byte.
+    #[test]
+    fn a_line_that_trickles_runs_out_one_deadline() {
+        rt().block_on(async {
+            let (tx, mut r) = reader();
+            let feeder = std::thread::spawn(move || {
+                for _ in 0..40 {
+                    if tx.send(b"x".to_vec()).is_err() {
+                        return;
+                    }
+                    std::thread::sleep(Duration::from_millis(20));
+                }
+            });
+            let start = std::time::Instant::now();
+            assert_eq!(
+                r.peek_line(1024, Duration::from_millis(150)).await,
+                Head::Stalled
+            );
+            assert!(
+                start.elapsed() < Duration::from_millis(600),
+                "bounded from the first byte, not renewed by each chunk: {:?}",
+                start.elapsed()
+            );
+            drop(r);
+            feeder.join().unwrap();
         });
     }
 
