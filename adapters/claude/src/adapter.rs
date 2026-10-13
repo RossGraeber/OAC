@@ -10,6 +10,11 @@
 //! channels over one server (whether Claude Code supports that is UNVERIFIED, 11-risks
 //! row 2, so nothing here depends on it).
 //!
+//! A connection is either that, or a **carrier of one native signal**: the hook handler's
+//! connection, whose first line is a hook input rather than an MCP frame ([`crate::hook`]).
+//! The adapter reports a `SessionStart` input as a `native-signal` on the connection it came
+//! on, never as an attachment, and closes the carrier. It binds nothing itself.
+//!
 //! Each connection runs its MCP server ([`crate::server`]) on its own thread, with a
 //! current-thread `tokio` runtime. Everything inbound is pushed: the harness's frames arrive
 //! on the connection, and hand-offs are notifications the server writes. Nothing here asks
@@ -34,7 +39,8 @@ use std::time::Duration;
 
 use oac_core::adapter::{
     AdapterCapabilities, AdapterEvent, AdapterEventHandler, Attachment, Connection,
-    DiscoveryRequest, HandOff, HandOffOutcome, LocalEventHandler, ProviderAdapter, RequestSink,
+    DiscoveryRequest, HandOff, HandOffOutcome, IdentityRequest, LocalEventHandler, NativeSignal,
+    ProviderAdapter, RequestSink,
 };
 use oac_core::delivery::ErrorCode;
 use oac_core::health::{HealthState, HealthStatus};
@@ -47,7 +53,8 @@ use rmcp::service::{Peer, RoleServer, RunningServiceCancellationToken};
 use crate::channel::{
     CHANNEL_NOTIFICATION, META_KEYS, ProvenanceRefusal, channel_content, provenance_meta,
 };
-use crate::io::{ChannelReader, ChannelWriter};
+use crate::hook::{self, FirstLine, MAX_HOOK_INPUT, SessionStart};
+use crate::io::{ChannelReader, ChannelWriter, Head};
 use crate::server::{ChannelServer, ChannelTransport};
 
 /// How long `deliver` waits for the notification's write to complete before it reports
@@ -63,9 +70,17 @@ enum Phase {
     Opening,
     /// The channel is registered and listed; `attachment-opened` was reported.
     Open,
+    /// A carrier of native signals (a hook input, [`crate::hook`]), not an attachment: it is
+    /// never opened or handed off to.
+    Carrier,
     /// Ended; `attachment-closed` was reported if it had opened.
     Closed,
 }
+
+/// How long a connection's whole first line may take, counted from its first byte (a
+/// stalled or trickling hook input must not hold one of the few connection places). A
+/// connection that has sent nothing yet is not bounded, as before.
+pub const FIRST_LINE_STALL: Duration = Duration::from_secs(10);
 
 struct Att {
     phase: Phase,
@@ -82,6 +97,20 @@ struct Att {
     handed: VecDeque<(String, SessionId, SessionId, bool)>,
     /// Once records are evicted, implicit resolution cannot exclude an older collision.
     reply_records_evicted: bool,
+}
+
+impl Att {
+    /// The core's binding for this attachment changed. A different session id is a new
+    /// session: what the earlier one was handed carries nothing forward, so no `reply` of
+    /// the new session finds an earlier session's message by its id ([SC-ID-151]; C4 §6).
+    /// Unbinding and binding the same session again keep the records.
+    fn rebind(&mut self, session: Option<SessionId>) {
+        if session.is_some() && self.bound.is_some() && session != self.bound {
+            self.handed.clear();
+            self.reply_records_evicted = false;
+        }
+        self.bound = session;
+    }
 }
 
 /// How many hand-off records an attachment keeps for `reply`. Older ones are dropped, so a
@@ -184,6 +213,39 @@ impl Inner {
                 cross_check: None,
             },
         );
+    }
+
+    /// The connection is a carrier of native signals ([`crate::hook`]). A `SessionStart`
+    /// input is reported as one `native-signal` on this connection ([IFC-ADP-020]); anything
+    /// else it carried is not a native signal and is dropped. The adapter decides nothing
+    /// about pairing or binding ([SC-ID-120]): the core does, from the connection.
+    pub(crate) fn carrier(&self, a: &Attachment, signal: Option<SessionStart>) {
+        let _ev = self.events.enter();
+        let h = {
+            if self.down.load(Ordering::SeqCst) {
+                return;
+            }
+            let mut st = lock(&self.state);
+            let Some(att) = st.attachments.get_mut(a) else {
+                return;
+            };
+            if att.phase != Phase::Opening {
+                return;
+            }
+            att.phase = Phase::Carrier;
+            st.handler.clone()
+        };
+        if let Some(signal) = signal {
+            self.emit(
+                h,
+                AdapterEvent::NativeSignal(NativeSignal {
+                    native_id: signal.native_id,
+                    start_kind: signal.start_kind,
+                    cross_check: None,
+                    connection: Some(a.clone()),
+                }),
+            );
+        }
     }
 
     /// The connection ended.
@@ -317,14 +379,19 @@ impl Inner {
                     _ => oac_mcp_tools::refusal(ErrorCode::InternalError),
                 }
             }
-            // [MCPB-ATT-002]: no session to name on an unbound attachment. On a bound one
-            // the identity request path is ready in core; the tool and registration
-            // integration remain #66; `whoami` waits for session registration (G5, #66).
-            ToolCall::Whoami => oac_mcp_tools::refusal(if bound.is_none() {
-                ErrorCode::Unauthorized
-            } else {
-                ErrorCode::InternalError
-            }),
+            // [IFC-ADP-094]: the identity comes from an `IdentityRequest` attributed to this
+            // attachment, never from a value this adapter holds. An attachment the core does
+            // not serve a bound session on is refused `unauthorized` by the core
+            // ([IFC-ADP-095], [MCPB-ATT-002]).
+            ToolCall::Whoami => match sink.identity_local(
+                &mut local,
+                IdentityRequest {
+                    attachment: a.clone(),
+                },
+            ) {
+                LocalResult::Completed(value) => oac_mcp_tools::whoami_result(&value),
+                _ => oac_mcp_tools::refusal(ErrorCode::InternalError),
+            },
         }
     }
 }
@@ -367,6 +434,11 @@ impl ClaudeAdapter {
 }
 
 /// Serves one connection until it ends, then reports it closed.
+///
+/// The first line says what the connection is: a hook input makes it a carrier of one native
+/// signal ([`crate::hook`]); anything else is the harness's MCP stream, served as the channel
+/// server. A hook input is not an MCP frame, so nothing is lost by looking first: the bytes
+/// stay in the reader for `rmcp`.
 fn serve(
     inner: Arc<Inner>,
     attachment: Attachment,
@@ -377,9 +449,31 @@ fn serve(
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_time()
         .build();
-    if let (Ok(runtime), Ok(read)) = (runtime, ChannelReader::spawn(reader)) {
+    if let (Ok(runtime), Ok(mut read)) = (runtime, ChannelReader::spawn(reader)) {
         let handle = runtime.handle().clone();
         runtime.block_on(async {
+            // A connection can be stopped even while it waits for its first byte.
+            let head = tokio::select! {
+                head = read.peek_line(MAX_HOOK_INPUT, FIRST_LINE_STALL) => head,
+                _ = stop.changed() => return,
+            };
+            match head {
+                Head::Stalled => return,
+                Head::Line => {
+                    let received = read.received();
+                    let end = received
+                        .iter()
+                        .position(|&b| b == b'\n')
+                        .unwrap_or(received.len());
+                    if let FirstLine::Hook(input) = hook::classify(&received[..end]) {
+                        inner.carrier(&attachment, input.session_start());
+                        return;
+                    }
+                }
+                // An empty stream, or a first line too long for a hook input, is for the MCP
+                // server to end, as it always was.
+                Head::Empty | Head::TooLong => {}
+            }
             let transport = ChannelTransport::new(
                 read,
                 ChannelWriter(writer),
@@ -461,7 +555,7 @@ impl ProviderAdapter for ClaudeAdapter {
         };
         call.commit(|| {
             if let Some(att) = state.attachments.get_mut(attachment) {
-                att.bound = session;
+                att.rebind(session);
             }
         })
     }
@@ -550,7 +644,7 @@ impl ProviderAdapter for ClaudeAdapter {
 
     fn set_binding(&self, attachment: &Attachment, session: Option<SessionId>) {
         if let Some(att) = lock(&self.inner.state).attachments.get_mut(attachment) {
-            att.bound = session;
+            att.rebind(session);
         }
     }
 

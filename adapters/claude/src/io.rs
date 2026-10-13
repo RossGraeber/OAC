@@ -21,6 +21,7 @@
 use std::io::{self, Read, Write};
 use std::pin::Pin;
 use std::task::{Context, Poll};
+use std::time::Duration;
 
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::mpsc;
@@ -56,6 +57,64 @@ impl ChannelReader {
             buf: Vec::new(),
             pos: 0,
         })
+    }
+}
+
+/// How the first line of a connection ended ([`ChannelReader::peek_line`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Head {
+    /// A complete line, newline-terminated or ended by end of file.
+    Line,
+    /// The stream ended with nothing on it.
+    Empty,
+    /// More than the limit with no newline.
+    TooLong,
+    /// Some bytes arrived and the line was not complete within the stall bound of the first.
+    Stalled,
+}
+
+impl ChannelReader {
+    /// Waits for the first line of the stream without consuming it: the bytes stay in the
+    /// reader and `rmcp` reads them as usual afterwards. It waits for bytes the peer writes
+    /// (no request is made of it, so it is not polling). Nothing is bounded until the first
+    /// byte arrives, as for any idle connection; from then on the whole line must be complete
+    /// within `stall` of that first byte (one deadline for the line, not one per chunk, so a
+    /// peer that trickles bytes cannot hold the place) and fit in `limit`.
+    pub async fn peek_line(&mut self, limit: usize, stall: Duration) -> Head {
+        // Nothing has been consumed yet: `buf` holds exactly what has been received.
+        debug_assert_eq!(self.pos, 0);
+        let mut deadline = None;
+        loop {
+            if self.buf.contains(&b'\n') {
+                return Head::Line;
+            }
+            if self.buf.len() > limit {
+                return Head::TooLong;
+            }
+            let next = match deadline {
+                None => self.rx.recv().await,
+                Some(deadline) => match tokio::time::timeout_at(deadline, self.rx.recv()).await {
+                    Ok(next) => next,
+                    Err(_) => return Head::Stalled,
+                },
+            };
+            match next {
+                Some(chunk) => {
+                    if deadline.is_none() && !chunk.is_empty() {
+                        deadline = Some(tokio::time::Instant::now() + stall);
+                    }
+                    self.buf.extend_from_slice(&chunk);
+                }
+                None if self.buf.is_empty() => return Head::Empty,
+                None => return Head::Line,
+            }
+        }
+    }
+
+    /// The bytes received so far and not yet read, after [`ChannelReader::peek_line`]: the
+    /// first line, and whatever followed it in the same chunk.
+    pub fn received(&self) -> &[u8] {
+        &self.buf[self.pos..]
     }
 }
 
@@ -102,5 +161,128 @@ impl AsyncWrite for ChannelWriter {
 
     fn poll_shutdown(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         Poll::Ready(self.0.flush())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::mpsc;
+
+    /// A reader fed by the test, and its feed. Dropping the feed is end of file.
+    fn reader() -> (mpsc::Sender<Vec<u8>>, ChannelReader) {
+        struct Fed(mpsc::Receiver<Vec<u8>>, Vec<u8>);
+        impl Read for Fed {
+            fn read(&mut self, out: &mut [u8]) -> io::Result<usize> {
+                if self.1.is_empty() {
+                    match self.0.recv() {
+                        Ok(b) => self.1 = b,
+                        Err(_) => return Ok(0),
+                    }
+                }
+                let n = out.len().min(self.1.len());
+                out[..n].copy_from_slice(&self.1[..n]);
+                self.1.drain(..n);
+                Ok(n)
+            }
+        }
+        let (tx, rx) = mpsc::channel();
+        let r = ChannelReader::spawn(Box::new(Fed(rx, Vec::new()))).expect("a reader");
+        (tx, r)
+    }
+
+    fn rt() -> tokio::runtime::Runtime {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()
+            .expect("a runtime")
+    }
+
+    #[test]
+    fn the_first_line_is_looked_at_and_still_read_afterwards() {
+        use tokio::io::AsyncReadExt;
+        rt().block_on(async {
+            let (tx, mut r) = reader();
+            // A line that arrives in two chunks, with the next frame's start behind it.
+            tx.send(b"{\"a\":".to_vec()).unwrap();
+            tx.send(b"1}\n{\"b\"".to_vec()).unwrap();
+            assert_eq!(r.peek_line(1024, Duration::from_secs(5)).await, Head::Line);
+            assert!(r.received().starts_with(b"{\"a\":1}\n"));
+            drop(tx);
+            let mut all = Vec::new();
+            r.read_to_end(&mut all).await.unwrap();
+            assert_eq!(all, b"{\"a\":1}\n{\"b\"", "nothing was consumed by looking");
+        });
+    }
+
+    #[test]
+    fn end_of_file_ends_a_line_and_an_empty_stream_is_empty() {
+        rt().block_on(async {
+            let (tx, mut r) = reader();
+            tx.send(b"{\"a\":1}".to_vec()).unwrap();
+            drop(tx);
+            assert_eq!(r.peek_line(1024, Duration::from_secs(5)).await, Head::Line);
+            let (tx, mut r) = reader();
+            drop(tx);
+            assert_eq!(r.peek_line(1024, Duration::from_secs(5)).await, Head::Empty);
+        });
+    }
+
+    /// One deadline for the whole line: a peer that sends a byte now and then, each inside the
+    /// bound, still runs out the bound counted from its first byte.
+    #[test]
+    fn a_line_that_trickles_runs_out_one_deadline() {
+        rt().block_on(async {
+            let (tx, mut r) = reader();
+            let feeder = std::thread::spawn(move || {
+                for _ in 0..40 {
+                    if tx.send(b"x".to_vec()).is_err() {
+                        return;
+                    }
+                    std::thread::sleep(Duration::from_millis(20));
+                }
+            });
+            let start = std::time::Instant::now();
+            assert_eq!(
+                r.peek_line(1024, Duration::from_millis(150)).await,
+                Head::Stalled
+            );
+            assert!(
+                start.elapsed() < Duration::from_millis(600),
+                "bounded from the first byte, not renewed by each chunk: {:?}",
+                start.elapsed()
+            );
+            drop(r);
+            feeder.join().unwrap();
+        });
+    }
+
+    #[test]
+    fn a_line_that_stalls_or_overruns_is_reported_and_an_idle_stream_waits() {
+        rt().block_on(async {
+            // Some bytes, then nothing: stalled.
+            let (tx, mut r) = reader();
+            tx.send(b"{\"a\":".to_vec()).unwrap();
+            assert_eq!(
+                r.peek_line(1024, Duration::from_millis(50)).await,
+                Head::Stalled
+            );
+            // Too many bytes with no newline.
+            let (tx2, mut r2) = reader();
+            tx2.send(vec![b'x'; 2048]).unwrap();
+            assert_eq!(
+                r2.peek_line(1024, Duration::from_secs(5)).await,
+                Head::TooLong
+            );
+            // Nothing at all is not a stall: the wait has no bound until a byte arrives.
+            let (tx3, mut r3) = reader();
+            let waited = tokio::time::timeout(
+                Duration::from_millis(200),
+                r3.peek_line(1024, Duration::from_millis(10)),
+            )
+            .await;
+            assert!(waited.is_err(), "an idle connection is not a stalled line");
+            drop((tx, tx2, tx3));
+        });
     }
 }
