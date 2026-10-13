@@ -1,10 +1,11 @@
 # OAC Session Channels Security
 
 **Document:** `spec/security.md`, the normative security model of OAC Session Channels.
-**Revision:** 0.3, a minor revision of the 0.1 frozen at Gate S2 (signed off 2026-10-06, in
-force from the merge of PR #276; E7, #47), made under
-`docs/planning/decisions/E7-interface-freeze.md` §7: 0.2 (issue #69, PR #350) and 0.3
-(payload sealing, §14; the lead's ruling of 2026-10-09 on PR #364). Written by task E5 (#45).
+**Revision:** 0.4 (proposed; lead approval pending), a minor revision of the 0.1 frozen at Gate S2
+(signed off 2026-10-06, in force from the merge of PR #276; E7, #47), made under
+`docs/planning/decisions/E7-interface-freeze.md` §7: 0.2 (issue #69, PR #350), 0.3
+(payload sealing, §14; the lead's ruling of 2026-10-09 on PR #364) and 0.4 (the explanation of
+late copies in §14.5, Refs #377; no requirement changed). Written by task E5 (#45).
 Appendix C records the changes.
 **Companion document:** `spec/session-channels.md`, which defines the envelope (§4),
 versioning (§5), session identity (§6), presence and discovery (§7), and delivery states,
@@ -1895,10 +1896,12 @@ payload that it opens at or after the `Deadline` that `spec/interfaces.md` Table
 its kind, computed from the payload and read on the receiver's own clock.
 
 A sealing transport carries no deadline beside a frame (`spec/interfaces.md` [IFC-TRN-107]), so
-its receiving end cannot drop a copy that arrives late ([IFC-TRN-034]), and the receiving core
-does in its place. The drop stays silent, as the transport's would have been: a late envelope
-draws no `expired` or `outside-replay-window` receipt, and so no frame that other peers could
-see. [SEC-SEL-036] applies once, on opening. A copy that passes it and reaches its deadline
+the transport cannot itself withhold a copy that arrives late, and the receiving core discards it
+after opening, in place of the transport. The discard stays silent: a late sealed envelope draws
+no `expired` or `outside-replay-window` receipt, and so no frame that other peers could see. On a
+non-sealing transport the core receives the same late copy and refuses it under [SC-RCP-091]
+(reporting under [SC-RCP-092]) or the replay window ([SEC-RPL-002]), and reports `expired` or
+`outside-replay-window` as those rules and [SC-RCP-042] allow. [SEC-SEL-036] applies once, on opening. A copy that passes it and reaches its deadline
 before its hand-off is reported under [SC-RCP-091] and [SC-RCP-092], as without sealing. For a
 receipt the deadline is that of the envelope it describes, which the receiver sent.
 
@@ -2298,3 +2301,4 @@ work.*
 | 0.1 | 2026-10-06 | Frozen at Gate S2 (E7, #47): signed off on this date, in force from the merge of PR #276. |
 | 0.2 | 2026-10-08 | #69, PR #350, with `spec/bindings/mcp.md` 0.2: §13 gains the misattributed-send-request row for a pairing key made of an operating-system observation and an issued value (`spec/bindings/mcp.md` §4.5). No requirement is added, removed or changed. Minor revision under `docs/planning/decisions/E7-interface-freeze.md` §7. |
 | 0.3 | 2026-10-09 | Payload sealing, on the lead's ruling of 2026-10-09 on PR #364 (a transport that delivers every payload to every peer is kept, on condition that each frame is encrypted for its recipient; review finding 2). §14 added: agreement keys separate from the device key (SEC-SEL-001 to SEC-SEL-004); the signed agreement statement and its admission, under the new domain string `oac-agreement-v1` (SEC-SEL-010 to SEC-SEL-016); sealing with HPKE (RFC 9180) base mode, DHKEM(X25519, HKDF-SHA256), HKDF-SHA256 and ChaCha20Poly1305, sign-then-seal, no fallback to an unsealed payload (SEC-SEL-020 to SEC-SEL-025); opening, with silent discard and no authenticity from opening (SEC-SEL-030 to SEC-SEL-034); after the review of PR #367: a payload opened by a device it is not for is dropped silently (SEC-SEL-035), the receiving core enforces the deadline, which no longer travels beside a frame (SEC-SEL-036), keys are tried newest first (SEC-SEL-037), an aggregate discard count is allowed (SEC-SEL-038), and statements are ordered by a signed `seq` that the issuer counts up and keeps, kept as durably as the trusted key set, and refused from more than `W` in the future, a bound that never orders them (SEC-SEL-040 to SEC-SEL-043); a late payload is dropped silently on opening; replacement and the absence of forward secrecy (SEC-SEL-017, SEC-SEL-018); what stays visible (§14.8). §1.3 scope, §2.3 terms, §3.1 area `SEL`, §5.3 and §5.5 notes, the §6.2 domain table, §6.6, and three §13 rows. References renumbered to §15. Fixtures under `tests/protocol/sec-sel/` in their own format `oac-sealing-fixture/1` (§14.10); agreement test keys in `tests/protocol/sec-test-keys.json`. Minor revision under `docs/planning/decisions/E7-interface-freeze.md` §7 and `spec/session-channels.md` §5.2 item 9: every new `MUST` and `MUST NOT` binds only an implementation that uses a sealing transport, which no earlier revision defined, so an implementation conformant to 0.2 stays conformant. |
+| 0.4 (proposed; lead approval pending) | 2026-10-11 | Refs #377, review round 1 of PR #385 (lead decision 2026-10-11). §14.5: the explanatory paragraph after SEC-SEL-036 is reworded for the late copies of a non-sealing transport, which reach the receiving core under `spec/interfaces.md` 0.7 (IFC-TRN-034, IFC-TRN-038) and draw the existing `expired` or `outside-replay-window` reporting. SEC-SEL-036 and every other requirement are unchanged, so the revision is editorial under `spec/session-channels.md` §5.2 item 8, applied through E7 §7 with a version bump under spec change control. No wire form changes. |
