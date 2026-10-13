@@ -16,7 +16,7 @@ the lead's decisions of 2026-10-12: one shared stream handle means a loss makes 
 announcement received on it stale, not only the departed issuer's, until the next refresh
 (risk row 83, ACCEPTED; #374's privacy choice is kept); the frozen interface has no neutral
 way for a late joiner to ask for presence (row 84, a carrier-appeared event DEFERRED to the
-next interfaces revision as a spec item; #63 stays open via Refs); a relay loss reading as
+next interfaces revision as a spec item, #389; #63 stays open via Refs); a relay loss reading as
 the loss of all peers is ACCEPTED as Zenoh behaviour, and the unmeasured cross-host lease is
 a residual: two-host integration step 8 MUST run before Gate S4 (row 85). The `liveness`
 ACL rule is minimal (token and subscriber only; a liveliness query is refused). No gate verdict, protocol

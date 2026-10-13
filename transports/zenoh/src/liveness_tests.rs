@@ -638,10 +638,14 @@ fn a_stalled_presence_watcher_blocks_neither_frames_nor_other_peers() {
     }
 }
 
-/// [IFC-TRN-071]: nothing is handed to a watcher once `shutdown` has begun to close. One
-/// handler is held in flight while a second loss is pending in the native signal ring, and
-/// the transport's own session is still alive when `shutdown` starts: the pending loss
-/// must not reach the watcher, before or after `shutdown` returns.
+/// [IFC-TRN-071] end to end: nothing follows `shutdown`. One handler is held in flight
+/// while a second loss is pending in the native signal ring, and `shutdown` starts while
+/// the handler runs. This test does not prove the gate: `shutdown` undeclares the
+/// liveliness subscriber and closes the session before it joins the loss thread, and
+/// Zenoh's ring receiver holds only a weak reference to its ring, so Zenoh itself
+/// discards the pending signal. The gate is proved deterministically at the loop by
+/// `transport::tests::a_pending_loss_signal_reaches_no_watcher_once_the_gate_is_closed`
+/// (ring sender kept alive) and by `presence::tests::a_loss_reaches_every_watcher_until_the_gate_closes`.
 #[test]
 fn no_loss_reaches_a_watcher_once_shutdown_has_begun() {
     let c = conf("after-shutdown");

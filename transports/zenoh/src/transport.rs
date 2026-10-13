@@ -676,3 +676,43 @@ impl Transport for PeerTransport {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::Duration;
+
+    /// [IFC-TRN-071] at the loop itself, deterministically: the ring sender stays alive (so
+    /// Zenoh's native ring-drop cannot discard the pending signal), and the gate decides.
+    /// A signal after the gate closed reaches no watcher; the same signal through an open
+    /// gate reaches it once.
+    #[test]
+    fn a_pending_loss_signal_reaches_no_watcher_once_the_gate_is_closed() {
+        for open in [true, false] {
+            let watchers: Arc<Watchers> = Arc::default();
+            let calls = Arc::new(AtomicUsize::new(0));
+            let c = calls.clone();
+            watchers.add(Arc::new(move |_| {
+                c.fetch_add(1, Ordering::SeqCst);
+            }));
+            let gate = Gate::new();
+            if !open {
+                gate.close();
+            }
+            let (tx, rx) = RingChannel::new(1).into_handler();
+            let (w, g) = (watchers.clone(), gate.clone());
+            let looped = thread::spawn(move || loss_loop(rx, w, g, [7; 16]));
+            tx.call(());
+            // `tx` is still alive, so the loop is blocked on a live ring, not ended by it.
+            thread::sleep(Duration::from_millis(400));
+            assert_eq!(
+                calls.load(Ordering::SeqCst),
+                usize::from(open),
+                "open={open}"
+            );
+            drop(tx);
+            looped.join().unwrap();
+        }
+    }
+}

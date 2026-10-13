@@ -361,7 +361,7 @@
 //! carrier-appeared event and a sealing transport cannot hand the core a record
 //! ([IFC-TRN-103]), so history teaches the transport which peers live but cannot make a peer
 //! announce to a late joiner; that waits for the issuer's next announcement. The lead
-//! deferred a neutral carrier-appeared event to the next interfaces revision as a spec item.
+//! deferred a neutral carrier-appeared event to the next interfaces revision as a spec item (#389).
 //! #63 stays open (Refs). (3) *Relay loss reads as the loss of all peers: accepted* as
 //! Zenoh's own behaviour (above). (4) *Visible liveness.* Every partition member sees a
 //! token appear and go, and when; it shows that a transport started or stopped, not whose.
