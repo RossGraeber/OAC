@@ -422,7 +422,7 @@
 //! | Member | Value | Evidence |
 //! |---|---|---|
 //! | `sealing` | present | Direct frame carriage; unchanged sealing-aware contract suite. |
-//! | `reliability` | absent | Native ring drops oldest on overflow; no retry across lost links. |
+//! | `reliability` | absent | Native ring drops oldest on overflow; no retry across lost links. `CongestionControl::Drop` can also drop a large fragmented frame on a loaded host (#392); the shared IFC-TRN-030 check accepts that for a transport declaring no reliability. |
 //! | `persistence`, `offline_queueing` | absent | No durable store or OAC retry queue. |
 //! | `ordering` | absent | No cross-link/restart ordering guarantee claimed. |
 //! | `multicast_discovery` | local absent; LAN configurable | Scouting explicit opt-in; gossip off. |

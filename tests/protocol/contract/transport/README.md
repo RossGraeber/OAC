@@ -59,6 +59,19 @@ untrusted instructions; this suite does not authorize their content.
 | IFC-TRN-071 | Raw subscription and presence callbacks are counted before recognition/opening; malformed callbacks after shutdown fail. |
 | IFC-TRN-109 | The declared sealing frame cap is at least 65590. |
 
+## IFC-TRN-030 and lost payloads, 2026-10-13 (#392)
+
+IFC-TRN-030 says a transport delivers a payload's octets, "when it delivers them", exactly
+as passed. It is an integrity rule, not a delivery rule; delivery of every payload is the
+`reliability` capability (Table 6.3). The check holds the two payloads it passes through
+the medium (all 256 octet values, and one of the declared maximum, up to 1 MiB) to
+delivery only when `start` declares `reliability` present. When it declares it absent, a
+payload that never arrives is not a failure, but every payload that does arrive must be one
+passed, octet for octet, at least one must arrive, and the duplicate copies scripted by
+fault control must still all arrive. Before this, a transport that declared no reliability
+failed the check whenever its native best-effort send queue dropped the large frame on a
+loaded host. The change was approved by the lead on #392. Nothing else in the suite changed.
+
 ## Required carriage observations
 
 A sealing harness must implement `Medium::sealing_observations()` with observations
