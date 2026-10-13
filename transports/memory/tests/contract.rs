@@ -50,6 +50,14 @@ impl FaultControl for Faults {
             Fate::Delay(d) => self.0.delay(d),
         }
     }
+
+    /// The memory network is the carrier and its queue is the sending end's hold: a copy
+    /// delayed here waits in the transport and is dropped when its deadline comes, never
+    /// handed over then ([IFC-TRN-034]).
+    fn next_sender_hold(&self, by: Duration) -> bool {
+        self.0.delay(by);
+        true
+    }
 }
 
 impl TransportHarness for MemoryHarness {
@@ -155,9 +163,14 @@ fn the_memory_transport_passes_the_contract_suite() {
         // What is not applicable, and why, is fixed by the medium: destination_restricted is
         // declared absent ([IFC-TRN-080]); subscriptions cannot be revealed to another
         // implementation on a one-implementation medium ([IFC-TRN-043]).
+        // The held-copy check of [IFC-TRN-034] needs fault control, so the media without
+        // it report it not applicable.
         let mut expected = vec!["IFC-TRN-080"];
         if h.reach == Reach::LocalOnly {
             expected.insert(0, "IFC-TRN-043");
+        }
+        if !h.scripted {
+            expected.insert(0, "IFC-TRN-034");
         }
         assert_eq!(not_applicable(&report), expected, "{report}");
     }
@@ -220,18 +233,26 @@ enum Breach {
     DropsPresence,
     /// Puts a working directory in its health detail ([IFC-TYP-092]).
     LeaksDirectory,
-    /// Delivers an envelope late: re-sends it with a deadline an hour away ([IFC-TRN-034]).
+    /// Hands over a payload passed at or after its deadline: re-sends it with a deadline an
+    /// hour away ([IFC-TRN-034]).
     ExtendsDeadlines,
+    /// Keeps each copy it accepted and hands it over again once its deadline has passed, as a
+    /// retransmission, retry or reconnection replay would ([IFC-TRN-034]).
+    ReplaysAfterDeadline,
 }
+
+/// A copy kept for a later replay: the transport to hand it to, and what to hand over.
+type Replay = (Arc<MemoryTransport>, Destination, Payload, Deadline);
 
 #[derive(Default)]
 struct Shared {
     subscribed: Mutex<HashSet<String>>,
     kept: Mutex<Vec<(Destination, Payload)>>,
+    replays: Mutex<Vec<Replay>>,
 }
 
 struct Broken {
-    inner: MemoryTransport,
+    inner: Arc<MemoryTransport>,
     breach: Breach,
     shared: Arc<Shared>,
 }
@@ -273,6 +294,12 @@ impl Transport for Broken {
                 .lock()
                 .unwrap()
                 .push((d.clone(), p.clone())),
+            Breach::ReplaysAfterDeadline => self.shared.replays.lock().unwrap().push((
+                self.inner.clone(),
+                d.clone(),
+                p.clone(),
+                deadline,
+            )),
             Breach::ExtendsDeadlines => {
                 let r = self.inner.publish(d, p.clone(), deadline);
                 let far = Deadline::at(deadline.instant() + Duration::from_secs(3600));
@@ -378,7 +405,7 @@ impl TransportHarness for BrokenHarness {
 impl Medium for BrokenMedium {
     fn transport(&self) -> Box<dyn Transport> {
         Box::new(Broken {
-            inner: MemoryTransport::new(),
+            inner: Arc::new(MemoryTransport::new()),
             breach: self.breach,
             shared: self.shared.clone(),
         })
@@ -390,7 +417,20 @@ impl Medium for BrokenMedium {
         self.inner.now()
     }
     fn advance(&self, by: Duration) {
-        self.inner.advance(by)
+        self.inner.advance(by);
+        // A transport that replays a kept copy once its deadline has passed.
+        let now = self.inner.now();
+        let due: Vec<Replay> = {
+            let mut kept = self.shared.replays.lock().unwrap();
+            let (due, rest) = std::mem::take(&mut *kept)
+                .into_iter()
+                .partition(|(_, _, _, dl)| dl.has_passed_at(now));
+            *kept = rest;
+            due
+        };
+        for (t, d, p, _) in due {
+            t.publish(&d, p, Deadline::at(now + Duration::from_secs(3600)));
+        }
     }
     fn settle(&self) {
         self.inner.settle()
@@ -403,7 +443,7 @@ impl Medium for BrokenMedium {
 #[test]
 fn the_suite_catches_each_planted_breach() {
     let scripted_cross = MEDIA[3];
-    let cases: [(Breach, &[&str]); 10] = [
+    let cases: [(Breach, &[&str]); 11] = [
         (Breach::AltersOctets, &["IFC-TRN-030"]),
         (Breach::LiesNotTaken, &["IFC-TRN-031"]),
         (
@@ -417,6 +457,7 @@ fn the_suite_catches_each_planted_breach() {
         (Breach::DropsPresence, &["IFC-TRN-050", "IFC-TRN-060"]),
         (Breach::LeaksDirectory, &["IFC-TYP-092"]),
         (Breach::ExtendsDeadlines, &["IFC-TRN-034"]),
+        (Breach::ReplaysAfterDeadline, &["IFC-TRN-034"]),
     ];
     for (breach, ids) in cases {
         let report = run(&BrokenHarness {
@@ -430,6 +471,35 @@ fn the_suite_catches_each_planted_breach() {
             );
         }
         assert!(report.failed("IFC-TRN-003"), "{report}");
+    }
+}
+
+/// Each hand-over after the deadline is caught by the row that observes it: an admission at
+/// or after the deadline by the first row, a replay of a kept copy by the held-copy row
+/// ([IFC-TRN-034], revision 0.7).
+#[test]
+fn a_late_hand_over_is_caught_by_the_row_that_observes_it() {
+    for (breach, row) in [
+        (
+            Breach::ExtendsDeadlines,
+            "no-accept-or-hand-over-at-or-after-deadline",
+        ),
+        (
+            Breach::ReplaysAfterDeadline,
+            "no-hand-over-of-a-held-copy-after-deadline",
+        ),
+    ] {
+        let report = run(&BrokenHarness {
+            base: MEDIA[3],
+            breach,
+        });
+        assert!(
+            report
+                .rows
+                .iter()
+                .any(|r| r.id == "IFC-TRN-034" && r.check == row && r.verdict.is_fail()),
+            "{breach:?} not caught by {row}: {report}"
+        );
     }
 }
 
