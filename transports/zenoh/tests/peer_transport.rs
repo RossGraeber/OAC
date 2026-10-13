@@ -16,7 +16,7 @@ use zenoh::Wait;
 use oac_core::health::HealthState;
 use oac_core::ids::{KeyId, SessionId};
 use oac_core::transport::{
-    Deadline, Destination, Inbound, Payload, PayloadKind, PublishResult, Transport,
+    Deadline, Destination, Inbound, Payload, PayloadKind, PresenceEvent, PublishResult, Transport,
     TransportConfiguration, TransportError,
 };
 use oac_transport_zenoh::{
@@ -517,8 +517,12 @@ fn sealed_frames_reach_every_device_stream_and_no_session_or_watch() {
     ];
     let watches = Arc::new(AtomicUsize::new(0));
     let w = watches.clone();
-    b.watch_presence(Arc::new(move |_| {
-        w.fetch_add(1, Ordering::SeqCst);
+    // `watch_presence` hands over carrier losses (#63) and never a record: sealed records
+    // arrive on the device stream, where the core opens them.
+    b.watch_presence(Arc::new(move |event| {
+        if matches!(event, PresenceEvent::Record { .. }) {
+            w.fetch_add(1, Ordering::SeqCst);
+        }
     }))
     .unwrap();
     // Actual HPKE frames of every inner kind are exercised by the shared suite.

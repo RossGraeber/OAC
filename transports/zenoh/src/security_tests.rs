@@ -373,6 +373,35 @@ fn corrupt_existing_certificate_is_not_regenerated_and_native_configuration_is_d
     );
     // Native config serializes unused optional subject fields as null.
     assert!(acl["subjects"][0]["zids"].is_null());
+    // Exactly two allow rules, each limited to its own key and messages: widening either to
+    // `oac/**`, or adding a message type (e.g. `liveliness_query`), fails here (#63).
+    let partition = crate::addressing::Partition::new(conf.partition());
+    let rules = acl["rules"].as_array().unwrap();
+    assert_eq!(rules.len(), 2);
+    for (rule, id, messages, key) in [
+        (
+            &rules[0],
+            "frames",
+            serde_json::json!(["put", "declare_subscriber"]),
+            partition.key(),
+        ),
+        (
+            &rules[1],
+            "liveness",
+            serde_json::json!(["liveliness_token", "declare_liveliness_subscriber"]),
+            partition.token_pattern(),
+        ),
+    ] {
+        assert_eq!(rule["id"], id);
+        assert_eq!(rule["permission"], "allow");
+        assert_eq!(rule["flows"], serde_json::json!(["ingress", "egress"]));
+        assert_eq!(rule["messages"], messages, "{id}");
+        assert_eq!(rule["key_exprs"], serde_json::json!([key]), "{id}");
+    }
+    assert_eq!(
+        acl["policies"][0]["rules"],
+        serde_json::json!(["frames", "liveness"])
+    );
     std::fs::write(dir.0.join("identity.pem"), b"corrupt certificate").unwrap();
     assert!(PeerTransport::new().start(&key('a'), conf.wrap()).is_err());
     assert_eq!(

@@ -55,6 +55,15 @@ pub const DEFAULT_PARTITION: &str = "default";
 /// scenario used, `docs/planning/gates/G3-result.md`).
 pub const DEFAULT_RENDEZVOUS_PORT: u16 = 17447;
 
+/// Zenoh's link lease in milliseconds (`transport/link/tx/lease`): a link on which nothing,
+/// not even a keep-alive, arrives for this long is closed, and every liveliness token that
+/// came over it is reported deleted. The upper bound on detecting a silent loss.
+pub const LINK_LEASE_MILLIS: u64 = 10_000;
+
+/// Keep-alive messages Zenoh sends per lease when a link is otherwise idle
+/// (`transport/link/tx/keep_alive`).
+pub const KEEP_ALIVE_PER_LEASE: u64 = 4;
+
 /// Native blocking control traffic closes a stalled link after this many microseconds.
 /// OAC frame publications use Drop, not this blocking path.
 pub(crate) const BLOCK_BEFORE_CLOSE_MICROS: u64 = 1_000_000;
@@ -270,16 +279,24 @@ impl PeerConfiguration {
         } else {
             (
                 serde_json::json!([{"id":"paired", "cert_common_names":subjects, "link_protocols":["tls"]}]),
-                serde_json::json!([{"rules":["frames"], "subjects":["paired"]}]),
+                serde_json::json!([{"rules":["frames", "liveness"], "subjects":["paired"]}]),
             )
         };
+        let partition = crate::addressing::Partition::new(&self.partition);
         set(
             "access_control",
             serde_json::json!({
                 "enabled":true, "default_permission":"deny",
-                "rules":[{"id":"frames", "permission":"allow", "flows":["ingress","egress"],
-                    "messages":["put","declare_subscriber"],
-                    "key_exprs":[crate::addressing::Partition::new(&self.partition).key()]}],
+                "rules":[
+                    {"id":"frames", "permission":"allow", "flows":["ingress","egress"],
+                        "messages":["put","declare_subscriber"],
+                        "key_exprs":[partition.key()]},
+                    // Native liveliness (#63): tokens and the history-capable subscriber,
+                    // on this partition's token keys only.
+                    {"id":"liveness", "permission":"allow", "flows":["ingress","egress"],
+                        "messages":["liveliness_token","declare_liveliness_subscriber"],
+                        "key_exprs":[partition.token_pattern()]}
+                ],
                 "subjects":subjects, "policies":policies
             })
             .to_string(),
@@ -319,6 +336,15 @@ impl PeerConfiguration {
         set(
             "transport/link/tx/queue/congestion_control/block/wait_before_close",
             BLOCK_BEFORE_CLOSE_MICROS.to_string(),
+        )?;
+        // Native liveliness loss detection is Zenoh's own link lease and keep-alive (#63):
+        // a token goes when its owner undeclares it, closes its link, or sends nothing for
+        // one lease. Set explicitly, to the 1.10.1 defaults, so the stated unreachable bound
+        // is a configured value and not an implicit default.
+        set("transport/link/tx/lease", LINK_LEASE_MILLIS.to_string())?;
+        set(
+            "transport/link/tx/keep_alive",
+            KEEP_ALIVE_PER_LEASE.to_string(),
         )?;
         set("open/return_conditions/declares", "true".into())?;
         set(

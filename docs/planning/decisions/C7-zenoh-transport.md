@@ -320,6 +320,22 @@ https://docs.rs/zenoh-ext/1.10.1/zenoh_ext/index.html — and are not used by th
 the primitive this document relies on is `zenoh::liveliness::Liveliness` and its
 `LivelinessSubscriberBuilder`, not the deprecated `zenoh-ext` structs of a similar name.
 
+*Dated note, 2026-10-12 (#63, G2; Refs #377, lead direction 2026-10-10/11): the mapping
+above is built as one token per started transport, not one per session, and its output is
+the neutral carrier loss of `spec/interfaces.md` §6.6, not a per-session state. Sealed
+carriage (#374) leaves a session id and a device key id out of everything Zenoh carries
+([IFC-TRN-108]), so a token cannot be keyed by either. Each transport declares one
+liveliness token named by an opaque hash of its random native session id, and subscribes to
+the partition's tokens with `history(true)`. A deletion of a token the subscriber saw alive
+is `Online` to `Unreachable` and becomes one `carrier-loss` for the receiver-local stream
+handle; a deletion of a token it never saw alive is `Unknown` and reports nothing. Whether
+a session is `online`, `unreachable` or `unknown` stays the core registry's call, from its
+signed records and these losses ([SC-DLV-046], [IFC-TRN-062]). The third row of the table
+above therefore reads: no token ever seen, or one not ours, means no claim. Zenoh's own link
+lease and keep-alive detect a silent loss; the transport adds no heartbeat, timer or probe.
+Measured bounds, the residuals and the open items for the lead are in the binding document
+(`transports/zenoh/src/lib.rs`) and 11-risks rows 83 to 85.*
+
 ## 5. Local-mode section
 
 **Conflict recorded and resolved (`oac-evidence` §6), stated before the design it

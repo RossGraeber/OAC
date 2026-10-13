@@ -8,7 +8,9 @@ use std::time::{Duration, Instant};
 
 use oac_core::ids::{KeyId, SessionId};
 use oac_core::sealing::{AgreementPublicKey, FRAME_OVERHEAD, seal};
-use oac_core::transport::{Deadline, Destination, Payload, PayloadKind, PublishResult, Transport};
+use oac_core::transport::{
+    Deadline, Destination, Payload, PayloadKind, PresenceEvent, PublishResult, Transport,
+};
 use zenoh::Wait;
 use zenoh::bytes::Encoding;
 use zenoh::qos::CongestionControl;
@@ -402,8 +404,15 @@ fn discovery_alone_hands_the_core_nothing() {
     let c = conf("013");
     let (a, b) = (PeerTransport::new(), PeerTransport::new());
     a.start(&key('a'), c.clone().wrap()).unwrap();
-    a.watch_presence(Arc::new(|_| panic!("discovery became presence")))
-        .unwrap();
+    // Discovery is never a presence record, and a peer arriving is never a loss. Only the
+    // later departure of `b` may be reported, as a carrier loss (#63).
+    let losses = Arc::new(Mutex::new(0usize));
+    let l = losses.clone();
+    a.watch_presence(Arc::new(move |event| match event {
+        PresenceEvent::Record { .. } => panic!("discovery became presence"),
+        PresenceEvent::CarrierLoss { .. } => *l.lock().unwrap() += 1,
+    }))
+    .unwrap();
     let got = Arc::new(Mutex::new(Vec::new()));
     let g = got.clone();
     let _sub = a
@@ -422,6 +431,8 @@ fn discovery_alone_hands_the_core_nothing() {
     );
     wait_for(|| !got.lock().unwrap().is_empty());
     assert_eq!(got.lock().unwrap()[0].octets(), b"record");
+    assert_eq!(*losses.lock().unwrap(), 0, "arrival reported as a loss");
     b.shutdown();
+    wait_for(|| *losses.lock().unwrap() == 1);
     a.shutdown();
 }
