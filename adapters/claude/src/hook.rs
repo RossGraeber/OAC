@@ -25,7 +25,8 @@
 //! line is not an MCP frame but a hook input: a JSON object with a `hook_event_name` and no
 //! `jsonrpc` member.
 //!
-//! What the handler must do, because this adapter classifies by the first line:
+//! What the handler must do (`spec/bindings/mcp.md` [MCPB-CLD-004] to [MCPB-CLD-008], §8.1),
+//! because this adapter classifies by the first line:
 //!
 //! - **Parse its standard input as JSON and send it again as one compact line**, ended by a
 //!   newline or by end of stream. It must not copy the bytes through: the hooks reference

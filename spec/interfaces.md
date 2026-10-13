@@ -2,7 +2,7 @@
 
 **Document:** `spec/interfaces.md`, the normative interface contracts of OAC Session
 Channels: the core neutral types, the provider adapter contract and the transport contract.
-**Revision:** 0.7 (proposed; lead approval pending), a minor revision of the 0.1 frozen
+**Revision:** 0.8 (in force from the lead's approval and merge of the pull request for #390), a minor revision of the 0.1 frozen
 at Gate S2 (signed off 2026-10-06, in
 force from the merge of PR #276; E7, #47), made under
 `docs/planning/decisions/E7-interface-freeze.md` §7: 0.2 (issue #69, PR #350), 0.3
@@ -10,8 +10,8 @@ force from the merge of PR #276; E7, #47), made under
 (bounded connection closure and local identity requests, #376 and #66, merged in PR #378),
 0.5 (bounded core calls and event callbacks, §5.3.1; lead decision 2026-10-10,
 Refs #376, Refs #380, Refs #66), 0.6 (shutdown given the transport, §5.3.2;
-lead decision 2026-10-10, Refs #380, Refs #376), and 0.7 (transport deadline, §6.4,
-IFC-TRN-034, IFC-TRN-038 and IFC-TRN-117; lead decision 2026-10-11, Refs #377). Written by #273.
+lead decision 2026-10-10, Refs #380, Refs #376), 0.7 (transport deadline, §6.4,
+IFC-TRN-034, IFC-TRN-038 and IFC-TRN-117; lead decision 2026-10-11, Refs #377), and 0.8 (owners for the hook carrier's MCPB-CLD ids, #390). Written by #273.
 Appendix B records the changes.
 **Companion documents:** `spec/session-channels.md` (the protocol), `spec/security.md` (the
 security model) and `spec/bindings/mcp.md` (the MCP binding). This document does not restate
@@ -2173,6 +2173,7 @@ a frame, so the id was reused for the rule it holds now and is not retired.
 | 0.5 (proposed; lead approval pending) | 2026-10-10 | Refs #376, Refs #380 (implementation PR), Refs #66; lead decision 2026-10-10 following PR #380 review issuecomment-6101230133. Adds §5.3.1 IFC-ADP-100 to IFC-ADP-115 and §5.6 IFC-ADP-116: core-owned bounds on all adapter-to-core synchronous calls, adapter-owned core-to-adapter event-callback bounds, prompt lifecycle settlement with definite local results, enumerated callback output/failure contracts, atomic per-request commit boundaries preserving created-not-passed and taken sends, existing harness refusal mapping for pre-commit failures, bounded final closure reporting, aggregate end-to-end shutdown budgeting and no post-return reports/callbacks. Appendix A records owned TODO(fixture) cells; Appendix C assigns owners. §7.2 classifies this as minor under E7 §7 item 2 and explicitly breaking for unbounded local implementations, with no wire change or new extension identifier. Implementation work remains in core, adapters and PR #380. |
 | 0.6 (proposed; lead approval pending) | 2026-10-10 | Refs #380, Refs #376; lead decision 2026-10-10. Shutdown/settlement given the transport (§5.3.2): adapter + core + declared publish contribution, unbounded at an awaited undeclared step; committed unresolved publication stays pending until one truthful result, with unchanged ownership/commit and return barriers (IFC-ADP-117/118). Optional binding publish_bound_ms with conditional scope/return obligations (IFC-TRN-114 to IFC-TRN-116, §6.3.1); no mandatory transport bound, wire field or signature change. Retires IFC-ADP-074, IFC-ADP-100 to IFC-ADP-103 and IFC-ADP-107/108 in revision 0.6; replacement timing requirements are IFC-ADP-119 to IFC-ADP-125, respectively, under the ID-stability rule. Owned Appendix A TODO(fixture) cells, Appendix C owners move to the replacements; explicit minor/local timing classification (§7.3). |
 | 0.7 (proposed; lead approval pending) | 2026-10-11 | Refs #377; lead decision 2026-10-11 (approved in principle), review round 1. Transport deadline stated as a guarantee a transport can give. [IFC-TRN-034] now forbids a transport to accept a payload, or begin publishing it, at or after its `Deadline`, and to hand any copy to the carrier at or after it, whether as a first hand-over, a retransmission, a retry or a replay. Its relaxation is the arrival of a copy handed over in time. [IFC-TRN-038] (SHOULD, sending end) releases held copies at the deadline. The receiving core refuses a late copy under [SC-RCP-091], [SEC-PRS-006] and [SEC-SEL-036], each on the receiver's own clock. New [IFC-TRN-117] (MUST, binding documents) requires each transport binding to state its clock-skew limit and deadline behaviour; it is owned by binding. `spec/security.md` 0.4 rewords its §14.5 explanation, with no requirement changed. No wire form and no requirement of `spec/session-channels.md` changes. Minor revision under E7 §7, classified in §7.4. |
+| 0.8 | 2026-10-13 | #390, with `spec/bindings/mcp.md` 0.3 (the hook carrier's wire form, §8.1): Appendix C gives the seven new `MUST` and `MUST NOT` requirements of MCPB-CLD-004 to MCPB-CLD-010 one owner each, adapter (the `oac hook` handler and the adapter's classification of hook input). No requirement of this document changes, and no wire form or member changes. Minor revision under E7 §7: the owner index is a change to a frozen document, so it takes a version bump; the reference runner requires every `MUST` and `MUST NOT` of the four documents to have an owner (§3.3). |
 
 ## Appendix C. Owner index
 
@@ -2215,7 +2216,7 @@ carries the requirement out.
 | MCPB-TOOL | adapter | 001, 002, 003, 004, 005, 006, 008, 009, 010, 011, 012, 013, 014, 015, 016, 017, 018, 019, 020, 021 |
 | MCPB-META | adapter | 001, 002, 003, 004, 005, 006, 007 |
 | MCPB-FBK | adapter | 001 |
-| MCPB-CLD | adapter | 001, 002, 003 |
+| MCPB-CLD | adapter | 001, 002, 003, 004, 005, 006, 007, 008, 009, 010 |
 | MCPB-CDX | adapter | 001, 002, 003, 004, 005, 006 |
 | IFC-ADP | adapter | 001, 002, 003, 004, 005, 006, 007, 010, 013, 020, 022, 030, 031, 040, 041, 043, 050, 051, 052, 053, 054, 056, 057, 060, 070, 071, 072, 073, 075, 078, 091, 094, 109, 110, 116, 119, 121, 123, 125 |
 | IFC-ADP | core | 011, 012, 014, 015, 016, 017, 018, 019, 042, 055, 077, 090, 092, 093, 095, 096, 097, 098, 104, 106, 111, 112, 113, 114, 115, 117, 118, 120, 122, 124 |

@@ -18,7 +18,7 @@ case 3(c)), and any gate verdict. Review round 1: the core now queues a native s
 worker hand-off had broken), so a daemon that ends a hook carrier's connection at once no
 longer loses the key and signals are decided in the order reported (round 2; `local_native_signals_are_decided_in_the_order_they_were_reported`); regression `a_local_native_signal_keeps_its_pairing_key_when_its_connection_ends_at_once`.
 The hook handler (`oac hook`, G9/G10) must parse stdin and send one compact JSON line and write
-nothing to stdout. Residuals owned by G9 are 11-risks rows 86 (the four-place connection limit
+nothing to stdout, now stated in `spec/bindings/mcp.md` §8.1 as MCPB-CLD-004 to MCPB-CLD-010 (revision 0.3, pending the lead's approval of #390; `spec/interfaces.md` 0.8 gives them owners). Residuals owned by G9 are 11-risks rows 86 (the four-place connection limit
 is shared with hook carriers) and 87 (no cross-check value E yet).
 
 **Last updated:** 2026-10-12 (**#63, Zenoh carrier loss from native liveliness; Refs #377**).
