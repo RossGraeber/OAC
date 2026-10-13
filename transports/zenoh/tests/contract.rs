@@ -21,7 +21,7 @@
 //! derivations and capture completeness remain binding-review obligations.
 
 use std::fs::{File, OpenOptions, TryLockError};
-use std::net::TcpListener;
+use std::net::{Ipv4Addr, TcpListener};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
@@ -115,7 +115,7 @@ impl Rendezvous {
                 Err(TryLockError::WouldBlock) => continue,
                 Err(TryLockError::Error(e)) => panic!("locking a rendezvous claim: {e}"),
             }
-            if TcpListener::bind(("127.0.0.1", port)).is_ok() {
+            if TcpListener::bind((Ipv4Addr::LOCALHOST, port)).is_ok() {
                 return Rendezvous { port, _claim: file };
             }
         }
