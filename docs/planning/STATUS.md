@@ -1,5 +1,8 @@
 # OAC status
 
+**Last updated:** 2026-10-13 (**docs follow-ups to interfaces 0.7 (PR #385, merged): transport deadline wording; Refs #385, #377**).
+Interfaces 0.7 (`spec/interfaces.md`, IFC-TRN-034, IFC-TRN-038, IFC-TRN-117) and `spec/security.md` 0.4 (§14.5 explanation only) are merged. The E9 and C7 decision records, `docs/planning/v0.1/11-risks.md` row 77 (updated in place, no renumbering) and the native-publication row of `docs/planning/v0.1/01-capability-matrix.md` now state the 0.7 rule: no transport accepts a payload or hands a copy to the carrier at or after the `Deadline` ([IFC-TRN-034]), a copy handed over in time may arrive late, and the receiving core refuses it ([SC-RCP-091], [SEC-SEL-036]). Each binding states its clock-skew limit under [IFC-TRN-117] (G3, #64). Still open and not claimed: whether a copy in Zenoh's native queues, or a publish begun before the `Deadline` and completed after it, counts as a hand-over in time (row 77); no sender-copy bound and no measured skew bound; no gate verdict changes. `core/src/transport.rs` doc comments on `Deadline` and `has_passed_at` reworded to the 0.7 rule (comment only). The `spec/` headers of `interfaces.md` and `security.md` still read "proposed; lead approval pending" although #385 is merged; flagged for the lead, not edited here. The IFC-TRN-034 contract check and its README (`tests/protocol/contract/transport`) are not touched here; branch `test/ifc-trn-034-0.7` covers them.
+
 **Last updated:** 2026-10-12 (**G5, #66: Claude adapter outbound tools and session registration**).
 `whoami` is an identity request to the core ([IFC-ADP-094]); the tool result is the core's
 `session_id` and `device_fingerprint`. The harness-native id N comes only from the `SessionStart`

@@ -478,10 +478,13 @@ control or denial of service.*
 sees it, and as `docs/planning/v0.1/11-risks.md` row 77.* The G1 frame carries a payload's
 deadline as a wall-clock expiry, and the receiver drops a frame at or after it. That is
 exact on one host, where both read one clock. Between hosts it is not safe: a receiver
-whose clock runs `d` behind the sender's can hand a frame over up to `d` after its deadline
-([IFC-TRN-034]); a receiver `d` ahead drops early, which is safe. Before LAN mode carries a
-frame between hosts, G3 must bound this, and record the bound in the binding document. Two
-ways to do it:
+whose clock runs `d` behind the sender's accepts a frame up to `d` after its deadline, because
+the receiving core refuses a late copy on its own clock ([SC-RCP-091]); a receiver `d` ahead
+refuses early, which is safe. A copy the sender handed over before the deadline may arrive
+late under [IFC-TRN-034] (interfaces 0.7). Before LAN mode carries a frame between hosts, G3
+must bound this, and record the bound in the binding document as [IFC-TRN-117] requires
+(interfaces 0.7: the skew limit and what happens to a `Deadline` read within it). Two ways to
+do it:
 - carry the time left instead of an expiry, and subtract a stated transit allowance; or
 - declare a maximum skew, subtract it at the sender, and refuse any payload with less time
   left than that bound.
@@ -889,8 +892,11 @@ monotonic; receiving core late discard after opening uses its local wall clock
 (SEC-SEL-036). Slow receiver skew can extend effective validity; fast skew can reject
 early. Operators must bound skew operationally. Zenoh has no publication TTL and OAC
 accepts its native retention per the lead's #377 direction; no finite sender-copy bound
-or measured cross-host skew bound is claimed. Risk row 77 retains the frozen sender
-requirement conflict for the lead; the unrun two-host plan records skew and expiry.
+or measured cross-host skew bound is claimed. Interfaces 0.7 ([IFC-TRN-034], [IFC-TRN-038],
+[IFC-TRN-117]; PR #385, merged) states the sender rule as a guarantee a transport can give, and
+the skew limit as a binding statement. Risk row 77 keeps open whether a native queue copy
+counts as handed over before the deadline, and the sender-conformance proof; the unrun
+two-host plan records skew and expiry.
 
 Source: https://github.com/eclipse-zenoh/zenoh/blob/1.10.1/DEFAULT_CONFIG.json5 and
 https://github.com/eclipse-zenoh/zenoh/blob/1.10.1/io/zenoh-link-tls/src/utils.rs,
