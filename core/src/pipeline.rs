@@ -363,13 +363,23 @@ struct AttachmentEntry {
     paired_seq: Option<u64>,
 }
 
+/// What a worker of the cooperative local-call path is left to do for an event once it is
+/// reported ([`Inner::on_local_adapter_event`]).
+enum LocalWork {
+    /// Handle the event.
+    Event(AdapterEvent),
+    /// The native signal was already queued at report time; the cap may have turned one away.
+    Signal(Option<(NativeSignal, PairAttempt, u64)>),
+}
+
 /// A native signal waiting for its decision, with the pairing key observed for its
 /// connection when it was reported (`None` when there was none).
 struct QueuedSignal {
     adapter: AdapterId,
     signal: NativeSignal,
     key: Option<PairingKey>,
-    /// Its place in arrival order, among every native signal reported.
+    /// Its place in arrival order, among every native signal reported: the order they were
+    /// reported in, taken with the signal's place in the queue under one hold of the core lock.
     seq: u64,
 }
 
@@ -2580,16 +2590,21 @@ impl Inner {
                             paired_seq: None,
                         });
                 }
-                // A native signal's pairing key and arrival order are taken here, at report
-                // time, while its connection is still known: the worker below may run after
-                // the daemon ended the connection (a hook that sends and exits, B3), and
-                // after a later signal was reported (SC-ID-123).
-                let snapshot = match &event {
-                    AdapterEvent::NativeSignal(signal) => {
-                        Some(Inner::snapshot_signal(&mut core, adapter, signal))
-                    }
-                    _ => None,
-                };
+                // A native signal is queued here, at report time, under the core lock: its
+                // pairing key (the connection may be gone by the time the worker below runs,
+                // a hook that sends and exits, B3), its arrival number and its place in the
+                // queue are all taken at the instant it is reported. Workers run in any
+                // order, so queueing on one would let an older signal be queued behind a
+                // newer one and pair after it (SC-ID-123). What is left for the worker is
+                // what calls the adapter or may take long: dropping a signal the cap turned
+                // away, and the binding pass.
+                let work =
+                    match event {
+                        AdapterEvent::NativeSignal(signal) => LocalWork::Signal(
+                            Inner::queue_signal(&self.config, &mut core, adapter, signal),
+                        ),
+                        event => LocalWork::Event(event),
+                    };
                 let inner = self.clone();
                 std::thread::spawn(move || {
                     struct Worker(Arc<Inner>);
@@ -2599,7 +2614,10 @@ impl Inner {
                         }
                     }
                     let _worker = Worker(inner.clone());
-                    inner.on_adapter_event_at(adapter, event, snapshot);
+                    match work {
+                        LocalWork::Event(event) => inner.on_adapter_event(adapter, event),
+                        LocalWork::Signal(dropped) => inner.after_queued_signal(dropped),
+                    }
                 });
             })
             .map(|_| ());
@@ -2610,35 +2628,59 @@ impl Inner {
         result
     }
 
-    fn on_adapter_event(self: &Arc<Self>, adapter: AdapterId, event: AdapterEvent) {
-        self.on_adapter_event_at(adapter, event, None);
-    }
-
-    /// The pairing key observed for a native signal's connection and the signal's place in
-    /// arrival order, taken together under the core lock at the instant it is reported.
-    fn snapshot_signal(
+    /// Queues a native signal reported by `adapter`, with everything that must be fixed at
+    /// the instant it is reported, taken together under the core lock: the pairing key
+    /// observed for its connection ([`Inner::observed_key`], B3), its arrival number and its
+    /// place at the back of the queue (SC-ID-123). Past the bound
+    /// ([`PipelineConfig::max_pending_signals`]) a signal of the heaviest holder, or this
+    /// one, is taken out instead; it is returned with how it pairs now, to be dropped by
+    /// [`Inner::after_queued_signal`] once the lock is released (the drop calls the adapter).
+    fn queue_signal(
+        config: &PipelineConfig,
         core: &mut Core,
         adapter: AdapterId,
-        signal: &NativeSignal,
-    ) -> (Option<PairingKey>, u64) {
-        let key = Inner::observed_key(core, adapter, signal);
+        signal: NativeSignal,
+    ) -> Option<(NativeSignal, PairAttempt, u64)> {
+        let key = Inner::observed_key(core, adapter, &signal);
         let seq = core.next_signal_seq;
         // One total arrival order; 2^64 signals never arrive, but say so rather than wrap
         // silently in a release build.
         core.next_signal_seq = seq
             .checked_add(1)
             .expect("fewer than 2^64 native signals in one process");
-        (key, seq)
+        let queued = QueuedSignal {
+            adapter,
+            signal,
+            key,
+            seq,
+        };
+        let full = core.signals.len() + core.held.len() >= config.max_pending_signals.max(1);
+        if !full {
+            core.signals.push_back(queued);
+            None
+        } else if let Some(victim) = Inner::pending_victim(core, &queued.holder()) {
+            // Past the bound, a signal of the heaviest holder, or of this one, goes
+            // ([SC-ID-123]; #335).
+            let dropped = Inner::take_pending(core, victim);
+            core.signals.push_back(queued);
+            dropped
+        } else {
+            // This holder has none to give up: this one goes.
+            let attempt = Inner::pair(core, adapter, queued.key.as_ref());
+            Some((queued.signal, attempt, seq))
+        }
     }
 
-    /// [`Inner::on_adapter_event`], with the snapshot of a native signal when the report
-    /// path already took it ([`Inner::snapshot_signal`]); without one it is taken now.
-    fn on_adapter_event_at(
-        self: &Arc<Self>,
-        adapter: AdapterId,
-        event: AdapterEvent,
-        snapshot: Option<(Option<PairingKey>, u64)>,
-    ) {
+    /// What follows [`Inner::queue_signal`], outside the core lock: drops the signal the cap
+    /// turned away, if any, then decides what is queued.
+    fn after_queued_signal(self: &Arc<Self>, dropped: Option<(NativeSignal, PairAttempt, u64)>) {
+        if let Some((s, attempt, seq)) = dropped {
+            self.drop_signal(&s, attempt, seq);
+        }
+        self.drain_binding();
+    }
+
+    fn on_adapter_event(self: &Arc<Self>, adapter: AdapterId, event: AdapterEvent) {
         match event {
             AdapterEvent::AttachmentOpened {
                 attachment,
@@ -2682,39 +2724,9 @@ impl Inner {
                 self.capabilities_changed(adapter, &attachment);
             }
             AdapterEvent::NativeSignal(signal) => {
-                let dropped = {
-                    let mut core = self.lock();
-                    // The key is the snapshot of the report, while the connection was known
-                    // (B3); a report path that took none takes it now.
-                    let (key, seq) = snapshot
-                        .unwrap_or_else(|| Inner::snapshot_signal(&mut core, adapter, &signal));
-                    let queued = QueuedSignal {
-                        adapter,
-                        signal,
-                        key,
-                        seq,
-                    };
-                    let full = core.signals.len() + core.held.len()
-                        >= self.config.max_pending_signals.max(1);
-                    if !full {
-                        core.signals.push_back(queued);
-                        None
-                    } else if let Some(victim) = Inner::pending_victim(&core, &queued.holder()) {
-                        // Past the bound, a signal of the heaviest holder, or of this one,
-                        // goes ([SC-ID-123]; #335).
-                        let dropped = Inner::take_pending(&mut core, victim);
-                        core.signals.push_back(queued);
-                        dropped
-                    } else {
-                        // This holder has none to give up: this one goes.
-                        let attempt = Inner::pair(&core, adapter, queued.key.as_ref());
-                        Some((queued.signal, attempt, seq))
-                    }
-                };
-                if let Some((s, attempt, seq)) = dropped {
-                    self.drop_signal(&s, attempt, seq);
-                }
-                self.drain_binding();
+                // A path that reports on the caller's thread queues it the same way.
+                let dropped = Inner::queue_signal(&self.config, &mut self.lock(), adapter, signal);
+                self.after_queued_signal(dropped);
             }
         }
     }

@@ -3790,8 +3790,8 @@ impl ProviderAdapter for LocalReports {
 /// carries a native signal (a hook that sends and exits) may end the moment the report returns,
 /// and the signal still pairs by the key observed when it was reported. The key and the
 /// signal's place in arrival order are taken at report time, not on the worker that decides it
-/// later, so ending the connection at once ([`Pipelines::disconnect`]) neither loses the key
-/// (SC-ID-129, nothing bound) nor reorders signals (SC-ID-123).
+/// later, so ending the connection at once ([`Pipelines::disconnect`]) does not lose the key
+/// (SC-ID-129, nothing bound). Arrival order has its own test below.
 #[test]
 fn a_local_native_signal_keeps_its_pairing_key_when_its_connection_ends_at_once() {
     for round in 0..100 {
@@ -3824,6 +3824,65 @@ fn a_local_native_signal_keeps_its_pairing_key_when_its_connection_ends_at_once(
             ["SC-ID-141"],
             "round {round}: bound without a finding (only the missing cross-check diagnostic)"
         );
+        n.pipes.shutdown();
+    }
+}
+
+/// [SC-ID-123]: signals are decided in the order they were reported, also for an adapter that
+/// reports through the local handler, where the core takes each event on a worker of its own
+/// and workers run in any order. An older signal queued behind a newer one would pair after
+/// it and bind the attachment back to the older N (SC-ID-151, C4 §6). One attachment, two
+/// carriers of its key: a `Fresh` signal for `old` and then a `Transition` for `new`, reported
+/// back to back from one thread, must leave the attachment on `new`. Told apart from outside:
+/// a third signal, for `new` from another attachment and so queued after both, is refused
+/// under case 2 (SC-ID-132) when `new` is the bound N, and binds when `old` is.
+#[test]
+fn local_native_signals_are_decided_in_the_order_they_were_reported() {
+    for round in 0..200 {
+        let bus = Bus::default();
+        let mut n = node(&bus, "order", PipelineConfig::default());
+        let log = binding_log(&n);
+        let reports = Arc::new(LocalReports {
+            inner: TestAdapter::new(),
+            scope: Mutex::default(),
+        });
+        n.adapter = reports.inner.clone();
+        n.adapter_id = n.pipes.add_adapter(reports.clone());
+        let a = observed_attachment(&n, "harness-1", None);
+        let first = carrier(&n, "harness-1");
+        let second = carrier(&n, "harness-1");
+        let other = observed_attachment(&n, "harness-2", None);
+        n.adapter
+            .emit(signal(Some(&first), "native-old", StartKind::Fresh, None));
+        n.adapter.emit(signal(
+            Some(&second),
+            "native-new",
+            StartKind::Transition,
+            None,
+        ));
+        n.adapter
+            .emit(signal(Some(&other), "native-new", StartKind::Fresh, None));
+        let end = Instant::now() + WAIT;
+        while n.pipes.binding(&other).is_none() && !requirements(&log).contains(&"SC-ID-132") {
+            assert!(
+                Instant::now() < end,
+                "round {round}: no decision for the last signal; log {:?}",
+                log.entries()
+            );
+            std::thread::yield_now();
+        }
+        assert_eq!(
+            n.pipes.binding(&other),
+            None,
+            "round {round}: `native-new` was free, so the older signal was decided after it; log {:?}",
+            log.entries()
+        );
+        assert!(
+            requirements(&log).contains(&"SC-ID-132"),
+            "round {round}: {:?}",
+            log.entries()
+        );
+        assert!(n.pipes.binding(&a).is_some(), "round {round}");
         n.pipes.shutdown();
     }
 }

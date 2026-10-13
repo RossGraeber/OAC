@@ -14,10 +14,9 @@ the hook's `CLAUDE_CODE_SESSION_ID` equalled `session_id`); first-party hooks an
 reference pages retrieved the same day. Not claimed: a live OAC-enabled Claude leg (the hook
 handler command and the daemon are G9/G10), the cross-check value E on the shim side (no wire
 carries it to the adapter yet, so `attachment-opened` reports none and the core binds under
-case 3(c)), and any gate verdict. Review round 1: the core now takes a native signal's pairing
-key and arrival order at report time (`core/src/pipeline.rs`, restoring the B3 rule that #380's
+case 3(c)), and any gate verdict. Review round 1: the core now queues a native signal at report time (`core/src/pipeline.rs`: pairing key, arrival number and place in the queue under one hold of the core lock, restoring the B3 rule that #380's
 worker hand-off had broken), so a daemon that ends a hook carrier's connection at once no
-longer loses the key; regression `a_local_native_signal_keeps_its_pairing_key_when_its_connection_ends_at_once`.
+longer loses the key and signals are decided in the order reported (round 2; `local_native_signals_are_decided_in_the_order_they_were_reported`); regression `a_local_native_signal_keeps_its_pairing_key_when_its_connection_ends_at_once`.
 The hook handler (`oac hook`, G9/G10) must parse stdin and send one compact JSON line and write
 nothing to stdout. Residuals owned by G9 are 11-risks rows 83 (the four-place connection limit
 is shared with hook carriers) and 84 (no cross-check value E yet).
