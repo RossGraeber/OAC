@@ -71,25 +71,47 @@ impl TransportHarness for PeerHarness {
 }
 
 /// The first and one past the last port a rendezvous is claimed from. All of it lies below
-/// the ephemeral ranges of Windows and macOS (from 49152) and Linux (from 32768, by default),
-/// so no socket the operating system hands out for a connection or for a `:0` listener (a
-/// joiner's listener, [`PeerConfiguration`]) can be on one of these ports.
+/// the default ephemeral ranges of Windows and macOS (from 49152) and Linux (from 32768), so
+/// no socket the operating system hands out for a connection or for a `:0` listener (a
+/// joiner's listener, [`PeerConfiguration`]) is on one of these ports by default. A Linux
+/// host that lowered `ip_local_port_range` below this range is checked for in
+/// `the_rendezvous_range_lies_below_the_linux_ephemeral_range`.
 const RENDEZVOUS_PORTS: std::ops::Range<u16> = 28_000..32_000;
+
+/// The lowest port of the default ephemeral ranges of Linux, Windows and macOS.
+const LOWEST_DEFAULT_EPHEMERAL_PORT: u16 = 32_768;
+const _: () = assert!(RENDEZVOUS_PORTS.end <= LOWEST_DEFAULT_EPHEMERAL_PORT);
+
+/// The file whose exclusive lock is the claim on `port`.
+fn claim_path(port: u16) -> std::path::PathBuf {
+    std::env::temp_dir().join(format!("oac-contract-rendezvous-{port}.lock"))
+}
 
 /// A loopback rendezvous port, claimed for one medium for as long as this value lives.
 ///
 /// The rendezvous is a fixed port by design: every transport of a medium must be configured
 /// with it before the first of them starts, so it cannot be left to Zenoh to pick with `:0`
-/// the way a joiner's own listener is. Probing a port and releasing it left a window in which
-/// another test took it (an ephemeral socket, or a parallel run of this suite), and the
-/// rendezvous then refused the port as held by a program that is not an OAC transport.
+/// the way a joiner's own listener is (and `Session::info().locators()`, which reports a
+/// bound locator, is `#[zenoh_macros::unstable]`, zenoh-1.10.1/src/api/info.rs:122; this
+/// crate does not enable `unstable`, Cargo.toml). Probing a port and releasing it left a
+/// window in which another test took it (an ephemeral socket, or a parallel run of this
+/// suite), and the rendezvous then refused the port as held by a program that is not an OAC
+/// transport.
 ///
 /// The port is claimed instead of probed: an exclusive lock on a file named for the port is
 /// held until the medium is dropped. The lock is the operating system's, shared by every
 /// process on the host and released when the holder dies, so concurrent runs never claim the
-/// same port and a crashed run leaves nothing claimed. The port is also bound once to leave
-/// out one that a foreign program holds; that probe cannot race, as nothing that is not a
-/// foreign program binds in this range.
+/// same port and the lock of a crashed run is not left held. The port is also bound once to
+/// leave out one that a foreign program holds; that probe cannot race, as nothing that is
+/// not a foreign program binds in this range.
+///
+/// Residuals:
+/// - The lock files are never deleted: each is empty, at most one per port of the range
+///   (4000), and stays in the temporary directory.
+/// - A Linux host whose `ip_local_port_range` starts below the end of the range is not
+///   protected; the range test fails there loudly instead.
+/// - A port the operating system excludes from binding (Windows reserved port ranges) is
+///   skipped by the bind probe.
 struct Rendezvous {
     port: u16,
     _claim: File,
@@ -101,12 +123,11 @@ impl Rendezvous {
         let start = unique().wrapping_mul(0x9E37_79B9_7F4A_7C15) >> 33;
         for step in 0..span {
             let port = RENDEZVOUS_PORTS.start + ((start + step) % span) as u16;
-            let path = std::env::temp_dir().join(format!("oac-contract-rendezvous-{port}.lock"));
             let Ok(file) = OpenOptions::new()
                 .create(true)
                 .truncate(false)
                 .write(true)
-                .open(path)
+                .open(claim_path(port))
             else {
                 continue;
             };
@@ -211,15 +232,45 @@ fn contract_suite_in_local_mode() {
     ));
 }
 
-/// Claims are exclusive and fixed below the ephemeral ranges: while one is held no other
-/// claim, in this process or any other, is the same port, and none is a port the operating
-/// system hands out for a connection or a `:0` listener.
+/// While a claim is held, a new handle on its lock file cannot lock it (the exclusion every
+/// other process and thread meets); once the claim is dropped, it can.
 #[test]
-fn rendezvous_claims_are_exclusive_and_below_the_ephemeral_ranges() {
-    let held: Vec<Rendezvous> = (0..64).map(|_| Rendezvous::claim()).collect();
-    let mut ports: Vec<u16> = held.iter().map(|r| r.port).collect();
-    assert!(ports.iter().all(|p| RENDEZVOUS_PORTS.contains(p)));
-    ports.sort_unstable();
-    ports.dedup();
-    assert_eq!(ports.len(), held.len(), "a port was claimed twice");
+fn a_held_claim_excludes_every_other_handle_until_it_is_dropped() {
+    let claim = Rendezvous::claim();
+    let port = claim.port;
+    let open = || {
+        OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(claim_path(port))
+            .expect("the lock file of a claimed port opens")
+    };
+    let other = open();
+    assert!(matches!(other.try_lock(), Err(TryLockError::WouldBlock)));
+    // A second claim, however many are made, never hands out the held port.
+    let others: Vec<Rendezvous> = (0..16).map(|_| Rendezvous::claim()).collect();
+    assert!(others.iter().all(|r| r.port != port));
+    drop(claim);
+    assert!(other.try_lock().is_ok(), "the claim was released on drop");
+}
+
+/// The claimed range lies below this host's ephemeral range, so no connection or `:0`
+/// listener can be on a claimed port. Checked where the range is readable (Linux, where
+/// it is configurable); Windows and macOS defaults start at 49152, above
+/// `LOWEST_DEFAULT_EPHEMERAL_PORT`, asserted at compile time.
+#[cfg(target_os = "linux")]
+#[test]
+fn the_rendezvous_range_lies_below_the_linux_ephemeral_range() {
+    let range = std::fs::read_to_string("/proc/sys/net/ipv4/ip_local_port_range")
+        .expect("the Linux ephemeral port range is readable");
+    let low: u16 = range
+        .split_whitespace()
+        .next()
+        .and_then(|n| n.parse().ok())
+        .expect("ip_local_port_range holds two ports");
+    assert!(
+        RENDEZVOUS_PORTS.end <= low,
+        "ip_local_port_range starts at {low}, inside the rendezvous range {RENDEZVOUS_PORTS:?}"
+    );
 }
