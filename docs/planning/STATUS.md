@@ -18,8 +18,31 @@ case 3(c)), and any gate verdict. Review round 1: the core now queues a native s
 worker hand-off had broken), so a daemon that ends a hook carrier's connection at once no
 longer loses the key and signals are decided in the order reported (round 2; `local_native_signals_are_decided_in_the_order_they_were_reported`); regression `a_local_native_signal_keeps_its_pairing_key_when_its_connection_ends_at_once`.
 The hook handler (`oac hook`, G9/G10) must parse stdin and send one compact JSON line and write
-nothing to stdout. Residuals owned by G9 are 11-risks rows 83 (the four-place connection limit
-is shared with hook carriers) and 84 (no cross-check value E yet).
+nothing to stdout. Residuals owned by G9 are 11-risks rows 86 (the four-place connection limit
+is shared with hook carriers) and 87 (no cross-check value E yet).
+
+**Last updated:** 2026-10-12 (**#63, Zenoh carrier loss from native liveliness; Refs #377**).
+Each started transport declares one native liveliness token under an opaque hash of its
+random native session id (never a device key id or session id, [IFC-TRN-108]) and watches
+the partition's tokens with a `history(true)` liveliness subscriber, so a late-started
+transport learns of peers already online. A token that was seen alive and goes (undeclared,
+link closed, or Zenoh's link lease run out) becomes one neutral `carrier-loss` for the
+receiver-local stream handle, delivered on a thread of its own behind the shutdown gate. A
+deletion of a token never seen alive, or of a token that is not ours, reports nothing
+(`unknown`). No heartbeat, timer, probe or gossip is added; the link lease is Zenoh's
+own, set explicitly to 10000 ms. Measured on Windows over loopback: a graceful exit in
+about 2 to 13 ms, a killed process in 27 to 136 ms, a silent link loss in 9.5 to 9.7 s.
+**Stated bound for a silent loss: the 10 s lease.** Residuals, with no compensating code, and
+the lead's decisions of 2026-10-12: one shared stream handle means a loss makes every
+announcement received on it stale, not only the departed issuer's, until the next refresh
+(risk row 83, ACCEPTED; #374's privacy choice is kept); the frozen interface has no neutral
+way for a late joiner to ask for presence (row 84, a carrier-appeared event DEFERRED to the
+next interfaces revision as a spec item, #389; #63 stays open via Refs); a relay loss reading as
+the loss of all peers is ACCEPTED as Zenoh behaviour, and the unmeasured cross-host lease is
+a residual: two-host integration step 8 MUST run before Gate S4 (row 85). The `liveness`
+ACL rule is minimal (token and subscriber only; a liveliness query is refused). No gate verdict, protocol
+requirement, dependency pin or ADR change. Binding and evidence: `transports/zenoh/src/lib.rs`,
+`transports/zenoh/src/liveness_tests.rs`.
 
 **Last updated:** 2026-10-11 (**#64, native TLS local/LAN configuration; Refs #377**).
 Local mode uses one persisted per-user certificate as an additional root and mTLS identity,

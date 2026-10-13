@@ -11,6 +11,7 @@ use std::time::Instant;
 
 use oac_core::health::{HealthState, HealthStatus};
 use oac_core::ids::KeyId;
+use oac_core::presence::PresenceState;
 use oac_core::transport::{
     CarrierHandle, Deadline, Destination, Inbound, InboundHandler, Payload, PayloadKind,
     PresenceHandler, PublishResult, Reach, Subscription, Transport, TransportCapabilities,
@@ -19,6 +20,7 @@ use oac_core::transport::{
 use zenoh::Wait;
 use zenoh::bytes::Encoding;
 use zenoh::handlers::{IntoHandler, RingChannel, RingChannelHandler};
+use zenoh::liveliness::LivelinessToken;
 use zenoh::pubsub::Subscriber;
 use zenoh::qos::{CongestionControl, Priority};
 use zenoh::sample::Sample;
@@ -26,7 +28,7 @@ use zenoh::sample::Sample;
 use crate::addressing::{self, Digest128, Partition};
 use crate::config::{PeerConfiguration, Role};
 use crate::gate::Gate;
-use crate::presence::Watchers;
+use crate::presence::{Links, Watchers};
 
 /// The largest payload this transport takes: 1 MiB. Zenoh fragments larger messages
 /// itself; the bound is what the contract suite exercises ([IFC-TRN-023], [IFC-TRN-030]).
@@ -60,14 +62,23 @@ enum State {
 struct Running {
     session: zenoh::Session,
     subscriber: Mutex<Option<Subscriber<()>>>,
+    /// Native liveliness: the history-capable subscriber on the other transports' tokens,
+    /// and this transport's own token.
+    liveliness: Mutex<Option<Subscriber<()>>>,
+    token: Mutex<Option<LivelinessToken>>,
+    #[cfg(feature = "test-support")]
+    links: Arc<Links>,
     partition: Partition,
     local: KeyId,
+    #[cfg(feature = "test-support")]
     link: Digest128,
     gate: Arc<Gate>,
     subs: Arc<Subs>,
     watchers: Arc<Watchers>,
     dispatcher: Mutex<Option<JoinHandle<()>>>,
     dispatcher_id: ThreadId,
+    loss_reporter: Mutex<Option<JoinHandle<()>>>,
+    loss_reporter_id: ThreadId,
 }
 
 /// Only local device subscriptions receive sealed frames. Session entries stay local.
@@ -160,6 +171,22 @@ fn dispatch_loop(
     }
 }
 
+/// Blocking read on the established native signal, not polling. A native liveliness
+/// callback never runs core handlers. Losses coalesce: the native ring holds one pending
+/// signal and a newer one replaces it, so a loss is never dropped without a signal
+/// remaining.
+fn loss_loop(
+    rx: RingChannelHandler<()>,
+    watchers: Arc<Watchers>,
+    gate: Arc<Gate>,
+    link: Digest128,
+) {
+    let carrier = CarrierHandle::from_opaque(link.to_vec());
+    while rx.recv().is_ok() {
+        watchers.carrier_loss(&gate, &carrier);
+    }
+}
+
 impl PeerTransport {
     /// A transport that is not started.
     pub fn new() -> PeerTransport {
@@ -186,6 +213,15 @@ impl PeerTransport {
                 info.peers_zid().wait().count() + info.routers_zid().wait().count()
             })
             .unwrap_or(0)
+    }
+
+    /// The number of other transports whose native liveliness token this transport has seen
+    /// alive, by history replay or live event; 0 when not started. For tests that wait for
+    /// presence to propagate, behind the `test-support` feature: nothing in the contract or
+    /// in product code uses it.
+    #[cfg(feature = "test-support")]
+    pub fn observed_live_links(&self) -> usize {
+        self.running().map(|r| r.links.online()).unwrap_or(0)
     }
 
     /// For leak tests only, behind the `test-support` feature: the transport-native strings
@@ -401,6 +437,64 @@ impl Transport for PeerTransport {
                 ));
             }
         };
+        // Native liveliness (#63): the history-capable subscriber first, so a token declared
+        // before this start is replayed to it and none is missed between the two
+        // declarations; the own token last, so that a peer that sees this transport online
+        // can already reach its frame subscription.
+        let own_token = addressing::token_name(&native_id);
+        let links = Arc::new(Links::new(partition.clone(), own_token.clone()));
+        let (loss_tx, loss_rx) = RingChannel::new(1).into_handler();
+        let (w, g) = (watchers.clone(), gate.clone());
+        let loss_reporter = match thread::Builder::new()
+            .name("oac-peer-liveness".into())
+            .spawn(move || loss_loop(loss_rx, w, g, link))
+        {
+            Ok(h) => h,
+            Err(_) => {
+                drop(subscriber);
+                let _ = session.close().wait();
+                let _ = dispatcher.join();
+                return Err(TransportError::InvalidConfiguration(
+                    "the liveness thread did not start".into(),
+                ));
+            }
+        };
+        let loss_reporter_id = loss_reporter.thread().id();
+        let observed = links.clone();
+        let liveliness = session
+            .liveliness()
+            .declare_subscriber(partition.token_pattern())
+            .history(true)
+            .callback(move |sample: Sample| {
+                // Native deletion of a token this subscriber saw alive: undeclared, its link
+                // closed or its lease expired. Anything else says nothing about a carrier.
+                if observed.observe(sample.kind(), sample.key_expr().as_str())
+                    == Some(PresenceState::Unreachable)
+                {
+                    loss_tx.call(());
+                }
+            })
+            .wait();
+        let token = liveliness.as_ref().ok().and_then(|_| {
+            session
+                .liveliness()
+                .declare_token(partition.token_key(&own_token))
+                .wait()
+                .ok()
+        });
+        let (liveliness, token) = match (liveliness, token) {
+            (Ok(l), Some(t)) => (l, t),
+            (l, _) => {
+                drop(l);
+                drop(subscriber);
+                let _ = session.close().wait();
+                let _ = dispatcher.join();
+                let _ = loss_reporter.join();
+                return Err(TransportError::InvalidConfiguration(
+                    "the peer session refused the liveliness declarations".into(),
+                ));
+            }
+        };
         #[cfg(feature = "test-support")]
         {
             let mut l = self.leak_checks.lock().unwrap_or_else(|e| e.into_inner());
@@ -408,20 +502,29 @@ impl Transport for PeerTransport {
                 native_id.clone(),
                 partition.prefix().to_owned(),
                 partition.key(),
+                own_token.clone(),
+                partition.token_key(&own_token),
             ]);
             l.extend(conf.configured_endpoints());
         }
         *state = State::Running(Arc::new(Running {
             session,
             subscriber: Mutex::new(Some(subscriber)),
+            liveliness: Mutex::new(Some(liveliness)),
+            token: Mutex::new(Some(token)),
+            #[cfg(feature = "test-support")]
+            links,
             partition,
             local: local_device.clone(),
+            #[cfg(feature = "test-support")]
             link,
             gate,
             subs,
             watchers,
             dispatcher: Mutex::new(Some(dispatcher)),
             dispatcher_id,
+            loss_reporter: Mutex::new(Some(loss_reporter)),
+            loss_reporter_id,
         }));
         Ok(TransportCapabilities {
             reliability: false,
@@ -532,6 +635,20 @@ impl Transport for PeerTransport {
         if let Some(sub) = sub {
             let _ = sub.undeclare().wait();
         }
+        // The own token goes first, so peers see this transport leave from an explicit
+        // native undeclaration rather than waiting for the link to be reported closed.
+        let token = r.token.lock().unwrap_or_else(|e| e.into_inner()).take();
+        if let Some(token) = token {
+            let _ = token.undeclare().wait();
+        }
+        let liveliness = r
+            .liveliness
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take();
+        if let Some(sub) = liveliness {
+            let _ = sub.undeclare().wait();
+        }
         let _ = r.session.close().wait();
         // Undeclaring drops the native ring callback, ending the stream; wait for it,
         // unless this is it (a handler that called shutdown).
@@ -544,6 +661,58 @@ impl Transport for PeerTransport {
             && thread::current().id() != r.dispatcher_id
         {
             let _ = h.join();
+        }
+        // The same for the loss reporter: undeclaring the liveliness subscriber dropped its
+        // native callback, which ended the signal stream.
+        let reporter = r
+            .loss_reporter
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take();
+        if let Some(h) = reporter
+            && thread::current().id() != r.loss_reporter_id
+        {
+            let _ = h.join();
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::Duration;
+
+    /// [IFC-TRN-071] at the loop itself, deterministically: the ring sender stays alive (so
+    /// Zenoh's native ring-drop cannot discard the pending signal), and the gate decides.
+    /// A signal after the gate closed reaches no watcher; the same signal through an open
+    /// gate reaches it once.
+    #[test]
+    fn a_pending_loss_signal_reaches_no_watcher_once_the_gate_is_closed() {
+        for open in [true, false] {
+            let watchers: Arc<Watchers> = Arc::default();
+            let calls = Arc::new(AtomicUsize::new(0));
+            let c = calls.clone();
+            watchers.add(Arc::new(move |_| {
+                c.fetch_add(1, Ordering::SeqCst);
+            }));
+            let gate = Gate::new();
+            if !open {
+                gate.close();
+            }
+            let (tx, rx) = RingChannel::new(1).into_handler();
+            let (w, g) = (watchers.clone(), gate.clone());
+            let looped = thread::spawn(move || loss_loop(rx, w, g, [7; 16]));
+            tx.call(());
+            // `tx` is still alive, so the loop is blocked on a live ring, not ended by it.
+            thread::sleep(Duration::from_millis(400));
+            assert_eq!(
+                calls.load(Ordering::SeqCst),
+                usize::from(open),
+                "open={open}"
+            );
+            drop(tx);
+            looped.join().unwrap();
         }
     }
 }
