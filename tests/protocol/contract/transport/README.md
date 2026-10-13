@@ -70,7 +70,28 @@ payload that never arrives is not a failure, but every payload that does arrive 
 passed, octet for octet, at least one must arrive, and the duplicate copies scripted by
 fault control must still all arrive. Before this, a transport that declared no reliability
 failed the check whenever its native best-effort send queue dropped the large frame on a
-loaded host. The change was approved by the lead on #392. Nothing else in the suite changed.
+loaded host (Zenoh, under `CongestionControl::Drop`).
+
+The lead approved working on a fix for #392, including a contract-suite change if the
+investigation supported one (2026-10-13); the lead merges the PR that makes it.
+
+Residuals, recorded for the lead rather than fixed here:
+
+- No check now names a duty to carry a payload of the declared `max_payload_octets` on a
+  transport that declares no reliability; no requirement in `spec/interfaces.md` states one
+  (IFC-TRN-023 sets only the 65536 floor). A non-sealing transport that cannot carry its
+  declared maximum no longer fails the suite. Closing that gap needs a spec rule, not a
+  check.
+- IFC-TRN-104 (`frame-size-cap`, sealing transports only) still publishes a frame of the
+  declared maximum and requires it to arrive. On Zenoh it carries the same native-drop
+  exposure as the old IFC-TRN-030 and is not changed here.
+- No transport declares `reliability`, so the branch that holds a declaring transport to
+  delivery runs only against the planted breach `DropsLargeClaimsReliability`
+  (`transports/memory/tests/contract.rs`). `DropsLarge` is the positive control that a lost
+  large payload on a transport declaring no reliability passes the check.
+- A sealing transport that corrupts a frame fails opening and shows up as a missing
+  payload, which this check now forgives; the sealed-frame checks, not IFC-TRN-030, speak to
+  that.
 
 ## Required carriage observations
 
