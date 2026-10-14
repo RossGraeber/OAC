@@ -1,5 +1,19 @@
 # OAC status
 
+**Last updated:** 2026-10-14 (**G9, #70, slice 1: the `oac hook` handler; Refs #70**).
+`cli/src/hook.rs` and `cli/src/verbs.rs` add the `oac hook` verb for `spec/bindings/mcp.md` 0.3 §8.1
+([MCPB-CLD-004] to [MCPB-CLD-010]): it reads standard input (at most 64 KiB), parses it with the
+core's I-JSON reader, writes the object again as one compact line (never a byte copy), and sends it in
+one write to the carrier it is given; it writes nothing to standard output, sends only a `SessionStart`
+input the Claude adapter's own `hook::classify` takes for a signal, and always exits 0, saying why on
+standard error in words that hold none of the input. The carrier is injected: the binary has no local
+connection to the daemon yet (the local IPC and daemon are later slices of #70), so `oac hook` currently
+drops the signal with a diagnostic and the session stays unbound (fail closed). The hook registration in
+Claude Code's settings is G11. Tests: `cli/tests/hook.rs` (handler and verb against in-memory streams,
+the adapter's recognition rule reading the line back) and `cli/tests/hook_binary.rs` (the real process).
+Not claimed: any live Claude Code leg, the daemon, rows 86 and 87, and any gate verdict. No dependency,
+feature, spec or pin change.
+
 **Last updated:** 2026-10-13 (**docs follow-ups to interfaces 0.7 (PR #385, merged): transport deadline wording; Refs #385, #377**).
 Interfaces 0.7 (`spec/interfaces.md`, IFC-TRN-034, IFC-TRN-038, IFC-TRN-117) and `spec/security.md` 0.4 (§14.5 explanation only) are merged. The E9 and C7 decision records, `docs/planning/v0.1/11-risks.md` row 77 (updated in place, no renumbering) and the native-publication row of `docs/planning/v0.1/01-capability-matrix.md` now state the 0.7 rule: no transport accepts a payload or hands a copy to the carrier at or after the `Deadline` ([IFC-TRN-034]), a copy handed over in time may arrive late, and the receiving core refuses it (on a sealing transport such as Zenoh, silently under [SEC-SEL-036]; [SC-RCP-091] only for a copy that passes opening and reaches its deadline before hand-off). Each binding must state its clock-skew limit under [IFC-TRN-117] (G3, #64): the memory binding states none yet (a shared-clock transport must state zero), and `transports/zenoh/src/lib.rs` lines 227-234 state the 5 s operating limit (lead decision, 2026-10-11) without citing IFC-TRN-117. Lead decision, 2026-10-13 (given to the orchestrator session; no GitHub comment) on row 77: a payload handed to Zenoh, including a copy in Zenoh's send queue and a publish begun before the `Deadline` and completed after it, counts as handed to the network under [IFC-TRN-034]. Still open and not claimed: the sender-conformance proof, a sender-copy bound and a measured skew bound; no gate verdict changes. `core/src/transport.rs` doc comments on `Deadline` and `has_passed_at` reworded to the 0.7 rule (comment only). The `spec/` headers of `interfaces.md` and `security.md` still read "proposed; lead approval pending" although #385 is merged; being fixed in the #390 spec PR, not edited here. The IFC-TRN-034 contract check and its README (`tests/protocol/contract/transport`) are not touched here; branch `test/ifc-trn-034-0.7` covers them.
 
