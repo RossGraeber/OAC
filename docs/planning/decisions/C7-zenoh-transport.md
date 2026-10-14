@@ -486,6 +486,16 @@ ways to do it:
 - declare a maximum skew, subtract it at the sender, and refuse any payload with less time
   left than that bound.
 
+*Dated note, 2026-10-13 (docs, PR #385 follow-ups; Refs #377):* the wall-clock expiry in the
+2026-10-09 note above is historical. No deadline travels beside the frame since #374, and
+receiving expiry is solely the core's encrypted-payload check ([SEC-SEL-036];
+`transports/zenoh/src/lib.rs` lines 273-274). A late copy is discarded silently after opening
+(`spec/security.md` [SEC-SEL-036]), not refused with an `expired` receipt. [SC-RCP-091] applies
+only to a copy that passes opening and reaches its deadline before hand-off. The skew limit is a
+binding statement that [IFC-TRN-117] requires (interfaces 0.7). `transports/zenoh/src/lib.rs`
+lines 227-234 state the 5 s operating limit (lead decision, 2026-10-11) but do not cite
+IFC-TRN-117.
+
 **TLS is the v0.1 default; QUIC is the named alternative.** Zenoh's config exposes both
 TLS and QUIC listeners with per-endpoint certificates (`oac-zenoh` §5: "TLS/mTLS and
 QUIC listeners with per-endpoint certificates"). This document picks **TLS** as the
@@ -889,8 +899,12 @@ monotonic; receiving core late discard after opening uses its local wall clock
 (SEC-SEL-036). Slow receiver skew can extend effective validity; fast skew can reject
 early. Operators must bound skew operationally. Zenoh has no publication TTL and OAC
 accepts its native retention per the lead's #377 direction; no finite sender-copy bound
-or measured cross-host skew bound is claimed. Risk row 77 retains the frozen sender
-requirement conflict for the lead; the unrun two-host plan records skew and expiry.
+or measured cross-host skew bound is claimed. Interfaces 0.7 ([IFC-TRN-034], [IFC-TRN-038],
+[IFC-TRN-117]; PR #385, merged) states the sender rule as a guarantee a transport can give, and
+the skew limit as a binding statement. Lead decision, 2026-10-13 (given to the orchestrator session; no GitHub comment; risk row 77): a payload handed to Zenoh, including a copy in Zenoh's
+send queue or a publish begun before the deadline and completed after it, counts as handed to
+the network under [IFC-TRN-034]; the sender-conformance proof stays open. The unrun
+two-host plan records skew and expiry.
 
 Source: https://github.com/eclipse-zenoh/zenoh/blob/1.10.1/DEFAULT_CONFIG.json5 and
 https://github.com/eclipse-zenoh/zenoh/blob/1.10.1/io/zenoh-link-tls/src/utils.rs,

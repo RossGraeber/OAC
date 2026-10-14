@@ -125,8 +125,9 @@ impl fmt::Debug for Payload {
 }
 
 /// `Deadline` of `spec/interfaces.md` §4.11: an instant, read on the clock of the
-/// implementation that passes the payload, after which no copy of the payload is delivered
-/// (§6.4; [IFC-TRN-034]).
+/// implementation that passes the payload, at or after which no transport accepts the payload
+/// or hands a copy of it to the carrier (§6.4; [IFC-TRN-034]). A copy handed over before it may
+/// still arrive after it; the receiving core refuses such a late copy.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Deadline(Instant);
 
@@ -141,8 +142,8 @@ impl Deadline {
         self.0
     }
 
-    /// True at or after the deadline: no copy may then be held or delivered
-    /// ([IFC-TRN-034]).
+    /// True at or after the deadline: no transport may then accept the payload or hand a copy
+    /// of it to the carrier ([IFC-TRN-034]).
     pub fn has_passed_at(self, now: Instant) -> bool {
         now >= self.0
     }
