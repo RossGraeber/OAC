@@ -478,16 +478,23 @@ control or denial of service.*
 sees it, and as `docs/planning/v0.1/11-risks.md` row 77.* The G1 frame carries a payload's
 deadline as a wall-clock expiry, and the receiver drops a frame at or after it. That is
 exact on one host, where both read one clock. Between hosts it is not safe: a receiver
-whose clock runs `d` behind the sender's accepts a frame up to `d` after its deadline, because
-the receiving core refuses a late copy on its own clock ([SC-RCP-091]); a receiver `d` ahead
-refuses early, which is safe. A copy the sender handed over before the deadline may arrive
-late under [IFC-TRN-034] (interfaces 0.7). Before LAN mode carries a frame between hosts, G3
-must bound this, and record the bound in the binding document as [IFC-TRN-117] requires
-(interfaces 0.7: the skew limit and what happens to a `Deadline` read within it). Two ways to
-do it:
+whose clock runs `d` behind the sender's can hand a frame over up to `d` after its deadline
+([IFC-TRN-034]); a receiver `d` ahead drops early, which is safe. Before LAN mode carries a
+frame between hosts, G3 must bound this, and record the bound in the binding document. Two
+ways to do it:
 - carry the time left instead of an expiry, and subtract a stated transit allowance; or
 - declare a maximum skew, subtract it at the sender, and refuse any payload with less time
   left than that bound.
+
+*Dated note, 2026-10-13 (docs, PR #385 follow-ups; Refs #377):* the wall-clock expiry in the
+2026-10-09 note above is historical. No deadline travels beside the frame since #374, and
+receiving expiry is solely the core's encrypted-payload check ([SEC-SEL-036];
+`transports/zenoh/src/lib.rs` lines 273-274). A late copy is discarded silently after opening
+(`spec/security.md` [SEC-SEL-036]), not refused with an `expired` receipt. [SC-RCP-091] applies
+only to a copy that passes opening and reaches its deadline before hand-off. The skew limit is a
+binding statement that [IFC-TRN-117] requires (interfaces 0.7). `transports/zenoh/src/lib.rs`
+lines 227-234 state the 5 s operating limit (lead decision, 2026-10-11) but do not cite
+IFC-TRN-117.
 
 **TLS is the v0.1 default; QUIC is the named alternative.** Zenoh's config exposes both
 TLS and QUIC listeners with per-endpoint certificates (`oac-zenoh` §5: "TLS/mTLS and
@@ -894,7 +901,7 @@ early. Operators must bound skew operationally. Zenoh has no publication TTL and
 accepts its native retention per the lead's #377 direction; no finite sender-copy bound
 or measured cross-host skew bound is claimed. Interfaces 0.7 ([IFC-TRN-034], [IFC-TRN-038],
 [IFC-TRN-117]; PR #385, merged) states the sender rule as a guarantee a transport can give, and
-the skew limit as a binding statement. Lead ruling 2026-10-13 (risk row 77): a payload handed to Zenoh, including a copy in Zenoh's
+the skew limit as a binding statement. Lead decision, 2026-10-13 (given to the orchestrator session; no GitHub comment; risk row 77): a payload handed to Zenoh, including a copy in Zenoh's
 send queue or a publish begun before the deadline and completed after it, counts as handed to
 the network under [IFC-TRN-034]; the sender-conformance proof stays open. The unrun
 two-host plan records skew and expiry.

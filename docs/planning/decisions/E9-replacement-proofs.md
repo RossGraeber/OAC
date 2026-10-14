@@ -366,8 +366,7 @@ are valid subject tokens in any case.
 - [IFC-TRN-033], [IFC-TRN-034], [IFC-TRN-038] and the copy in the server's buffer:
   [IFC-TRN-034] governs the moment of hand-over, not what the server does with the copy
   afterwards. A copy the transport wrote before the `Deadline` was handed over in time, and
-  its late arrival is not a breach. The receiving transport may drop a late copy before it
-  reaches a handler, and the receiving core refuses it under [SC-RCP-091] in any case.
+  its late arrival is not a breach. The receiving core refuses it under [SC-RCP-091].
   [IFC-TRN-038] (SHOULD, sending end) covers the copies the transport itself still holds at
   the `Deadline`. Holding is met only by a reading of the frozen text, stated here: the copy
   in the server's buffer, waiting to be written to the subscriber, is a copy **in flight**
