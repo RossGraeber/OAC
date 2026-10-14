@@ -31,7 +31,7 @@ use crate::gate::Gate;
 use crate::presence::{Links, Watchers};
 
 /// The largest payload this transport takes: 1 MiB. Zenoh fragments larger messages
-/// itself; the bound is what the contract suite exercises ([IFC-TRN-023], [IFC-TRN-030]).
+/// itself; the bound is what the contract suite exercises ([IFC-TRN-023], [IFC-TRN-104]).
 pub const MAX_PAYLOAD_OCTETS: u64 = 1 << 20;
 
 /// Native RingChannel capacity: at most 16 MiB of admitted frame octets.
