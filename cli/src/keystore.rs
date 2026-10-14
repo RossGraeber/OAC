@@ -332,6 +332,12 @@ mod file {
     /// may repeat a name; `getenv` returns the first, so every entry of the array is walked,
     /// and the entries that follow the first are overwritten too.
     ///
+    /// A variable that this process set itself with `setenv` is kept by glibc in an internal
+    /// table as well, which keys on the string; overwriting it in place can make a later
+    /// `setenv` of the same value miss that table. That is harmless (not a memory error) and
+    /// applies only to tests: a deployment hands the passphrase over in the environment the
+    /// process was started with, which is what this overwrites.
+    ///
     /// # Safety
     ///
     /// As `std::env::remove_var`: no other thread may use the environment during the call.

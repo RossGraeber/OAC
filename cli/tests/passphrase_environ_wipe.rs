@@ -47,34 +47,68 @@ fn the_passphrase_is_gone_from_proc_environ_after_it_is_taken() {
     // child calls `execve` itself with an `envp` it chose.
     let c = |s: &str| CString::new(s).unwrap();
     let path = c(exe.to_str().unwrap());
-    let argv = [
+    let argv = vec![
         path.clone(),
         c("--exact"),
         c(TEST),
         c("--nocapture"),
         c("--test-threads=1"),
     ];
-    let envp = [
+    let envp = vec![
         c(&format!("{CHILD}=duplicate")),
         c(&format!("{PASSPHRASE_ENV}={SECRET}")),
         c(&format!("{PASSPHRASE_ENV}={SHADOWED}")),
     ];
+    let exec = Exec::new(path, argv, envp);
     let mut command = Command::new(&exe);
-    // SAFETY: the closure runs in the forked child before exec and calls only `execve` on
-    // arrays built before the fork.
+    // SAFETY: the closure runs in the forked child before exec and calls only `execve`, on
+    // arrays and strings built before the fork; it allocates nothing (the failure value is
+    // a plain `errno`).
     unsafe {
         command.pre_exec(move || {
-            let mut argp: Vec<*const libc::c_char> = argv.iter().map(|a| a.as_ptr()).collect();
-            argp.push(std::ptr::null());
-            let mut envs: Vec<*const libc::c_char> = envp.iter().map(|a| a.as_ptr()).collect();
-            envs.push(std::ptr::null());
-            libc::execve(path.as_ptr(), argp.as_ptr(), envs.as_ptr());
+            libc::execve(exec.path.as_ptr(), exec.argp.as_ptr(), exec.envp.as_ptr());
             Err(std::io::Error::last_os_error())
         });
     }
     let duplicate = command.output().unwrap();
     report("duplicate", &duplicate);
 }
+
+/// The arguments of one `execve`, with the null-terminated pointer arrays built up front so
+/// the forked child only has to call it.
+struct Exec {
+    path: CString,
+    argp: Vec<*const libc::c_char>,
+    envp: Vec<*const libc::c_char>,
+    // Own the strings the pointers above point into (heap buffers, which do not move).
+    _argv: Vec<CString>,
+    _envp: Vec<CString>,
+}
+
+impl Exec {
+    fn new(path: CString, argv: Vec<CString>, envp: Vec<CString>) -> Exec {
+        let pointers = |list: &[CString]| -> Vec<*const libc::c_char> {
+            list.iter()
+                .map(|s| s.as_ptr())
+                .chain(std::iter::once(std::ptr::null()))
+                .collect()
+        };
+        Exec {
+            argp: pointers(&argv),
+            envp: pointers(&envp),
+            path,
+            _argv: argv,
+            _envp: envp,
+        }
+    }
+}
+
+// SAFETY: the pointers point into heap buffers the struct itself owns and never frees before
+// it is dropped, and nothing writes through them; the struct is only read, in the forked
+// child, by `execve`.
+unsafe impl Send for Exec {}
+// SAFETY: as above; shared access only reads.
+unsafe impl Sync for Exec {}
 
 fn report(what: &str, out: &std::process::Output) {
     let stdout = String::from_utf8_lossy(&out.stdout);
