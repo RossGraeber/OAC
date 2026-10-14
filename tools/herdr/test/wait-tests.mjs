@@ -16,7 +16,7 @@
 //   - fake-herdr imitates herdr's agent_not_idle refusal, the agent_status shape and
 //     `agent prompt --wait`'s activity gate.
 
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -24,6 +24,7 @@ import { fileURLToPath } from 'node:url';
 import { HerdrSession, NotRunError, agentStatusOf, stateChangeSeqOf } from '../lib/herdr.mjs';
 import { makeAgent, recordWaitState, turnFloor, pastFloor, refuseRunningTurn } from '../lib/gate-common.mjs';
 import { threadIdleOnWire } from '../lib/g5.mjs';
+import { removeTestDir, renameReplace } from './test-fs.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FAKE = join(HERE, 'fake-herdr.mjs');
@@ -100,7 +101,7 @@ function agentWith(herdr, { findings = [] } = {}) {
 }
 
 // A fake-herdr session with one agent whose harness-double files the test writes itself.
-function fakeSession(mode, { state = 'idle', seq = 3, at = 0 } = {}) {
+function fakeSession(check, mode, { state = 'idle', seq = 3, at = 0 } = {}) {
   const root = mkdtempSync(join(tmpdir(), 'oac-wait-unit-'));
   const name = 'unit-sess';
   const sdir = join(root, 'sessions', name);
@@ -118,7 +119,7 @@ function fakeSession(mode, { state = 'idle', seq = 3, at = 0 } = {}) {
     writeFileSync(join(adir, 'state'), s);
     writeFileSync(join(adir, 'state-seq'), `${n} ${t}`);
     writeFileSync(join(adir, 'status.tmp'), `${s} ${n} ${t}`);
-    renameSync(join(adir, 'status.tmp'), join(adir, 'status'));
+    renameReplace(join(adir, 'status.tmp'), join(adir, 'status')); // EPERM-prone on Windows while fake-herdr polls it
   };
   // A transition herdr's event stream carries but no snapshot ever shows (shorter than any poll).
   const logOnly = (s, n) => appendFileSync(join(adir, 'state-log'), `${n} ${s}\n`);
@@ -132,15 +133,90 @@ function fakeSession(mode, { state = 'idle', seq = 3, at = 0 } = {}) {
     return false;
   };
   setAgent(state, seq, at);
-  const herdr = new HerdrSession({ herdrCmd: [process.execPath, FAKE], sessionName: name, env: { ...process.env, FAKE_HERDR_STATE: root, FAKE_HERDR_MODE: mode }, cwd: root, timebox: { remainingMs: () => 60000 }, commands: [], defaultDeadlineMs: 15000 });
-  // Each fake-herdr call is a child process run with cwd: root. On Windows a child that has
-  // just exited (or an AV scanner) can still hold root open briefly, and the delete fails
-  // EPERM; Node's own retries absorb that (as in g4/g5-tests), and a directory that still
-  // cannot be removed after them throws, failing the self-test.
-  return { herdr, setAgent, logOnly, waitArmed, cleanup: () => rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }) };
+  // Each fake-herdr call is a child process run with cwd: root, and Windows will not delete a
+  // directory that is a running process's working directory. A call still running when a test
+  // body throws (an `agent prompt --wait` outlives it by up to its 5-8 s timeout, longer than
+  // Node's ~5.5 s of delete retries) is what made the delete in `finally` throw EPERM (#400).
+  // So the session's calls are tracked, and cleanup aborts them (the driver kills its own
+  // child's process tree by pid) and awaits their exit before it removes the directory. Each
+  // tracked promise gets a no-op handler, so one the body never awaited cannot become an
+  // unhandled rejection.
+  const abort = new AbortController();
+  const inflight = new Set();
+  const session = new HerdrSession({ herdrCmd: [process.execPath, FAKE], sessionName: name, env: { ...process.env, FAKE_HERDR_STATE: root, FAKE_HERDR_MODE: mode }, cwd: root, timebox: { remainingMs: () => 60000 }, commands: [], defaultDeadlineMs: 15000, abortSignal: abort.signal });
+  const herdr = new Proxy(session, {
+    get(target, key) {
+      const value = target[key];
+      if (typeof value !== 'function') return value;
+      return (...args) => {
+        const result = value.apply(target, args);
+        if (typeof result?.then === 'function') {
+          inflight.add(result);
+          result.then(() => {}, () => {});
+        }
+        return result;
+      };
+    },
+  });
+  const cleanup = async () => {
+    abort.abort();
+    await Promise.allSettled([...inflight]);
+    // What can still hold the directory now is outside the test (antivirus, the indexer): a
+    // counted failed check, not a throw out of `finally`.
+    removeTestDir(root, check, 'wait-unit');
+  };
+  return { herdr, root, setAgent, logOnly, waitArmed, cleanup };
 }
 
 export async function waitUnit(check) {
+  // --- scratch-directory handling on Windows (#400) -----------------------------------------
+  {
+    const eperm = () => Object.assign(new Error('EPERM: operation not permitted, rename'), { code: 'EPERM' });
+    let n = 0;
+    const flaky = () => {
+      if (++n <= 3) throw eperm();
+    };
+    const noSleep = () => {};
+    check('#400 renameReplace: a rename refused EPERM on Windows is retried until it works', renameReplace('a', 'b', { rename: flaky, platform: 'win32', sleep: noSleep }) === 4 && n === 4);
+    n = 0;
+    let threw = null;
+    try {
+      renameReplace('a', 'b', { rename: flaky, platform: 'linux', sleep: noSleep });
+    } catch (err) {
+      threw = err.code;
+    }
+    check('#400 renameReplace: off Windows an EPERM is a real error, not retried; a code that is not transient (ENOENT) is thrown at once; a rename still refused after the tries is thrown', threw === 'EPERM' && n === 1 && (() => {
+      const t = (rename, tries = 100) => {
+        try {
+          renameReplace('a', 'b', { rename, platform: 'win32', sleep: noSleep, tries });
+          return null;
+        } catch (err) {
+          return err.code;
+        }
+      };
+      let calls = 0;
+      const enoent = () => {
+        calls += 1;
+        throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+      };
+      return t(enoent) === 'ENOENT' && calls === 1 && t(() => { throw eperm(); }, 5) === 'EPERM';
+    })());
+    const recorded = [];
+    const rec = (name, cond, detail) => recorded.push({ name, cond, detail });
+    const gone = removeTestDir('x', rec, 'unit', { remove: () => {} });
+    const stuck = removeTestDir('x', rec, 'unit', { remove: () => { throw eperm(); } });
+    check('#400 removeTestDir: a delete that cannot be done is one failed check naming the error, not a throw; a delete that works records nothing', gone === true && stuck === false && recorded.length === 1 && recorded[0].cond === false && /EPERM/.test(recorded[0].detail) && /unit: scratch directory removed/.test(recorded[0].name));
+    // A fake-herdr call still running when a test throws holds the directory (its cwd) for its
+    // whole timeout; cleanup must end it, not wait it out or fail on it.
+    const f = fakeSession(check, '');
+    const pending = f.herdr.agentWait('a', { until: ['working'], timeoutMs: 60000 });
+    const armed = await f.waitArmed(1);
+    const t0 = Date.now();
+    await f.cleanup();
+    const took = Date.now() - t0;
+    check('#400 fakeSession cleanup: a fake-herdr wait still running is ended and awaited first (its 60 s timeout is not waited out), its rejection is handled, and the scratch directory is removed', armed && took < 15000 && !existsSync(f.root) && (await rejectsWith(() => pending)), `armed=${armed} took=${took} ms exists=${existsSync(f.root)}`);
+  }
+
   // --- parsing herdr's answer ---------------------------------------------------------------
   const info = (agent) => ({ id: 'cli', result: { type: 'agent_info', agent } });
   check('#253 agentStatusOf: herdr v0.9.1 reports the state as agent_status, with state_change_seq', agentStatusOf(info({ agent_status: 'done', state_change_seq: 4 })) === 'done' && stateChangeSeqOf(info({ agent_status: 'done', state_change_seq: 4 })) === 4);
@@ -316,7 +392,7 @@ export async function waitUnit(check) {
 
   // --- fake-herdr imitates herdr's answer shape and the agent_not_idle refusal ----------------
   {
-    const f = fakeSession('');
+    const f = fakeSession(check, '');
     try {
       const w = await f.herdr.agentWait('a', { until: ['idle', 'done', 'blocked', 'unknown'], timeoutMs: 3000 });
       check('#253 fake-herdr: agent wait answers with agent_status and state_change_seq (no `state` field), and the driver reads them', w.state === 'idle' && w.stateChangeSeq === 3 && w.json?.result?.agent?.state === undefined);
@@ -326,21 +402,21 @@ export async function waitUnit(check) {
       check('#246 fake-herdr: an `agent read --lines` of history while the agent is working is refused agent_not_idle; a visible read is not', refused.errorCode === 'agent_not_idle' && refused.text === null && visible.errorCode === null && /visible screen/.test(visible.text));
       check('#246 fake-herdr: without allowErrorCodes the refusal fails the read (exit 1, agent_not_idle)', await f.herdr.agentReadResult('a', { source: 'recent', lines: 200 }).then(() => false, (e) => /agent_not_idle/.test(e.message)));
     } finally {
-      f.cleanup();
+      await f.cleanup();
     }
   }
   {
-    const f = fakeSession('linger-working=60000', { state: 'idle', seq: 6, at: Date.now() });
+    const f = fakeSession(check, 'linger-working=60000', { state: 'idle', seq: 6, at: Date.now() });
     try {
       const r = await f.herdr.agentReadResult('a', { source: 'recent-unwrapped', lines: 200, allowErrorCodes: ['agent_not_idle'] });
       const g = await f.herdr.agentGet('a');
       check('#246 fake-herdr linger-working: just after the harness double went idle (the wire turn done), herdr still says working and refuses the read', r.errorCode === 'agent_not_idle' && g?.agent_status === 'working' && g?.state_change_seq === 5);
     } finally {
-      f.cleanup();
+      await f.cleanup();
     }
   }
   {
-    const f = fakeSession('');
+    const f = fakeSession(check, '');
     try {
       // Each state change lands only after the fake has taken its baseline (waits.log), never on a
       // timer: whatever the polls happen to see, the answer is the same.
@@ -371,16 +447,16 @@ export async function waitUnit(check) {
       f.setAgent('idle', 11);
       check('#253 fake-herdr prompt --wait: no working or blocked within 5 s is agent_prompt_stalled (the run ends NOT RUN)', await rejectsWith(() => f.herdr.agentPrompt('a', 'q2', { wait: { until: ['idle'], timeoutMs: 8000 } }), /agent_prompt_stalled/));
     } finally {
-      f.cleanup();
+      await f.cleanup();
     }
   }
   {
-    const f = fakeSession('wait-no-status');
+    const f = fakeSession(check, 'wait-no-status');
     try {
       const w = await f.herdr.agentWait('a', { until: ['idle'], timeoutMs: 3000 });
       check('#253 fake-herdr wait-no-status: a wait answer with no agent_status reads as state null', w.exitCode === 0 && w.state === null && w.stateChangeSeq === null);
     } finally {
-      f.cleanup();
+      await f.cleanup();
     }
   }
 }

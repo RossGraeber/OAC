@@ -4,7 +4,7 @@
 // hashed or run, and no harness config directory is read (CLAUDE_CONFIG_DIR and CODEX_HOME
 // point into the temp directory).
 
-import { chmodSync, linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
@@ -18,6 +18,7 @@ import { herdrVerification, verification, TO_FILL } from '../lib/gate-report-com
 import { canonicalForms, canonicallyInside, canonicallyWithin, guardHolds, guardMatch, harnessHomeGuard, identityWithin, isMainModule, rootGuard, rootGuardProblem } from '../lib/canonical-path.mjs';
 import { operatorProjectDir } from '../scenarios/g1-claude-wake.mjs';
 import { checkHerdrExecutable, herdrCheckDecision, parseHerdrExpectedExecutables } from '../lib/pins.mjs';
+import { removeTestDir } from './test-fs.mjs';
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 
@@ -434,6 +435,7 @@ export async function identityUnit(check) {
     const throwsT = (t) => { try { parseHerdrExpectedExecutables(t); return false; } catch { return true; } };
     check('#252 PINS.md: no table is no expected values; a row without a hash or a duplicate platform throws', parseHerdrExpectedExecutables('no table').length === 0 && throwsT(tbl(['| `linux-x64` | a | none | b |'])) && throwsT(tbl([`| \`linux-x64\` | a | \`${hex}\` | b |`, `| \`linux-x64\` | a | \`${otherHex}\` | b |`])));
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    // Never a throw out of `finally` (it would hide the error that got here); see test-fs.mjs (#400).
+    removeTestDir(dir, check, 'identity');
   }
 }
