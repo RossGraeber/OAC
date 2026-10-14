@@ -383,7 +383,7 @@ fn child_peer_for_the_abrupt_exit_test() {
     };
     let c = PeerConfiguration::rendezvous(port.parse().unwrap()).with_partition(partition);
     let t = PeerTransport::new();
-    t.start(&key('c'), c.clone().wrap()).unwrap();
+    t.start(&key('c'), c.wrap()).unwrap();
     wait_for("the relay", Duration::from_secs(30), || {
         t.observed_live_links() == 1
     });
