@@ -23,7 +23,7 @@ fn run(args: &[&str], stdin: &[u8]) -> std::process::Output {
     child.wait_with_output().unwrap()
 }
 
-const START: &[u8] = b"{\n \"session_id\": \"SECRET-SESSION\",\n \"cwd\": \"C:\\secret\",\n \"hook_event_name\": \"SessionStart\",\n \"source\": \"startup\"\n}\n";
+const START: &[u8] = b"{\n \"session_id\": \"SECRET-SESSION\",\n \"cwd\": \"C:\\\\secret\",\n \"hook_event_name\": \"SessionStart\",\n \"source\": \"startup\"\n}\n";
 
 #[test]
 fn oac_hook_exits_zero_with_empty_standard_output_for_every_input() {
@@ -41,6 +41,12 @@ fn oac_hook_exits_zero_with_empty_standard_output_for_every_input() {
         );
         let err = String::from_utf8_lossy(&out.stderr);
         assert!(!err.contains("SECRET") && !err.contains("secret"), "{err}");
+        if input == START {
+            // A valid SessionStart reaches the connector, which fails: that is the reason
+            // given, not a parse failure of the input.
+            assert!(err.contains("the daemon was not reached"), "{err}");
+            assert!(!err.contains("not a JSON object"), "{err}");
+        }
     }
 }
 
@@ -48,7 +54,8 @@ fn oac_hook_exits_zero_with_empty_standard_output_for_every_input() {
 fn oac_hook_says_why_when_it_cannot_reach_the_daemon() {
     let out = run(&["hook"], START);
     let err = String::from_utf8_lossy(&out.stderr);
-    assert!(err.starts_with("oac hook:"), "{err}");
+    assert!(err.contains("the daemon was not reached"), "{err}");
+    assert!(!err.contains("nothing sent"), "{err}");
 }
 
 #[test]

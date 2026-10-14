@@ -22,10 +22,18 @@
 //!   ([MCPB-CLD-009]) and must not end an attachment for it ([MCPB-CLD-010]), so the only
 //!   effect of sending it would be a place held on the connection limit.
 //!
-//! **The handler never disturbs the session.** Whatever happens, it exits 0 and says why on
-//! its diagnostic stream (standard error) in words that hold none of the input: a hook input
-//! names paths and a session id. A signal that cannot be sent is lost, and the session stays
-//! unbound: fail closed, nothing bound (C4 §3). The cost is availability, never authority.
+//! **The handler exits 0 whatever happens**, and says why on its diagnostic stream (standard
+//! error) in words that hold none of the input: a hook input names paths and a session id.
+//! Per the hooks reference, a hook that exits non-zero only shows a hook-error notice to the
+//! user, and nothing it prints reaches Claude's context on standard error; exit 0 keeps a
+//! misfire (no daemon yet, an input that is not a signal) quiet. The diagnostic is therefore
+//! not visible without debug logging, and whether "the daemon was not reached" should be
+//! surfaced is left to the connector slice and G10. A signal that cannot be sent is lost, and
+//! the session stays unbound: fail closed, nothing bound (C4 §3). The cost is availability,
+//! never authority.
+//!
+//! The handler reads its standard input to end of stream (bounded at 64 KiB); that Claude Code
+//! closes the pipe after writing the input is to be confirmed in the live leg.
 //!
 //! The handler reads no environment variable and no key: key material lives in the daemon
 //! only (G9 acceptance, box 2). The cross-check value `CLAUDE_CODE_SESSION_ID` is the shim's

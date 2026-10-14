@@ -46,7 +46,8 @@ pub fn dispatch(args: &[String], streams: Streams<'_>, connect: Connector<'_>) -
             if let Some(line) = outcome.diagnostic() {
                 let _ = writeln!(stderr, "{line}");
             }
-            // Always 0: a hook that fails must not disturb the Claude Code session.
+            // Always 0 (see `hook`): a non-zero exit would only add a hook-error notice, and a
+            // misfire is better quiet.
             0
         }
         Some(other) => {

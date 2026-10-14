@@ -341,13 +341,17 @@ fn an_input_that_never_ends_is_cut_off() {
 }
 
 #[test]
-fn a_line_the_server_would_not_read_as_a_first_line_is_not_sent() {
+fn the_clients_line_limit_is_the_conservative_one_and_a_longer_line_is_not_sent() {
     let with = |n: usize| {
         format!(
             "{{\"session_id\":\"s1\",\"hook_event_name\":\"SessionStart\",\"p\":\"{}\"}}",
             "x".repeat(n)
         )
     };
+    // The limit here is the conservative one: the server still reads a longer line that
+    // arrives with its newline in one chunk (`adapters/claude/src/io.rs` checks for the
+    // newline before the length), but not one that arrives in pieces, so the client sends
+    // nothing past `MAX_HOOK_INPUT` rather than rely on chunking.
     let base = with(0).len();
     // The compact line and its newline fit the limit exactly: sent.
     let fits = with(MAX_HOOK_INPUT - 1 - base);
