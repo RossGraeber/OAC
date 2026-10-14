@@ -894,8 +894,9 @@ early. Operators must bound skew operationally. Zenoh has no publication TTL and
 accepts its native retention per the lead's #377 direction; no finite sender-copy bound
 or measured cross-host skew bound is claimed. Interfaces 0.7 ([IFC-TRN-034], [IFC-TRN-038],
 [IFC-TRN-117]; PR #385, merged) states the sender rule as a guarantee a transport can give, and
-the skew limit as a binding statement. Risk row 77 keeps open whether a native queue copy
-counts as handed over before the deadline, and the sender-conformance proof; the unrun
+the skew limit as a binding statement. Lead ruling 2026-10-13 (risk row 77): a payload handed to Zenoh, including a copy in Zenoh's
+send queue or a publish begun before the deadline and completed after it, counts as handed to
+the network under [IFC-TRN-034]; the sender-conformance proof stays open. The unrun
 two-host plan records skew and expiry.
 
 Source: https://github.com/eclipse-zenoh/zenoh/blob/1.10.1/DEFAULT_CONFIG.json5 and
