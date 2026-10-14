@@ -11,7 +11,7 @@ with its connection. A different session id for an attachment drops its reply re
 Evidence: Claude Code `2.1.285` captured on 2026-10-12 (`SessionStart` `source` `startup`, then
 `--resume <id>` reporting `source` `resume` with the same `session_id`; `SessionEnd` `other`;
 the hook's `CLAUDE_CODE_SESSION_ID` equalled `session_id`); first-party hooks and channels
-reference pages retrieved the same day. Not claimed: a live OAC-enabled Claude leg (the hook
+reference pages retrieved the same day. The one-line form is recorded by the `STARTUP` fixture (`adapters/claude/src/hook.rs` line 167) and the module documentation (line 35), and cited by `spec/bindings/mcp.md` 0.3 §8.1. Not claimed: a live OAC-enabled Claude leg (the hook
 handler command and the daemon are G9/G10), the cross-check value E on the shim side (no wire
 carries it to the adapter yet, so `attachment-opened` reports none and the core binds under
 case 3(c)), and any gate verdict. Review round 1: the core now queues a native signal at report time (`core/src/pipeline.rs`: pairing key, arrival number and place in the queue under one hold of the core lock, restoring the B3 rule that #380's
