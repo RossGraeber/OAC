@@ -119,6 +119,18 @@ fn y_is_canonical(octets: &[u8; 32]) -> bool {
 pub struct SecretSeed(Zeroizing<[u8; 32]>);
 
 impl SecretSeed {
+    /// A fresh seed: 32 octets from the operating system's cryptographically secure random
+    /// number generator, held zeroizing. Also the source of 256-bit secret material for a
+    /// caller outside this crate (the `oac` binary's generated key-file passphrase, C4 §11),
+    /// which has no random source of its own ([SEC-KEY-003]).
+    ///
+    /// # Panics
+    ///
+    /// When the operating system has no random source.
+    pub fn generate() -> SecretSeed {
+        SecretSeed(random_octets::<32>())
+    }
+
     /// The seed whose octets are in `octets`, as read back from a store. The octets are
     /// copied into a zeroizing buffer and `octets` is zeroized, so no plain copy of the seed
     /// outlives the call (#315 review N-e).
@@ -410,6 +422,19 @@ mod tests {
             *o = u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap();
         }
         out
+    }
+
+    #[test]
+    fn generated_seeds_are_fresh_and_a_key_comes_from_the_seed_alone() {
+        let (a, b) = (SecretSeed::generate(), SecretSeed::generate());
+        assert_ne!(a.expose(), b.expose());
+        assert_ne!(a.expose(), &[0u8; 32]);
+        // The same seed gives the same key: a seed read back from a store is the key's.
+        assert_eq!(
+            DeviceKey::from_seed(&a).key_id(),
+            DeviceKey::from_seed(&a.duplicate()).key_id()
+        );
+        assert_eq!(format!("{a:?}"), "SecretSeed(..)");
     }
 
     #[test]
