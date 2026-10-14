@@ -2,7 +2,7 @@
 
 **Document:** `spec/interfaces.md`, the normative interface contracts of OAC Session
 Channels: the core neutral types, the provider adapter contract and the transport contract.
-**Revision:** 0.8 (proposed; lead approval pending; in force from the lead's approval and merge of the pull request for #390), a minor revision of the 0.1 frozen
+**Revision:** 0.9 (proposed; lead approval pending), a minor revision of the 0.1 frozen
 at Gate S2 (signed off 2026-10-06, in
 force from the merge of PR #276; E7, #47), made under
 `docs/planning/decisions/E7-interface-freeze.md` §7: 0.2 (issue #69, PR #350), 0.3
@@ -11,7 +11,7 @@ force from the merge of PR #276; E7, #47), made under
 0.5 (bounded core calls and event callbacks, §5.3.1; lead decision 2026-10-10,
 Refs #376, Refs #380, Refs #66), 0.6 (shutdown given the transport, §5.3.2;
 lead decision 2026-10-10, Refs #380, Refs #376), 0.7 (transport deadline, §6.4,
-IFC-TRN-034, IFC-TRN-038 and IFC-TRN-117; lead decision 2026-10-11, Refs #377), and 0.8 (owners for the hook carrier's MCPB-CLD ids, #390). Written by #273.
+IFC-TRN-034, IFC-TRN-038 and IFC-TRN-117; lead decision 2026-10-11, Refs #377), 0.8 (owners for the hook carrier's MCPB-CLD ids, #390; in force from the merge of PR #401), and 0.9 (the declared payload size, §6.4; a carrier appearance event, §6.6; the Appendix A cells for IFC-TRN-060 and IFC-TRN-108; Refs #396, #389, #391; the revisions of the companion documents made for #375 are listed in §7.5). Written by #273.
 Appendix B records the changes.
 **Companion documents:** `spec/session-channels.md` (the protocol), `spec/security.md` (the
 security model) and `spec/bindings/mcp.md` (the MCP binding). This document does not restate
@@ -1278,7 +1278,7 @@ Table 6.3.
 | `routing_federation` | boolean | the transport relays payloads through intermediaries between networks |
 | `reach` | one of `local-only`, `cross-implementation` | whether the transport reaches other implementations at all |
 | `destination_restricted` | boolean | [IFC-TRN-080] |
-| `max_payload_octets` | integer | the largest payload the transport carries |
+| `max_payload_octets` | integer | the largest payload the transport accepts for publication and carries ([IFC-TRN-118], [IFC-TRN-119]) |
 | `sealing` | boolean | the transport takes and yields only payloads of kind `sealed` (§6.10) |
 
 [IFC-TRN-020] A transport MUST declare, in the result of `start`, each of the six optional
@@ -1382,6 +1382,31 @@ one that was passed is reported `accepted-by-adapter` and may not be retried bef
 deadline ([SC-RCP-007], [SC-RCP-086]). A transport that returned `not-taken` while a copy was
 still on its way could therefore cause the content to be handed off twice. When a transport
 cannot tell, it returns `taken`.
+
+**Size.** The declared `max_payload_octets` is a promise that the transport accepts payloads of
+that size, not only a bound on what it carries.
+
+[IFC-TRN-118] A transport MUST accept for publication each payload of at most its declared
+`max_payload_octets` octets, of any kind, unless the payload's `Deadline` has passed.
+
+A sealed payload is measured as its frame (§6.10). A transport that returns `not-taken` for such
+a payload because of its size breaks [IFC-TRN-118].
+
+[IFC-TRN-119] A transport that declares `reliability` MUST deliver each payload it accepts under
+[IFC-TRN-118] to its destination, unless the payload's `Deadline` passes first or the destination
+is not reachable ([IFC-TRN-036]).
+
+A transport that does not declare `reliability` meets [IFC-TRN-118] alone. Delivery is then not promised,
+and the core already allows for loss ([IFC-TRN-011]). [IFC-TRN-030] still requires a transport
+that delivers a payload to deliver its octets unchanged. No requirement of this document asks a
+transport without `reliability` to deliver a payload.
+
+*Dated note, 2026-10-14 (revision 0.9, #396): before this revision, `max_payload_octets` was a
+declaration with no requirement behind it. [IFC-TRN-023] and [IFC-TRN-109] set a floor for the
+declared value, and [IFC-TRN-024] and [IFC-TRN-104] bind the core and the implementation not to
+exceed it, so a transport could declare any maximum and never carry a payload of that size. The
+lead decided on 2026-10-13 to state the rule in this document. The rule requires delivery only where
+`reliability` is declared (§7.5).*
 
 **What a transport may hold.** A transport may keep a copy of a payload while the copy is in
 flight, for example to retransmit it. It keeps nothing else.
@@ -1487,12 +1512,13 @@ device subscription and accepts it only under [SEC-RCT-003].
 
 ### 6.6 `watch_presence` and carrier loss
 
-`watch_presence` yields two kinds of presence event, on the transport's own initiative:
+`watch_presence` yields three kinds of presence event, on the transport's own initiative:
 
 | Event | Members |
 |---|---|
 | `record` | `payload` (an authenticated presence record) and `carrier` (a `CarrierHandle`) |
 | `carrier-loss` | `carrier` (a `CarrierHandle`) |
+| `carrier-appeared` | `carrier` (a `CarrierHandle`); reported only under [IFC-TRN-120] |
 
 [IFC-TRN-060] A transport MUST hand each presence record it receives, and each carrier loss it
 reports, to the `watch_presence` handler on its own initiative.
@@ -1510,6 +1536,43 @@ of [SC-DLV-046] for each issuer whose accepted announcements arrived with that c
 
 A carrier loss only moves sessions toward `unreachable` (§7.2.4 there). A forged or mistaken
 one can at worst deny service until the issuer's next announcement.
+
+**Carrier appearance.** A carrier appears when the transport finds that a link which a carrier
+handle names is usable, including a link that was already usable when the transport started.
+
+[IFC-TRN-120] A transport MAY report a carrier appearance as a `carrier-appeared` event.
+
+A transport that never reports one still conforms. Its late joiners then learn of an issuer's
+presence only from that issuer's next announcement ([SC-DLV-051], [SC-DLV-054]).
+
+[IFC-TRN-121] A transport that reports a carrier appearance MUST hand it to the `watch_presence`
+handler on its own initiative.
+
+[IFC-TRN-122] A `carrier-appeared` event MUST carry only its carrier handle, with no device,
+session or other value derived from either ([IFC-TRN-108]).
+
+[IFC-TRN-123] On a `carrier-appeared` event, the core MUST issue, for each session it is
+currently announcing, a new announcement with the next `seq` ([SC-DLV-050]) to each device that
+[SEC-AUZ-011] allows to receive that session's presence record.
+
+The core cannot tell which device sits behind a link, because a carrier handle names a link and not
+a device ([IFC-TRN-012]). It therefore sends to every device that the rule of [SEC-AUZ-011] admits. It passes
+each record to `send_presence` ([IFC-TRN-051]), or, on a sealing transport, publishes it as a
+sealed payload ([IFC-TRN-100]). An announcement is a payload and not a link event, so the
+announcements cause no further carrier appearance.
+
+[IFC-TRN-124] The core MUST NOT treat a `carrier-appeared` event as a presence record, as a
+session or as evidence of either ([IFC-TRN-013]).
+
+[IFC-TRN-125] A core SHOULD limit how often it issues announcements under [IFC-TRN-123] for one
+carrier handle. A core that does not limit them deviates: each appearance of a link then causes an
+announcement of every current session to every device that [SEC-AUZ-011] admits.
+
+*Dated note, 2026-10-14 (revision 0.9, #389): the lead deferred this event on 2026-10-12, as a spec
+item for the next revision (risk row 84 of `docs/planning/v0.1/11-risks.md`). Without it, a session
+that was online before this device started becomes known to the core only when its issuer next
+announces. The event is neutral: it carries a carrier handle and nothing else ([IFC-TRN-122]), so a
+sealing transport is compatible with it ([IFC-TRN-108]). It needs no new wire form.*
 
 ### 6.7 Crossing implementations
 
@@ -1602,9 +1665,10 @@ payloads.
 It passes them through `publish`, which takes that kind (Table 6.4). Presence records
 therefore travel sealed through `publish`, like envelopes and receipts. A
 core does not call `send_presence` on a sealing transport, and receives presence records in
-sealed payloads on its device subscription. It still takes carrier losses from
-`watch_presence` (§6.6), and maps them to issuers by the carrier handle that came with each
-sealed payload ([IFC-TRN-062]).
+sealed payloads on its device subscription. It still takes carrier losses and carrier
+appearances from `watch_presence` (§6.6). It maps each loss to issuers by the carrier handle that
+came with each sealed payload ([IFC-TRN-062]), and it acts on each appearance as [IFC-TRN-123]
+states.
 
 [IFC-TRN-101] The core MUST pass each sealed payload with the `device` `Destination` of the
 device it is sealed to.
@@ -1659,7 +1723,7 @@ a sealed payload.
 The key id passed to `start` is public (§6.4), but a link that carried it, or a value derived
 from it, would name the device behind every frame sent over that link, and a session id would
 name the session. The rule covers the transport's frame headers, its link and peer
-identifiers, its carrier handles, and any signal of liveness or carrier loss (§6.6). A
+identifiers, its carrier handles, and any signal of liveness, carrier loss or carrier appearance (§6.6). A
 liveness signal that names a session is not a sealed payload's `Destination`, so
 [IFC-TRN-106] alone would not cover it.
 
@@ -1891,6 +1955,48 @@ Implementation work after lead approval, with no code changes in this PR:
 - G3 (#64): each cross-host binding states its skew limit and its deadline behaviour under
   [IFC-TRN-117]. This document fixes no value.
 
+### 7.5 Revision 0.9 classification and implementation work
+
+Lead decisions: the declared payload size (#396, 2026-10-13), and the carrier appearance event
+(#389, deferred to this revision on 2026-10-12). Revision 0.9 is **minor under E7 §7 item 2**, with
+the same major version and extension identifier. It changes no payload octet, envelope member,
+presence record member, receipt, delivery state, error code, signature scope or verification
+procedure, so no §5.3 item of `spec/session-channels.md` applies to it. Against that document's
+§5.2 and the reading applied in §7.1 to §7.3:
+
+- **Declared size.** [IFC-TRN-118] and [IFC-TRN-119] add a `MUST` for a transport, with no wire
+  form. A transport conformant to 0.8 that refuses a payload below its declared maximum does not
+  conform to 0.9. As in revisions 0.4 to 0.6, the change is explicitly breaking for such local
+  implementations and not for the protocol, and it takes a minor version with no new extension
+  identifier. The lead is asked to confirm this reading.
+- **Delivery.** Delivery is required only of a transport that declares `reliability`. A transport
+  without that declaration has no new delivery obligation ([IFC-TRN-119]).
+- **Carrier appearance.** [IFC-TRN-120] is a `MAY`, so a transport conformant to 0.8, which never
+  reports an appearance, stays conformant. [IFC-TRN-121] to [IFC-TRN-125] bind only an
+  implementation that reports or handles an appearance, which no earlier revision defined. The
+  event carries a carrier handle only ([IFC-TRN-122]). The core's re-announcements use the existing
+  announcement and operations ([SC-DLV-050], [IFC-TRN-051], [IFC-TRN-100]). No requirement of
+  `spec/session-channels.md` changes.
+- **Editorial.** The Table 6.3 meaning of `max_payload_octets`, the `watch_presence` table, the
+  explanations under [IFC-TRN-100] and [IFC-TRN-108], and the Appendix A cells for [IFC-TRN-060] and
+  [IFC-TRN-108] change no requirement. The Appendix B status of revision 0.8 is metadata only.
+- **Companion documents (#375).** This revision does not change `spec/session-channels.md` or
+  `spec/bindings/mcp.md`. The #375 follow-ups in `spec/security.md` and `spec/session-channels.md`
+  are made in those documents' own revision histories, `spec/security.md` 0.5 and
+  `spec/session-channels.md` 0.3, each as an editorial minor revision. The change that binds the
+  agreement statement into pairing (#375 item 1) is not in this revision; it is not minor under
+  §5.3 and is reported to the lead.
+
+Implementation work after lead approval, with no code changes in the revision PR:
+
+- Each transport: accept each payload up to its declared size ([IFC-TRN-118]), and deliver under
+  [IFC-TRN-119] when it declares `reliability`. The transport contract suite (F10, #59) needs a
+  check for [IFC-TRN-118] that a planted transport refusing at its declared size fails.
+- The G2 (#63) transport binding: report carrier appearances as [IFC-TRN-120] to [IFC-TRN-122]
+  allow, and state its policy for [IFC-TRN-121] in its binding document.
+- The core (F6, with F10): [IFC-TRN-123] to [IFC-TRN-125], with a scripted appearance and the
+  announcements it causes.
+
 ---
 
 ## 8. Security considerations
@@ -2121,7 +2227,7 @@ the requirement whose fixtures exercise it. Appendix C gives each requirement's 
 | IFC-TRN-044 | MUST NOT | 6.4 | tested, no fixture (a behaviour, not a wire form): F10 transport suite check `result-independent-of-subscription`, run unchanged against the in-memory transport (F7) and the reference transport (G1, #62) |
 | IFC-TRN-050 | MUST | 6.5 | tested, no fixture (behaviour): F10 `presence-whole-to-named-device`, run unchanged against the in-memory transport and the sealing reference transport (G1, #374). On the sealing path the suite seals the whole record with the core, publishes it to the device stream and opens it only at the named device; `sealed-to-local-device-subscription` checks unchanged frames; binding test `sealed_frames_reach_every_device_stream_and_no_session_or_watch` checks stream fanout |
 | IFC-TRN-051 | MUST | 6.5 | TODO(fixture): F6, F10 |
-| IFC-TRN-060 | MUST | 6.6 | TODO(fixture): F10 transport suite |
+| IFC-TRN-060 | MUST | 6.6 | carrier-loss half: tested, no fixture (behaviour): PR #386, the G2 (#63) transport binding's tests `a_late_peer_reports_the_loss_of_a_peer_that_was_online_before_it_started` and `a_graceful_exit_is_reported_at_once_to_every_remaining_peer` (module `liveness_tests`), each a carrier loss handed to a `watch_presence` handler; `presence::tests::a_loss_reaches_every_watcher_until_the_gate_closes`. Presence-record half: no evidence in PR #386; owner F10 (#59); see §7.5 and the PR body of revision 0.9 |
 | IFC-TRN-061 | MAY | 6.6 | none (MAY) |
 | IFC-TRN-062 | MUST | 6.6 | covered by SC-DLV-046 (`sc-dlv/SC-DLV-046.n01`: loss for one carrier leaves another's session online); the mapping from handle to issuer: TODO(fixture), F6 |
 | IFC-TRN-071 | MUST NOT | 6.8 | TODO(fixture): F10 transport suite |
@@ -2136,7 +2242,7 @@ the requirement whose fixtures exercise it. Appendix C gives each requirement's 
 | IFC-TRN-105 | MUST | 6.10 | TODO(fixture): F10 transport suite; G1 (#62) |
 | IFC-TRN-106 | MUST NOT | 6.10 | TODO(fixture): F10 transport suite, a third implementation holding both destinations sees the same addressing for each; G1 (#62), H2 |
 | IFC-TRN-107 | MUST NOT | 6.10 | TODO(fixture): document review of the binding's framing and an F10 check; G1 (#62) |
-| IFC-TRN-108 | MUST NOT | 6.10 | TODO(fixture): F10 transport suite, a third implementation's view of frame headers, link and carrier identifiers and liveness signals holds no value derived from a device key id or a session id; G1 (#62) for the frame header, G2 (#63) for liveness and carrier loss |
+| IFC-TRN-108 | MUST NOT | 6.10 | liveness and carrier-loss part, device key id only: tested, no fixture (behaviour), on the reference transport, which declares `sealing` `true`: PR #386, `liveness_tests::token_names_and_carrier_losses_name_no_device_or_session`, which checks that the identifiers the transport lists for leak checks, and a carrier handle's printed form, contain neither device key id. Not evidenced by PR #386: the session-id part and the frame-header part (owners F10 (#59) and G1 (#62)) |
 | IFC-TRN-109 | MUST | 6.10 | TODO(fixture): F10 transport suite; G1 (#62) |
 | IFC-TRN-110 | MUST | 6.10 | TODO(fixture): document review; G1 (#62), G3 (#64) |
 | IFC-TRN-111 | SHOULD | 6.10 | none (SHOULD) |
@@ -2146,6 +2252,14 @@ the requirement whose fixtures exercise it. Appendix C gives each requirement's 
 | IFC-TRN-115 | MUST | 6.3.1 | TODO(fixture): owner G1 (#62) with F10 (#59), binding review checks positive finite milliseconds and complete publish scope; omitted declaration incurs no obligation |
 | IFC-TRN-116 | MUST | 6.3.1 | TODO(fixture): owner F10 (#59) with G1 (#62), declaring transport returns taken/not-taken within bound under stalled network and locks; bound breach never fabricates not-taken; non-declaring transport remains conformant |
 | IFC-TRN-117 | MUST | 6.9 | TODO(fixture): document review of each transport binding document, which must state its clock-skew limit and deadline behaviour; G1 (#62), G3 (#64) |
+| IFC-TRN-118 | MUST | 6.4 | TODO(fixture): F10 transport suite; for each declared size, a payload of exactly `max_payload_octets` is accepted, a sealed payload measured as its frame; planted breach, a transport refusing at its declared size; G1 (#62) |
+| IFC-TRN-119 | MUST | 6.4 | TODO(fixture): F10 transport suite, for a transport that declares `reliability` only, on a scripted carrier; G1 (#62) |
+| IFC-TRN-120 | MAY | 6.6 | none (MAY); omission remains conformant |
+| IFC-TRN-121 | MUST | 6.6 | TODO(fixture): F10 transport suite, a scripted appearance, including a link already usable at start; G2 (#63) |
+| IFC-TRN-122 | MUST | 6.6 | TODO(fixture): F10 transport suite, the event's members checked (the carrier handle only); G2 (#63) |
+| IFC-TRN-123 | MUST | 6.6 | TODO(fixture): F6, F10: a scripted core and a scripted appearance; the announcements carry the next `seq`, go to each device `SEC-AUZ-011` allows, and to no other |
+| IFC-TRN-124 | MUST NOT | 6.6 | TODO(fixture): F6, F10: an appearance alone creates no presence record, session or authorization |
+| IFC-TRN-125 | SHOULD | 6.6 | none (SHOULD) |
 | IFC-NEU-001 | MUST NOT | 7 | TODO(fixture): F1 workspace boundaries, boundary lint checks 1-2 over `core/` |
 | IFC-NEU-002 | MUST NOT | 7 | TODO(fixture): F10 adapter suite, boundary lint check 2 over `core/` |
 | IFC-NEU-003 | MUST NOT | 7 | TODO(fixture): F10 transport suite, boundary lint check 1 over `core/`; G1 |
@@ -2173,7 +2287,8 @@ a frame, so the id was reused for the rule it holds now and is not retired.
 | 0.5 (in force from the merge of PR #381) | 2026-10-10 | Refs #376, Refs #380 (implementation PR), Refs #66; lead decision 2026-10-10 following PR #380 review issuecomment-6101230133. Adds §5.3.1 IFC-ADP-100 to IFC-ADP-115 and §5.6 IFC-ADP-116: core-owned bounds on all adapter-to-core synchronous calls, adapter-owned core-to-adapter event-callback bounds, prompt lifecycle settlement with definite local results, enumerated callback output/failure contracts, atomic per-request commit boundaries preserving created-not-passed and taken sends, existing harness refusal mapping for pre-commit failures, bounded final closure reporting, aggregate end-to-end shutdown budgeting and no post-return reports/callbacks. Appendix A records owned TODO(fixture) cells; Appendix C assigns owners. §7.2 classifies this as minor under E7 §7 item 2 and explicitly breaking for unbounded local implementations, with no wire change or new extension identifier. Implementation work remains in core, adapters and PR #380. |
 | 0.6 (in force from the merge of PR #383) | 2026-10-10 | Refs #380, Refs #376; lead decision 2026-10-10. Shutdown/settlement given the transport (§5.3.2): adapter + core + declared publish contribution, unbounded at an awaited undeclared step; committed unresolved publication stays pending until one truthful result, with unchanged ownership/commit and return barriers (IFC-ADP-117/118). Optional binding publish_bound_ms with conditional scope/return obligations (IFC-TRN-114 to IFC-TRN-116, §6.3.1); no mandatory transport bound, wire field or signature change. Retires IFC-ADP-074, IFC-ADP-100 to IFC-ADP-103 and IFC-ADP-107/108 in revision 0.6; replacement timing requirements are IFC-ADP-119 to IFC-ADP-125, respectively, under the ID-stability rule. Owned Appendix A TODO(fixture) cells, Appendix C owners move to the replacements; explicit minor/local timing classification (§7.3). |
 | 0.7 (in force from the merge of PR #385) | 2026-10-11 | Refs #377; lead decision 2026-10-11 (approved in principle), review round 1. Transport deadline stated as a guarantee a transport can give. [IFC-TRN-034] now forbids a transport to accept a payload, or begin publishing it, at or after its `Deadline`, and to hand any copy to the carrier at or after it, whether as a first hand-over, a retransmission, a retry or a replay. Its relaxation is the arrival of a copy handed over in time. [IFC-TRN-038] (SHOULD, sending end) releases held copies at the deadline. The receiving core refuses a late copy under [SC-RCP-091], [SEC-PRS-006] and [SEC-SEL-036], each on the receiver's own clock. New [IFC-TRN-117] (MUST, binding documents) requires each transport binding to state its clock-skew limit and deadline behaviour; it is owned by binding. `spec/security.md` 0.4 rewords its §14.5 explanation, with no requirement changed. No wire form and no requirement of `spec/session-channels.md` changes. Minor revision under E7 §7, classified in §7.4. |
-| 0.8 (proposed; lead approval pending) | 2026-10-13 | #390, with `spec/bindings/mcp.md` 0.3 (the hook carrier's wire form, §8.1): Appendix C gives the seven new `MUST` and `MUST NOT` requirements of MCPB-CLD-004 to MCPB-CLD-010 one owner each, adapter (the `oac hook` handler and the adapter's classification of hook input). No requirement of this document changes, and no wire form or member changes. Minor revision under E7 §7: the owner index is a change to a frozen document, so it takes a version bump; the reference runner requires every `MUST` and `MUST NOT` of the four documents to have an owner (§3.3). Revision status, metadata only: rows 0.5, 0.6 and 0.7 now read "in force from the merge of PR #381, #383, #385" (no normative change). |
+| 0.8 (in force from the merge of PR #401) | 2026-10-13 | #390, with `spec/bindings/mcp.md` 0.3 (the hook carrier's wire form, §8.1): Appendix C gives the seven new `MUST` and `MUST NOT` requirements of MCPB-CLD-004 to MCPB-CLD-010 one owner each, adapter (the `oac hook` handler and the adapter's classification of hook input). No requirement of this document changes, and no wire form or member changes. Minor revision under E7 §7: the owner index is a change to a frozen document, so it takes a version bump; the reference runner requires every `MUST` and `MUST NOT` of the four documents to have an owner (§3.3). Revision status, metadata only: rows 0.5, 0.6 and 0.7 now read "in force from the merge of PR #381, #383, #385" (no normative change). |
+| 0.9 (proposed; lead approval pending) | 2026-10-14 | Refs #396, #389, #391, #375. §6.4 adds IFC-TRN-118 (a transport accepts for publication each payload of at most its declared `max_payload_octets`, of any kind, unless its `Deadline` has passed; a sealed payload is measured as its frame) and IFC-TRN-119 (a transport that declares `reliability` delivers each such payload, unless its `Deadline` passes first or its destination is not reachable). A transport without `reliability` is required to accept and not alter, and nothing more (IFC-TRN-030). §6.6 adds the `carrier-appeared` event, with IFC-TRN-120 (MAY report it), IFC-TRN-121 (hand it to the `watch_presence` handler on the transport's own initiative), IFC-TRN-122 (carry only the carrier handle), IFC-TRN-123 (the core announces each session it is announcing, with the next `seq`, to each device that SEC-AUZ-011 allows), IFC-TRN-124 (no treatment as a presence record, session or evidence) and IFC-TRN-125 (SHOULD bound those announcements). The explanations under IFC-TRN-100 and IFC-TRN-108 name the event; Table 6.3 ties `max_payload_octets` to IFC-TRN-118. Appendix A: the IFC-TRN-060 and IFC-TRN-108 cells cite the tests of PR #386 (#391), the presence-record half of IFC-TRN-060 stays open, and the new rows are owned as shown. Appendix C gives owners to IFC-TRN-118, -119, -121 and -122 (transport) and to IFC-TRN-123 and -124 (core). Minor revision under E7 §7 and §7.5, with no wire form, no extension identifier and no new fixture. The companion revisions made for #375 are recorded in `spec/security.md` 0.5 and `spec/session-channels.md` 0.3. |
 
 ## Appendix C. Owner index
 
@@ -2221,8 +2336,8 @@ carries the requirement out.
 | IFC-ADP | adapter | 001, 002, 003, 004, 005, 006, 007, 010, 013, 020, 022, 030, 031, 040, 041, 043, 050, 051, 052, 053, 054, 056, 057, 060, 070, 071, 072, 073, 075, 078, 091, 094, 109, 110, 116, 119, 121, 123, 125 |
 | IFC-ADP | core | 011, 012, 014, 015, 016, 017, 018, 019, 042, 055, 077, 090, 092, 093, 095, 096, 097, 098, 104, 106, 111, 112, 113, 114, 115, 117, 118, 120, 122, 124 |
 | IFC-ADP | binding | 076, 080, 105 |
-| IFC-TRN | core | 010, 011, 012, 013, 022, 024, 025, 032, 037, 041, 042, 051, 062, 081, 100, 101, 102, 103, 104 |
-| IFC-TRN | transport | 001, 003, 020, 021, 023, 026, 030, 031, 033, 034, 035, 036, 040, 043, 044, 050, 060, 071, 080, 105, 106, 107, 108, 109, 110, 113, 116 |
+| IFC-TRN | core | 010, 011, 012, 013, 022, 024, 025, 032, 037, 041, 042, 051, 062, 081, 100, 101, 102, 103, 104, 123, 124 |
+| IFC-TRN | transport | 001, 003, 020, 021, 023, 026, 030, 031, 033, 034, 035, 036, 040, 043, 044, 050, 060, 071, 080, 105, 106, 107, 108, 109, 110, 113, 116, 118, 119, 121, 122 |
 | IFC-TRN | binding | 090, 112, 115, 117 |
 | IFC-TYP | core | 001, 002, 003, 010, 020, 030, 040, 041, 042, 050, 051, 060, 061, 070, 080, 081, 082, 090, 091, 092, 095 |
 | IFC-NEU | adapter | 002 |
