@@ -51,7 +51,7 @@
 //! sender is not handed over once the `Deadline` has come. The suite does not ask a transport
 //! to suppress the late arrival of a copy that it handed to the carrier in time. The
 //! receiving core refuses such a copy, on its own clock (`spec/interfaces.md` §6.4,
-//! "Late arrival").
+//! "Late arrival"; a receipt has no receiving-side rule, §7.4).
 //!
 //! An existing check that the implementation's declaration or medium makes moot (a capability
 //! declared absent, a single-implementation medium for a two-sided check, no fault control)
@@ -998,7 +998,12 @@ pub fn ifc_trn_033(h: &dyn TransportHarness) -> Verdict {
 ///
 /// This check does not ask the transport to suppress a late arrival. A copy handed to the
 /// carrier before its deadline may arrive after it, and the receiving core refuses it
-/// (§6.4 "Late arrival"; `spec/security.md` [SEC-SEL-036]). The retry, the retransmission
+/// (§6.4 "Late arrival"; `spec/security.md` [SEC-SEL-036]; a receipt has no receiving-side
+/// rule, §7.4).
+///
+/// Under a sealing declaration the suite's simulated receiving core drops expired payloads
+/// itself, which masks the "none arrived" half of this check: only the `not-taken` half can
+/// fail there, and the arrival half is observed raw by `sealing-sender-expired-input`. The retry, the retransmission
 /// and the replay after a reconnection are observed by [`ifc_trn_034_held`].
 pub fn ifc_trn_034(h: &dyn TransportHarness) -> Verdict {
     let w = World::new(h);

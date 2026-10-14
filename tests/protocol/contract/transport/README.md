@@ -132,21 +132,28 @@ Lead approved revising the deadline checks to the merged `spec/interfaces.md` 0.
 accept a payload at or after its `Deadline` and hands no copy to the carrier then, whether
 as a first hand-over, a retransmission, a retry after a link failure or a replay after a
 reconnection. A copy handed over in time may arrive late; the receiving core refuses it
-on its own clock (SC-RCP-091, SEC-PRS-006, SEC-SEL-036). The suite therefore never fails a
+on its own clock (SC-RCP-091, SEC-PRS-006, SEC-SEL-036; a receipt has no receiving-side
+rule, §7.4 of the spec). The suite therefore never fails a
 transport for a late arrival.
 
 | Check | Evidence exercised |
 |---|---|
-| IFC-TRN-034 `no-accept-or-hand-over-at-or-after-deadline` | An envelope, a receipt and a presence record passed at the deadline and after it each get `not-taken` and none reaches the receiving end; in-time controls of all three kinds are carried. With fault control, a copy the network delays past its deadline is exercised but not asserted. |
+| IFC-TRN-034 `no-accept-or-hand-over-at-or-after-deadline` | An envelope, a receipt and a presence record passed at the deadline and after it each get `not-taken` and none reaches the receiving end; in-time controls of all three kinds are carried. With fault control, a copy the network delays past its deadline is exercised but not asserted. Under a sealing declaration the simulated receiving core drops expired payloads, so only the `not-taken` half can fail; the arrival half is observed raw by `sealing-sender-expired-input`. |
 | IFC-TRN-034 `no-hand-over-of-a-held-copy-after-deadline` | With `FaultControl::next_sender_hold`, a copy held at the sender beyond its deadline never arrives (the retransmission, retry and replay case); a copy held for less than its deadline does arrive (control). Not applicable, never a pass, without sender-hold control or when sealing is declared (the raw `sealing-sender-expired-input` row observes the sender then). |
+
+Limits of the raw `sealing-sender-expired-input` row, which is all that observes the sender
+of a sealing transport: it tries one envelope passed at the deadline only (not after it, and
+no receipt or presence record), and it has no in-time held control. The sealed hold case on a
+medium without sender-hold control is not observed at all.
 
 Not observable neutrally yet, and recorded as `TODO(fixture)` for F10 with G1 and G3: the
 replay after a reconnection, which needs a medium that can cut and restore a link, and the
 hand-over timestamp of Appendix A's test note, which needs a scripted carrier on the real
 transport. IFC-TRN-038 is a SHOULD with no fixture. IFC-TRN-117 (a binding document states
 its clock-skew limit) is checked by reading the binding document, not by this suite.
-The planted breaches `ExtendsDeadlines` and `ReplaysAfterDeadline` in
-`transports/memory/tests/contract.rs` show each row failing.
+The planted breaches in `transports/memory/tests/contract.rs` show each row failing:
+`ExtendsDeadlines` fails the first row, and `ReplaysAfterDeadline` (which refuses late
+payloads correctly but replays a copy it accepted) fails the held row alone.
 
 ## Default-tier stand-in and planted breaches
 

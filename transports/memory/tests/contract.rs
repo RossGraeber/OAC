@@ -236,8 +236,9 @@ enum Breach {
     /// Hands over a payload passed at or after its deadline: re-sends it with a deadline an
     /// hour away ([IFC-TRN-034]).
     ExtendsDeadlines,
-    /// Keeps each copy it accepted and hands it over again once its deadline has passed, as a
-    /// retransmission, retry or reconnection replay would ([IFC-TRN-034]).
+    /// Keeps each copy it accepted (not one it refused) and hands it over again once its
+    /// deadline has passed, as a retransmission, retry or reconnection replay would
+    /// ([IFC-TRN-034]).
     ReplaysAfterDeadline,
     /// Does not deliver a payload of the declared maximum (65536 octets), and declares
     /// `reliability` absent, as the memory transport does. [IFC-TRN-030] forgives this: no
@@ -301,12 +302,6 @@ impl Transport for Broken {
                 .lock()
                 .unwrap()
                 .push((d.clone(), p.clone())),
-            Breach::ReplaysAfterDeadline => self.shared.replays.lock().unwrap().push((
-                self.inner.clone(),
-                d.clone(),
-                p.clone(),
-                deadline,
-            )),
             Breach::ExtendsDeadlines => {
                 let r = self.inner.publish(d, p.clone(), deadline);
                 let far = Deadline::at(deadline.instant() + Duration::from_secs(3600));
@@ -315,7 +310,21 @@ impl Transport for Broken {
             }
             _ => {}
         }
-        let r = self.inner.publish(d, p, deadline);
+        let r = if self.breach == Breach::ReplaysAfterDeadline {
+            let r = self.inner.publish(d, p.clone(), deadline);
+            // Only a copy it accepted is kept; a refused payload is not replayed.
+            if r == PublishResult::Taken {
+                self.shared.replays.lock().unwrap().push((
+                    self.inner.clone(),
+                    d.clone(),
+                    p,
+                    deadline,
+                ));
+            }
+            r
+        } else {
+            self.inner.publish(d, p, deadline)
+        };
         if self.breach == Breach::LiesNotTaken {
             return PublishResult::NotTaken;
         }
@@ -492,30 +501,33 @@ fn the_suite_catches_each_planted_breach() {
 
 /// Each hand-over after the deadline is caught by the row that observes it: an admission at
 /// or after the deadline by the first row, a replay of a kept copy by the held-copy row
-/// ([IFC-TRN-034], revision 0.7).
+/// ([IFC-TRN-034], revision 0.7). A transport that refuses a late payload correctly but
+/// replays a copy it accepted fails the held row alone, so each row is needed.
 #[test]
 fn a_late_hand_over_is_caught_by_the_row_that_observes_it() {
-    for (breach, row) in [
-        (
-            Breach::ExtendsDeadlines,
-            "no-accept-or-hand-over-at-or-after-deadline",
-        ),
-        (
-            Breach::ReplaysAfterDeadline,
-            "no-hand-over-of-a-held-copy-after-deadline",
-        ),
+    const ADMISSION: &str = "no-accept-or-hand-over-at-or-after-deadline";
+    const HELD: &str = "no-hand-over-of-a-held-copy-after-deadline";
+    // (breach, the rows that must fail, the rows that must not)
+    for (breach, fails, passes) in [
+        (Breach::ExtendsDeadlines, &[ADMISSION][..], &[][..]),
+        (Breach::ReplaysAfterDeadline, &[HELD][..], &[ADMISSION][..]),
     ] {
         let report = run(&BrokenHarness {
             base: MEDIA[3],
             breach,
         });
-        assert!(
+        let failed = |row: &str| {
             report
                 .rows
                 .iter()
-                .any(|r| r.id == "IFC-TRN-034" && r.check == row && r.verdict.is_fail()),
-            "{breach:?} not caught by {row}: {report}"
-        );
+                .any(|r| r.id == "IFC-TRN-034" && r.check == row && r.verdict.is_fail())
+        };
+        for row in fails {
+            assert!(failed(row), "{breach:?} not caught by {row}: {report}");
+        }
+        for row in passes {
+            assert!(!failed(row), "{breach:?} wrongly failed {row}: {report}");
+        }
     }
 }
 
