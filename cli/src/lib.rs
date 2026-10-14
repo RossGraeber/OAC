@@ -8,5 +8,10 @@
 //! - [`keystore`]: the device-key stores, the operating system's credential store and the
 //!   encrypted-file fallback (#52, F3; `docs/planning/decisions/C4-session-identity.md`
 //!   §10-§11).
+//! - [`hook`]: the `oac hook` handler that carries a Claude Code `SessionStart` input to the
+//!   daemon as a native signal (G9, #70; `spec/bindings/mcp.md` §8.1).
+//! - [`verbs`]: the verbs that exist so far and their dispatch.
 
+pub mod hook;
 pub mod keystore;
+pub mod verbs;
