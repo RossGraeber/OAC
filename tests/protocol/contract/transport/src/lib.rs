@@ -18,8 +18,10 @@
 //!   check can say something was *not* delivered. The default is a bounded real wait.
 //!
 //! [`Medium::faults`] is optional: a medium that can lose, duplicate and delay copies lets
-//! the suite run the checks that need a copy to be in flight for a while ([IFC-TRN-034],
-//! [IFC-TRN-035]); without it those parts are reported not applicable, never passed.
+//! the suite run the checks that need a copy to be in flight for a while ([IFC-TRN-035]);
+//! without it those parts are reported not applicable, never passed. A medium that can also
+//! hold a copy at the sending end ([`FaultControl::next_sender_hold`]) lets the suite observe
+//! a late hand-over of a held copy ([IFC-TRN-034], revision 0.7).
 //!
 //! A sealing declaration selects suite-side sealing/opening of the same logical checks.
 //! Every start is cross-checked against the independently reviewed binding value; run-wide
@@ -40,7 +42,16 @@
 //! [IFC-TRN-110] against the binding. [`run`]
 //! returns one [`Row`] per check; [IFC-TRN-003] passes only when no other row failed. The requirements Appendix C gives the `core` are not
 //! this suite's (they need the core's send and receive paths, F6 and F11), and
-//! [IFC-TRN-090] is the binding document's.
+//! [IFC-TRN-090] and [IFC-TRN-117] (a binding document states its clock-skew limit) are the
+//! binding document's, reviewed by reading it, so this suite has no row for them.
+//! [IFC-TRN-038] is a SHOULD, with no fixture (Appendix A).
+//!
+//! [IFC-TRN-034] is checked at the sending end only (revision 0.7): a payload passed at or
+//! after its `Deadline` is refused and no copy of it is handed over, and a copy held at the
+//! sender is not handed over once the `Deadline` has come. The suite does not ask a transport
+//! to suppress the late arrival of a copy that it handed to the carrier in time. The
+//! receiving core refuses such a copy, on its own clock (`spec/interfaces.md` §6.4,
+//! "Late arrival"; a receipt has no receiving-side rule, §7.4).
 //!
 //! An existing check that the implementation's declaration or medium makes moot (a capability
 //! declared absent, a single-implementation medium for a two-sided check, no fault control)
@@ -315,7 +326,16 @@ pub const CHECKS: &[(&str, &str, Check)] = &[
     ("IFC-TRN-030", "octets-exactly-as-passed", ifc_trn_030),
     ("IFC-TRN-031", "deliverable-is-taken", ifc_trn_031),
     ("IFC-TRN-033", "holds-only-in-flight", ifc_trn_033),
-    ("IFC-TRN-034", "nothing-at-or-after-deadline", ifc_trn_034),
+    (
+        "IFC-TRN-034",
+        "no-accept-or-hand-over-at-or-after-deadline",
+        ifc_trn_034,
+    ),
+    (
+        "IFC-TRN-034",
+        "no-hand-over-of-a-held-copy-after-deadline",
+        ifc_trn_034_held,
+    ),
     ("IFC-TRN-035", "nothing-crosses-a-restart", ifc_trn_035),
     ("IFC-TRN-036", "nothing-kept-for-unreachable", ifc_trn_036),
     ("IFC-TRN-040", "handed-over-on-own-initiative", ifc_trn_040),
@@ -967,59 +987,220 @@ pub fn ifc_trn_033(h: &dyn TransportHarness) -> Verdict {
     Verdict::Pass("a delivered payload reached no later subscription".into())
 }
 
-/// [IFC-TRN-034]: nothing is delivered at or after the deadline: a payload passed at its
-/// deadline, and (with fault control) a copy delayed past its deadline. A copy delayed less
-/// than its deadline is the control: it does arrive.
+/// [IFC-TRN-034] (revision 0.7), the sending end: a transport does not accept a payload at
+/// or after its `Deadline` and hands no copy to the carrier then. Observed neutrally, for
+/// the first hand-over of each kind: a payload passed at its deadline and one passed after
+/// it must each get `not-taken` ([IFC-TRN-034] has the transport refuse it, and
+/// [IFC-TRN-031] permits that), and no copy of either may reach the receiving end. An
+/// envelope, a receipt and a presence record are each tried. Controls with a distant
+/// deadline are carried in the same world, so a receiving end that never works cannot make
+/// the check pass.
+///
+/// This check does not ask the transport to suppress a late arrival. A copy handed to the
+/// carrier before its deadline may arrive after it, and the receiving core refuses it
+/// (§6.4 "Late arrival"; `spec/security.md` [SEC-SEL-036]; a receipt has no receiving-side
+/// rule, §7.4).
+///
+/// Under a sealing declaration the suite's simulated receiving core drops expired payloads
+/// itself, which masks the "none arrived" half of this check: only the `not-taken` half can
+/// fail there, and the arrival half is observed raw by `sealing-sender-expired-input`. The retry, the retransmission
+/// and the replay after a reconnection are observed by [`ifc_trn_034_held`].
 pub fn ifc_trn_034(h: &dyn TransportHarness) -> Verdict {
     let w = World::new(h);
     let r = w.recv();
-    let seen = Seen::default();
-    let _s = w.sub(r, &session(6), &seen);
-    let at = w.m.now();
-    w.a.t.publish(
-        &session(6),
-        payload(PayloadKind::Envelope, b"at-deadline"),
-        Deadline::at(at),
-    );
-    w.quiet();
+    let device = Destination::Device(r.key.clone());
+    let envelopes = Seen::default();
+    let _s = w.sub(r, &session(6), &envelopes);
+    let on_device = Seen::default();
+    let _d = w.sub(r, &device, &on_device);
+    let records = Seen::default();
+    w.watch(r, records.watcher());
+
+    // Control: in time, all three kinds are carried.
+    let control = [
+        (
+            "envelope",
+            w.a.t.publish(
+                &session(6),
+                payload(PayloadKind::Envelope, b"control-envelope"),
+                w.deadline(LONG),
+            ),
+        ),
+        (
+            "receipt",
+            w.a.t.publish(
+                &device,
+                payload(PayloadKind::Receipt, b"control-receipt"),
+                w.deadline(LONG),
+            ),
+        ),
+        (
+            "presence record",
+            w.a.t.send_presence(
+                &device,
+                payload(PayloadKind::Presence, b"control-presence"),
+                w.deadline(LONG),
+            ),
+        ),
+    ];
+    for (what, res) in &control {
+        fail_if!(
+            *res != PublishResult::Taken,
+            "control failed: an in-time {what} got {res:?}"
+        );
+    }
     fail_if!(
-        seen.len() > 0,
-        "a payload passed at its deadline was delivered"
+        !w.eventually(|| {
+            envelopes.len() >= 1 && on_device.len() >= 1 && !records.records().is_empty()
+        }),
+        "control failed: an in-time payload never arrived"
     );
+
+    // At the deadline, then after it. The clock moves between the two.
+    let try_at = |label: &str, at: Deadline| -> Option<String> {
+        let results = [
+            (
+                "envelope",
+                w.a.t.publish(
+                    &session(6),
+                    payload(PayloadKind::Envelope, b"refused-envelope"),
+                    at,
+                ),
+            ),
+            (
+                "receipt",
+                w.a.t.publish(
+                    &device,
+                    payload(PayloadKind::Receipt, b"refused-receipt"),
+                    at,
+                ),
+            ),
+            (
+                "presence record",
+                w.a.t.send_presence(
+                    &device,
+                    payload(PayloadKind::Presence, b"refused-presence"),
+                    at,
+                ),
+            ),
+        ];
+        results
+            .into_iter()
+            .find(|(_, res)| *res != PublishResult::NotTaken)
+            .map(|(what, res)| {
+                format!("the {what} passed {label} its deadline was accepted ({res:?})")
+            })
+    };
+    if let Some(why) = try_at("at", Deadline::at(w.m.now())) {
+        return Verdict::Fail(why);
+    }
+    let soon = w.deadline(Duration::from_millis(50));
+    w.m.advance(Duration::from_millis(150));
+    if let Some(why) = try_at("after", soon) {
+        return Verdict::Fail(why);
+    }
+    w.m.advance(Duration::from_secs(1));
+    w.quiet();
+    let arrived = envelopes
+        .octets()
+        .into_iter()
+        .chain(on_device.octets())
+        .chain(records.records().iter().map(|p| p.octets().to_vec()))
+        .filter(|o| o.starts_with(b"refused-"))
+        .count();
+    fail_if!(
+        arrived > 0,
+        "{arrived} payload(s) passed at or after the deadline reached the receiving end: a copy was handed over then"
+    );
+    // A copy handed to the carrier in time and delayed by the network past its deadline is a
+    // timing fact (revision 0.7): it may arrive or be dropped, and neither fails the check.
+    let late = if let Some(f) = w.faults() {
+        f.next(Fate::Delay(Duration::from_secs(2)));
+        w.a.t.publish(
+            &session(6),
+            payload(PayloadKind::Envelope, b"network-delayed"),
+            w.deadline(Duration::from_secs(1)),
+        );
+        w.m.advance(Duration::from_secs(3));
+        w.quiet();
+        "; a copy delayed by the network past its deadline was exercised and, arrived or not, is not a breach"
+    } else {
+        "; no fault control: a network-delayed copy was not exercised"
+    };
+    Verdict::Pass(format!(
+        "an envelope, a receipt and a presence record passed at and after their deadline were each refused with not-taken and none arrived; in-time controls were carried{late}"
+    ))
+}
+
+/// [IFC-TRN-034] (revision 0.7), a copy the transport holds and would hand over later: the
+/// retransmission, the retry after a link failure and the replay after a reconnection each
+/// hand a held copy to the carrier after a wait. [`FaultControl::next_sender_hold`] makes
+/// the sending end hold the next copy for a time on the medium's clock. A copy taken in time
+/// and held beyond its deadline must not reach the receiving end, since the only way it can
+/// is by a hand-over at or after the deadline. A copy held for less than its deadline is the
+/// control: it does arrive, so the hold does not make the check vacuous.
+///
+/// Not applicable, never a pass, when the medium cannot hold a copy at the sender. The
+/// replay after a reconnection in particular needs a medium that can cut and restore a link
+/// (`TODO(fixture)`, F10 with G1 and G3). Also not applicable when a sealing transport is
+/// declared: the suite's sealing helper then opens frames in the simulated receiving core,
+/// which drops a late payload itself ([SEC-SEL-036]) and so hides what the sender emitted.
+/// The raw `sealing-sender-expired-input` row observes the sender in that case.
+pub fn ifc_trn_034_held(h: &dyn TransportHarness) -> Verdict {
+    let w = World::new(h);
+    if w.a.caps.sealing {
+        return Verdict::NotApplicable(
+            "sealing declared: the simulated receiving core drops late payloads and hides the sender; the sealing-sender-expired-input row observes it raw".into(),
+        );
+    }
     let Some(f) = w.faults() else {
-        return Verdict::Pass(
-            "a payload passed at its deadline was not delivered (no fault control: the in-flight case was not run)".into(),
+        return Verdict::NotApplicable(
+            "no fault control: retransmission, retry and reconnection replay not exercised (TODO(fixture): F10 with G1, G3)".into(),
         );
     };
-    f.next(Fate::Delay(Duration::from_secs(2)));
-    w.a.t.publish(
+    let r = w.recv();
+    let seen = Seen::default();
+    let _s = w.sub(r, &session(6), &seen);
+    if !f.next_sender_hold(Duration::from_millis(500)) {
+        return Verdict::NotApplicable(
+            "the medium cannot hold a copy at the sending end (TODO(fixture): F10 with G1, G3)"
+                .into(),
+        );
+    }
+    let res = w.a.t.publish(
         &session(6),
-        payload(PayloadKind::Envelope, b"late"),
+        payload(PayloadKind::Envelope, b"held-in-time"),
+        w.deadline(Duration::from_secs(5)),
+    );
+    fail_if!(
+        res != PublishResult::Taken,
+        "control failed: an in-time payload got {res:?}"
+    );
+    w.m.advance(Duration::from_millis(600));
+    fail_if!(
+        !w.eventually(|| seen.len() >= 1),
+        "control failed: a copy held for less than its deadline never arrived"
+    );
+    f.next_sender_hold(Duration::from_secs(2));
+    let res = w.a.t.publish(
+        &session(6),
+        payload(PayloadKind::Envelope, b"held-too-long"),
         w.deadline(Duration::from_secs(1)),
     );
-    f.next(Fate::Delay(Duration::from_millis(500)));
-    w.a.t.publish(
-        &session(6),
-        payload(PayloadKind::Envelope, b"in-time"),
-        w.deadline(Duration::from_secs(2)),
+    fail_if!(
+        res != PublishResult::Taken,
+        "control failed: an in-time payload got {res:?}"
     );
-    // Step the clock: the in-time copy comes due at 0.5 s, before its deadline at 2 s; the
-    // late copy would come due at 2 s, after its deadline at 1 s.
-    w.m.advance(Duration::from_millis(600));
-    w.eventually(|| seen.len() >= 1);
-    w.m.advance(Duration::from_millis(2400));
+    w.m.advance(Duration::from_millis(1500));
     w.quiet();
-    let got = seen.octets();
+    w.m.advance(Duration::from_secs(2));
+    w.quiet();
     fail_if!(
-        got.iter().any(|o| o == b"late"),
-        "a copy delayed past its deadline was delivered"
-    );
-    fail_if!(
-        !got.iter().any(|o| o == b"in-time"),
-        "control failed: a copy delayed less than its deadline never arrived"
+        seen.octets().iter().any(|o| o == b"held-too-long"),
+        "a copy held beyond its deadline was handed over after it"
     );
     Verdict::Pass(
-        "nothing at its deadline; a copy delayed past its deadline dropped, one within it delivered"
+        "a copy held for less than its deadline arrived; one held beyond it was not handed over (the late arrival of a copy handed over in time is not asserted)"
             .into(),
     )
 }
