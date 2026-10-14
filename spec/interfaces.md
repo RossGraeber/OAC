@@ -1570,7 +1570,9 @@ a device ([IFC-TRN-012]). It therefore sends to every device that the rule of [S
 each record with its own signed audience ([SEC-PRS-011]). It passes
 each record to `send_presence` ([IFC-TRN-051]), or, on a sealing transport, publishes it as a
 sealed payload ([IFC-TRN-100]). An announcement is a payload and not a link event, so the
-announcements cause no further carrier appearance.
+announcements cause no further carrier appearance. When no session is being announced, or no device
+is admitted under [SEC-AUZ-011], the set is empty and the duty of [IFC-TRN-123] has nothing to
+observe.
 
 [IFC-TRN-124] The core MUST NOT treat a `carrier-appeared` event as a presence record, as a
 session or as evidence of either ([IFC-TRN-013]).
@@ -1581,7 +1583,8 @@ per transport, not per carrier handle, since a peer that cycles its links is giv
 each time. Because the hold-off (1 second) is shorter than the bound of [IFC-TRN-123] (2 seconds),
 an event that arrives during a set is covered by a later set: that set begins no earlier than 1
 second after the previous one, and no later than 2 seconds after the event. An event handed at the
-instant a set begins is not covered by it, and gets the same treatment. The timing values are
+instant a set begins is not covered by it, and gets the same treatment. A set begins when the core
+passes its first announcement of the set to the transport. The timing values are
 proposed in this revision (hold-off 1 s, bound 2 s); the lead is asked to confirm the values.
 
 *Dated note, 2026-10-14 (revision 0.9, #389): the lead deferred this event on 2026-10-12, as a spec
