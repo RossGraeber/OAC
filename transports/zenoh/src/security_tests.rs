@@ -2,9 +2,9 @@
 //! Native TLS/ACL security checks over loopback; no harnesses, no LAN listeners.
 use super::*;
 use crate::config::Role;
+use crate::ports::{Claimed, PortClaim, claimed};
 use oac_core::ids::KeyId;
 use oac_core::transport::{Deadline, Destination, Payload, PayloadKind, Transport};
-use std::net::TcpListener;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, mpsc};
@@ -30,13 +30,9 @@ impl Drop for StateDirectory {
 fn key(n: char) -> KeyId {
     KeyId::parse(&n.to_string().repeat(64)).unwrap()
 }
-fn local(dir: &StateDirectory) -> PeerConfiguration {
-    let port = TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port();
-    PeerConfiguration::rendezvous(port).with_local_certificate_directory(&dir.0)
+/// A configuration on a rendezvous port claimed for as long as it lives (`crate::ports`).
+fn local(dir: &StateDirectory) -> Claimed<PeerConfiguration> {
+    claimed(|port| PeerConfiguration::rendezvous(port).with_local_certificate_directory(&dir.0))
 }
 fn send_and_receive(sender: &PeerTransport, receiver: &PeerTransport, device: char) {
     let (tx, rx) = mpsc::channel();
@@ -131,7 +127,7 @@ fn plain_native_router_and_different_user_tls_holder_are_refused() {
         }
         let squatter = zenoh::open(native).wait().unwrap();
         let joiner = PeerTransport::new();
-        assert!(joiner.start(&key('a'), conf.wrap()).is_err());
+        assert!(joiner.start(&key('a'), conf.clone().wrap()).is_err());
         assert_eq!(joiner.connected_peers(), 0);
         squatter.close().wait().unwrap();
     }
@@ -149,7 +145,7 @@ fn same_user_persisted_certificate_survives_holder_replacement_and_native_reconn
     send_and_receive(&joiner, &first, 'a');
     first.shutdown();
     let replacement = PeerTransport::new();
-    replacement.start(&key('c'), conf.wrap()).unwrap();
+    replacement.start(&key('c'), conf.clone().wrap()).unwrap();
     assert_eq!(
         std::fs::read(directory.0.join("identity.pem")).unwrap(),
         pin
@@ -206,11 +202,8 @@ fn paired_lan_configuration_tls_and_acl_allow_only_approved_common_names() {
         .unwrap()
         .install(&c_dir.0)
         .unwrap();
-    let port = TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port();
+    let claim = PortClaim::claim();
+    let port = claim.port();
     let address = format!("127.0.0.1:{port}").parse().unwrap();
     let ephemeral = "127.0.0.1:0".parse().unwrap();
     let conf_a = PeerConfiguration::lan(address, vec![], a, vec!["peer-b".into()]);
@@ -262,11 +255,8 @@ fn paired_certificate_wrong_ip_name_is_refused_by_native_tls() {
         .unwrap()
         .install(&b_dir.0)
         .unwrap();
-    let port = TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port();
+    let claim = PortClaim::claim();
+    let port = claim.port();
     let address = format!("127.0.0.1:{port}").parse().unwrap();
     let holder_conf = PeerConfiguration::lan(address, vec![], wrong, vec!["peer-b".into()]);
     let holder = PeerTransport::new();
@@ -332,7 +322,7 @@ fn native_tls_refuses_expired_certificate_without_regenerating_state() {
         let holder = PeerTransport::new();
         holder.start(&key('a'), conf.clone().wrap()).unwrap();
         let joiner = PeerTransport::new();
-        let result = joiner.start(&key('b'), conf.wrap());
+        let result = joiner.start(&key('b'), conf.clone().wrap());
         assert_eq!(result.is_err(), expired);
         assert_eq!(
             std::fs::read_to_string(dir.0.join("identity.pem")).unwrap(),
@@ -403,7 +393,11 @@ fn corrupt_existing_certificate_is_not_regenerated_and_native_configuration_is_d
         serde_json::json!(["frames", "liveness"])
     );
     std::fs::write(dir.0.join("identity.pem"), b"corrupt certificate").unwrap();
-    assert!(PeerTransport::new().start(&key('a'), conf.wrap()).is_err());
+    assert!(
+        PeerTransport::new()
+            .start(&key('a'), conf.clone().wrap())
+            .is_err()
+    );
     assert_eq!(
         std::fs::read(dir.0.join("identity.pem")).unwrap(),
         b"corrupt certificate"

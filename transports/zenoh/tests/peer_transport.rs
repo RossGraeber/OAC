@@ -24,12 +24,15 @@ use oac_transport_zenoh::{
     PeerTransport,
 };
 
-fn conf() -> PeerConfiguration {
-    let port = TcpListener::bind("127.0.0.1:0")
-        .and_then(|l| l.local_addr())
-        .unwrap()
-        .port();
-    PeerConfiguration::rendezvous(port).with_partition(format!("peer-transport-{port}"))
+#[path = "support/ports.rs"]
+mod ports;
+
+/// A configuration on a rendezvous port claimed for as long as it lives
+/// (`tests/support/ports.rs`).
+fn conf() -> ports::Claimed<PeerConfiguration> {
+    ports::claimed(|port| {
+        PeerConfiguration::rendezvous(port).with_partition(format!("peer-transport-{port}"))
+    })
 }
 
 fn key(c: char) -> KeyId {
@@ -80,14 +83,15 @@ fn a_foreign_configuration_is_refused() {
 #[test]
 fn start_twice_device_subscriptions_and_kinds() {
     let t = PeerTransport::new();
-    let caps = t.start(&key('a'), conf().wrap()).unwrap();
+    let c = conf();
+    let caps = t.start(&key('a'), c.clone().wrap()).unwrap();
     assert!(caps.contract_violations().is_empty());
     assert!(!caps.multicast_discovery);
     assert!(caps.sealing);
     assert_eq!(caps.max_payload_octets, MAX_PAYLOAD_OCTETS);
     assert_eq!(t.health().state, HealthState::Healthy);
     assert_eq!(
-        t.start(&key('a'), conf().wrap()).err(),
+        t.start(&key('a'), c.clone().wrap()).err(),
         Some(TransportError::AlreadyStarted)
     );
     assert_eq!(
@@ -169,7 +173,7 @@ fn a_transport_starts_again_after_shutdown_with_nothing_kept() {
         )
         .unwrap();
     t.shutdown();
-    t.start(&key('a'), c.wrap()).unwrap();
+    t.start(&key('a'), c.clone().wrap()).unwrap();
     // The subscription made before the restart is gone with it ([IFC-TRN-035]).
     for _ in 0..5 {
         t.publish(
@@ -266,7 +270,7 @@ fn local_mode_reaches_nothing_beyond_loopback() {
     let c = conf();
     let (a, b) = (PeerTransport::new(), PeerTransport::new());
     a.start(&key('a'), c.clone().wrap()).unwrap();
-    b.start(&key('b'), c.wrap()).unwrap();
+    b.start(&key('b'), c.clone().wrap()).unwrap();
     let got: Got = Arc::default();
     let _s = b
         .subscribe(&Destination::Device(key('b')), sink(&got))
@@ -308,8 +312,11 @@ fn local_mode_reaches_nothing_beyond_loopback() {
 /// listener) makes `start` fail with an error that names the port and says so.
 #[test]
 fn a_port_held_by_something_else_is_named_in_the_start_error() {
-    let squatter = TcpListener::bind("127.0.0.1:0").unwrap();
-    let port = squatter.local_addr().unwrap().port();
+    // The port is claimed first, so that no other test can be handed it; the plain listener
+    // then takes it, as the foreign program the test stands for.
+    let claim = ports::PortClaim::claim();
+    let port = claim.port();
+    let squatter = TcpListener::bind((Ipv4Addr::LOCALHOST, port)).unwrap();
     let t = PeerTransport::new();
     let e = t
         .start(
@@ -326,6 +333,7 @@ fn a_port_held_by_something_else_is_named_in_the_start_error() {
     assert!(why.contains("not an OAC transport"), "{why}");
     assert!(!why.contains("127.0.0.1"), "{why}");
     drop(squatter);
+    drop(claim);
 }
 
 /// With gossip off, a later peer links only to the peer holding the rendezvous port; two
@@ -340,7 +348,7 @@ fn later_peers_reach_each_other_through_the_rendezvous_peer() {
     );
     holder.start(&key('a'), c.clone().wrap()).unwrap();
     j1.start(&key('b'), c.clone().wrap()).unwrap();
-    j2.start(&key('c'), c.wrap()).unwrap();
+    j2.start(&key('c'), c.clone().wrap()).unwrap();
     let got: Got = Arc::default();
     let _s = j2
         .subscribe(&Destination::Device(key('c')), sink(&got))
@@ -384,7 +392,7 @@ fn a_later_peer_reconnects_when_the_rendezvous_holder_is_replaced() {
         .unwrap();
     holder.shutdown();
     let next = PeerTransport::new();
-    next.start(&key('c'), c.wrap()).unwrap();
+    next.start(&key('c'), c.clone().wrap()).unwrap();
     let start = Instant::now();
     while got.lock().unwrap().is_empty() {
         assert!(
@@ -415,7 +423,7 @@ fn a_stalled_handler_blocks_no_publisher_and_no_other_peer() {
     );
     a.start(&key('a'), c.clone().wrap()).unwrap();
     b.start(&key('b'), c.clone().wrap()).unwrap();
-    other.start(&key('c'), c.wrap()).unwrap();
+    other.start(&key('c'), c.clone().wrap()).unwrap();
     let release = Arc::new(Mutex::new(()));
     let held = release.lock().unwrap();
     let stalled = Arc::new(AtomicUsize::new(0));
@@ -503,7 +511,7 @@ fn sealed_frames_reach_every_device_stream_and_no_session_or_watch() {
     );
     a.start(&key('a'), c.clone().wrap()).unwrap();
     b.start(&key('b'), c.clone().wrap()).unwrap();
-    other.start(&key('c'), c.wrap()).unwrap();
+    other.start(&key('c'), c.clone().wrap()).unwrap();
     let [own, bdev, cdev, session_got]: [Got; 4] = Default::default();
     let _subs = [
         a.subscribe(&Destination::Device(key('a')), sink(&own))
