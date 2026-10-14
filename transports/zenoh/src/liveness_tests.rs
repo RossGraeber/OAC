@@ -9,7 +9,7 @@
 use std::io::{Read, Write};
 use std::net::{Ipv4Addr, TcpListener, TcpStream};
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicBool, AtomicU16, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
@@ -23,26 +23,15 @@ use zenoh::sample::SampleKind;
 
 use crate::addressing::{Partition, token_name};
 use crate::config::Role;
+use crate::ports::{Claimed, PortClaim, claimed};
 use crate::{LINK_LEASE_MILLIS, PeerConfiguration, PeerTransport};
 
-/// A loopback port that is free now and that other tests are unlikely to be handed as an
-/// ephemeral port. Several tests of this crate run in parallel, each opening sockets on
-/// ephemeral ports, and a port freed a moment ago can be taken again at once: a rendezvous
-/// port that something else already answers on is refused by design. Ports here come from a
-/// range below the operating systems' ephemeral ranges, a different slice per process.
-fn free_port() -> u16 {
-    static NEXT: AtomicU16 = AtomicU16::new(0);
-    loop {
-        let n = NEXT.fetch_add(1, Ordering::SeqCst);
-        let port = 20_000 + ((std::process::id() % 40) as u16) * 200 + n % 200;
-        if TcpListener::bind((Ipv4Addr::LOCALHOST, port)).is_ok() {
-            return port;
-        }
-    }
-}
-fn conf(tag: &str) -> PeerConfiguration {
-    let port = free_port();
-    PeerConfiguration::rendezvous(port).with_partition(format!("live-{tag}-{port}"))
+/// A configuration on a rendezvous port claimed for as long as it lives (`crate::ports`).
+/// Several tests of this crate run in parallel, each opening sockets, and a rendezvous port
+/// that something else already answers on is refused by design, so a port is claimed and
+/// never probed and released.
+fn conf(tag: &str) -> Claimed<PeerConfiguration> {
+    claimed(|port| PeerConfiguration::rendezvous(port).with_partition(format!("live-{tag}-{port}")))
 }
 fn key(c: char) -> KeyId {
     KeyId::parse(&c.to_string().repeat(64)).unwrap()
@@ -238,7 +227,7 @@ fn a_late_peer_reports_the_loss_of_a_peer_that_was_online_before_it_started() {
     let c = conf("late-loss");
     let (early, late) = (PeerTransport::new(), PeerTransport::new());
     early.start(&key('a'), c.clone().wrap()).unwrap();
-    late.start(&key('b'), c.wrap()).unwrap();
+    late.start(&key('b'), c.clone().wrap()).unwrap();
     let events = Events::default();
     events.watch(&late);
     wait_for("history", Duration::from_secs(15), || {
@@ -267,7 +256,7 @@ fn a_graceful_exit_is_reported_at_once_to_every_remaining_peer() {
     );
     relay.start(&key('a'), c.clone().wrap()).unwrap();
     j1.start(&key('b'), c.clone().wrap()).unwrap();
-    j2.start(&key('c'), c.wrap()).unwrap();
+    j2.start(&key('c'), c.clone().wrap()).unwrap();
     let (er, e1, e2) = (Events::default(), Events::default(), Events::default());
     er.watch(&relay);
     e1.watch(&j1);
@@ -479,7 +468,8 @@ fn a_silent_link_loss_is_reported_within_the_zenoh_link_lease() {
     let partition = Partition::new(c.partition());
     // The relay is a raw native router on a port of its own; the transport under test
     // connects to the rendezvous port, which the loopback relay forwards to it.
-    let real = free_port();
+    let real_claim = PortClaim::claim();
+    let real = real_claim.port();
     let relay = zenoh::open(c.native(Role::First, real).unwrap())
         .wait()
         .unwrap();
@@ -490,7 +480,7 @@ fn a_silent_link_loss_is_reported_within_the_zenoh_link_lease() {
         .unwrap();
     let link = Link::start(c.rendezvous_port(), real);
     let t = PeerTransport::new();
-    t.start(&key('b'), c.wrap()).unwrap();
+    t.start(&key('b'), c.clone().wrap()).unwrap();
     let events = Events::default();
     events.watch(&t);
     wait_for("the raw relay's token", Duration::from_secs(15), || {
@@ -583,7 +573,7 @@ fn a_replaced_relay_is_reported_lost_and_the_new_one_is_seen_alive() {
     });
     assert_eq!(joiner.observed_live_links(), 0);
     let next = PeerTransport::new();
-    next.start(&key('c'), c.wrap()).unwrap();
+    next.start(&key('c'), c.clone().wrap()).unwrap();
     let took = wait_for("the reconnect", Duration::from_secs(30), || {
         joiner.observed_live_links() == 1 && next.observed_live_links() == 1
     });
@@ -606,7 +596,7 @@ fn a_stalled_presence_watcher_blocks_neither_frames_nor_other_peers() {
     relay.start(&key('d'), c.clone().wrap()).unwrap();
     a.start(&key('a'), c.clone().wrap()).unwrap();
     b.start(&key('b'), c.clone().wrap()).unwrap();
-    c3.start(&key('c'), c.wrap()).unwrap();
+    c3.start(&key('c'), c.clone().wrap()).unwrap();
     let release = Arc::new(AtomicBool::new(false));
     let entered = Arc::new(AtomicBool::new(false));
     let (r, e) = (release.clone(), entered.clone());
@@ -658,7 +648,7 @@ fn no_loss_reaches_a_watcher_once_shutdown_has_begun() {
     relay.start(&key('d'), c.clone().wrap()).unwrap();
     a1.start(&key('a'), c.clone().wrap()).unwrap();
     a2.start(&key('c'), c.clone().wrap()).unwrap();
-    b.start(&key('b'), c.wrap()).unwrap();
+    b.start(&key('b'), c.clone().wrap()).unwrap();
     let (calls, release) = (
         Arc::new(AtomicUsize::new(0)),
         Arc::new(AtomicBool::new(false)),
@@ -711,7 +701,7 @@ fn token_names_and_carrier_losses_name_no_device_or_session() {
     let (a, b) = (PeerTransport::new(), PeerTransport::new());
     let (ka, kb) = (key('a'), key('b'));
     a.start(&ka, c.clone().wrap()).unwrap();
-    b.start(&kb, c.wrap()).unwrap();
+    b.start(&kb, c.clone().wrap()).unwrap();
     let events = Events::default();
     events.watch(&b);
     wait_for("visibility", Duration::from_secs(15), || {
