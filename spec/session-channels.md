@@ -602,11 +602,11 @@ revision of the same major version handles correctly without being updated:
    be declared once for a whole binding rather than by each peer, or a new wire form used only
    between implementations that both take that value up. Narrowing a `MUST` or `MUST NOT` only
    for an implementation that takes such a value up is classified the same way, when that same
-   implementation takes on an equal obligation elsewhere, in another of its parts. For this item, an implementation
-takes on an equal obligation elsewhere when every other implementation observes the same outcome
-that the narrowed requirement gave. An
-   implementation conformant to an earlier minor revision never takes the value up, so it stays
-   conformant, and it never receives the new wire form.
+   implementation takes on an equal obligation elsewhere, in another of its parts. For this item,
+   an implementation takes on an equal obligation elsewhere when every other implementation observes
+   the same outcome that the narrowed requirement gave. An implementation conformant to an earlier
+   minor revision never takes the value up, so it stays conformant, and it never receives the new
+   wire form.
 
 *Dated note, 2026-10-09 (revision 0.2): item 9 records the classification that
 `spec/interfaces.md` 0.2 (PR #350) already applied to its pairing requirements, and that
