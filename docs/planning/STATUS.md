@@ -1,5 +1,8 @@
 # OAC status
 
+**Last updated:** 2026-10-13 (**docs follow-ups to interfaces 0.7 (PR #385, merged): transport deadline wording; Refs #385, #377**).
+Interfaces 0.7 (`spec/interfaces.md`, IFC-TRN-034, IFC-TRN-038, IFC-TRN-117) and `spec/security.md` 0.4 (§14.5 explanation only) are merged. The E9 and C7 decision records, `docs/planning/v0.1/11-risks.md` row 77 (updated in place, no renumbering) and the native-publication row of `docs/planning/v0.1/01-capability-matrix.md` now state the 0.7 rule: no transport accepts a payload or hands a copy to the carrier at or after the `Deadline` ([IFC-TRN-034]), a copy handed over in time may arrive late, and the receiving core refuses it (on a sealing transport such as Zenoh, silently under [SEC-SEL-036]; [SC-RCP-091] only for a copy that passes opening and reaches its deadline before hand-off). Each binding must state its clock-skew limit under [IFC-TRN-117] (G3, #64): the memory binding states none yet (a shared-clock transport must state zero), and `transports/zenoh/src/lib.rs` lines 227-234 state the 5 s operating limit (lead decision, 2026-10-11) without citing IFC-TRN-117. Lead decision, 2026-10-13 (given to the orchestrator session; no GitHub comment) on row 77: a payload handed to Zenoh, including a copy in Zenoh's send queue and a publish begun before the `Deadline` and completed after it, counts as handed to the network under [IFC-TRN-034]. Still open and not claimed: the sender-conformance proof, a sender-copy bound and a measured skew bound; no gate verdict changes. `core/src/transport.rs` doc comments on `Deadline` and `has_passed_at` reworded to the 0.7 rule (comment only). The `spec/` headers of `interfaces.md` and `security.md` still read "proposed; lead approval pending" although #385 is merged; being fixed in the #390 spec PR, not edited here. The IFC-TRN-034 contract check and its README (`tests/protocol/contract/transport`) are not touched here; branch `test/ifc-trn-034-0.7` covers them.
+
 **Last updated:** 2026-10-12 (**G5, #66: Claude adapter outbound tools and session registration**).
 `whoami` is an identity request to the core ([IFC-ADP-094]); the tool result is the core's
 `session_id` and `device_fingerprint`. The harness-native id N comes only from the `SessionStart`
@@ -120,7 +123,9 @@ and every raw/logical destination, including the type-only session control. It c
 text and decoded octets across every captured world/frame size; selective text and
 raw-octet disclosures of the third device's actual start key fail IFC-TRN-108 and
 IFC-TRN-003, while the small metadata controls stay clean. The original non-sealing
-assertions, payloads, operations and limits remain unchanged.
+assertions, payloads, operations and limits remain unchanged. *Dated note, 2026-10-13 (#392):*
+the one later change is to IFC-TRN-030, which no longer requires delivery from a transport declaring
+no reliability (integrity only); see the suite README.
 S4 evidence for sealing transports must cite this baseline or a descendant and run
 all checks. This is the approved spec-driven suite revision, not a gate verdict.
 The [suite README](../../tests/protocol/contract/transport/README.md) records the
@@ -3038,13 +3043,7 @@ recorded on Codex `0.161.0` (`docs/planning/gates/fixtures/s3-codex-capture/tran
   crate passes the transport contract suite over loopback; since 2026-10-09 local mode is
   the loopback rendezvous only, with no multicast; Linux and macOS not yet run;
   11-risks.md row 36).
-- Native Zenoh queued copies respecting a shorter sender deadline under a stalled link
-  (UNVERIFIED as a guarantee — no per-publication TTL; fixed Drop/express, a preallocated
-  native data pool and a flat 1 ms refill budget reduce blocking, but serialization, mutex contention, fanout,
-  scheduling and already serialized TX/TCP/relay copies are not bounded by each frame's
-  deadline. The review-round-1 regression measures call and late-observation overruns;
-  it does not prove IFC-TRN-034. No finite maximum overrun is proved; lead decision/proof
-  under #377; 11-risks.md row 77).
+- IFC-TRN-034 sender conformance (UNVERIFIED as a guarantee): OAC refuses admission or `put` at or after the Deadline; copies in Zenoh's native queue count as handed to the carrier (lead decision, 2026-10-13, given to the orchestrator session; 11-risks.md row 77); fixed Drop/express, a preallocated native data pool and a flat 1 ms refill budget reduce blocking, but serialization, mutex contention, fanout and OS scheduling mean no finite maximum overrun is proved. The review-round-1 regression measures call and late-observation overruns and does not prove IFC-TRN-034; proof open under #377.
 - The identity of the local-mode rendezvous holder (UNVERIFIED — nothing authenticates it,
   so any local program on the port is the relay; G3 #64 must pin it with a per-user TLS
   certificate before real traffic; C7 §5 dated note; 11-risks.md row 81).

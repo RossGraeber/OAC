@@ -356,14 +356,20 @@ are valid subject tokens in any case.
   write may last before the server closes the connection, and `max_pending` bounds how many
   bytes a connection may have buffered. A subscriber whose writes each finish in time can
   still drain a full buffer slowly, so a buffered copy can grow older than `write_deadline`
-  without the connection closing. Any time bound on a buffered copy has to come from the
-  binding, for example from `max_pending` and a minimum drain rate the binding enforces.
-  Until a binding states one, it is UNVERIFIED (§9).
-- [IFC-TRN-033], [IFC-TRN-034] and the copy in the server's buffer: [IFC-TRN-034] forbids
-  both delivering and holding a copy at or after its deadline. Delivering is covered: the
-  receiving transport drops any copy whose carried deadline has passed before it reaches a
-  handler. Holding is met only by a reading of the frozen text, stated here: the copy in the
-  server's buffer, waiting to be written to the subscriber, is a copy **in flight**
+  without the connection closing. Under interfaces 0.7 ([IFC-TRN-034]: no hand-over to the
+  carrier at or after the `Deadline`), that wait is not a breach: a copy the binding wrote to
+  the server before the `Deadline` may arrive late, and the receiving core refuses it
+  ([SC-RCP-091]). So a time bound on a buffered copy is no longer a requirement of
+  [IFC-TRN-034]. It would only limit how late a refused copy can arrive (for example
+  `max_pending` with a minimum drain rate the binding enforces), and it stays UNVERIFIED
+  until a binding states one (§9).
+- [IFC-TRN-033], [IFC-TRN-034], [IFC-TRN-038] and the copy in the server's buffer:
+  [IFC-TRN-034] governs the moment of hand-over, not what the server does with the copy
+  afterwards. A copy the transport wrote before the `Deadline` was handed over in time, and
+  its late arrival is not a breach. The receiving core refuses it under [SC-RCP-091].
+  [IFC-TRN-038] (SHOULD, sending end) covers the copies the transport itself still holds at
+  the `Deadline`. Holding is met only by a reading of the frozen text, stated here: the copy
+  in the server's buffer, waiting to be written to the subscriber, is a copy **in flight**
   (`spec/interfaces.md` §2.3: in flight "until the transport hands it to the destination's
   handler, or drops it"; [IFC-TRN-033]). The transport, and not only its client library,
   includes the relay that carries the payload. The same reading is needed for any
@@ -570,7 +576,7 @@ or the decision it belongs to carries it.
 | F-T2 | Neither broker transport is `destination_restricted` until a device key is provisioned to a broker identity, which neither protocol defines (N9, M11). Until then [IFC-TRN-081] keeps all cross-implementation traffic off it, as it does for the v0.1 transport today (`spec/interfaces.md` §6.7 note). | Binding | The transport binding document ([IFC-TRN-090]) |
 | F-T3 | The NATS client reconnect buffer must hold nothing while disconnected ([IFC-TRN-036]). The docs show only how to size it (N11); whether each client library can disable it is UNVERIFIED. | Binding; UNVERIFIED | §3.3; `docs/planning/STATUS.md` |
 | F-T4 | MQTT QoS 1 and 2 can reveal whether a destination is subscribed (`0x10`, M9), so an MQTT binding is QoS 0 only and therefore not reliable. | Binding | §4.3 |
-| F-T5 | Core NATS has no expiry per message, so a copy can sit in the server's slow-consumer buffer past its deadline. `write_deadline` bounds one blocked write and `max_pending` bounds buffered bytes (N16), but neither bounds how old a buffered copy can get. Any time bound has to come from the binding (for example `max_pending` with an enforced minimum drain rate) and is UNVERIFIED until one states it. The receiving transport drops late copies, which covers delivering under [IFC-TRN-034]. Holding is met only by reading the buffered copy as in flight ([IFC-TRN-033]; §3.3), the same reading an MQTT copy needs once onward delivery has started (M7). | Binding; UNVERIFIED | §3.3 |
+| F-T5 | Core NATS has no expiry per message, so a copy can sit in the server's slow-consumer buffer past its deadline. `write_deadline` bounds one blocked write and `max_pending` bounds buffered bytes (N16), but neither bounds how old a buffered copy can get. Under interfaces 0.7 [IFC-TRN-034] forbids only a hand-over at or after the `Deadline`, so this is not a breach: a copy written before it may arrive late, and the receiving core refuses it ([SC-RCP-091]). A time bound would only limit how late a refused copy can arrive (for example `max_pending` with an enforced minimum drain rate) and is UNVERIFIED until a binding states one. Holding is met only by reading the buffered copy as in flight ([IFC-TRN-033]; §3.3), the same reading an MQTT copy needs once onward delivery has started (M7). Copies the transport itself keeps are for [IFC-TRN-038]. | Binding; UNVERIFIED | §3.3 |
 
 **No amendment is proposed.** The procedure of
 `docs/planning/decisions/E7-interface-freeze.md` §7 and `oac-spec-authoring` §7 applies when
