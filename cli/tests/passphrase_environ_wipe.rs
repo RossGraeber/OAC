@@ -65,10 +65,9 @@ fn the_passphrase_is_gone_from_proc_environ_after_it_is_taken() {
     // arrays and strings built before the fork; it allocates nothing (the failure value is
     // a plain `errno`).
     unsafe {
-        command.pre_exec(move || {
-            libc::execve(exec.path.as_ptr(), exec.argp.as_ptr(), exec.envp.as_ptr());
-            Err(std::io::Error::last_os_error())
-        });
+        // The closure calls a method so that it captures the whole `Exec`, which is `Send`
+        // and `Sync`, and not its pointer fields one by one, which are not.
+        command.pre_exec(move || Err(exec.execve()));
     }
     let duplicate = command.output().unwrap();
     report("duplicate", &duplicate);
@@ -100,6 +99,16 @@ impl Exec {
             _argv: argv,
             _envp: envp,
         }
+    }
+}
+
+impl Exec {
+    /// Replaces the process image. Returns only on failure, with the error.
+    fn execve(&self) -> std::io::Error {
+        // SAFETY: `path` is a valid C string and both arrays are null-terminated arrays of
+        // valid C strings, all owned by `self` and built before the fork.
+        unsafe { libc::execve(self.path.as_ptr(), self.argp.as_ptr(), self.envp.as_ptr()) };
+        std::io::Error::last_os_error()
     }
 }
 
