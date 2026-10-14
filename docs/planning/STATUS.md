@@ -1,5 +1,22 @@
 # OAC status
 
+**Last updated:** 2026-10-14 (**G9, #70, slice 2: the file key store's follow-ups from the #315 reviews; Refs #70**).
+`cli/src/keystore.rs`: reading `OAC_DEVICE_KEY_PASSPHRASE` now overwrites the value where the process keeps it
+before removing the variable, so `/proc/<pid>/environ` no longer shows it (`FileKeyStore::passphrase_from_environment`
+stays an `unsafe fn`: the daemon's `main` calls it before it starts a thread, which is slice 6); the
+`FileKeyStore` opens the key directory and the file with `O_NOFOLLOW` (the file by `openat`, `O_NONBLOCK`) and
+checks the open handles, so a link or a pipe is refused and the file checked is the file read, with a size bound;
+a temporary-file name that is taken is skipped and its file never deleted (random 64-bit names, exclusive
+create), the "already stored" error is only for a real hard-link collision, and a stale `.device-key.*.tmp`
+(60 s) left by a crash is removed by `save` and `load`; `FileKeyStore::generate_passphrase` and `provision` generate
+the fallback passphrase on first use (C4 section 11: 256 random bits, handed to the caller before any file is made,
+never written beside the file). `oac-core` gains `SecretSeed::generate` (the one public random source for the `oac`
+binary; no new dependency) and logs `SEC-SIG-021` rather than `SEC-SIG-024` for an unreduced `S` (same accept and reject
+set; `verify_strict` rejected it already). The 07 section 5 note now says "rows above". Not done here: the singleton
+lock (slice 5, with the local IPC) and the caller of `provision` (slice 6). Tests: `cli/src/keystore.rs`
+`file_store`, `cli/tests/passphrase_environ_wipe.rs` (Linux; the child reads its own `/proc/self/environ`), the
+signing unit test. No gate verdict, protocol requirement, pin or dependency change.
+
 **Last updated:** 2026-10-13 (**docs follow-ups to interfaces 0.7 (PR #385, merged): transport deadline wording; Refs #385, #377**).
 Interfaces 0.7 (`spec/interfaces.md`, IFC-TRN-034, IFC-TRN-038, IFC-TRN-117) and `spec/security.md` 0.4 (§14.5 explanation only) are merged. The E9 and C7 decision records, `docs/planning/v0.1/11-risks.md` row 77 (updated in place, no renumbering) and the native-publication row of `docs/planning/v0.1/01-capability-matrix.md` now state the 0.7 rule: no transport accepts a payload or hands a copy to the carrier at or after the `Deadline` ([IFC-TRN-034]), a copy handed over in time may arrive late, and the receiving core refuses it (on a sealing transport such as Zenoh, silently under [SEC-SEL-036]; [SC-RCP-091] only for a copy that passes opening and reaches its deadline before hand-off). Each binding must state its clock-skew limit under [IFC-TRN-117] (G3, #64): the memory binding states none yet (a shared-clock transport must state zero), and `transports/zenoh/src/lib.rs` lines 227-234 state the 5 s operating limit (lead decision, 2026-10-11) without citing IFC-TRN-117. Lead decision, 2026-10-13 (given to the orchestrator session; no GitHub comment) on row 77: a payload handed to Zenoh, including a copy in Zenoh's send queue and a publish begun before the `Deadline` and completed after it, counts as handed to the network under [IFC-TRN-034]. Still open and not claimed: the sender-conformance proof, a sender-copy bound and a measured skew bound; no gate verdict changes. `core/src/transport.rs` doc comments on `Deadline` and `has_passed_at` reworded to the 0.7 rule (comment only). The `spec/` headers of `interfaces.md` and `security.md` still read "proposed; lead approval pending" although #385 is merged; being fixed in the #390 spec PR, not edited here. The IFC-TRN-034 contract check and its README (`tests/protocol/contract/transport`) are not touched here; branch `test/ifc-trn-034-0.7` covers them.
 
