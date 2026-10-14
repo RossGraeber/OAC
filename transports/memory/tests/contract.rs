@@ -222,6 +222,12 @@ enum Breach {
     LeaksDirectory,
     /// Delivers an envelope late: re-sends it with a deadline an hour away ([IFC-TRN-034]).
     ExtendsDeadlines,
+    /// Does not deliver a payload of the declared maximum (65536 octets), and declares
+    /// `reliability` absent, as the memory transport does. [IFC-TRN-030] forgives this: no
+    /// check names a duty to carry the declared maximum (#392).
+    DropsLarge,
+    /// As `DropsLarge`, but declares `reliability` present: [IFC-TRN-030] then fails it.
+    DropsLargeClaimsReliability,
 }
 
 #[derive(Default)]
@@ -250,6 +256,7 @@ impl Transport for Broken {
         match self.breach {
             Breach::ClaimsPersistence => caps.persistence = true,
             Breach::ClaimsOrdering => caps.ordering = true,
+            Breach::DropsLargeClaimsReliability => caps.reliability = true,
             _ => {}
         }
         Ok(caps)
@@ -302,6 +309,15 @@ impl Transport for Broken {
                 }
                 i.payload = Payload::new(i.payload.kind(), o);
                 handler(i)
+            })
+        } else if matches!(
+            self.breach,
+            Breach::DropsLarge | Breach::DropsLargeClaimsReliability
+        ) {
+            Arc::new(move |i| {
+                if i.payload.octets().len() < 65536 {
+                    handler(i)
+                }
             })
         } else {
             handler
@@ -430,6 +446,35 @@ fn the_suite_catches_each_planted_breach() {
             );
         }
         assert!(report.failed("IFC-TRN-003"), "{report}");
+    }
+}
+
+/// [IFC-TRN-030] is an integrity rule, not a delivery rule (#392). A transport declaring no
+/// `reliability` that fails to deliver a large payload passes it, on every memory medium; one
+/// declaring `reliability` present fails it. Nothing in the suite names a duty to carry
+/// the declared maximum, so no check catches `DropsLarge`; that gap is a residual for the
+/// lead, not something this suite asserts. The reliable branch has no real transport to
+/// run against (none declares `reliability`), so the planted breach is its only exercise.
+#[test]
+fn a_lost_large_payload_is_forgiven_only_without_declared_reliability() {
+    for base in MEDIA {
+        let forgiven = run(&BrokenHarness {
+            base,
+            breach: Breach::DropsLarge,
+        });
+        assert!(
+            matches!(
+                forgiven.verdicts("IFC-TRN-030")[0],
+                Verdict::Pass(s) if s.contains("not delivered")
+            ),
+            "{forgiven}"
+        );
+        let refused = run(&BrokenHarness {
+            base,
+            breach: Breach::DropsLargeClaimsReliability,
+        });
+        assert!(refused.failed("IFC-TRN-030"), "{refused}");
+        assert!(refused.failed("IFC-TRN-003"), "{refused}");
     }
 }
 

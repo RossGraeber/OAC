@@ -314,7 +314,9 @@ impl PeerConfiguration {
         // Let Zenoh allocate the data pool at link initialization, large enough for
         // normal 1 MiB fragmentation without waiting for each two-batch refill.
         // Two batches with even a 5 ms wait dropped an uncongested large frame on
-        // Windows (IFC-TRN-030). Use native capacity, not OAC buffering/retries.
+        // Windows (IFC-TRN-030, as it then was; since #392 that check tolerates loss when
+        // reliability is absent, but IFC-TRN-104 still needs the cap frame delivered).
+        // Use native capacity, not OAC buffering/retries.
         set("transport/link/tx/queue/size/data", "16".into())?;
         set(
             "transport/link/tx/queue/allocation/mode",
