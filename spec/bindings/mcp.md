@@ -4,11 +4,12 @@
 - **Status:** normative; frozen at Gate S2: signed off 2026-10-06, in force from the merge
   of PR #276 (E7, #47). Every requirement carries an `MCPB` id; the index in §12 lists its
   fixtures or marks it `TODO(fixture)`.
-- **Binding revision:** `0.2`, a minor revision of the frozen `0.1`, made under
+- **Binding revision:** `0.3` (proposed; lead approval pending), a minor revision of the frozen `0.1`, made under
   `docs/planning/decisions/E7-interface-freeze.md` §7 and in force from the lead's approval
-  and merge of PR #350 (issue #69). Appendix A records the change.
-  Fixtures written against `0.1` keep citing `spec_revision` `0.1`; fixtures added in
-  `0.2` cite `0.2`.
+  and merge of the pull request for issue #390. Appendix A records the change; revision `0.2`
+  (issue #69, PR #350) is the one before it.
+  Fixtures written against `0.1` or `0.2` keep citing `spec_revision` `0.1` or `0.2`; this
+  revision adds no fixture.
 - **Extension identifier:** `io.github.rossgraeber/oac-session-channels`
   (`docs/planning/decisions/C3-spec-packaging.md` §1-§3).
 - **MCP revisions bound:** current (modern) era `2026-07-28`; legacy era `2025-11-25`
@@ -1285,6 +1286,63 @@ requirement MCPB-CLD-001 restricts where the capability is declared, not whether
 > spawned by Claude Code (C2 §1). It therefore runs as the legacy-only exception in [MCPB-CLD-003],
 > and it serves the §5 tools over the same legacy connection.
 
+**Native signals: the hook carrier's wire form (revision 0.3).** Claude Code hooks (supported)
+can carry a `SessionStart` hook input to an OAC server as a native signal
+(`spec/session-channels.md` §6.7; `docs/planning/decisions/C4-session-identity.md` §3). The
+requirements below fix how that input is written to the server, because the server classifies a
+connection by its first line. The carrier runs between two parts of one OAC install, the hook
+handler and the OAC server, over local IPC; it never crosses implementations, so no protocol wire
+form changes.
+
+[MCPB-CLD-004] A hook handler that carries a native signal MUST parse its standard input as a
+JSON object.
+
+[MCPB-CLD-005] A hook handler that carries a native signal MUST send that object to the OAC
+server as one JSON line: no line feed or carriage return appears before the line's end, and the
+line ends with a newline or with the end of the stream.
+
+[MCPB-CLD-006] A hook handler that carries a native signal MUST NOT copy the bytes of its
+standard input through to the OAC server.
+
+[MCPB-CLD-007] A hook handler that carries a native signal MUST write nothing to its own
+standard output.
+
+[MCPB-CLD-008] An implementation MUST NOT register its hook handler for any event other than
+`SessionStart`.
+
+[MCPB-CLD-009] An OAC server that accepts hook input as native signals MUST NOT accept, as a
+native signal, a hook input whose `hook_event_name` is not `SessionStart`.
+
+[MCPB-CLD-010] An OAC server that accepts hook input as native signals MUST NOT end or
+deregister an attachment because of a hook input whose `hook_event_name` is not `SessionStart`.
+
+**Evidence for MCPB-CLD-004 to MCPB-CLD-010.** Claude Code `2.1.285`, captured on 2026-10-12,
+wrote a `SessionStart` input as one line: the fixture `STARTUP` in `adapters/claude/src/hook.rs`
+(line 167) records that input, the module documentation (line 35) records the one-line
+observation, and `docs/planning/STATUS.md`, G5 entry, records the capture. The first-party hooks
+reference, https://code.claude.com/docs/en/hooks.md, Claude Code `2.1.285`, retrieved 2026-10-12,
+gives the `SessionStart` input fields and states that Claude Code adds a `SessionStart` hook's
+plain-text standard output to Claude's context. That reference does not state that the input is
+one line; its examples are written over several lines. The one-line form is therefore an
+observation, not a documented fact, and MCPB-CLD-005 requires the one-line form for that reason: a
+multi-line copy would present a first line that is not a hook input, and the signal would be lost.
+The same reference gives `SessionEnd` hooks a shared 1.5-second budget, raised to match a longer
+per-hook timeout up to 60 seconds, so that event may be cut short, and it does not run if the
+process is killed. That is why MCPB-CLD-009 and MCPB-CLD-010 keep it from ending an attachment.
+
+> **Reference implementation note:** the v0.1 Claude adapter's handler is the `oac hook` command,
+> built under G9 and G10. Its module documentation, `adapters/claude/src/hook.rs`, carries the same
+> rules. The reference server's limits and recognition rule are not requirements of this document:
+> - A carrier is recognized by its first line, which must parse as a JSON object with a string
+>   `hook_event_name` and no `jsonrpc` member (`adapters/claude/src/hook.rs` lines 104 to 116).
+> - The server waits for at most 64 KiB without a newline (`MAX_HOOK_INPUT`, `adapters/claude/src/hook.rs`
+>   line 68, used at `adapters/claude/src/adapter.rs` line 457). A first line still unterminated past that
+>   size is served as MCP (`adapters/claude/src/io.rs` line 91, `adapters/claude/src/adapter.rs` line 475);
+>   a longer line that arrives with its newline is still classified (`adapters/claude/src/io.rs` lines 88 to 92).
+> - The first line must arrive within 10 seconds of the first byte received (`FIRST_LINE_STALL`,
+>   `adapters/claude/src/adapter.rs` line 83; the deadline starts at `adapters/claude/src/io.rs`
+>   line 103); otherwise the connection is ended (`adapters/claude/src/adapter.rs` line 461).
+
 **Steering: the exception of `spec/security.md` [SEC-AUZ-022], invoked.** Channel input
 sent while Claude Code is running a turn **does join that turn**. In G1 Box C, two inputs
 sent during a running turn were taken in at two later tool-call boundaries of that same
@@ -1761,6 +1819,13 @@ later task defines) stays `TODO(fixture)`, with the planned input and expected o
 | MCPB-CLD-001 | MUST | `tests/protocol/mcpb-cld/MCPB-CLD-001.p01-channel-capability-on-legacy.json`, `tests/protocol/mcpb-cld/MCPB-CLD-001.n01-channel-capability-on-modern.json` |
 | MCPB-CLD-002 | MUST NOT | `tests/protocol/mcpb-cld/MCPB-CLD-002.p01-channel-notification-on-legacy.json`, `tests/protocol/mcpb-cld/MCPB-CLD-002.n01-channel-notification-on-modern.json` |
 | MCPB-CLD-003 | MUST | `tests/protocol/mcpb-cld/MCPB-CLD-003.p01-discover-method-not-found.json`, `tests/protocol/mcpb-cld/MCPB-CLD-003.n01-discover-answered.json`, `tests/protocol/mcpb-cld/MCPB-CLD-003.n02-discover-unsupported-version.json` |
+| MCPB-CLD-004 | MUST | TODO(fixture), owner G9 (#70) with G5 (#66), the `oac hook` command: the handler is a process Claude Code starts, not an MCP exchange, so no `oac-mcpb-fixture/1` `context` holds it. Planned: a `SessionStart` input written over several lines → the handler's line is the JSON object that input denotes (positive) |
+| MCPB-CLD-005 | MUST | TODO(fixture), owner G9 (#70) with G5 (#66): as for MCPB-CLD-004. Planned: the same input with and without a final newline → the same single JSON line (positive); a line with a line feed or carriage return before its end → nonconformant (negative) |
+| MCPB-CLD-006 | MUST NOT | TODO(fixture), owner G9 (#70) with G5 (#66): as for MCPB-CLD-004. Planned: a multi-line `SessionStart` input copied byte for byte → nonconformant (negative) |
+| MCPB-CLD-007 | MUST | TODO(fixture), owner G9 (#70) with G5 (#66): as for MCPB-CLD-004. Planned: the handler's standard output is empty for a `SessionStart` input (positive); any byte on it (negative) |
+| MCPB-CLD-008 | MUST NOT | TODO(fixture), owner G9 (#70) with G5 (#66): a hook configuration, not an MCP exchange. Planned: a configuration that registers the handler for `SessionStart` only (positive); one that registers it for any other event as well (negative) |
+| MCPB-CLD-009 | MUST NOT | TODO(fixture), owner G5 (#66) with G9 (#70): the server's classification of a carrier connection, which no single MCP exchange holds. Planned: a carrier whose first line is a hook input with `hook_event_name` `SessionEnd` → not a native signal (negative) |
+| MCPB-CLD-010 | MUST NOT | TODO(fixture), owner G5 (#66) with G9 (#70): as for MCPB-CLD-009. Planned: a `SessionEnd` hook input on a carrier, with an attachment open → the attachment is neither ended nor deregistered by it (negative) |
 | MCPB-CDX-001 | MUST NOT | TODO(fixture), owner G7 (#68) with G8 (#69), against the F9 fake (#58): whether a client is Codex, and whether a notification is meant to deliver an OAC message, are not in an `oac-mcpb-fixture/1` `context`. Planned: a delivery to a Codex session → no MCP notification emitted toward the Codex client |
 | MCPB-CDX-002 | MUST | TODO(fixture): app-server traffic, not an MCP exchange, so outside the `mcp-binding` stage (§12.2). Planned with G7 (#68) against the F9 fake: a delivery to an idle thread, one to a thread with a running turn, and one to an idle thread whose last turn ended interrupted → each hand-off is one `thread/queue/add`; the busy case's input arrives in a new turn after `turn/completed`, never under the running turn's id; the idle-after-interrupt case's input is not dispatched until a turn completes uninterrupted (source only, `service.rs` L477; UNVERIFIED live) |
 | MCPB-CDX-003 | MUST NOT | TODO(fixture): app-server traffic (§12.2). Planned with G7 (#68) against the F9 fake: deliveries to an idle thread, to a busy thread, to a thread a turn starts on just after an idle status, and after a turned-away `thread/queue/add` → no `turn/start` sent for any of them |
@@ -1782,3 +1847,4 @@ Binding revision 0.1 had no table of its own; its history is in `docs/planning/S
 |---|---|---|
 | 0.1 | 2026-10-06 | Frozen at Gate S2 (E7, #47): signed off on this date, in force from the merge of PR #276. |
 | 0.2 | 2026-10-08 | #69, PR #350 (lead decision of 2026-10-08 to design a Codex reply pairing and propose it as a frozen-spec change): §4.5, the Codex issued-value pairing, binds a stdio connection that Codex started to one subscribed Codex thread on a reveal of a value the implementation issued on it, one value per connection and pairing window, and serves each call only on a live confirmation from that thread (MCPB-ATT-003 to MCPB-ATT-026); bounded pairing window (60 s), confirmation wait (10 s) and confirmation life (600 s, or the item's or turn's end); no pairing value where pairing cannot complete, and at most three windows per connection; MCPB-CDX-006 (no setting members in a subscribing `thread/resume`); §4.4 states that no documented per-request signal exists, so the refusal of an unbound connection is no longer called interim; a dated note at §5.4 records that MCPB-TOOL-017, MCPB-TOOL-019 and MCPB-TOOL-021 are met as written, with their meaning unchanged; §8.2, §9, §10 and §12.2 updated; fixtures for MCPB-ATT-004 to MCPB-ATT-006, MCPB-ATT-022, MCPB-ATT-025 and MCPB-ATT-026. Minor revision (`spec/session-channels.md` §5.2, item 6): MCPB-ATT-003 is a `MAY`, MCPB-ATT-017 and MCPB-ATT-024 are `SHOULD`/`SHOULD NOT`, and every new `MUST` or `MUST NOT` binds only an implementation that pairs, so an implementation conformant to 0.1 stays conformant (§5.3, item 11). No requirement of 0.1 changes meaning, and no wire form changes. Matching changes: `spec/interfaces.md` 0.2 and `spec/security.md` 0.2. |
+| 0.3 | 2026-10-13 | #390 (the hook carrier's wire form, §8.1; proposed; lead approval pending): adds MCPB-CLD-004 to MCPB-CLD-010. A hook handler that carries a `SessionStart` native signal parses its standard input as a JSON object, sends it as one JSON line with no line feed or carriage return before its end, copies no bytes through, writes nothing to its standard output, and an implementation registers its hook handler for no event other than `SessionStart`; an OAC server that accepts hook input as native signals treats no event other than `SessionStart` as one, and ends or deregisters no attachment because of any other event. Each id is `TODO(fixture)` (§12.3). The evidence (Claude Code `2.1.285`, captured 2026-10-12, and the first-party hooks reference) is stated in the paragraph after MCPB-CLD-010. Classified as a minor revision under E7 §7 item 2 (second bullet: no wire form changes, so no new identifier). Revision `0.2` documented the Claude stdio shim's hook-to-shim pairing (§4.4) but not the carrier's wire form. The carrier runs between two parts of one OAC install, a hook handler and the OAC server, over local IPC, and never across implementations, so no peer observes it. Stated plainly: this is breaking for a local implementation that copied the hook's bytes through or took `SessionEnd` as a signal, because such an implementation does not conform to `0.3`; §5.3 item 11 would classify it as breaking, and it is classified a minor revision under E7 §7 item 2 by the lead on 2026-10-13. No requirement of `0.2` changes meaning, and no existing wire form changes. Matching changes: `spec/interfaces.md` 0.8 (Appendix C owners for MCPB-CLD-004 to MCPB-CLD-010) and `tests/protocol/runner/run.mjs` (`spec_revision` `0.3` accepted for this document). |
