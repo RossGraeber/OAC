@@ -443,6 +443,10 @@ mod transport;
 
 #[cfg(test)]
 mod liveness_tests;
+/// The test-port claim shared by every test of the crate (#393); mounted, not copied.
+#[cfg(test)]
+#[path = "../tests/support/ports.rs"]
+mod ports;
 #[cfg(test)]
 mod security_tests;
 #[cfg(test)]

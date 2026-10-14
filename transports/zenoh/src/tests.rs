@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Native sample observations and overflow checks; default tier, loopback only.
-use std::net::TcpListener;
 use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -17,15 +16,12 @@ use zenoh::qos::CongestionControl;
 
 use crate::addressing::Partition;
 use crate::config::Role;
+use crate::ports::{Claimed, claimed};
 use crate::{MAX_PAYLOAD_OCTETS, PeerConfiguration, PeerTransport};
 
-fn conf(tag: &str) -> PeerConfiguration {
-    let port = TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port();
-    PeerConfiguration::rendezvous(port).with_partition(format!("unit-{tag}-{port}"))
+/// A configuration on a rendezvous port claimed for as long as it lives (`crate::ports`).
+fn conf(tag: &str) -> Claimed<PeerConfiguration> {
+    claimed(|port| PeerConfiguration::rendezvous(port).with_partition(format!("unit-{tag}-{port}")))
 }
 fn key(c: char) -> KeyId {
     KeyId::parse(&c.to_string().repeat(64)).unwrap()
@@ -421,7 +417,7 @@ fn discovery_alone_hands_the_core_nothing() {
             Arc::new(move |i| g.lock().unwrap().push(i.payload)),
         )
         .unwrap();
-    b.start(&key('b'), c.wrap()).unwrap();
+    b.start(&key('b'), c.clone().wrap()).unwrap();
     thread::sleep(Duration::from_millis(500));
     assert!(got.lock().unwrap().is_empty());
     b.publish(

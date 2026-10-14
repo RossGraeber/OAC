@@ -8,7 +8,6 @@
 //! transport; the sealed route of the records themselves is the core's and is exercised by
 //! the shared contract suite and `core/tests/sealing.rs`.
 
-use std::net::{Ipv4Addr, TcpListener};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -29,6 +28,9 @@ use oac_core::transport::{
     CarrierHandle, Deadline, Destination, Payload, PayloadKind, PresenceEvent, Transport,
 };
 use oac_transport_zenoh::{PeerConfiguration, PeerTransport};
+
+#[path = "support/ports.rs"]
+mod ports;
 
 struct Consumer {
     registry: PresenceRegistry,
@@ -140,13 +142,10 @@ fn state(c: &Arc<Mutex<Consumer>>, session: &SessionId) -> PresenceState {
 /// announcement makes a lost session `online` again.
 #[test]
 fn a_departing_issuer_makes_its_session_unreachable_and_a_stranger_stays_unknown() {
-    // A port below the ephemeral ranges: a port freed a moment ago can be handed to another
-    // test's socket at once, and a rendezvous port that something answers on is refused.
-    let base = 23_000 + (std::process::id() % 1000) as u16;
-    let port = (base..base + 100)
-        .find(|p| TcpListener::bind((Ipv4Addr::LOCALHOST, *p)).is_ok())
-        .unwrap();
-    let conf = PeerConfiguration::rendezvous(port).with_partition(format!("registry-{port}"));
+    // A rendezvous port claimed for the life of the test (`tests/support/ports.rs`).
+    let conf = ports::claimed(|port| {
+        PeerConfiguration::rendezvous(port).with_partition(format!("registry-{port}"))
+    });
     let (issuer, other, me) = (identity("issuer"), identity("other"), identity("consumer"));
     let (relay, a, c, b) = (
         PeerTransport::new(),
@@ -158,7 +157,7 @@ fn a_departing_issuer_makes_its_session_unreachable_and_a_stranger_stays_unknown
     relay.start(relay_id.key_id(), conf.clone().wrap()).unwrap();
     a.start(issuer.key_id(), conf.clone().wrap()).unwrap();
     c.start(other.key_id(), conf.clone().wrap()).unwrap();
-    b.start(me.key_id(), conf.wrap()).unwrap();
+    b.start(me.key_id(), conf.clone().wrap()).unwrap();
 
     let state_of = Arc::new(Mutex::new(consumer(&me, &[&issuer, &other])));
     let s = state_of.clone();
