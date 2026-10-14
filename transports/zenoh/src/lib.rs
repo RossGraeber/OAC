@@ -248,12 +248,15 @@
 //! about 1 MiB of native batch storage per data queue, plus native metadata, other
 //! priority queues and TCP buffers. There is no OAC send queue. With the default two
 //! batches, zero/1 ms waits dropped an uncongested 1 MiB publication; 5 ms passed once
-//! but failed the workspace's unchanged IFC-TRN-030 check. With 16 batches, zero wait
+//! but failed the workspace's IFC-TRN-030 check as it then was. With 16 batches, zero wait
 //! passed once but occasionally dropped the last fragment: a 1 MiB frame exceeds
 //! 16 x 65535 batch octets even before native headers. Native capacity plus one short
 //! refill budget supplies normal fragmentation; there is no increasing wait per
 //! fragment. Fanout can visit multiple
-//! links synchronously.
+//! links synchronously. Since #392 (2026-10-13) IFC-TRN-030 is an integrity rule only, so the
+//! shared check tolerates a lost payload from a transport declaring no reliability. This
+//! tuning still matters for normal delivery and for the IFC-TRN-104 cap-size frame, which
+//! must still arrive; under heavy host load `Drop` can lose that frame too (residual).
 //! Native drops still return successful `put`; `Taken` means ownership, not delivery.
 //! The 1 s `wait_before_close` remains for native blocking control traffic, not OAC frames.
 //!
@@ -422,7 +425,7 @@
 //! | Member | Value | Evidence |
 //! |---|---|---|
 //! | `sealing` | present | Direct frame carriage; unchanged sealing-aware contract suite. |
-//! | `reliability` | absent | Native ring drops oldest on overflow; no retry across lost links. |
+//! | `reliability` | absent | Native ring drops oldest on overflow; no retry across lost links. `CongestionControl::Drop` can also drop a large fragmented frame on a loaded host (#392); the shared IFC-TRN-030 check accepts that for a transport declaring no reliability. |
 //! | `persistence`, `offline_queueing` | absent | No durable store or OAC retry queue. |
 //! | `ordering` | absent | No cross-link/restart ordering guarantee claimed. |
 //! | `multicast_discovery` | local absent; LAN configurable | Scouting explicit opt-in; gossip off. |
