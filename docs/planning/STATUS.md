@@ -13,8 +13,8 @@ the fallback passphrase on first use (C4 section 11: 256 random bits, handed to 
 never written beside the file). `oac-core` gains `SecretSeed::generate` (the one public random source for the `oac`
 binary; no new dependency) and logs `SEC-SIG-021` rather than `SEC-SIG-024` for an unreduced `S` (same accept and reject
 set; `verify_strict` rejected it already). The 07 section 5 note now says "rows above". Not done here: the singleton
-lock (slice 5, with the local IPC) and the caller of `provision` (slice 6). Tests: `cli/src/keystore.rs`
-`file_store`, `cli/tests/passphrase_environ_wipe.rs` (Linux; the child reads its own `/proc/self/environ`), the
+lock (slice 5, with the local IPC) and the caller of `provision` (slice 6). Residual, outside the threat model: `save` is path-based after `ensure_dir` checks the directory, so an attacker who can write the key directory's parent could redirect the write (the same user, or the directory's owner, already holds the key); `load` is the handle-based path (review of PR #407). The passphrase is read from the environment once into zeroizing storage and every entry of `environ` of that name is overwritten, including a repeated one. Tests: `cli/src/keystore.rs`
+`file_store`, `cli/tests/passphrase_environ_wipe.rs` (Linux; the child reads its own `/proc/self/environ`, with the name set once and twice), `cli/tests/passphrase_env_non_utf8.rs`, the
 signing unit test. No gate verdict, protocol requirement, pin or dependency change.
 
 **Last updated:** 2026-10-13 (**docs follow-ups to interfaces 0.7 (PR #385, merged): transport deadline wording; Refs #385, #377**).

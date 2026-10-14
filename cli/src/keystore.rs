@@ -169,8 +169,9 @@ impl<P: KeyStore, F: KeyStore> KeyStore for FallbackKeyStore<P, F> {
 #[cfg(unix)]
 pub use file::{FileKeyStore, PASSPHRASE_CREDENTIAL, PASSPHRASE_ENV};
 
-/// The encrypted-file fallback (C4 §11), on Unix hosts. On Windows and macOS the operating
-/// system's credential store is always present (C1 §9), so the fallback is not built there.
+/// The encrypted-file fallback (C4 §11), built on every Unix host, macOS included, where the
+/// Keychain is always present (C1 §9) so it is not expected to engage. Windows has no
+/// fallback: Credential Manager is always present.
 #[cfg(unix)]
 mod file {
     use super::{KeyStore, KeyStoreError, SecretSeed, Zeroizing};
@@ -301,27 +302,60 @@ mod file {
         SecretString::from(text)
     }
 
-    /// Overwrites the value of the environment variable `name` where the process keeps it,
-    /// then removes the variable.
+    /// The process's `environ` array: the pointers to its `NAME=value` strings.
+    ///
+    /// # Safety
+    ///
+    /// No other thread may change the environment while the array is read.
+    unsafe fn environ_array() -> *mut *mut libc::c_char {
+        #[cfg(target_os = "macos")]
+        {
+            // SAFETY: `_NSGetEnviron` returns a valid pointer to the process's `environ`.
+            unsafe { *libc::_NSGetEnviron() }
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            unsafe extern "C" {
+                static mut environ: *mut *mut libc::c_char;
+            }
+            // SAFETY: `environ` is the POSIX process environment; read by value under the
+            // caller's no-concurrent-change guarantee.
+            unsafe { environ }
+        }
+    }
+
+    /// Overwrites the value of every entry of the environment variable `name` where the
+    /// process keeps it, then removes the variable.
     ///
     /// `remove_var` alone leaves the value in the memory the process was started with, which
-    /// `/proc/<pid>/environ` shows to any process of the same user (#315 review).
+    /// `/proc/<pid>/environ` shows to any process of the same user (#315 review). An `envp`
+    /// may repeat a name; `getenv` returns the first, so every entry of the array is walked,
+    /// and the entries that follow the first are overwritten too.
     ///
     /// # Safety
     ///
     /// As `std::env::remove_var`: no other thread may use the environment during the call.
     unsafe fn wipe_and_remove_env(name: &str) {
-        if let Ok(c_name) = CString::new(name) {
-            // SAFETY: `c_name` is a valid C string. `getenv` returns a pointer to the value
-            // inside the process's own environment block, which stays valid until the
-            // variable is changed; the caller guarantees no other thread changes it. The
-            // block is writable process memory (the stack the process started with, or a
-            // `setenv` allocation); the write stays within the value's `strlen` octets.
-            unsafe {
-                let value = libc::getenv(c_name.as_ptr());
-                if !value.is_null() {
-                    std::ptr::write_bytes(value.cast::<u8>(), 0, libc::strlen(value));
+        let prefix = format!("{name}=").into_bytes();
+        // SAFETY: the caller guarantees no other thread changes the environment, so the
+        // array and the strings it points to stay valid while they are walked. Each string
+        // is NUL-terminated process memory (the stack the process started with, or a
+        // `setenv` allocation); a write stays within one entry's value, after its
+        // `NAME=` prefix, so the entry still names the variable for `unsetenv`.
+        unsafe {
+            let mut entry = environ_array();
+            while !entry.is_null() && !(*entry).is_null() {
+                let text = *entry;
+                let len = libc::strlen(text);
+                let bytes = std::slice::from_raw_parts(text.cast::<u8>(), len);
+                if bytes.starts_with(&prefix) {
+                    std::ptr::write_bytes(
+                        text.cast::<u8>().add(prefix.len()),
+                        0,
+                        len - prefix.len(),
+                    );
                 }
+                entry = entry.add(1);
             }
         }
         // SAFETY: the caller guarantees no other thread uses the environment.
@@ -486,13 +520,20 @@ mod file {
         /// `$CREDENTIALS_DIRECTORY`.
         pub unsafe fn passphrase_from_environment() -> Option<SecretString> {
             let from_env = ENV_PASSPHRASE.get_or_init(|| {
-                let value = std::env::var(PASSPHRASE_ENV).ok();
-                if std::env::var_os(PASSPHRASE_ENV).is_some() {
+                // One read, kept in zeroizing storage: `var_os` copies the value out of the
+                // environment once, `into_vec` moves that copy without another, and the
+                // buffer is zeroized when it drops, whether or not the value is UTF-8.
+                let raw = std::env::var_os(PASSPHRASE_ENV)
+                    .map(|v| Zeroizing::new(std::os::unix::ffi::OsStringExt::into_vec(v)));
+                if raw.is_some() {
                     // SAFETY: the caller guarantees no other thread uses the environment
                     // during this first call (see the function's Safety section).
                     unsafe { wipe_and_remove_env(PASSPHRASE_ENV) };
                 }
-                value.filter(|p| !p.is_empty()).map(SecretString::from)
+                raw.as_deref()
+                    .and_then(|bytes| std::str::from_utf8(bytes).ok())
+                    .filter(|p| !p.is_empty())
+                    .map(|p| SecretString::from(p.to_owned()))
             });
             let credential = std::env::var_os("CREDENTIALS_DIRECTORY")
                 .and_then(|dir| {
@@ -633,11 +674,12 @@ mod file {
                 }
                 Err(e) => return Err(failed(e)),
             };
+            // Checked on the open handles, the directory before anything is opened in it: the
+            // file read below is the file checked here, in the directory checked here.
+            check_private(&dir.metadata().map_err(failed)?, "key directory")?;
             let Some(file) = open_in(&dir, name)? else {
                 return Ok(None);
             };
-            // Checked on the open handles: the file read below is the file checked here.
-            check_private(&dir.metadata().map_err(failed)?, "key directory")?;
             let meta = file.metadata().map_err(failed)?;
             if !meta.file_type().is_file() {
                 return Err(KeyStoreError::Failed(
@@ -1169,6 +1211,18 @@ mod tests {
             std::os::unix::fs::symlink(dir.join("real"), dir.join("linked")).unwrap();
             let linked = store(dir.join("linked").join("device.key.age"), "pass");
             assert!(matches!(linked.load(), Err(KeyStoreError::Failed(_))));
+            std::fs::remove_dir_all(&dir).unwrap();
+        }
+
+        /// The directory is checked before anything is opened in it, so a key directory open
+        /// to others is refused on `load` whether or not a key file is in it.
+        #[test]
+        fn an_open_key_directory_is_refused_before_any_file_is_looked_for() {
+            let dir = temp_dir("open-empty");
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+            let s = store(dir.join("device.key.age"), "pass");
+            assert!(matches!(s.load(), Err(KeyStoreError::Failed(_))));
             std::fs::remove_dir_all(&dir).unwrap();
         }
 
