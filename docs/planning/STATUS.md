@@ -1,5 +1,15 @@
 # OAC status
 
+**Last updated:** 2026-10-15 (**G9, #70, slice 7 prerequisite: the live-leg daemon; Refs #70**).
+`cli/examples/live_daemon.rs` (a development tool, not the product; `oac start` is the product's daemon and refuses `OAC_SCOPE`): the same
+`Daemon::start` with an in-memory key (made for the run, kept nowhere), the in-memory transport and the test namespace given on the command line,
+so that a live leg drives a real harness without touching the user's device key. It writes JSON lines (`ready`, `accepted` with the peer, the
+process chain from the peer to the root and the harness process the daemon found, `ended`, `log` for the core's binding lines, `stopped`) and stops on
+Ctrl-C or a `stop` line. To see this the daemon's `LogSink` gained a tap (`with_tap`, `Diagnostic`): process ids and whether the peer paired, never the
+key, the working directory or anything a peer sent; `oac start` installs none. `cli/tests/live_daemon.rs` runs the example: a peer that is not a
+harness is accepted and reported unpaired, and a `stop` line ends it cleanly. Dependencies: none new (`oac-transport-memory` is already a dev-dependency).
+Not claimed: any live leg (the scenario and the runs come after slice 3).
+
 **Last updated:** 2026-10-14 (**G9, #70, slice 6: the daemon, the shim and `oac start`; Refs #70**).
 `cli/src/daemon.rs`, `relay.rs`, `shim.rs`, `commands.rs` (stacked on slice 5). `Daemon::start` takes the one-daemon lock **before** reading the key,
 loads or makes the device key (the only place key material is read), builds the identity and the authorization engine from an empty

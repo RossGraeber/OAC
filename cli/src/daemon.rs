@@ -66,12 +66,58 @@ const TICK: Duration = Duration::from_secs(1);
 /// Lines name connections, session ids and requirement ids only; they hold no message
 /// content, native id, working directory or key ([IFC-TYP-092], [SEC-KEY-004]).
 #[derive(Clone)]
-pub struct LogSink(Arc<Mutex<Box<dyn Write + Send>>>);
+pub struct LogSink {
+    writer: Arc<Mutex<Box<dyn Write + Send>>>,
+    tap: Option<Tap>,
+}
+
+/// What a connection's life looked like from the daemon, for a diagnostic tool.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Diagnostic {
+    /// A connection was accepted and its peer observed.
+    Accepted {
+        /// The harness label of the endpoint.
+        label: String,
+        /// The peer process the local IPC pinned at accept, when there is one.
+        peer: Option<peer::ProcessId>,
+        /// Whether the observation found a harness process (a pairing key); `false` means
+        /// a native signal on this connection is unpairable.
+        paired: bool,
+    },
+    /// The connection ended and the core was told.
+    Ended {
+        /// The harness label of the endpoint.
+        label: String,
+        /// The peer process, as at accept.
+        peer: Option<peer::ProcessId>,
+    },
+}
+
+/// A function that is shown each [`Diagnostic`].
+pub type Tap = Arc<dyn Fn(&Diagnostic) + Send + Sync>;
 
 impl LogSink {
     /// A sink over `writer`.
     pub fn new(writer: impl Write + Send + 'static) -> LogSink {
-        LogSink(Arc::new(Mutex::new(Box::new(writer))))
+        LogSink {
+            writer: Arc::new(Mutex::new(Box::new(writer))),
+            tap: None,
+        }
+    }
+
+    /// This sink, and `tap` shown every connection's accept and end. **For a diagnostic tool
+    /// that watches a daemon it runs itself** (the live-leg daemon in `examples/`); `oac
+    /// start` installs none. A tap is given process ids and whether the peer paired, never
+    /// the pairing key, the working directory or anything a peer sent.
+    pub fn with_tap(mut self, tap: Tap) -> LogSink {
+        self.tap = Some(tap);
+        self
+    }
+
+    fn diagnostic(&self, diagnostic: &Diagnostic) {
+        if let Some(tap) = &self.tap {
+            tap(diagnostic);
+        }
     }
 
     /// A sink that drops everything.
@@ -81,7 +127,7 @@ impl LogSink {
 
     /// Writes one line, ignoring a failing writer: a log must not stop the daemon.
     pub fn line(&self, text: &str) {
-        let mut writer = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        let mut writer = self.writer.lock().unwrap_or_else(|e| e.into_inner());
         let _ = writeln!(writer, "oac-daemon: {text}");
         let _ = writer.flush();
     }
@@ -370,6 +416,12 @@ async fn serve_connection(
 ) {
     let Accepted { stream, peer } = connection;
     let observation = observation_of(label, peer.process()).await;
+    let process = peer.process();
+    log.diagnostic(&Diagnostic::Accepted {
+        label: label.to_owned(),
+        peer: process,
+        paired: observation.pairing_key.is_some(),
+    });
     // The end of the connection can come before `connect_observed` has returned (a core that
     // takes longer than the relay's drain to take the connection): `disconnect` of a
     // connection the core has not registered yet frees nothing, and the place would leak. So
@@ -378,6 +430,8 @@ async fn serve_connection(
     let ending = pipelines.clone();
     let ending_runtime = runtime.clone();
     let ending_gate = gate.clone();
+    let ending_log = log.clone();
+    let ending_label = label.to_owned();
     let core_connection = relay::attach(
         &runtime,
         stream,
@@ -385,6 +439,10 @@ async fn serve_connection(
             // The IPC layer saw this connection end: the core frees its place (and, for an
             // attachment, ends its binding). `disconnect` blocks, so not on the runtime.
             let (pipelines, handle) = (ending.clone(), handle.clone());
+            ending_log.diagnostic(&Diagnostic::Ended {
+                label: ending_label,
+                peer: process,
+            });
             let mut state = ending_gate.lock().unwrap_or_else(|e| e.into_inner());
             if state.handed {
                 drop(state);
