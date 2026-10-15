@@ -25,7 +25,8 @@ use std::io;
 use std::os::windows::io::{FromRawHandle, OwnedHandle, RawHandle};
 
 use windows_sys::Wdk::System::Threading::{NtQueryInformationProcess, ProcessBasicInformation};
-use windows_sys::Win32::Foundation::{FILETIME, HANDLE, INVALID_HANDLE_VALUE};
+use windows_sys::Win32::Foundation::{FILETIME, HANDLE, INVALID_HANDLE_VALUE, LocalFree};
+use windows_sys::Win32::Security::Authorization::ConvertSidToStringSidW;
 use windows_sys::Win32::Security::{
     EqualSid, GetTokenInformation, TOKEN_QUERY, TOKEN_USER, TokenUser,
 };
@@ -293,4 +294,44 @@ impl ProcessTable for SystemTable {
         // SAFETY: both SIDs are inside their own live, aligned buffers.
         unsafe { EqualSid(sid_of(&self.own_user), sid_of(&theirs)) != 0 }
     }
+}
+
+/// The SID of the user this process runs as, in its string form (`S-1-5-21-...`), for naming
+/// the per-user local IPC endpoint and writing its security descriptor.
+pub fn current_user_sid_string() -> Option<String> {
+    // SAFETY: GetCurrentProcess returns a pseudo-handle that needs no closing.
+    let user = token_user(unsafe { GetCurrentProcess() })?;
+    let mut text: *mut u16 = std::ptr::null_mut();
+    // SAFETY: the SID is inside `user`; `text` is a local out-pointer.
+    if unsafe { ConvertSidToStringSidW(sid_of(&user), &mut text) } == 0 || text.is_null() {
+        return None;
+    }
+    // SAFETY: on success `text` is a NUL-terminated UTF-16 string the call allocated.
+    let result = unsafe {
+        let mut len = 0usize;
+        while *text.add(len) != 0 {
+            len += 1;
+        }
+        String::from_utf16(std::slice::from_raw_parts(text, len)).ok()
+    };
+    // SAFETY: `text` was allocated by ConvertSidToStringSidW and is freed once.
+    unsafe { LocalFree(text.cast()) };
+    result
+}
+
+/// Whether process `pid` runs as the user this process runs as. A process that cannot be
+/// opened or whose token cannot be read is not.
+pub fn process_is_current_user(pid: u32) -> bool {
+    let Some(handle) = open_process(pid, PROCESS_QUERY_LIMITED_INFORMATION) else {
+        return false;
+    };
+    let Some(theirs) = token_user(raw(&handle)) else {
+        return false;
+    };
+    // SAFETY: GetCurrentProcess returns a pseudo-handle that needs no closing.
+    let Some(own) = token_user(unsafe { GetCurrentProcess() }) else {
+        return false;
+    };
+    // SAFETY: both SIDs are inside their own live, aligned buffers.
+    unsafe { EqualSid(sid_of(&own), sid_of(&theirs)) != 0 }
 }

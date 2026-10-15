@@ -11,10 +11,13 @@
 //! - [`hook`]: the `oac hook` handler that carries a Claude Code `SessionStart` input to the
 //!   daemon as a native signal (G9, #70; `spec/bindings/mcp.md` §8.1).
 //! - [`verbs`]: the verbs that exist so far and their dispatch.
+//! - [`ipc`]: the local IPC between the daemon and its clients, with the peer authenticated by
+//!   the operating system (G9, #70).
 //! - [`peer`]: what the daemon observes about the process at the other end of a local
 //!   connection (pairing key, harness working directory) from the operating system (G9, #70).
 
 pub mod hook;
+pub mod ipc;
 pub mod keystore;
 pub mod peer;
 pub mod verbs;

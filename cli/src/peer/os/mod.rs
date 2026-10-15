@@ -20,6 +20,8 @@
 mod windows;
 #[cfg(windows)]
 pub use windows::SystemTable;
+#[cfg(windows)]
+pub use windows::{current_user_sid_string, process_is_current_user};
 
 #[cfg(target_os = "linux")]
 mod linux;

@@ -46,6 +46,8 @@ use oac_core::session_binding::{PairingKey, PeerObservation};
 mod os;
 
 pub use os::SystemTable;
+#[cfg(windows)]
+pub use os::{current_user_sid_string, process_is_current_user};
 
 /// The deepest chain of parents the walk follows. Real chains are a handful long; a longer
 /// one is a loop or not a harness's.
