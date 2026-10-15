@@ -6,7 +6,7 @@ loads or makes the device key (the only place key material is read), builds the 
 pairing store (default deny, D8), the core `Pipelines` over the given transport (the binary gives it the Zenoh peer, tests the in-memory
 one), the agreement keys, adds the adapters and serves one endpoint per harness label. Each accepted connection is observed
 (`peer::observe_process`: the harness process's key and working directory, from the operating system), relayed through a core `Connection`
-(bounded in both directions; end of stream reaches the adapter after everything the peer sent; `Pipelines::disconnect` runs when the adapter
+(inbound bounded, outbound bounded per stall, not hard: tracked in #414; end of stream reaches the adapter after everything the peer sent; `Pipelines::disconnect` runs when the adapter
 has let go or after a 5 s drain, never on a timeout of the stream) and given to `connect_observed`. A shim crash ends only its own connection.
 `Daemon::shutdown` stops the endpoints, then `Pipelines::shutdown` (withdrawals, adapters, transport), then releases the lock. `oac mcp-shim
 --harness <label>` is a byte relay between stdio and the endpoint (exit 0 when the harness closes its input, 1 when the daemon is gone or not

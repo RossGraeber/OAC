@@ -469,8 +469,11 @@ mod tests {
         // The first daemon is still starting (it holds the lock; it is not serving yet): this
         // start ended with 0, and the wait goes on until the endpoint answers.
         let mut calls = 0;
+        // Already ended when the wait begins, so that no host speed changes what is said.
+        let mut child = exits_with(0);
+        child.wait().unwrap();
         let (status, said) = waited(
-            exits_with(0),
+            child,
             || {
                 calls += 1;
                 calls > 8
