@@ -4,7 +4,8 @@
 //! `docs/planning/decisions/C2-process-model.md` §6): `start`, `mcp-shim`, and the connector
 //! `oac hook` uses. The binary wires them; the daemon itself is [`crate::daemon`], which is
 //! given everything it needs, and this module is where the real things are given to it: the
-//! Zenoh peer, the operating system's key store, the system clocks, the Claude adapter.
+//! reference transport's peer, the operating system's key store, the system clocks, the
+//! Claude adapter.
 //!
 //! **Key material is read here and nowhere near a shim or a hook handler.** Only `start`
 //! builds a key store; `mcp-shim` and `hook` connect to the daemon and nothing else.

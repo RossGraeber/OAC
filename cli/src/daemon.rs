@@ -16,7 +16,7 @@
 //! 4. adds each provider adapter, binds one IPC endpoint per harness label, and serves them.
 //!
 //! The transport, the stores, the clocks and the adapters are **given**, so a test runs the
-//! whole daemon over the in-memory transport; the `oac` binary gives it the Zenoh peer.
+//! whole daemon over the in-memory transport; the `oac` binary gives it the reference transport.
 //!
 //! **Each accepted connection** is authenticated by the local IPC (the user check), observed
 //! (`crate::peer::observe_process`: the pairing key and working directory of its harness
