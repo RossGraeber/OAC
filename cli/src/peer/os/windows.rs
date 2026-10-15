@@ -27,7 +27,8 @@ use std::io;
 use std::os::windows::io::{FromRawHandle, OwnedHandle, RawHandle};
 
 use windows_sys::Wdk::System::Threading::{NtQueryInformationProcess, ProcessBasicInformation};
-use windows_sys::Win32::Foundation::{FILETIME, HANDLE, INVALID_HANDLE_VALUE};
+use windows_sys::Win32::Foundation::{FILETIME, HANDLE, INVALID_HANDLE_VALUE, LocalFree};
+use windows_sys::Win32::Security::Authorization::ConvertSidToStringSidW;
 use windows_sys::Win32::Security::{
     EqualSid, GetTokenInformation, TOKEN_QUERY, TOKEN_USER, TokenUser,
 };
@@ -325,6 +326,39 @@ impl ProcessTable for SystemTable {
     }
 }
 
+/// The SID of the user this process runs as, in its string form (`S-1-5-21-...`), for naming
+/// the per-user local IPC endpoint and writing its security descriptor.
+pub fn current_user_sid_string() -> Option<String> {
+    // SAFETY: GetCurrentProcess returns a pseudo-handle that needs no closing.
+    let user = token_user(unsafe { GetCurrentProcess() })?;
+    let mut text: *mut u16 = std::ptr::null_mut();
+    // SAFETY: the SID is inside `user`; `text` is a local out-pointer.
+    // SAFETY: `user` came from `token_user`, so `sid_of` may read it.
+    let sid = unsafe { sid_of(&user) };
+    // SAFETY: `sid` points into `user`, which outlives the call; `text` is a local out-pointer.
+    if unsafe { ConvertSidToStringSidW(sid, &mut text) } == 0 || text.is_null() {
+        return None;
+    }
+    // SAFETY: on success `text` is a NUL-terminated UTF-16 string the call allocated.
+    let result = unsafe {
+        let mut len = 0usize;
+        while *text.add(len) != 0 {
+            len += 1;
+        }
+        String::from_utf16(std::slice::from_raw_parts(text, len)).ok()
+    };
+    // SAFETY: `text` was allocated by ConvertSidToStringSidW and is freed once.
+    unsafe { LocalFree(text.cast()) };
+    result
+}
+
+/// Whether process `pid` runs as the user this process runs as. A process that cannot be
+/// opened or whose token cannot be read is not. Prefer [`process_user_matches`] with the
+/// process's start time when it is known, so that a recycled id is not mistaken for it.
+pub fn process_is_current_user(pid: u32) -> bool {
+    process_user_matches(pid, None)
+}
+
 /// Whether process `pid` runs as the user this process runs as and, when `started` is
 /// given, is the process that started then: the creation time is read from the same handle
 /// before and after the token is read, so the answer is about that process and no other.
@@ -346,4 +380,11 @@ pub fn process_user_matches(pid: u32, started: Option<u64>) -> bool {
     // SAFETY: both SIDs are inside their own live, aligned buffers from `token_user`.
     let equal = unsafe { EqualSid(sid_of(&own), sid_of(&theirs)) != 0 };
     equal && pinned(raw(&handle))
+}
+
+/// The creation time of process `pid` (100 ns ticks since 1601), or `None` when it cannot
+/// be opened. It pins a peer: the same value later is the same process.
+pub fn process_started(pid: u32) -> Option<u64> {
+    let handle = open_process(pid, PROCESS_QUERY_LIMITED_INFORMATION)?;
+    creation_time(raw(&handle))
 }

@@ -614,6 +614,20 @@ list.
   file does not, so it is unpairable (fails closed); and a wall-clock step backwards after the
   harness started makes the Windows snapshot check refuse it until the clock catches up
   (availability only).)
+  (Dated note, 2026-10-14, G9 #70 slice 5.) **The local IPC authenticates the peer's user on both
+  platforms, and clients check the server.** Windows: a pipe owned by the user, with a protected
+  DACL of one ACE for the user, first-instance flag, remote clients rejected; the client reads
+  the pipe object's owner and DACL (not only the creator's process id, which can be reused after
+  another account hands a handle on). Evidence: `cli/tests/ipc_windows.rs` reads the DACL and
+  owner back, shows a restricted-token caller refused at open for read and for read-write, and
+  shows clients refusing three squatter descriptors. Unix: 0700 directory, 0600 socket,
+  `SO_PEERCRED`/`LOCAL_PEERCRED` uid, the client checks the directory and the server's uid.
+  **Residuals:** (1) a second real account was not available, so a pipe or socket owned by
+  another user is not made by any test (row 20 stays open as the live leg); (2) the peer's
+  process id is read at accept, not at connect, so under load a client that has exited may have
+  its id reused, and the id then names the new, same-user process, which is mis-attributed
+  rather than refused (pinned by start time, same-user, inside the same-key residual above);
+  (3) Linux could use `SO_PEERPIDFD` to hold the peer, not done.)
 - **What it invalidates.** Decision 2's OS-level peer-authentication claim
   (`docs/planning/v0.1/03-decisions-and-amendments.md` Decision 2); the zero-
   container launch story's "no extra configuration" assumption

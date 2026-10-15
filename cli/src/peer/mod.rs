@@ -59,6 +59,8 @@ use oac_core::session_binding::{PairingKey, PeerObservation};
 mod os;
 
 pub use os::SystemTable;
+#[cfg(windows)]
+pub use os::{current_user_sid_string, process_is_current_user, process_user_matches};
 
 /// The deepest chain of parents the walk follows. Real chains are a handful long; a longer
 /// one is a loop or not a harness's.
@@ -192,6 +194,34 @@ pub fn observe(table: &dyn ProcessTable, label: &str, peer_pid: u32) -> PeerObse
         harness_label,
         working_directory: table.working_directory(&harness),
     }
+}
+
+/// The start time of process `pid`, read now. A connection's peer is pinned with it at
+/// accept, so that [`observe_process`] later refuses a recycled process id.
+pub fn process_started(pid: u32) -> Option<u64> {
+    #[cfg(windows)]
+    {
+        os::process_started(pid)
+    }
+    #[cfg(not(windows))]
+    {
+        SystemTable::new()
+            .ok()?
+            .lookup(pid)
+            .map(|info| info.id.started)
+    }
+}
+
+/// [`observe`], for a peer pinned at accept: when the process now at `peer.pid` is not the
+/// one that started at `peer.started`, nothing is observed (the id was recycled).
+pub fn observe_process(table: &dyn ProcessTable, label: &str, peer: &ProcessId) -> PeerObservation {
+    if table.lookup(peer.pid).map(|info| info.id) != Some(*peer) {
+        return PeerObservation {
+            harness_label: Token::parse(label),
+            ..PeerObservation::none()
+        };
+    }
+    observe(table, label, peer.pid)
 }
 
 /// A process table given as data: for tests, and for a diagnostic that shows what a walk

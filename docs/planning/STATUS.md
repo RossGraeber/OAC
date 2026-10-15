@@ -1,5 +1,22 @@
 # OAC status
 
+**Last updated:** 2026-10-14 (**G9, #70, slice 5: the local IPC with the peer authenticated by the operating system; Refs #70**).
+`cli/src/ipc/` (stacked on slice 4): one endpoint per harness label (D2), `\\.\pipe\oac-<user SID>-<label>` on Windows and
+`<run dir>/<label>.sock` on Unix (`$XDG_RUNTIME_DIR/oac`, else `~/.oac/run`, created 0700, refused unless private).
+Windows: each pipe is created with the descriptor `D:P(A;;GA;;;<user SID>)` (one access-allowed ACE for the daemon's own user, no
+Everyone, no anonymous), `FILE_FLAG_FIRST_PIPE_INSTANCE`, remote clients rejected; after each connection the client's process is read
+(`GetNamedPipeClientProcessId`) and its token user compared to the daemon's own, pinned by its start time. Unix: directory 0700, socket
+0600, then the peer's uid from `SO_PEERCRED` (`LOCAL_PEERCRED` on macOS, via tokio's `peer_cred`) against the daemon's own. Clients check the
+server before sending a byte (a pipe name is global, so another account could create it first): the serving process must be this user's;
+Windows clients open at the identification impersonation level. One daemon per user: `DaemonLock`, the first instance of a lock pipe
+(Windows) or `flock` on `daemon.lock` (Unix); a crash leaves nothing stale. Tests: `cli/tests/ipc.rs` (11, the contract on both OSes),
+`ipc_windows.rs` (the DACL read back: exactly one ACE, for the user; and a thread with the user's SID deny-only, which a real access check
+refuses at open), `ipc_unix.rs` and `ipc_unix_env.rs` (modes, stale socket, lock, environment). Dependency features approved by the lead
+2026-10-14 (D1): `tokio` 1.53.2 `rt, net, io-util, sync, time, macros` and `windows-sys` `Win32_Security_Authorization`; `Win32_System_Pipes`
+was already approved with the `windows-sys` row of 2026-10-08 (G-7 section 3.1, 07 section 5); no new crate. Not claimed: a second real
+account on Windows (11-risks row 20 stays open: the restricted-token test is a real access check, not a second account), shim environment
+inheritance (row 19), macOS (unbuilt, D9), and the daemon that uses this (slice 6).
+
 **Last updated:** 2026-10-14 (**G9, #70, slice 4: what the daemon observes about a local peer; Refs #70**).
 `cli/src/peer/` makes the observation the core's `PeerObservation` needs ([SC-ID-121], `spec/session-channels.md`
 6.7.2) from the peer's process id: it walks the parents in the operating system's process table and takes the
