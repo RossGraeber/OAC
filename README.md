@@ -35,20 +35,19 @@ supported integration model.
 
 **What works on `main` today** (checked against the code and the merged pull requests):
 
-- `oac start` (`cli/src/commands.rs`, PR #413) runs the per-device daemon in the foreground, or with `--detach` in the background. A second start reports that a daemon is already running. The daemon takes its one-daemon lock before it reads the device key. It refuses to run while the test-isolation variable `OAC_SCOPE` is set.
-  - **Known issue:** `oac start` panics when it starts the real Zenoh transport, with "Zenoh runtime doesn't support Tokio's current thread scheduler" (reported from G9 Leg C; not reproduced in this sweep). `serve_in_foreground` builds a current-thread runtime, and the tests use the in-memory transport. The fix, a multi-thread runtime with one worker, is pending the lead's approval of Tokio's `rt-multi-thread` feature. Until it merges, `oac start` with the Zenoh transport is not usable; the in-memory transport is unaffected.
+- `oac start` (`cli/src/commands.rs`, PR #413) is **not usable** until the known-issue fix merges. It always builds the Zenoh peer transport, which panics on Tokio's current-thread runtime (reported from G9 Leg C; not reproduced in this sweep), in the foreground and with `--detach` alike. Until the fix merges, only the tests run the daemon, in-process over the in-memory transport.
 - `oac mcp-shim --harness <claude|codex>` (PR #413) is the stdio server a harness starts: a byte relay to that harness's endpoint on the daemon. With no daemon running, it says to run `oac start` and does not start one.
 - `oac hook` (`cli/src/hook.rs`, PR #405, connected to the daemon by PR #413) carries a Claude Code `SessionStart` input to the daemon as one line, as `spec/bindings/mcp.md` section 8.1 requires. Its connection stays open for at most 3 seconds, so the daemon can look up the peer. If the daemon is not running, the input is dropped with a diagnostic and the session stays unbound (fail closed).
 - A device key store (`cli/src/keystore.rs`, PRs #315 and #407) that uses the operating system's credential store, or an encrypted file where none exists.
 - Peer observation (`cli/src/peer/`, PR #410): which harness process a local connection belongs to, read from the operating system on Windows and Linux. macOS is written, not built.
 - Local IPC (`cli/src/ipc/`, PR #411): a per-user named pipe on Windows or a per-user socket on Unix, with operating-system peer authentication and a one-daemon lock.
+- Interfaces 0.9 (PR #408), and security 0.5 and session-channels 0.3 (PR #418), are in force: their spec headers read "in force".
 
 **Not on `main` yet, or not run:**
 
-- `oac status`, `oac sessions`, `oac doctor` and `oac stop` (G10). A detached Windows daemon has no console, so it writes no log and has no clean shutdown until G10; it can only be killed.
+- `oac status`, `oac sessions`, `oac doctor` and `oac stop` (G10). A detached daemon writes no log (its stderr is discarded) on every platform; on Windows it also has no clean shutdown and can only be killed; `oac stop` is G10.
 - The live legs: a Claude Code session started through `oac`, and `oac start` on a real device key, are operator runs. The daemon test runs on Windows and Linux; the live Claude Code leg has not run.
 - The Codex endpoint: there is no Codex adapter until G7 and G8.
-- Interfaces 0.9 (PR #408) is merged. Its spec headers still read "proposed; lead approval pending", which the lead must settle.
 
 **Build and test.** `rust-toolchain.toml` pins Rust 1.98.1.
 

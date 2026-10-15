@@ -35,6 +35,8 @@ style of `docs/planning/v0.1/04-architecture.md` lines 14-23, rather than repeat
 each command. (Dated note, 2026-10-02, #122: this paragraph previously ended "not a
 proven wake path", written before G2 passed.)
 
+(Dated note, 2026-10-15, after PR #413 merged: the `oac` side of `oac start` and `oac mcp-shim` now exists on `main`, and `oac hook` reaches the daemon. The statement above that no command here has run end to end still holds for the live Claude Code and Codex legs, which are the operator's; `oac status`, `oac sessions` and `oac doctor` are not built.)
+
 ---
 
 ## 1. Naming note — the pre-rename CLI block
@@ -118,8 +120,6 @@ directory-resolution crate/library is a Stage 3 implementation detail, not decid
 Precedence order, highest first: **flag > env > file > default**. An explicit CLI flag
 always wins, then an environment variable, then a config-file value, then the built-in
 default. Source: `docs/planning/decisions/C2-process-model.md` §7.
-
-(Dated note, 2026-10-15, after PR #413 merged: the `oac` side of `oac start` and `oac mcp-shim` now exists on `main`, and `oac hook` reaches the daemon. The statement above that no command here has run end to end still holds for the live Claude Code and Codex legs, which are the operator's; `oac status`, `oac sessions` and `oac doctor` are not built.)
 
 ---
 
