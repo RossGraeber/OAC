@@ -108,6 +108,21 @@ impl Write for Captured {
     }
 }
 
+/// Prints the daemon's log when the test fails.
+struct DumpOnPanic(Captured);
+
+impl Drop for DumpOnPanic {
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            eprintln!(
+                "--- daemon log ---
+{}",
+                self.0.text()
+            );
+        }
+    }
+}
+
 impl Captured {
     fn text(&self) -> String {
         String::from_utf8_lossy(&self.0.lock().unwrap()).into_owned()
@@ -148,7 +163,11 @@ impl Session {
         let work = dir.join(format!("work-{tag}"));
         std::fs::create_dir_all(&bin).unwrap();
         std::fs::create_dir_all(&work).unwrap();
-        let claude = bin.join(if cfg!(windows) { "claude.exe" } else { "claude" });
+        let claude = bin.join(if cfg!(windows) {
+            "claude.exe"
+        } else {
+            "claude"
+        });
         if !claude.exists() {
             std::fs::copy(std::env::current_exe().unwrap(), &claude).unwrap();
         }
@@ -159,7 +178,10 @@ impl Session {
             .env("OAC_SESSION_TAG", tag)
             .env("OAC_SESSION_WORK", &work)
             // Neither a shim nor a hook handler has any use for the key's passphrase.
-            .env("OAC_DEVICE_KEY_PASSPHRASE", "poisoned-passphrase-must-not-be-read")
+            .env(
+                "OAC_DEVICE_KEY_PASSPHRASE",
+                "poisoned-passphrase-must-not-be-read",
+            )
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
@@ -232,6 +254,7 @@ fn a_daemon_serves_real_sessions_isolates_a_crash_and_shuts_down_cleanly() {
     std::fs::create_dir_all(&dir).unwrap();
     let network = MemoryNetwork::new();
     let log = Captured::default();
+    let _dump = DumpOnPanic(log.clone());
     let rt = Rt::new();
 
     let scope = Scope::for_user_in(Some(&namespace)).unwrap();
@@ -267,14 +290,20 @@ fn a_daemon_serves_real_sessions_isolates_a_crash_and_shuts_down_cleanly() {
 
     // A shim crash (box 3): session B's shim is killed. Session A stays bound, with the
     // same session id, and the device keeps serving.
-    assert!(b.command("crash-shim", "SHIM-KILLED").starts_with("SHIM-KILLED"));
+    assert!(
+        b.command("crash-shim", "SHIM-KILLED")
+            .starts_with("SHIM-KILLED")
+    );
     assert_eq!(a.bound_identity(), who_a);
 
     // Clean shutdown (box 4): the endpoints are gone, the shim of the live session ends, and
     // a new shim is told the daemon is not running, and how to start it (lead decision D4).
     rt.run(daemon.shutdown());
     let ended = a.command("shim-status", "SHIM-STATUS");
-    assert_eq!(ended, "SHIM-STATUS 1", "the shim exits non-zero when the daemon ends");
+    assert_eq!(
+        ended, "SHIM-STATUS 1",
+        "the shim exits non-zero when the daemon ends"
+    );
     let out = Command::new(oac())
         .args(["mcp-shim", "--harness", "claude"])
         .env("OAC_SCOPE", &namespace)
@@ -287,7 +316,10 @@ fn a_daemon_serves_real_sessions_isolates_a_crash_and_shuts_down_cleanly() {
         "{}",
         String::from_utf8_lossy(&out.stderr)
     );
-    assert!(out.stdout.is_empty(), "a shim writes only the harness's bytes to stdout");
+    assert!(
+        out.stdout.is_empty(),
+        "a shim writes only the harness's bytes to stdout"
+    );
 
     let text = log.text();
     assert!(text.contains("serving"), "{text}");
@@ -371,7 +403,10 @@ fn session() {
                     .write_all(input.as_bytes())
                     .unwrap();
                 let out = hook.wait_with_output().unwrap();
-                assert!(out.stdout.is_empty(), "a hook handler writes nothing to stdout");
+                assert!(
+                    out.stdout.is_empty(),
+                    "a hook handler writes nothing to stdout"
+                );
                 println!("HOOK-EXIT {}", out.status.code().unwrap_or(-1));
             }
             Some("crash-shim") => {

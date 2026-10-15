@@ -111,11 +111,11 @@ pub struct Parts {
     /// The user's namespace for the IPC endpoints and the lock.
     pub scope: Scope,
     /// Where the device key lives.
-    pub key_store: Box<dyn KeyStore>,
+    pub key_store: Box<dyn KeyStore + Send>,
     /// Where pairings, grants and relay settings live; empty means default deny.
-    pub pairing_store: Box<dyn PairingStore>,
+    pub pairing_store: Box<dyn PairingStore + Send>,
     /// Where the agreement keys of a sealing transport live.
-    pub agreement_store: Box<dyn AgreementKeyStore>,
+    pub agreement_store: Box<dyn AgreementKeyStore + Send>,
     /// The device's principal (`spec/security.md` §5): an identifier token.
     pub principal: Token,
     /// The transport.

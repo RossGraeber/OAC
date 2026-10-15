@@ -2189,6 +2189,8 @@ dependencies = [
  "oac-adapter-claude",
  "oac-adapter-codex",
  "oac-core",
+ "oac-fake-claude",
+ "oac-transport-memory",
  "oac-transport-zenoh",
  "tokio",
  "windows-sys 0.61.2",

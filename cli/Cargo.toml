@@ -58,3 +58,10 @@ windows-sys = { version = "=0.61.2", default-features = false, features = [
     "Win32_System_Diagnostics_Debug",
     "Wdk_System_Threading",
 ] }
+
+[dev-dependencies]
+# The daemon's end-to-end test (tests/daemon.rs) runs the whole daemon over the in-memory
+# transport with the fake Claude Code endpoint driving real `oac` processes. Test-only: neither
+# is ever built into the `oac` binary (scripts/check-crate-deps.mjs).
+oac-transport-memory = { path = "../transports/memory" }
+oac-fake-claude = { path = "../tests/fakes/claude" }

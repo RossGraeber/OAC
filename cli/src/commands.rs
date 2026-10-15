@@ -92,13 +92,64 @@ pub fn mcp_shim(args: &[String]) -> i32 {
     })
 }
 
+/// How long a hook handler waits, after it has sent its line, for the daemon to close the
+/// connection.
+const LINGER: Duration = Duration::from_secs(3);
+
+/// The hook handler's connection. When it is dropped, after the line is written, it waits
+/// (for at most [`LINGER`]) for the daemon to close its end.
+///
+/// **Why it waits.** The daemon learns which harness process a connection belongs to by
+/// reading the operating system's process table about the peer, **after** it accepts the
+/// connection. A hook handler writes one line and has nothing more to do; if it exited at once
+/// its process could be gone before the daemon looked, and the signal could not be paired
+/// (the session would stay unbound, fail closed, but for no reason). The daemon closes a hook
+/// connection as soon as the adapter has read the line, which is after the observation, so
+/// waiting for that close keeps the handler alive exactly as long as it must be. The bound
+/// keeps a daemon that never answers from holding the session's start.
+struct Lingering(Option<crate::ipc::ClientStream>);
+
+impl Write for Lingering {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        match self.0.as_mut() {
+            Some(s) => s.write(buf),
+            None => Err(io::ErrorKind::BrokenPipe.into()),
+        }
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        match self.0.as_mut() {
+            Some(s) => s.flush(),
+            None => Ok(()),
+        }
+    }
+}
+
+impl Drop for Lingering {
+    fn drop(&mut self) {
+        let Some(mut stream) = self.0.take() else {
+            return;
+        };
+        let (done, closed) = std::sync::mpsc::channel();
+        // A blocking read on its own thread: a synchronous Windows pipe handle has no read
+        // timeout, and the handler must not wait past the bound.
+        let _ = std::thread::Builder::new()
+            .name("oac-hook-linger".into())
+            .spawn(move || {
+                let mut sink = [0u8; 64];
+                while matches!(io::Read::read(&mut stream, &mut sink), Ok(n) if n > 0) {}
+                let _ = done.send(());
+            });
+        let _ = closed.recv_timeout(LINGER);
+    }
+}
+
 /// The connector `oac hook` uses: the blocking client of the daemon's endpoint for the
 /// harness. A failure says how to start the daemon.
 pub fn hook_connector(harness: &str) -> io::Result<Box<dyn Write>> {
     let mut stderr = io::stderr();
     let scope = user_scope("hook", &mut stderr)?;
     match scope.endpoint(harness).connect_blocking() {
-        Ok(stream) => Ok(Box::new(stream)),
+        Ok(stream) => Ok(Box::new(Lingering(Some(stream)))),
         Err(ConnectError::NotRunning) => Err(io::Error::new(
             io::ErrorKind::NotFound,
             "the daemon is not running; start it with `oac start`",
@@ -135,7 +186,7 @@ pub fn start(args: &[String]) -> i32 {
 /// credential service, the encrypted file (C4 §10-§11).
 ///
 /// Reads the passphrase variable and so must run before this process starts a thread.
-fn key_store() -> Box<dyn KeyStore> {
+fn key_store() -> Box<dyn KeyStore + Send> {
     #[cfg(unix)]
     {
         // SAFETY: called from `main` before any thread (the runtime included) is started.
