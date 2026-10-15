@@ -333,12 +333,8 @@ function sourceHits(source, lang) {
       : !/^(?:createSocket|join_multicast|addMembership)/.test(name) &&
         (/^"(?:127\.0\.0\.1|\[::1\]):\d+"$/.test(call.args[0]) ||
          /^\(\s*(?:std::net::)?Ipv[46]Addr::LOCALHOST\s*,[^]+\)$/.test(call.args[0])));
-    // A Rust `bind` that opens no network socket: an AF_UNIX socket at a filesystem path
-    // (`UnixListener::bind`, `UnixDatagram::bind`), and only when the name provably is the
-    // standard or tokio type (see `unixSocketBind`).
-    const noNetwork = lang === 'rs' && name === 'bind' && call && unixSocketBind(view.code, m.index, call);
     hits.push({ rule, offset: m.index, end: call?.end ?? view.code.length,
-      line: source.slice(0, m.index).split('\n').length - 1, safe: !!loopback || !!noNetwork, listener: true, callText: view.text.slice(m.index, call?.end ?? view.code.length).trim() });
+      line: source.slice(0, m.index).split('\n').length - 1, safe: !!loopback, listener: true, callText: view.text.slice(m.index, call?.end ?? view.code.length).trim() });
   }
   const multicast = new RegExp(P('\\b22[4-9]\\.\\d+\\.\\d+\\.\\d+\\b'), 'g');
   for (const m of view.text.matchAll(multicast)) add('multicast', m.index, m.index + m[0].length);
@@ -383,6 +379,12 @@ export const OPT_IN = [
 
 // Exact trimmed lines that match a rule but listen on nothing beyond loopback.
 export const REVIEWED = [
+  // AF_UNIX stream sockets at a filesystem path in the user's private run directory (the
+  // daemon's local IPC, G9): nothing a network can reach. Reviewed as exact lines, not by the
+  // name of the type: a look-alike name, an alias or a renamed crate would defeat any rule
+  // that keyed on the name.
+  { path: "cli/src/ipc/unix.rs", rule: "rust-bind", line: P("match UnixListener::bi", "nd(&path) {"), why: "tokio UnixListener bound at the daemon's socket path in its private 0700 run directory; AF_UNIX, no network socket" },
+  { path: "cli/tests/ipc_unix.rs", rule: "rust-bind", line: P("drop(UnixListener::bi", "nd(&socket).unwrap());"), why: "std UnixListener bound at a test socket path to leave a stale socket file; AF_UNIX, no network socket" },
   { path: "adapters/claude/tests/channel.rs", rule: "rust-bind", line: P("while pipes.bind(&attachment, &re", "cord, None).is_err() {"), why: "Pipelines attachment binding in the final-closure contention regression; no socket" },
   { path: "core/src/session_binding.rs", rule: "rust-bind", line: P("Some(StartKind::Transition", ") => bind(if any_differs {"), why: "Local BindingDecision closure; only constructs a session-binding decision, no socket" },
   { path: "core/src/session_binding.rs", rule: "rust-bind", line: P("bind(Vec", "::new())"), why: "Local BindingDecision closure; no socket" },
@@ -439,35 +441,6 @@ export const REVIEWED = [
   { path: "tests/security/tests/receipts.rs", rule: 'rust-bind', line: "alice.engine.bind(&sid(2), &bob.key_id());", why: 'Session/key or attachment binding in the authorization engine or Pipelines; no socket is opened' },
   { path: "transports/memory/tests/pipelines.rs", rule: 'rust-bind', line: "pipes.bind(attachment, &record, None).ok()", why: 'Session/key or attachment binding in the authorization engine or Pipelines; no socket is opened' },
 ];
-
-// Whether the Rust `bind` call at `at` is the AF_UNIX socket bind of the standard library or
-// tokio, which listens on a filesystem path and on nothing a network can reach. A look-alike
-// name must not be enough, or `use TcpListener as UnixListener` would hide a LAN listener:
-//   (a) a first argument that is a string literal naming an address (host:port, an IP) never
-//       qualifies;
-//   (b) a file that renames something to, or defines, a Unix socket type name never
-//       qualifies (a local type or an alias can stand for anything);
-//   (c) the type must be written fully qualified from `tokio::net` or `std::os::unix::net`,
-//       or imported from one of them in this file.
-function unixSocketBind(code, at, call) {
-  const before = code.slice(0, at);
-  const m = /((?:::\s*)?(?:[A-Za-z_]\w*\s*::\s*)*)(Unix(?:Listener|Datagram))\s*::\s*$/.exec(before);
-  if (!m) return false;
-  const first = (call.args[0] ?? '').trim();
-  const literal = /^r?#*"([\s\S]*)"/.exec(first);
-  if (literal && (/\d+\.\d+\.\d+\.\d+/.test(literal[1]) || /:\d+/.test(literal[1]) || /^\[?[0-9a-fA-F:]*:[0-9a-fA-F:]*\]?/.test(literal[1]) && literal[1].includes(':'))) return false;
-  const type = m[2];
-  if (/\bas\s+Unix(?:Listener|Datagram)\b/.test(code)) return false;
-  if (/\b(?:struct|type|enum|trait|union|mod|macro_rules!?)\s+Unix(?:Listener|Datagram)\b/.test(code)) return false;
-  const prefix = m[1].replace(/\s+/g, '').replace(/^::/, '');
-  if (prefix === 'tokio::net::' || prefix === 'std::os::unix::net::') return true;
-  const imports = (from) => new RegExp(`\\buse\\s+${from}::(?:\\{[^}]*\\b${type}\\b[^}]*\\}|${type}\\b)`).test(code);
-  const fromStd = imports('std::os::unix::net');
-  const fromTokio = imports('tokio::net');
-  if (prefix === '') return fromStd || fromTokio;
-  if (prefix === 'net::') return /\buse\s+(?:std::os::unix::net|tokio::net)\s*;/.test(code);
-  return false;
-}
 
 // ---- git index ------------------------------------------------------------------------
 
@@ -649,12 +622,7 @@ const BASE = {
     'set("scouting/multicast/enable', 'd", "false".into());\n',
     '// a comment naming 0.0.0', '.0 and tcp/0.0.0', '.0:7447 is not code\n',
     'let p = tmp.join("ws/vend/x");\n',
-    // AF_UNIX at a filesystem path: no network socket.
-    'let u = tokio::net::UnixListener::bind(&path).unwrap();\n',
-    'let v = std::os::unix::net::UnixListener::bind(path)?;\n',
   ),
-  'transports/x/tests/unix_ok.rs': P('use std::os::unix::net::{UnixListener, UnixStream};\nlet l = UnixListener::bin', 'd(&path).unwrap();\n'),
-  'transports/x/tests/unix_ok2.rs': P('use tokio::net::UnixListener;\nlet l = UnixListener::bin', 'd(&path).unwrap();\n'),
   'tests/fakes/x/server.mjs': P("server.liste", "n(0, '127.0.0.1', () => {});\nsrv.liste", 'n(0, "::1");\nconst f = g.call(this);\n'),
   'tools/herdr/x.mjs': P('// http.liste', 'n(8080) in a comment\n'),
   'docs/notes.md': P('listen on 0.0.0', '.0\n'),
@@ -674,6 +642,10 @@ const CASES = [
   ['rust-bind: a local type named like the Unix type', { 'cli/tests/a4.rs': P('mod m { pub struct UnixListener; impl UnixListener { pub fn bin', 'd(_a: &str) {} } }\nfn f() { m::UnixListener::bin', 'd("10.0.0.1:80"); }\n') }, ['rust-bind']],
   ['rust-bind: a Unix-named bind with an address literal never qualifies', { 'cli/tests/a5.rs': P('use std::os::unix::net::UnixListener;\nlet l = UnixListener::bin', 'd("0.0.0', '.0:80").unwrap();\n') }, ['unspecified', 'rust-bind']],
   ['rust-bind: a Unix-named bind with nothing imported from std or tokio', { 'cli/tests/a6.rs': P('let l = UnixListener::bin', 'd(path).unwrap();\n') }, ['rust-bind']],
+  ['rust-bind: a type alias in another module and a nested use', { 'cli/tests/p1.rs': P('mod net { pub use std::net::UdpSocket as UnixDatagram; }\nmod m { use super::net::UnixDatagram; pub fn f() { UnixDatagram::bin', 'd("192.168.1.5:0").unwrap(); } }\n') }, ['rust-bind']],
+  ['rust-bind: a use inside the function', { 'cli/tests/p2.rs': P('fn f() { use std::net::TcpListener as UnixListener; let l = UnixListener::bin', 'd(addr).unwrap(); }\n') }, ['rust-bind']],
+  ['rust-bind: a crate renamed as tokio', { 'cli/tests/p4.rs': P('use crate::faketokio as tokio;\nfn f() { let l = tokio::net::UnixListener::bin', 'd(addr); }\n') }, ['rust-bind']],
+  ['rust-bind: a bind generated by a macro', { 'cli/tests/p6.rs': P('macro_rules! m { () => { UnixListener::bin', 'd(a) } }\n') }, ['rust-bind']],
   ['rust-bind: a LAN address', { 'transports/x/tests/y.rs': P('let s = UdpSocket::bin', 'd("192.168.1.5:0").unwrap();\n') }, ['rust-bind']],
   ['endpoint: a Zenoh locator on a LAN address', { 'transports/x/src/c.rs': P('set("listen/endpoints", format!(r#"["tc', 'p/{lan}:0"]"#));\n') }, ['endpoint']],
   ['endpoint: a QUIC locator on localhost', { 'transports/x/src/c.rs': P('let e = "qui', 'c/localhost:7447";\n') }, ['endpoint']],
