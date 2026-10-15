@@ -7,7 +7,7 @@ runtime, and the transport refuses any thread inside one (`spawn_blocking` threa
 the tokio feature `rt-multi-thread` for `cli/` (approved by the lead 2026-10-15; already enabled for the transport crate, `Cargo.lock` unchanged; 07 section 5 updated). Regression test
 `cli/tests/start_runtime.rs`: the daemon starts and stops over the real transport on loopback (an in-memory key, a test namespace, a claimed port) on `daemon_runtime()`, and a control shows the
 current-thread runtime panics with the transport's message. Leg C record, on the fixed build (ff63f4f plus this change), Windows, the real `oac start`: serves in about 6 s
-(`oac start: the daemon is running (\.\pipe\oac-<user SID>-claude)`); a probe shim connects (exit 0); a second `oac start` prints "the daemon is already running", exit 0, and there is one `oac.exe`
+(`oac start: the daemon is running (\\.\pipe\oac-<user SID>-claude)`); a probe shim connects (exit 0); a second `oac start` prints "the daemon is already running", exit 0, and there is one `oac.exe`
 process; Ctrl-C stops the foreground daemon with exit 0 in 0.3 s after "oac start: stopping" and the endpoint is gone; `oac start --detach` returns exit 0 after 4.8 s, the detached daemon is one
 process, and killing only that pid leaves no endpoint (no `oac stop` yet: the known G10 residual, so no clean shutdown for a detached daemon). The device key was made in the Credential Manager
 (target `device-key.io.github.rossgraeber.oac`; never read). The known-issue notes in README, STATUS and 08 about `oac start` can be removed once this merges.
