@@ -58,7 +58,9 @@ impl ProcessTable for SystemTable {
         // The name the process started under is the kernel's `comm`, set from the last
         // component of the path `execve` was given: a symlink keeps its own name (the native
         // install is `claude -> .../versions/2.1.287`, and its `comm` is `claude`). The
-        // resolved name is read too, from `/proc/<pid>/exe`, which follows links.
+        // resolved name is read too, from `/proc/<pid>/exe`, which follows links. To confirm
+        // on the first live Linux leg: a Claude Code that sets its process title (libuv uses
+        // `PR_SET_NAME`) may not keep `comm` `claude`; it would then be unpairable.
         let resolved_image = fs::read_link(format!("/proc/{pid}/exe"))
             .ok()
             .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()));
