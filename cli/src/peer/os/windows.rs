@@ -333,9 +333,9 @@ pub fn current_user_sid_string() -> Option<String> {
     let user = token_user(unsafe { GetCurrentProcess() })?;
     let mut text: *mut u16 = std::ptr::null_mut();
     // SAFETY: the SID is inside `user`; `text` is a local out-pointer.
-    // SAFETY: `user` came from `token_user`.
+    // SAFETY: `user` came from `token_user`, so `sid_of` may read it.
     let sid = unsafe { sid_of(&user) };
-    // SAFETY: the SID is inside `user`.
+    // SAFETY: `sid` points into `user`, which outlives the call; `text` is a local out-pointer.
     if unsafe { ConvertSidToStringSidW(sid, &mut text) } == 0 || text.is_null() {
         return None;
     }

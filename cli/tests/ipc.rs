@@ -28,8 +28,9 @@ async fn accept_connection(listener: &mut oac_cli::ipc::Listener) -> Accepted {
 #[tokio::test]
 async fn bytes_flow_both_ways_and_the_peer_is_identified_by_the_system() {
     let scope = scope();
+    let lock = scope.acquire_lock().await.unwrap();
     let endpoint = scope.endpoint("claude");
-    let mut listener = endpoint.bind().await.unwrap();
+    let mut listener = endpoint.serve(&lock).await.unwrap();
 
     // A blocking client (the hook handler's kind).
     let ep = endpoint.clone();
@@ -61,8 +62,9 @@ async fn bytes_flow_both_ways_and_the_peer_is_identified_by_the_system() {
 #[tokio::test]
 async fn an_async_client_reads_and_writes_at_once() {
     let scope = scope();
+    let lock = scope.acquire_lock().await.unwrap();
     let endpoint = scope.endpoint("codex");
-    let mut listener = endpoint.bind().await.unwrap();
+    let mut listener = endpoint.serve(&lock).await.unwrap();
     let mut client = endpoint.connect().await.unwrap();
     let accepted = accept_connection(&mut listener).await;
     assert_eq!(accepted.peer.pid, Some(std::process::id()));
@@ -89,8 +91,9 @@ async fn an_async_client_reads_and_writes_at_once() {
 #[tokio::test]
 async fn the_end_of_a_connection_is_seen_from_both_sides() {
     let scope = scope();
+    let lock = scope.acquire_lock().await.unwrap();
     let endpoint = scope.endpoint("claude");
-    let mut listener = endpoint.bind().await.unwrap();
+    let mut listener = endpoint.serve(&lock).await.unwrap();
 
     // The client goes first: the daemon reads end of stream (the shim crash and clean exit
     // of C2 §5 look the same).
@@ -115,8 +118,9 @@ async fn the_end_of_a_connection_is_seen_from_both_sides() {
 #[tokio::test]
 async fn the_name_stays_served_between_connections() {
     let scope = scope();
+    let lock = scope.acquire_lock().await.unwrap();
     let endpoint = scope.endpoint("claude");
-    let mut listener = endpoint.bind().await.unwrap();
+    let mut listener = endpoint.serve(&lock).await.unwrap();
     // Twenty clients at once, before any is accepted: none finds the endpoint missing.
     let mut clients = Vec::new();
     for i in 0..20u8 {
@@ -148,16 +152,17 @@ async fn the_name_stays_served_between_connections() {
 #[tokio::test]
 async fn a_second_listener_on_the_same_endpoint_is_refused_until_the_first_ends() {
     let scope = scope();
+    let lock = scope.acquire_lock().await.unwrap();
     let endpoint = scope.endpoint("claude");
-    let first = endpoint.bind().await.unwrap();
+    let first = endpoint.serve(&lock).await.unwrap();
     assert!(matches!(
-        endpoint.bind().await,
+        endpoint.serve(&lock).await,
         Err(BindError::AlreadyRunning)
     ));
     // Another harness's endpoint is its own.
-    let other = scope.endpoint("codex").bind().await.unwrap();
+    let other = scope.endpoint("codex").serve(&lock).await.unwrap();
     drop(first);
-    let again = endpoint.bind().await.expect("the name is free again");
+    let again = endpoint.serve(&lock).await.expect("the name is free again");
     drop((other, again));
 }
 
@@ -170,7 +175,7 @@ async fn the_daemon_lock_is_held_by_one_holder_at_a_time() {
         Err(BindError::AlreadyRunning)
     ));
     // It does not stand in the way of the endpoints it guards.
-    let listener = scope.endpoint("claude").bind().await.unwrap();
+    let listener = scope.endpoint("claude").serve(&lock).await.unwrap();
     // A clone of the scope is the same user's namespace: the same lock.
     assert!(matches!(
         scope.clone().acquire_lock().await,
@@ -186,6 +191,7 @@ async fn the_daemon_lock_is_held_by_one_holder_at_a_time() {
 #[tokio::test]
 async fn a_client_of_a_daemon_that_is_not_running_is_told_so() {
     let scope = scope();
+    let lock = scope.acquire_lock().await.unwrap();
     let endpoint = scope.endpoint("claude");
     assert!(matches!(
         endpoint.connect().await,
@@ -195,15 +201,16 @@ async fn a_client_of_a_daemon_that_is_not_running_is_told_so() {
     let blocking = tokio::task::spawn_blocking(move || ep.connect_blocking().err()).await;
     assert!(matches!(blocking.unwrap(), Some(ConnectError::NotRunning)));
     // And once it runs, the same clients connect.
-    let _listener = endpoint.bind().await.unwrap();
+    let _listener = endpoint.serve(&lock).await.unwrap();
     assert!(endpoint.connect().await.is_ok());
 }
 
 #[tokio::test]
 async fn a_client_that_connects_and_leaves_does_not_stop_the_listener() {
     let scope = scope();
+    let lock = scope.acquire_lock().await.unwrap();
     let endpoint = scope.endpoint("claude");
-    let mut listener = endpoint.bind().await.unwrap();
+    let mut listener = endpoint.serve(&lock).await.unwrap();
     for _ in 0..3 {
         drop(endpoint.connect().await.unwrap());
         let mut accepted = accept_connection(&mut listener).await;

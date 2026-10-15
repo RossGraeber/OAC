@@ -33,8 +33,9 @@ fn dir_of(endpoint: &oac_cli::ipc::Endpoint) -> PathBuf {
 #[tokio::test]
 async fn the_run_directory_is_0700_and_the_socket_0600() {
     let scope = Scope::unique().unwrap();
+    let lock = scope.acquire_lock().await.unwrap();
     let endpoint = scope.endpoint("claude");
-    let _listener = endpoint.bind().await.unwrap();
+    let _listener = endpoint.serve(&lock).await.unwrap();
     let dir = dir_of(&endpoint);
     let socket = PathBuf::from(endpoint.display_name());
     assert_eq!(mode(&dir), 0o700);
@@ -54,8 +55,9 @@ async fn the_run_directory_is_0700_and_the_socket_0600() {
 #[tokio::test]
 async fn a_run_directory_other_users_can_enter_is_refused_by_the_daemon_and_the_clients() {
     let scope = Scope::unique().unwrap();
+    let lock = scope.acquire_lock().await.unwrap();
     let endpoint = scope.endpoint("claude");
-    let listener = endpoint.bind().await.unwrap();
+    let listener = endpoint.serve(&lock).await.unwrap();
     let dir = dir_of(&endpoint);
 
     fs::set_permissions(&dir, fs::Permissions::from_mode(0o755)).unwrap();
@@ -69,34 +71,36 @@ async fn a_run_directory_other_users_can_enter_is_refused_by_the_daemon_and_the_
         .await
         .unwrap();
     assert!(matches!(blocking, Some(ConnectError::Foreign)));
-    // A daemon does not bind in one, nor take the lock there.
-    drop(listener);
-    match scope.endpoint("codex").bind().await {
-        Err(BindError::Io(e)) => assert_eq!(e.kind(), std::io::ErrorKind::PermissionDenied),
-        other => panic!("{:?}", other.err()),
-    }
+    // A daemon does not take the lock there, so it cannot serve there either (serving takes
+    // the lock).
+    drop((listener, lock));
     match scope.acquire_lock().await {
         Err(BindError::Io(e)) => assert_eq!(e.kind(), std::io::ErrorKind::PermissionDenied),
         other => panic!("{:?}", other.err()),
     }
     fs::set_permissions(&dir, fs::Permissions::from_mode(0o700)).unwrap();
-    assert!(scope.endpoint("codex").bind().await.is_ok());
+    let lock = scope.acquire_lock().await.unwrap();
+    assert!(scope.endpoint("codex").serve(&lock).await.is_ok());
 }
 
 #[tokio::test]
 async fn a_stale_socket_file_does_not_stop_a_new_daemon_but_a_live_one_does() {
     let scope = Scope::unique().unwrap();
+    let lock = scope.acquire_lock().await.unwrap();
     let endpoint = scope.endpoint("claude");
     let socket = PathBuf::from(endpoint.display_name());
 
     // A daemon that died without cleaning up: the socket file stays, nobody listens.
     drop(UnixListener::bind(&socket).unwrap());
     assert!(socket.exists());
-    let listener = endpoint.bind().await.expect("a stale socket is replaced");
+    let listener = endpoint
+        .serve(&lock)
+        .await
+        .expect("a stale socket is replaced");
     assert_eq!(mode(&socket), 0o600);
     // A live one is not.
     assert!(matches!(
-        endpoint.bind().await,
+        endpoint.serve(&lock).await,
         Err(BindError::AlreadyRunning)
     ));
     // Dropping the listener removes its socket file (a clean shutdown leaves nothing).
@@ -125,12 +129,13 @@ async fn the_lock_file_is_private_and_a_crash_leaves_nothing_stale() {
 async fn a_socket_path_too_long_for_the_system_is_refused_with_a_reason() {
     // The scope's directory plus a label that fits `label_is_valid` but not `sun_path`.
     let scope = Scope::unique().unwrap();
+    let lock = scope.acquire_lock().await.unwrap();
     let long = "a".repeat(32);
     let dir = dir_of(&scope.endpoint("claude"));
     if dir.as_os_str().len() + long.len() + 6 <= 100 {
         return; // The path fits here; the check has nothing to refuse.
     }
-    match scope.endpoint(&long).bind().await {
+    match scope.endpoint(&long).serve(&lock).await {
         Err(BindError::Io(e)) => assert_eq!(e.kind(), std::io::ErrorKind::InvalidInput),
         other => panic!("{:?}", other.err()),
     }

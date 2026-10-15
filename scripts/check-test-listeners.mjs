@@ -333,8 +333,12 @@ function sourceHits(source, lang) {
       : !/^(?:createSocket|join_multicast|addMembership)/.test(name) &&
         (/^"(?:127\.0\.0\.1|\[::1\]):\d+"$/.test(call.args[0]) ||
          /^\(\s*(?:std::net::)?Ipv[46]Addr::LOCALHOST\s*,[^]+\)$/.test(call.args[0])));
+    // A Rust `bind` that opens no network socket: an AF_UNIX socket at a filesystem path
+    // (`UnixListener::bind`, `UnixDatagram::bind`).
+    const noNetwork = lang === 'rs' && name === 'bind' && call &&
+      /\bUnix(?:Listener|Datagram)\s*::\s*$/.test(view.code.slice(0, m.index));
     hits.push({ rule, offset: m.index, end: call?.end ?? view.code.length,
-      line: source.slice(0, m.index).split('\n').length - 1, safe: !!loopback, listener: true, callText: view.text.slice(m.index, call?.end ?? view.code.length).trim() });
+      line: source.slice(0, m.index).split('\n').length - 1, safe: !!loopback || !!noNetwork, listener: true, callText: view.text.slice(m.index, call?.end ?? view.code.length).trim() });
   }
   const multicast = new RegExp(P('\\b22[4-9]\\.\\d+\\.\\d+\\.\\d+\\b'), 'g');
   for (const m of view.text.matchAll(multicast)) add('multicast', m.index, m.index + m[0].length);
@@ -616,6 +620,9 @@ const BASE = {
     'set("scouting/multicast/enable', 'd", "false".into());\n',
     '// a comment naming 0.0.0', '.0 and tcp/0.0.0', '.0:7447 is not code\n',
     'let p = tmp.join("ws/vend/x");\n',
+    // AF_UNIX at a filesystem path: no network socket.
+    'let u = tokio::net::UnixListener::bind(&path).unwrap();\n',
+    'let v = std::os::unix::net::UnixListener::bind(path)?;\n',
   ),
   'tests/fakes/x/server.mjs': P("server.liste", "n(0, '127.0.0.1', () => {});\nsrv.liste", 'n(0, "::1");\nconst f = g.call(this);\n'),
   'tools/herdr/x.mjs': P('// http.liste', 'n(8080) in a comment\n'),
@@ -629,6 +636,7 @@ const CASES = [
   ['unspecified: a Python bind on the unspecified address', { 'scripts/p.py': P("s.bind(('0.0.0", ".0', 0))\n") }, ['unspecified', 'rust-bind']],
   ['rust-bind: localhost depends on name resolution', { 'cli/tests/x.rs': P('let l = TcpListener::bin', 'd("localhost:0").unwrap();\n') }, ['rust-bind']],
   ['rust-bind: an address held in a variable', { 'adapters/a/src/x.rs': P('let l = tokio::net::TcpListener::bin', 'd(addr).await?;\n') }, ['rust-bind']],
+  ['rust-bind: only the Unix socket types are exempt; any other bind still needs a loopback address', { 'cli/tests/u.rs': P('let l = tokio::net::TcpListener::bin', 'd(path).await?;\nlet m = UnixListenerLike::bin', 'd(path);\nlet n = MyListener::bin', 'd(1, 2);\n') }, ['rust-bind', 'rust-bind', 'rust-bind']],
   ['rust-bind: a LAN address', { 'transports/x/tests/y.rs': P('let s = UdpSocket::bin', 'd("192.168.1.5:0").unwrap();\n') }, ['rust-bind']],
   ['endpoint: a Zenoh locator on a LAN address', { 'transports/x/src/c.rs': P('set("listen/endpoints", format!(r#"["tc', 'p/{lan}:0"]"#));\n') }, ['endpoint']],
   ['endpoint: a QUIC locator on localhost', { 'transports/x/src/c.rs': P('let e = "qui', 'c/localhost:7447";\n') }, ['endpoint']],

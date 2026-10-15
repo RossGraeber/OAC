@@ -163,7 +163,7 @@ pub struct Listener {
 }
 
 impl Listener {
-    pub async fn bind(scope: &Scope, label: &str) -> Result<Listener, BindError> {
+    pub async fn serve(scope: &Scope, label: &str) -> Result<Listener, BindError> {
         let path = scope.socket(label)?;
         // The directory is checked again: it is what keeps other users away from the socket.
         check_private(&scope.dir)?;
@@ -237,11 +237,13 @@ pub struct Lock {
 impl Lock {
     pub async fn acquire(scope: &Scope) -> Result<Lock, BindError> {
         check_private(&scope.dir)?;
+        // Not through a link: the directory is private, but a link left in it is refused.
         let file = OpenOptions::new()
             .create(true)
             .truncate(false)
             .write(true)
             .mode(0o600)
+            .custom_flags(libc::O_NOFOLLOW)
             .open(scope.dir.join("daemon.lock"))?;
         // SAFETY: `file` is an open descriptor owned by this scope.
         if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
