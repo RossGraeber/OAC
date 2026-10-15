@@ -608,7 +608,12 @@ list.
   or started as `claude` becomes a harness with a key and a working directory of its own (on
   Linux the name is `comm`, which a process sets itself), which gives it nothing beyond what the
   user's own processes already hold; (4) the Windows working directory relies on the 64-bit PEB
-  layout, same-user only, and fails closed.)
+  layout, same-user only, and fails closed; (5) **to confirm on the first live legs:** on Linux a
+  native Claude Code that sets its process title (libuv uses `PR_SET_NAME`) may no longer have
+  `comm` `claude`, in which case only its resolved executable name could match, and a version
+  file does not, so it is unpairable (fails closed); and a wall-clock step backwards after the
+  harness started makes the Windows snapshot check refuse it until the clock catches up
+  (availability only).)
 - **What it invalidates.** Decision 2's OS-level peer-authentication claim
   (`docs/planning/v0.1/03-decisions-and-amendments.md` Decision 2); the zero-
   container launch story's "no extra configuration" assumption
