@@ -101,7 +101,8 @@ pub async fn relay(
 
     let to_daemon = async move {
         while let Some(chunk) = in_rx.recv().await {
-            if daemon_writes.write_all(&chunk).await.is_err() || daemon_writes.flush().await.is_err()
+            if daemon_writes.write_all(&chunk).await.is_err()
+                || daemon_writes.flush().await.is_err()
             {
                 return;
             }
@@ -173,7 +174,7 @@ mod tests {
     }
 
     /// Bytes that are not text, and no frame: the relay copies them as they are.
-    const SAMPLE: &[u8] = b"{\"jsonrpc\":\"2.0\","id\":0}\n  odd \x00\xff bytes";
+    const SAMPLE: &[u8] = b"{\"id\":0}\n  odd \x00\xff bytes";
 
     #[test]
     fn input_goes_to_the_daemon_unchanged_and_the_end_of_input_ends_the_relay() {

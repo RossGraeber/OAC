@@ -243,7 +243,7 @@ impl Daemon {
         for (label, adapter) in harnesses {
             let id = pipelines.add_adapter(adapter);
             let endpoint = scope.endpoint(&label);
-            let listener = match endpoint.bind().await {
+            let listener = match endpoint.serve(&lock).await {
                 Ok(l) => l,
                 Err(e) => {
                     let _ = stop.send(true);
