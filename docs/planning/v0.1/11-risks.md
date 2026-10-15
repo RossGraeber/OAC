@@ -628,6 +628,15 @@ list.
   its id reused, and the id then names the new, same-user process, which is mis-attributed
   rather than refused (pinned by start time, same-user, inside the same-key residual above);
   (3) Linux could use `SO_PEERPIDFD` to hold the peer, not done.)
+  (Dated note, 2026-10-14, G9 #70 slice 6.) **The daemon, the shim and the hook handler run end to end on Windows**
+  (`cli/tests/daemon.rs`, real processes and the real process-table observation). Two findings the test made, both closed in code: (1) a
+  hook handler that writes its line and exits at once can be gone before the daemon observes it (the observation reads the process table after
+  accept), which would leave the session unbound; the handler's connection now lingers, bounded at 3 s, until the daemon closes it, which the
+  adapter does after reading the line; (2) `Pipelines::disconnect` removes what the core observed about a connection, so calling it at the
+  stream's end would lose the key of a native signal the adapter has not reported yet; the relay calls it when the adapter has let go (or after a
+  5 s drain). Residuals: a hook handler that cannot reach the daemon within its bound still exits 0 (the signal is lost and the session stays
+  unbound, fail closed); `OAC_SCOPE` is a test-isolation namespace segment that changes no check (a same-user process can already pick any name);
+  environment inheritance of `OAC_SCOPE`/`XDG_RUNTIME_DIR` into a shim started by a real harness (row 19) is still the live leg.)
 - **What it invalidates.** Decision 2's OS-level peer-authentication claim
   (`docs/planning/v0.1/03-decisions-and-amendments.md` Decision 2); the zero-
   container launch story's "no extra configuration" assumption
