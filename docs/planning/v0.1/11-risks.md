@@ -589,6 +589,31 @@ list.
     not it names a connection, is unpairable and fails closed at its decision
     (SC-ID-125). It takes a place only while it is queued behind a decision in progress.
     Signals that name no connection share one holder there.)
+  (Dated note, 2026-10-14, G9 #70 slice 4, lead decisions D3 and D5.) **The pairing key is
+  designed and observed on Windows.** The daemon takes the nearest ancestor of a connection's
+  peer process whose executable is the endpoint's harness (`claude`/`claude.exe`, `codex`), keys
+  on its process id and start time, and reads its working directory from the operating system
+  (`cli/src/peer/`). A real-process chain on Windows (a copy named `claude`, a shell, the peer)
+  pairs two peers on one key and one working directory (`cli/tests/peer_real.rs`). Not yet
+  established: the macOS calls (written against the `libc` symbols, not run: D9), a live Claude
+  Code (whether the MCP shim is a direct child or shell-wrapped, row 58), and the local IPC that
+  supplies the peer process id (the next slice). **Residuals, accepted by the lead:** (1) a Claude
+  Code that is not a `claude` executable, such as `node cli.js`, matches nothing and is
+  unpairable, so its sessions stay unbound (availability only); (2) the same-key denial of
+  service above is accepted for v0.1 and is open to **any same-user process**, not only the
+  harness's descendants (on Windows any same-user process can start a child whose parent is the
+  real `claude.exe`, `PROC_THREAD_ATTRIBUTE_PARENT_PROCESS`); no refusal based on a shell between
+  the peer and the harness is added, since it would also reject legitimate launcher chains;
+  (3) **name matching authenticates nothing against same-user code**: any same-user program named
+  or started as `claude` becomes a harness with a key and a working directory of its own (on
+  Linux the name is `comm`, which a process sets itself), which gives it nothing beyond what the
+  user's own processes already hold; (4) the Windows working directory relies on the 64-bit PEB
+  layout, same-user only, and fails closed; (5) **to confirm on the first live legs:** on Linux a
+  native Claude Code that sets its process title (libuv uses `PR_SET_NAME`) may no longer have
+  `comm` `claude`, in which case only its resolved executable name could match, and a version
+  file does not, so it is unpairable (fails closed); and a wall-clock step backwards after the
+  harness started makes the Windows snapshot check refuse it until the clock catches up
+  (availability only).)
 - **What it invalidates.** Decision 2's OS-level peer-authentication claim
   (`docs/planning/v0.1/03-decisions-and-amendments.md` Decision 2); the zero-
   container launch story's "no extra configuration" assumption

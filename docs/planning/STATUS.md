@@ -1,5 +1,26 @@
 # OAC status
 
+**Last updated:** 2026-10-14 (**G9, #70, slice 4: what the daemon observes about a local peer; Refs #70**).
+`cli/src/peer/` makes the observation the core's `PeerObservation` needs ([SC-ID-121], `spec/session-channels.md`
+6.7.2) from the peer's process id: it walks the parents in the operating system's process table and takes the
+nearest ancestor whose executable is the endpoint's harness (`claude`/`claude.exe`, `codex`; any case, with or without
+`.exe`) as the harness process (lead decision D3, 2026-10-14). The pairing key is that process's id and start time
+(a parent younger than its child is a recycled id and ends the walk; a depth bound and loop checks apply); the working
+directory is that process's, from the operating system; the harness process must be the daemon's user's. Anything unobserved is
+`None`: no key leaves a native signal unpairable, no directory means nothing binds (fail closed). A Claude Code started as
+`node cli.js` matches nothing and is unpairable (D3). The process tables: Windows (Toolhelp snapshot, process times, token
+SID, working directory from the PEB with `ReadProcessMemory`, 64-bit layout, same-user only, `None` for a 32-bit process),
+Linux (`/proc`) and macOS (`proc_pidinfo`, written against the `libc` 0.2.190 symbols and not built or run here: no Mac, residual
+D9). Dependency features approved by the lead 2026-10-14 (D1): `windows-sys` 0.61.2 gains `Win32_Security`,
+`Win32_System_Threading`, `Win32_System_Diagnostics_ToolHelp`, `Win32_System_Diagnostics_Debug`, `Wdk_System_Threading` for
+`cli/` on Windows; no new crate, and `Cargo.lock` gains only the `oac-cli` to `windows-sys` edge. Evidence: the real-process
+chain test (`cli/tests/peer_real.rs`: a copy of the test binary named `claude`, with its own working directory, a shell, then the
+peer, twice) passes on Windows; the process tree of a running Claude Code on this machine is `claude.exe` (app) -> `claude.exe` (CLI)
+-> `cmd.exe` -> command. Not claimed: the local IPC that supplies the peer process id (slice 5), the daemon, a live Claude leg, whether the
+MCP shim is a direct child or shell-wrapped (11-risks row 58), the same-key denial of service (D5: accepted, `RISK-LOCAL-IPC`).
+Review round 1 (Opus): Linux/macOS match on the name a process started under (`comm`/`pbi_name`) and also on the resolved executable, since the native install is a symlink (`claude -> .../versions/N`) and `/proc/<pid>/exe` follows it; `same_user` takes the process id and start time, and every table re-reads the start time around its reads; the Windows snapshot refuses processes created after it; the chain test also runs with `claude` a symlink (Unix). Residual wording: any same-user process is a possible same-key denial of service, and name matching authenticates nothing against same-user code (11-risks note).
+No gate verdict, protocol requirement or pin change.
+
 **Last updated:** 2026-10-14 (**G9, #70, slice 2: the file key store's follow-ups from the #315 reviews; Refs #70**).
 `cli/src/keystore.rs`: reading `OAC_DEVICE_KEY_PASSPHRASE` now overwrites the value where the process keeps it
 before removing the variable, so `/proc/<pid>/environ` no longer shows it (`FileKeyStore::passphrase_from_environment`

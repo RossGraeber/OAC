@@ -37,3 +37,17 @@ zeroize = "=1.9.0"
 [target.'cfg(unix)'.dependencies]
 age = "=0.12.1"
 libc = "=0.2.190"
+
+# The Windows process table (G9 #70, `src/peer/`): parent ids and executable names, process
+# start times, owner SIDs and the harness process's working directory, which no std call
+# gives. Dependency features approved by the lead 2026-10-14 (D1; G-7 section 8.1 widened):
+# the crate is already in Cargo.lock at this version; features add no package.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "=0.61.2", default-features = false, features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_System_Threading",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_Diagnostics_Debug",
+    "Wdk_System_Threading",
+] }
