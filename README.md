@@ -31,16 +31,32 @@ supported integration model.
 
 ## Where the project stands
 
-**Research and validation, before a released CLI.** The repository currently holds
-the planning package, decisions, gate evidence, and development tooling.
-The [status ledger](docs/planning/STATUS.md#current-stage) records Stage 1:
-provider and transport spikes. G1–G4 have PASS verdicts; G5 provenance has a Codex
-FAIL, with a revised framing design and a re-run pending. These are individual
-spike results, not a completed end-to-end product.
+**Pre-release, in build.** The repository holds the planning package, decisions, gate evidence, development tooling, and a Rust workspace (`oac-cli`, `oac-core`, the provider adapters, the transports) built stage by stage. The [status ledger](docs/planning/STATUS.md#current-stage) is authoritative: Stage 4 (adapters and the Zenoh transport) is open, and gates G1 to G5 have PASS verdicts. No release has been published, so installation and launch commands in planning documents are targets.
 
-Start with the [getting started guide](https://github.com/RossGraeber/OAC/wiki/Getting-Started) to explore
-the evidence and contribute. Installation and launch commands in planning documents
-are proposed interfaces, not instructions for an available release.
+**What works on `main` today** (checked against the code and the merged pull requests):
+
+- `oac start` (`cli/src/commands.rs`, PR #413) runs the per-device daemon in the foreground, or with `--detach` in the background. A second start reports that a daemon is already running. The daemon takes its one-daemon lock before it reads the device key. It refuses to run while the test-isolation variable `OAC_SCOPE` is set.
+- `oac mcp-shim --harness <claude|codex>` (PR #413) is the stdio server a harness starts: a byte relay to that harness's endpoint on the daemon. With no daemon running, it says to run `oac start` and does not start one.
+- `oac hook` (`cli/src/hook.rs`, PR #405, connected to the daemon by PR #413) carries a Claude Code `SessionStart` input to the daemon as one line, as `spec/bindings/mcp.md` section 8.1 requires. Its connection stays open for at most 3 seconds, so the daemon can look up the peer. If the daemon is not running, the input is dropped with a diagnostic and the session stays unbound (fail closed).
+- A device key store (`cli/src/keystore.rs`, PRs #315 and #407) that uses the operating system's credential store, or an encrypted file where none exists.
+- Peer observation (`cli/src/peer/`, PR #410): which harness process a local connection belongs to, read from the operating system on Windows and Linux. macOS is written, not built.
+- Local IPC (`cli/src/ipc/`, PR #411): a per-user named pipe on Windows or a per-user socket on Unix, with operating-system peer authentication and a one-daemon lock.
+
+**Not on `main` yet, or not run:**
+
+- `oac status`, `oac sessions`, `oac doctor` and `oac stop` (G10). A detached Windows daemon has no console, so it writes no log and has no clean shutdown until G10; it can only be killed.
+- The live legs: a Claude Code session started through `oac`, and `oac start` on a real device key, are operator runs. The Linux run of the daemon test is pending a slot.
+- The Codex endpoint: there is no Codex adapter until G7 and G8.
+- Interfaces 0.9 (PR #408) is merged. Its spec headers still read "proposed; lead approval pending", which the lead must settle.
+
+**Build and test.** `rust-toolchain.toml` pins Rust 1.98.1.
+
+```sh
+cargo build -p oac-cli       # builds the oac binary
+node scripts/local-ci.mjs    # the default check tier; run it on Windows and in WSL
+```
+
+There is no GitHub-hosted CI. Before a pull request is opened or merged, run the default tier on Windows and in WSL, and paste each summary (it names the git HEAD) into the pull request. The opt-in tiers are `keystore`, `scale`, `mutation`, `lan` and `g3-macos` (see [the test strategy](docs/planning/v0.1/09-test-strategy.md) section 3).
 
 ## Designed around
 
@@ -73,11 +89,7 @@ encrypted transport, and default-deny session allowlists scoped by working direc
 Pairing trusts a device key; separate grants authorize particular sessions.
 Each harness keeps its own provider credentials.
 
-**Authenticated messages remain untrusted content.** Delivery permission does not
-grant tool approval or active-turn control. Permission relay is off by default in
-the v0.1 plan, and machine-set provenance must stay separate from message text.
-G5 exposed a Codex provenance failure; the revised design still needs its re-run.
-Full end-to-end encryption is deferred, and replay suppression has a restart gap.
+**Authenticated messages remain untrusted content.** Delivery permission does not grant tool approval or active-turn control. Permission relay is off by default in the v0.1 plan, and machine-set provenance must stay separate from message text. The Codex provenance framing passed its re-run on 2026-10-02 (G5, C13); that run tests the gate client, not OAC's own adapter. Local IPC authenticates the peer's user. Three same-user residuals of local IPC and peer pairing were accepted by the lead on 2026-10-15; they are listed in [security plan section 12](docs/planning/v0.1/06-security.md). Per-recipient payload sealing is specified in `spec/security.md` section 14 (ADR-001-A4); full end-to-end encryption beyond it is deferred. Replay suppression has a restart gap.
 Read [security details](https://github.com/RossGraeber/OAC/wiki/Security) for trust
 boundaries, controls, current evidence, and residual risks.
 

@@ -119,6 +119,8 @@ Precedence order, highest first: **flag > env > file > default**. An explicit CL
 always wins, then an environment variable, then a config-file value, then the built-in
 default. Source: `docs/planning/decisions/C2-process-model.md` §7.
 
+(Dated note, 2026-10-15, after PR #413 merged: the `oac` side of `oac start` and `oac mcp-shim` now exists on `main`, and `oac hook` reaches the daemon. The statement above that no command here has run end to end still holds for the live Claude Code and Codex legs, which are the operator's; `oac status`, `oac sessions` and `oac doctor` are not built.)
+
 ---
 
 ## 5. Command surface table
@@ -479,8 +481,7 @@ only; none is an OAC provider surface.
   `docs/planning/PINS.md` row "Beacon (external memory service)". It is not repeated here.
   The pin holds a fixed version **only while Beacon's package self-updates stay off**
   (L1 §2). Leave them off on an OAC-enabled machine.
-- **OAC installed.** OAC is planned, not built (see "Gate-verdict caveat" at the top of
-  this file). The OAC commands below are its documented targets.
+- **OAC installed.** OAC is not released. On `main`, `oac start` (with `--detach`) and `oac mcp-shim` exist (PR #413), and `oac hook` reaches the daemon. `oac status`, `oac sessions` and `oac doctor` are not built (G10). The commands below are the documented targets; see the "Gate-verdict caveat" at the top of this file.
 - **One repository per pair of peers, if they are meant to share memory** (§20.6).
 
 ### 20.2 Beacon side — the operator's own configuration
@@ -531,8 +532,7 @@ Do not run `beacon mcp connect` for this setup. It registers the separate hosted
 
 ### 20.3 OAC side — the launch commands already in this file
 
-Only the commands in §5, §7 and §9 are used. Planned, not built; the "Gate-verdict
-caveat" at the top of this file applies to each.
+Only the commands in §5, §7 and §9 are used. `oac start` and `oac mcp-shim` are on `main` (PR #413); the live run is the operator's. The "Gate-verdict caveat" at the top of this file applies to each.
 
 1. Start the per-device daemon with `oac start` (§5).
 2. Claude Code: launch the session with the development-channel command in §7. The

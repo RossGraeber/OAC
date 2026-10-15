@@ -1,5 +1,9 @@
 # OAC status
 
+**Last updated:** 2026-10-15 (**follow-up to the documentation sweep: #413 and #408 on `main`, and the review nits of #415**).
+Documentation only: no code change, no spec change, no gate verdict or pin change, no new UNVERIFIED item. README, `docs/planning/v0.1/08-cli-and-deployment.md` (sections 20.1 and 20.3, and a dated note on the gate-verdict caveat), `06-security.md` (section 12, a dated note, and threat rows 13, 17 and 24) and `05-interfaces.md` (a dated pointer to the current revisions) now describe the merged state. On `main`: `oac start` (with `--detach`) and `oac mcp-shim` (PR #413), and the hook connected to the daemon. Interfaces 0.9 is merged (PR #408): IFC-TRN-118 and IFC-TRN-119 (declared payload size and reliability), IFC-TRN-120 to IFC-TRN-125 (carrier appearance and announcements); security 0.5 and session-channels 0.3 are editorial. Not on `main`: `oac status`, `oac sessions`, `oac doctor` and `oac stop` (G10). Residuals recorded: a detached Windows daemon has no console and no clean shutdown; the relay outbound bound is per stall (#414); the hook connection lingers at most 3 s. The spec headers of interfaces 0.9, security 0.5 and session-channels 0.3 still read "proposed; lead approval pending": for the lead to settle.
+Changes in the #415 follow-up commit (8b946cc on `docs/sweep-2026-10-15`), recorded here because that commit reaches `main` only when #415 merges: the `adapters/claude/src/hook.rs` doc comment (now "built under G9, PR #405"); the named-pipe ledger entry above, narrowed; threat rows 16, 21 and 22 of `06-security.md` given a dated note that G5 passed on 2026-10-02; the `10-stages.md` citation fixed to section 4; the key store credited to PRs #315 and #407; the `verbs.rs` comment on which verbs come with #413 and which with G10; the `network.rs` comment reworded to hand-over; the README opt-in tier list includes `lan`. Row 17 of `06-security.md` gets the same note in this follow-up.
+
 **Last updated:** 2026-10-14 (**interfaces 0.9 proposed, lead approval pending: transport payload size (IFC-TRN-118, IFC-TRN-119), carrier appearance (IFC-TRN-120 to IFC-TRN-125), #391 evidence cells; security 0.5 and session-channels 0.3 editorial (#375 items 2 to 4); #375 item 1 split out; Refs #396, #389, #391, #375**). `spec/interfaces.md` 0.9 is on branch `spec/interfaces-0.9`, not merged. The implementation of IFC-TRN-118 to IFC-TRN-125 is open under G1 and G2 (#62, #63), F6 and F10 (#59). Risk row 84 of `docs/planning/v0.1/11-risks.md` is updated to match. The interfaces 0.8 status now reads "in force from the merge of PR #401".
 **Last updated:** 2026-10-14 (**G9, #70, slice 6: the daemon, the shim and `oac start`; Refs #70**).
 `cli/src/daemon.rs`, `relay.rs`, `shim.rs`, `commands.rs` (stacked on slice 5). `Daemon::start` takes the one-daemon lock **before** reading the key,
@@ -3346,9 +3350,9 @@ L1320-L1356, L1409-L1431) adds `callId`, `threadId`, `sessionId` and
   this has not been re-checked against the docs page since (UNVERIFIED — one added data
   point, not itself a resolution; see
   `docs/planning/decisions/C2-process-model.md` §2, §10).
-- Named-pipe DACL peer-authentication behaviour not yet exercised on a live Windows
-  host (UNVERIFIED — API shape verified against Microsoft Learn only; see
-  `docs/planning/decisions/C2-process-model.md` §4, §10, §11).
+- Named-pipe DACL peer-authentication behaviour with a second real Windows account, i.e. a
+  pipe owned by another user (UNVERIFIED — no second real Windows account available; API shape verified against Microsoft Learn only; see
+  `docs/planning/decisions/C2-process-model.md` §4, §10, §11). *(Dated note, 2026-10-15: the single-account DACL and the restricted-token refusal are exercised by `cli/tests/ipc_windows.rs` (PR #411); row 20 of `11-risks.md` stays open.)*
 - Whether `interprocess` `2.4.4` (or an alternative IPC crate) exposes a first-party
   peer-credential accessor (UNVERIFIED — not surfaced in the fetched crate docs; the
   daemon is expected to call the raw OS API directly instead; see
