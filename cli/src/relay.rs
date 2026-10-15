@@ -22,7 +22,7 @@
 //!   writer hands chunks to an unbounded channel and looks at the pause flag once per chunk,
 //!   so what the adapter writes between the queue filling and this thread pausing it (the
 //!   thread's wake-up latency) is held in memory, once per stall, never more. A hard bound
-//!   needs a credit or bounded writer in the core (recorded in `11-risks.md`, RISK-LOCAL-IPC).
+//!   needs a credit or bounded writer in the core (tracked in #414; recorded in `11-risks.md`, RISK-LOCAL-IPC).
 //!
 //! **End of connection.** End of stream or a broken pipe on the stream is how the daemon
 //! learns a connection ended (C2 §5): never a timeout of its own. The end reaches the adapter

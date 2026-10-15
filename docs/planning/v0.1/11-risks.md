@@ -642,7 +642,7 @@ list.
   `ConnectionWriter` hands chunks to an unbounded channel and reads the pause flag once per 8 KiB chunk, so what the adapter writes between the
   relay's queue filling and the relay pausing the writer (the forwarding thread's wake-up) is held in memory, once per stall; the relay now drains
   that backlog before it resumes the writer, so stalls do not accumulate, and a writer whose relay is gone is released, not left waiting. A hard bound needs
-  a credit or bounded writer in the core (a core interface change, not made here; for the lead); a hook handler's total time is the connect wait (Windows 5 s), the write and the 3 s linger, with Claude Code's hook timeout
+  a credit or bounded writer in the core (an internal core API change, not made here; tracked in #414); a hook handler's total time is the connect wait (Windows 5 s), the write and the 3 s linger, with Claude Code's hook timeout
   as the backstop;
   environment inheritance of `OAC_SCOPE`/`XDG_RUNTIME_DIR` into a shim started by a real harness (row 19) is still the live leg.)
 - **What it invalidates.** Decision 2's OS-level peer-authentication claim
