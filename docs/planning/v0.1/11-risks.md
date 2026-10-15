@@ -628,6 +628,23 @@ list.
   its id reused, and the id then names the new, same-user process, which is mis-attributed
   rather than refused (pinned by start time, same-user, inside the same-key residual above);
   (3) Linux could use `SO_PEERPIDFD` to hold the peer, not done.)
+  (Dated note, 2026-10-14, G9 #70 slice 6.) **The daemon, the shim and the hook handler run end to end on Windows**
+  (`cli/tests/daemon.rs`, real processes and the real process-table observation). Two findings the test made, both closed in code: (1) a
+  hook handler that writes its line and exits at once can be gone before the daemon observes it (the observation reads the process table after
+  accept), which would leave the session unbound; the handler's connection now lingers, bounded at 3 s, until the daemon closes it, which the
+  adapter does after reading the line; (2) `Pipelines::disconnect` removes what the core observed about a connection, so calling it at the
+  stream's end would lose the key of a native signal the adapter has not reported yet; the relay calls it when the adapter has let go (or after a
+  5 s drain). Residuals: a hook handler that cannot reach the daemon within its bound still exits 0 (the signal is lost and the session stays
+  unbound, fail closed); `OAC_SCOPE` is a test-isolation namespace segment that changes no check (a same-user process can already pick any name) and is refused by `oac start`
+  (the device key is shared across namespaces, so a second daemon there would be a second peer with the same identity); a detached daemon
+  (`oac start --detach`) has no console: its log goes nowhere and it can only be killed (Windows: no clean shutdown, no presence withdrawal; a
+  stop command is G10's); **the outbound backpressure bound is not a hard one** (found by the re-review): the core's
+  `ConnectionWriter` hands chunks to an unbounded channel and reads the pause flag once per 8 KiB chunk, so what the adapter writes between the
+  relay's queue filling and the relay pausing the writer (the forwarding thread's wake-up) is held in memory, once per stall; the relay now drains
+  that backlog before it resumes the writer, so stalls do not accumulate, and a writer whose relay is gone is released, not left waiting. A hard bound needs
+  a credit or bounded writer in the core (an internal core API change, not made here; tracked in #414); a hook handler's total time is the connect wait (Windows 5 s), the write and the 3 s linger, with Claude Code's hook timeout
+  as the backstop;
+  environment inheritance of `OAC_SCOPE`/`XDG_RUNTIME_DIR` into a shim started by a real harness (row 19) is still the live leg.)
 - **What it invalidates.** Decision 2's OS-level peer-authentication claim
   (`docs/planning/v0.1/03-decisions-and-amendments.md` Decision 2); the zero-
   container launch story's "no extra configuration" assumption

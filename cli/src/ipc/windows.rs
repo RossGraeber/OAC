@@ -54,22 +54,33 @@ pub struct Scope {
     sid: Arc<str>,
     /// The part of the pipe names that tells scopes apart.
     infix: Arc<str>,
+    /// The test-isolation namespace, if any (`ipc::Scope::for_user_in`).
+    namespace: Option<String>,
 }
 
 static NEXT_SCOPE: AtomicU64 = AtomicU64::new(0);
 
 impl Scope {
-    pub fn for_user() -> io::Result<Scope> {
+    pub fn namespace(&self) -> Option<&str> {
+        self.namespace.as_deref()
+    }
+
+    pub fn for_user(namespace: Option<&str>) -> io::Result<Scope> {
         let sid = current_user_sid_string()
             .ok_or_else(|| io::Error::other("the current user's SID cannot be read"))?;
+        let infix = match namespace {
+            Some(n) => format!("{sid}-{n}"),
+            None => sid.clone(),
+        };
         Ok(Scope {
-            infix: sid.as_str().into(),
+            infix: infix.into(),
             sid: sid.into(),
+            namespace: namespace.map(str::to_owned),
         })
     }
 
     pub fn unique() -> io::Result<Scope> {
-        let mut scope = Scope::for_user()?;
+        let mut scope = Scope::for_user(None)?;
         let n = NEXT_SCOPE.fetch_add(1, Ordering::Relaxed);
         scope.infix = format!("test{}x{n}", std::process::id()).into();
         Ok(scope)

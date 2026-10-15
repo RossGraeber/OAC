@@ -1,5 +1,41 @@
 # OAC status
 
+**Last updated:** 2026-10-14 (**G9, #70, slice 6: the daemon, the shim and `oac start`; Refs #70**).
+`cli/src/daemon.rs`, `relay.rs`, `shim.rs`, `commands.rs` (stacked on slice 5). `Daemon::start` takes the one-daemon lock **before** reading the key,
+loads or makes the device key (the only place key material is read), builds the identity and the authorization engine from an empty
+pairing store (default deny, D8), the core `Pipelines` over the given transport (the binary gives it the Zenoh peer, tests the in-memory
+one), the agreement keys, adds the adapters and serves one endpoint per harness label. Each accepted connection is observed
+(`peer::observe_process`: the harness process's key and working directory, from the operating system), relayed through a core `Connection`
+(inbound bounded, outbound bounded per stall, not hard: tracked in #414; end of stream reaches the adapter after everything the peer sent; `Pipelines::disconnect` runs when the adapter
+has let go or after a 5 s drain, never on a timeout of the stream) and given to `connect_observed`. A shim crash ends only its own connection.
+`Daemon::shutdown` stops the endpoints, then `Pipelines::shutdown` (withdrawals, adapters, transport), then releases the lock. `oac mcp-shim
+--harness <label>` is a byte relay between stdio and the endpoint (exit 0 when the harness closes its input, 1 when the daemon is gone or not
+running; with no daemon it says `oac start` is the command and does not start one, D4). `oac start` serves in the foreground (Ctrl-C / SIGTERM
+stop it cleanly; a second one reports "already running" and exits 0); `oac start --detach` starts it in the background and returns once it serves
+(best effort on Windows: it asks to leave the parent's job object). `oac hook` connects to the daemon; its connection lingers (3 s at most)
+until the daemon closes it, because the daemon looks the peer up in the process table after accepting and a hook that wrote one line and left
+could be gone first (found by the end-to-end test on its first run). The test-isolation namespace `OAC_SCOPE` (1 to 24 lower-case letters and digits; empty counts as unset)
+adds one segment to the endpoint names and changes no check; the shim and the hook say when it is in use. **`oac start` refuses a set `OAC_SCOPE`
+before it reads the key store** (the device key is the user's one in every namespace, so a daemon in a namespace beside the real one would be a
+second peer with the same identity; review F1); only a test's in-process daemon uses a namespace. `oac start --detach` reports a start-up
+that fails at once, with the child's exit status (it holds the child); residuals for G10: a detached daemon has no console, so its log goes
+nowhere, and it can only be killed (on Windows it gets no console event: no clean shutdown, no presence withdrawal; there is no `oac stop`).
+The outbound backpressure of the relay is bounded per stall, not hard (the core writer's unbounded channel and per-chunk pause flag; a credit in the core
+would make it hard: tracked in #414). `--detach` waits on after a child that exited 0 (another daemon holds the lock and is still starting) and fails
+at once only on a non-zero status. A hook handler can take up to 5 s (Windows connect wait) plus the 3 s linger on a stuck daemon (Unix: the connect itself is unbounded); Claude Code's
+hook timeout is the backstop. The static word check that the hook, the shim and the relay name no key store is context, not proof; the proof is
+the behavioural run with no key store and a poisoned passphrase variable (and it is one case, not a guarantee). Evidence: `cli/tests/daemon.rs`
+on real Windows runs the daemon in-process over the in-memory transport and two Claude "sessions" that are separate processes named `claude`
+(own working directory), each starting the real `oac mcp-shim` and `oac hook` and driving the fake Claude Code endpoint: unauthorized before the
+hook; both sessions bound after it with different session ids; killing one session's shim leaves the other bound; shutdown ends the shim and the
+endpoint; a new shim says the daemon is not running and how to start it; a second start is refused at the lock; the shim and hook ran with no key
+store and a poisoned passphrase variable. `cli/tests/commands.rs` covers the command lines. `cli/src/relay.rs` and `shim.rs` have unit tests.
+Dependency features approved by the lead 2026-10-14 (D1): `tokio` gains `signal` (`Cargo.lock` gains the `tokio` to `signal-hook-registry` edge, a
+package already locked); dev-dependencies `oac-transport-memory` and `oac-fake-claude` (test-only). Not claimed: the cross-check value E
+(rows 86 and 87 are slice 3), a live Claude Code leg, `oac start` run for real (it makes the user's device key in the credential store, so it is the
+operator leg), the Linux run of `tests/daemon.rs` (pending a slot), the Codex endpoint (no Codex adapter until G7/G8, D6), and the first-use
+generation of the file key's passphrase (the primitive exists; its terminal handover is G10's UX). No gate verdict, protocol requirement or pin change.
+
 **Last updated:** 2026-10-14 (**G9, #70, slice 5: the local IPC with the peer authenticated by the operating system; Refs #70**).
 `cli/src/ipc/` (stacked on slice 4): one endpoint per harness label (D2), `\\.\pipe\oac-<user SID>-<label>` on Windows and
 `<run dir>/<label>.sock` on Unix (`$XDG_RUNTIME_DIR/oac`, else `~/.oac/run`, created 0700, refused unless private).
