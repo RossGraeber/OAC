@@ -1,5 +1,22 @@
 # OAC status
 
+**Last updated:** 2026-10-14 (**G9, #70, slice 2: the file key store's follow-ups from the #315 reviews; Refs #70**).
+`cli/src/keystore.rs`: reading `OAC_DEVICE_KEY_PASSPHRASE` now overwrites the value where the process keeps it
+before removing the variable, so `/proc/<pid>/environ` no longer shows it (`FileKeyStore::passphrase_from_environment`
+stays an `unsafe fn`: the daemon's `main` calls it before it starts a thread, which is slice 6); the
+`FileKeyStore` opens the key directory and the file with `O_NOFOLLOW` (the file by `openat`, `O_NONBLOCK`) and
+checks the open handles, so a link or a pipe is refused and the file checked is the file read, with a size bound;
+a temporary-file name that is taken is skipped and its file never deleted (random 64-bit names, exclusive
+create), the "already stored" error is only for a real hard-link collision, and a stale `.device-key.*.tmp`
+(60 s) left by a crash is removed by `save` and `load`; `FileKeyStore::generate_passphrase` and `provision` generate
+the fallback passphrase on first use (C4 section 11: 256 random bits, handed to the caller before any file is made,
+never written beside the file). `oac-core` gains `SecretSeed::generate` (the one public random source for the `oac`
+binary; no new dependency) and logs `SEC-SIG-021` rather than `SEC-SIG-024` for an unreduced `S` (same accept and reject
+set; `verify_strict` rejected it already). The 07 section 5 note now says "rows above". Not done here: the singleton
+lock (slice 5, with the local IPC) and the caller of `provision` (slice 6). Residual, outside the threat model: `save` is path-based after `ensure_dir` checks the directory, so an attacker who can write the key directory's parent could redirect the write (the same user, or the directory's owner, already holds the key); `load` is the handle-based path (review of PR #407). The passphrase is read from the environment once into zeroizing storage and every entry of `environ` of that name is overwritten, including a repeated one. Tests: `cli/src/keystore.rs`
+`file_store`, `cli/tests/passphrase_environ_wipe.rs` (Linux; the child reads its own `/proc/self/environ`, with the name set once and twice), `cli/tests/passphrase_env_non_utf8.rs`, the
+signing unit test. No gate verdict, protocol requirement, pin or dependency change.
+
 **Last updated:** 2026-10-14 (**G9, #70, slice 1: the `oac hook` handler; Refs #70**).
 `cli/src/hook.rs` and `cli/src/verbs.rs` add the `oac hook` verb for `spec/bindings/mcp.md` 0.3 §8.1
 ([MCPB-CLD-004] to [MCPB-CLD-010]): it reads standard input (at most 64 KiB), parses it with the

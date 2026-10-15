@@ -100,6 +100,22 @@ pub fn verify_signed<'k>(
     verify_with_requirement(keys, domain, obj).map_err(|(e, _)| e)
 }
 
+/// The order L of the Ed25519 base point, little-endian (RFC 8032 section 5.1).
+const ED25519_L: [u8; 32] = [
+    0xed, 0xd3, 0xf5, 0x5c, 0x1a, 0x63, 0x12, 0x58, 0xd6, 0x9c, 0xf7, 0xa2, 0xde, 0xf9, 0xde, 0x14,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x10,
+];
+
+/// Whether the little-endian scalar `s` is below [`ED25519_L`] ([SEC-SIG-021]).
+fn scalar_is_reduced(s: &[u8]) -> bool {
+    for i in (0..32).rev() {
+        if s[i] != ED25519_L[i] {
+            return s[i] < ED25519_L[i];
+        }
+    }
+    false
+}
+
 /// [`verify_signed`], with the requirement id of the check that failed, for a log line.
 fn verify_with_requirement<'k>(
     keys: &'k TrustedKeySet,
@@ -137,6 +153,12 @@ fn verify_with_requirement<'k>(
     let octets = base64url::decode_exact::<64>(signature).ok_or(invalid("SEC-SIG-004"))?;
     // No signing input: a number with no double form ([SEC-SIG-013]).
     let input = signing_input(domain, obj).map_err(|_| invalid("SEC-SIG-013"))?;
+    // [SEC-SIG-021]: S must be below L. `verify_strict` rejects an unreduced S as well, but
+    // under the one failure it reports; naming the check here puts the requirement that failed
+    // in the log line, and changes what is accepted not at all.
+    if !scalar_is_reduced(&octets[32..]) {
+        return Err(invalid("SEC-SIG-021"));
+    }
     entry
         .public_key()
         .verifying_key()
@@ -192,7 +214,7 @@ pub fn authenticate(
         match verify_with_requirement(keys, SigningDomain::Envelope, msg.envelope().as_json()) {
             Ok(entry) => entry.security_principal(),
             Err((VerifyError::UnknownKey, req)) => return Err(reject(ErrorCode::UnknownKey, req)),
-            // [SEC-SIG-003], [SEC-SIG-004], [SEC-SIG-013] or [SEC-SIG-024]: the check that
+            // [SEC-SIG-003], [SEC-SIG-004], [SEC-SIG-013], [SEC-SIG-021] or [SEC-SIG-024]: the check that
             // failed, for the log line; the code is `signature-invalid` for each.
             Err((VerifyError::SignatureInvalid, req)) => {
                 return Err(reject(ErrorCode::SignatureInvalid, req));
@@ -311,7 +333,7 @@ mod tests {
         let rej = authenticate(with_signature(&env, &malleated), &keys).unwrap_err();
         assert_eq!(
             (rej.error, rej.requirement),
-            (ErrorCode::SignatureInvalid, "SEC-SIG-024")
+            (ErrorCode::SignatureInvalid, "SEC-SIG-021")
         );
 
         // R = the identity, S = k*a: the equation holds, R has small order ([SEC-SIG-022]).

@@ -380,7 +380,7 @@ now treats these crates as owned by `cli/`, as it does the zenoh crates for
 `transports/zenoh/` and the Codex app-server crates for `adapters/codex/`: `keyring`,
 `keyring-core`, every `*-keyring-store`, `secret-service` and `security-framework(-sys)`, and
 `age` and `age-core` may be a dependency of `cli/` only, and none may be reachable from any
-other member. The signature crates in the rows below (`ed25519-dalek` and its curve crates,
+other member. The signature crates in the rows above (`ed25519-dalek` and its curve crates,
 `sha2`, `getrandom`, `zeroize`, `subtle`) are `core/`'s and are not restricted.
 
 (Dated note, 2026-10-06, #52 / F3.) **Transitive packages.** The rows above bring 241 new
