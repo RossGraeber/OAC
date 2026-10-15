@@ -18,7 +18,8 @@
 //!
 //! # The carrier connection
 //!
-//! The hook handler is an `oac` command (G9/G10, `oac hook`) that Claude Code starts. It
+//! The hook handler (`oac hook`, built under G9, PR #405) is an `oac` command that Claude
+//! Code starts. It
 //! sends the hook's input to the daemon over local IPC, and the core process hands that
 //! connection to this adapter like any other ([`ProviderAdapter::take_connection`]). A
 //! connection is a **carrier of native signals** rather than an attachment when its first

@@ -13,7 +13,7 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="Apache-2.0 license"></a>
-  <a href="docs/planning/STATUS.md"><img src="https://img.shields.io/badge/status-provider%20%26%20transport%20spikes-yellow" alt="Provider and transport spikes"></a>
+  <a href="docs/planning/STATUS.md"><img src="https://img.shields.io/badge/status-Stage%204%20open-yellow" alt="Stage 4 open: adapters and transport"></a>
 </p>
 
 ## What is OAC?
@@ -31,16 +31,43 @@ supported integration model.
 
 ## Where the project stands
 
-**Research and validation, before a released CLI.** The repository currently holds
-the planning package, decisions, gate evidence, and development tooling.
-The [status ledger](docs/planning/STATUS.md#current-stage) records Stage 1:
-provider and transport spikes. G1–G4 have PASS verdicts; G5 provenance has a Codex
-FAIL, with a revised framing design and a re-run pending. These are individual
-spike results, not a completed end-to-end product.
+**Pre-release, in build.** The repository holds the planning package, decisions, gate
+evidence, development tooling, and a Rust workspace (`oac-cli`, `oac-core`, the provider
+adapters, the transports) that is built stage by stage. The
+[status ledger](docs/planning/STATUS.md#current-stage) is authoritative: Stage 4 (adapters
+and the Zenoh transport) is open, and gates G1 to G5 have PASS verdicts. No release has been
+published, so the installation and launch commands in planning documents are targets.
+
+**What works on `main` today** (checked against the code and the merged pull requests):
+
+- `oac hook` (`cli/src/hook.rs`, PR #405) reads a Claude Code `SessionStart` input and carries
+  it as one line, as `spec/bindings/mcp.md` §8.1 requires. The binary has no connector to a
+  daemon yet (`cli/src/main.rs`), so today the input is dropped with a diagnostic and the
+  session stays unbound.
+- A device key store (`cli/src/keystore.rs`, PRs #315 and #407) that uses the operating system's
+  credential store, or an encrypted file where none exists.
+- Peer observation (`cli/src/peer/`, PR #410): which harness process a local connection
+  belongs to, read from the operating system on Windows and Linux. macOS is written, not built.
+- Local IPC (`cli/src/ipc/`, PR #411): a per-user named pipe on Windows or a per-user socket on
+  Unix, with operating-system peer authentication and a one-daemon lock.
+
+Not on `main` yet: the daemon, `oac start` and `oac mcp-shim` (PR #413, open), and interfaces
+0.9 (PR #408, open).
+
+**Build and test.** `rust-toolchain.toml` pins Rust 1.98.1.
+
+```sh
+cargo build -p oac-cli       # builds the oac binary
+node scripts/local-ci.mjs    # the default check tier; run it on Windows and in WSL
+```
+
+There is no GitHub-hosted CI. Before a pull request is opened or merged, run the default
+tier on Windows and in WSL, and paste each summary (it names the git HEAD) into the pull
+request. The opt-in tiers are `keystore`, `scale`, `mutation`, `lan` and `g3-macos`
+(see [the test strategy](docs/planning/v0.1/09-test-strategy.md) §3).
 
 Start with the [getting started guide](https://github.com/RossGraeber/OAC/wiki/Getting-Started) to explore
-the evidence and contribute. Installation and launch commands in planning documents
-are proposed interfaces, not instructions for an available release.
+the evidence and contribute.
 
 ## Designed around
 
@@ -76,8 +103,12 @@ Each harness keeps its own provider credentials.
 **Authenticated messages remain untrusted content.** Delivery permission does not
 grant tool approval or active-turn control. Permission relay is off by default in
 the v0.1 plan, and machine-set provenance must stay separate from message text.
-G5 exposed a Codex provenance failure; the revised design still needs its re-run.
-Full end-to-end encryption is deferred, and replay suppression has a restart gap.
+The Codex provenance framing passed its re-run on 2026-10-02 (G5, C13); that run tests the
+gate client, not OAC's own adapter. Local IPC authenticates the peer's user. Three same-user
+residuals of local IPC and peer pairing were accepted by the lead on 2026-10-15; they are
+listed in [security plan §12](docs/planning/v0.1/06-security.md). Per-recipient payload
+sealing is specified in `spec/security.md` §14 (ADR-001-A4); full end-to-end encryption
+beyond it is deferred. Replay suppression has a restart gap.
 Read [security details](https://github.com/RossGraeber/OAC/wiki/Security) for trust
 boundaries, controls, current evidence, and residual risks.
 
@@ -103,7 +134,7 @@ unverified findings explicit.
 There is no GitHub-hosted CI. Before opening or merging a pull request, run
 `node scripts/local-ci.mjs` on Windows and in WSL and paste each summary (it names the
 git HEAD SHA) into the pull request. Opt-in tiers run on demand with
-`--tier keystore|scale|mutation|g3-macos`; see
+`--tier keystore|scale|mutation|lan|g3-macos`; see
 [the test strategy](docs/planning/v0.1/09-test-strategy.md) §3.
 
 ## Credits and license

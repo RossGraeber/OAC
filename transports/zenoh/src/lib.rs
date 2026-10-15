@@ -232,10 +232,9 @@
 //! uses monotonic admission; after decrypting, the receiving core applies SEC-SEL-036
 //! using its own wall clock. A slow receiving clock can extend effective validity by up
 //! to the skew, and a fast one may discard up to 5 s early. Zenoh has no publication TTL:
-//! native retention and receiver late discard are accepted (#377). The frozen IFC-TRN-034
-//! sender requirement is to be amended in a separate spec PR to match this behaviour
-//! (sender admission check plus receiver late discard). This binding does not edit
-//! `spec/` and claims no sender-copy bound (risk row 77).
+//! native retention and receiver late discard are accepted (#377). IFC-TRN-034 in
+//! `spec/interfaces.md` (0.7, #385) now states the sender admission check and the receiver
+//! late discard this binding implements. This binding claims no sender-copy bound (risk row 77).
 //!
 //! **Deadlines (IFC-TRN-034), review round 1.** Sender admission checks the monotonic
 //! deadline before copying and again immediately before resolving native `put`.
