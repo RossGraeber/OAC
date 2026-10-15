@@ -103,8 +103,8 @@ The lead approved adding these checks to the suite (2026-10-15), against `spec/i
 
 | Check | Evidence exercised |
 |---|---|
-| IFC-TRN-118 `declared-size-is-not-refused` | A payload of exactly the declared `max_payload_octets` octets is `taken`, for each kind the transport accepts: an envelope to a session, a receipt to a device, a presence record to a device through `send_presence`. A 16-octet payload of the same kind is passed first as a control. Delivery is not asked for. |
-| IFC-TRN-118, sealing transport | A sealing transport carries only sealed frames (IFC-TRN-113) and a sealed payload is measured as its frame (§6.10). The check builds, with the core's sealing API, a frame of exactly the declared maximum for each of the three inner kinds, passes each raw, and requires `taken`. A small frame of each kind is the control. |
+| IFC-TRN-118 `declared-size-is-not-refused` | Payloads of a quarter, a half and three quarters of the declared `max_payload_octets`, of one octet less, of exactly that many octets and, when it is larger, of 65536 are each `taken`, for each kind the transport accepts: an envelope to a session, a receipt to a device, a presence record to a device through `send_presence`. A 16-octet payload of the same kind is passed first as a control. Each send follows a settle, so backpressure from the last is not counted against size. Delivery is not asked for. |
+| IFC-TRN-118, sealing transport | A sealing transport carries only sealed frames (IFC-TRN-113) and a sealed payload is measured as its frame (§6.10). The check builds, with the core's sealing API, frames of those same sizes (exactly, with no padding) for each of the three inner kinds, passes each raw, and requires `taken`. A small frame of each kind is the control. |
 | IFC-TRN-119 `taken-is-delivered-when-reliability-declared` | Only for a transport that declares `reliability`. For each kind, three distinct payloads (16 octets, 4096 octets and the declared maximum, up to 1 MiB, less the suite's routing control on a sealing transport) are passed with a deadline a minute away to a subscribed destination. Every payload that came back `taken` must arrive, octet for octet. |
 
 Reported honestly, not as a pass:
@@ -113,7 +113,7 @@ Reported honestly, not as a pass:
   maximum could not be put down to size; IFC-TRN-001 and IFC-TRN-031 fail then) and when the
   declared maximum is over 64 MiB, which the check will not allocate.
 - IFC-TRN-119 is `NotApplicable` when `start` declares `reliability` absent, which is the
-  case for every transport in this repository (the memory transport, the Zenoh transport and
+  case for every transport in this repository (the memory transport, the loopback reference transport and
   the sealing stand-in). It is also `NotApplicable` if a declaring transport takes none of the
   payloads.
 - The three stop conditions of IFC-TRN-119 (the deadline passes first, the destination is not
@@ -132,14 +132,19 @@ Planted breaches in `transports/memory/tests/contract.rs`:
 - `UnderSizeNonEnvelope` refuses only a receipt and a presence record above 32768. An envelope
   of the maximum is taken and delivered, so no earlier row notices; IFC-TRN-118 is the only
   row that fails (besides IFC-TRN-003). The test asserts that.
-- The sealing stand-in's `UnderCap` refuses a frame of exactly its declared 65590 octets
+- `UnderSizeInterior` refuses only 32769 to 65535 octets and takes 65536 and anything up to
+  32768. It fails IFC-TRN-118 alone (besides IFC-TRN-003): a check of only a small payload
+  and the exact maximum would pass it. The sizes are a sample, so a refusal confined to a
+  band narrower than the gaps between them would not be seen.
+- The sealing stand-in's `UnderCapInterior` refuses frames of 32769 to 65589 octets and is
+  caught as IFC-TRN-118. Its `UnderCap` refuses a frame of exactly its declared 65590 octets
   and is caught as IFC-TRN-118 (and IFC-TRN-104).
 - `DropsLarge` takes the maximum and loses it with `reliability` declared absent: it passes
   IFC-TRN-118, and IFC-TRN-119 is not applicable. `DropsLargeClaimsReliability` loses the same
   payload with `reliability` declared: IFC-TRN-119 fails it (and IFC-TRN-030), and IFC-TRN-118
   passes it because the payload was taken. `ClaimsReliabilityHonestly` declares `reliability`
   and loses nothing: IFC-TRN-119 passes, a pass and not a skip.
-- The memory transport and the Zenoh transport (over a sealing binding, at 1048576 octets)
+- The memory transport and the loopback reference transport (over a sealing binding, at 1048576 octets)
   pass IFC-TRN-118.
 
 ## Required carriage observations

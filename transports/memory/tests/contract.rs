@@ -260,6 +260,10 @@ enum Breach {
     /// declared maximum is taken and delivered, so [IFC-TRN-030] and [IFC-TRN-031] pass it and
     /// only the size check, which tries every kind, catches it ([IFC-TRN-118], #421).
     UnderSizeNonEnvelope,
+    /// Refuses only the interior of the range: any payload of 32769 to 65535 octets, of any
+    /// kind, while 65536 and anything up to 32768 are taken ([IFC-TRN-118], #421). A check
+    /// that tried only a small payload and the exact maximum would pass it.
+    UnderSizeInterior,
     /// Positive control, not a breach: declares `reliability` present and, on a medium with no
     /// faults, loses nothing. [IFC-TRN-119] must pass it, not skip it (#421).
     ClaimsReliabilityHonestly,
@@ -320,6 +324,9 @@ impl Transport for Broken {
                 return PublishResult::NotTaken;
             }
             Breach::UnderSize if p.len() > UNDER_LIMIT => return PublishResult::NotTaken,
+            Breach::UnderSizeInterior if (UNDER_LIMIT + 1..65536).contains(&p.len()) => {
+                return PublishResult::NotTaken;
+            }
             Breach::UnderSizeNonEnvelope
                 if p.kind() != PayloadKind::Envelope && p.len() > UNDER_LIMIT =>
             {
@@ -409,6 +416,8 @@ impl Transport for Broken {
             self.breach,
             Breach::UnderSize | Breach::UnderSizeNonEnvelope
         ) && p.len() > UNDER_LIMIT
+            || self.breach == Breach::UnderSizeInterior
+                && (UNDER_LIMIT + 1..65536).contains(&p.len())
         {
             return PublishResult::NotTaken;
         }
@@ -602,13 +611,19 @@ fn a_lost_large_payload_is_forgiven_only_without_declared_reliability() {
 /// plants declare 65536 octets and refuse above 32768. `UnderSize` also breaks
 /// [IFC-TRN-030], which publishes the maximum as an envelope; `UnderSizeNonEnvelope` refuses
 /// only a receipt and a presence record, so the earlier rows pass it and the size row, which
-/// tries every kind, is the only one that fails (besides the roll-up). Without the new row
-/// no check would catch the second.
+/// tries every kind, is the only one that fails (besides the roll-up). `UnderSizeInterior`
+/// takes 65536 octets and anything up to 32768 and refuses only what lies between, so it
+/// fails the size row alone too, and only because the row tries sizes below the maximum.
+/// Without the new row no check would catch either.
 #[test]
 fn a_transport_refusing_below_its_declared_size_is_caught() {
     const SIZE: &str = "declared-size-is-not-refused";
     for base in MEDIA {
-        for breach in [Breach::UnderSize, Breach::UnderSizeNonEnvelope] {
+        for breach in [
+            Breach::UnderSize,
+            Breach::UnderSizeNonEnvelope,
+            Breach::UnderSizeInterior,
+        ] {
             let report = run(&BrokenHarness { base, breach });
             let size_row_failed = report
                 .rows
@@ -623,7 +638,10 @@ fn a_transport_refusing_below_its_declared_size_is_caught() {
                 std::panic::catch_unwind(|| report.assert_conformant()).is_err(),
                 "{report}"
             );
-            if breach == Breach::UnderSizeNonEnvelope {
+            if matches!(
+                breach,
+                Breach::UnderSizeNonEnvelope | Breach::UnderSizeInterior
+            ) {
                 let other: Vec<_> = report
                     .failures()
                     .into_iter()
@@ -867,6 +885,9 @@ enum SealBreach {
     SenderRetention,
     /// Refuses a frame of exactly the declared maximum ([IFC-TRN-118], #421).
     UnderCap,
+    /// Refuses a frame of 32769 to 65589 octets, and takes the declared maximum and anything
+    /// up to 32768 ([IFC-TRN-118], #421).
+    UnderCapInterior,
 }
 struct SealingHarness(SealBreach, bool, Option<Arc<AtomicUsize>>);
 struct SealingFaults {
@@ -1061,6 +1082,9 @@ impl Transport for SealingTransport {
         if p.len() > 65589 && self.breach == SealBreach::UnderCap {
             return PublishResult::NotTaken;
         }
+        if self.breach == SealBreach::UnderCapInterior && (32769..65590).contains(&p.len()) {
+            return PublishResult::NotTaken;
+        }
         let accompanying = match self.breach {
             SealBreach::Kind => vec![b"sealed".to_vec()],
             SealBreach::Destination => vec![format!("{d:?}").into_bytes()],
@@ -1235,6 +1259,7 @@ fn sealing_plants_are_caught_under_their_requirement_ids() {
         (SealBreach::MalformedAfterShutdown, "IFC-TRN-071"),
         (SealBreach::SenderRetention, "IFC-TRN-034"),
         (SealBreach::UnderCap, "IFC-TRN-118"),
+        (SealBreach::UnderCapInterior, "IFC-TRN-118"),
     ] {
         let report = run(&SealingHarness(breach, true, None));
         assert!(report.failed(id), "{breach:?} not caught as {id}: {report}");

@@ -35,9 +35,8 @@
 //! Every requirement that Appendix C of `spec/interfaces.md` assigns to the `transport`
 //! ([IFC-TRN-003]): [IFC-TRN-001], [IFC-TRN-020], [IFC-TRN-021], [IFC-TRN-023],
 //! [IFC-TRN-026], [IFC-TRN-030], [IFC-TRN-031], [IFC-TRN-033] to [IFC-TRN-036],
-//! [IFC-TRN-118], [IFC-TRN-119],
 //! [IFC-TRN-040], [IFC-TRN-043], [IFC-TRN-044], [IFC-TRN-050], [IFC-TRN-060],
-//! [IFC-TRN-071], [IFC-TRN-080] and [IFC-NEU-003], plus [IFC-TYP-092] for the transport's
+//! [IFC-TRN-071], [IFC-TRN-080], [IFC-TRN-118], [IFC-TRN-119] and [IFC-NEU-003], plus [IFC-TYP-092] for the transport's
 //! `health` and [IFC-TYP-095], plus [IFC-TRN-104], [IFC-TRN-105], [IFC-TRN-107],
 //! [IFC-TRN-108], [IFC-TRN-109] and [IFC-TRN-113] when sealing is declared, and
 //! [IFC-TRN-110] against the binding. [`run`]
@@ -452,6 +451,21 @@ const LONG: Duration = Duration::from_secs(60);
 /// The most the size check allocates for one payload: a transport declaring a larger
 /// `max_payload_octets` gets [`Verdict::NotApplicable`] from [IFC-TRN-118], never a pass.
 const DECLARED_SIZE_LIMIT: u64 = 64 << 20;
+
+/// The sizes [IFC-TRN-118] passes for a declared maximum of `max` octets: the maximum, one
+/// less, a quarter, a half and three quarters of it, and 65536 when that lies below it. The
+/// rule says "at most" the maximum, so a refusal anywhere in the range breaks it; these are a
+/// sample, and a refusal confined to a narrower band than they leave between them is not seen.
+fn size_probes(max: usize) -> Vec<usize> {
+    let mut v = vec![max / 4, max / 2, max / 4 * 3, max.saturating_sub(1), max];
+    if max > 65536 {
+        v.push(65536);
+    }
+    v.retain(|n| *n >= 1);
+    v.sort_unstable();
+    v.dedup();
+    v
+}
 
 /// The device key id with every hex digit `n`.
 pub fn key(n: u8) -> KeyId {
@@ -921,7 +935,8 @@ pub fn ifc_trn_030(h: &dyn TransportHarness) -> Verdict {
 }
 
 /// [IFC-TRN-118]: a payload of at most the declared `max_payload_octets` octets is not
-/// refused for its size. The check passes a payload of exactly that many octets, of each kind
+/// refused for its size. The check passes payloads of the sizes of `size_probes` (the
+/// maximum itself, one less, and interior sizes), of each kind
 /// the transport accepts (an envelope to a session, a receipt to a device and, through
 /// `send_presence`, a presence record to a device), and requires `taken`. It does not ask for
 /// delivery: without `reliability` that is not promised (Table 6.3, [IFC-TRN-030]), and with
@@ -969,17 +984,23 @@ pub fn ifc_trn_118(h: &dyn TransportHarness) -> Verdict {
             ));
         }
     }
-    let exact = vec![0x5a; n];
-    for kind in kinds {
-        let got = send(kind, &exact);
-        fail_if!(
-            got != PublishResult::Taken,
-            "a {kind:?} of exactly the declared maximum, {max} octets, was {got:?} while a 16-octet one was taken"
-        );
+    // Each size is passed after the transport has settled from the last, so that a refusal
+    // from a full queue is not counted against size.
+    let sizes = size_probes(n);
+    for len in &sizes {
+        let octets = vec![0x5a; *len];
+        for kind in kinds {
+            w.m.settle();
+            let got = send(kind, &octets);
+            fail_if!(
+                got != PublishResult::Taken,
+                "a {kind:?} of {len} octets, within the declared maximum of {max}, was {got:?} while a 16-octet one was taken"
+            );
+        }
     }
     w.m.settle();
     Verdict::Pass(format!(
-        "an envelope, a receipt and a presence record of exactly the declared maximum, {max} octets, each taken ({})",
+        "an envelope, a receipt and a presence record of each of {sizes:?} octets, up to the declared maximum {max}, each taken ({})",
         w.sides()
     ))
 }

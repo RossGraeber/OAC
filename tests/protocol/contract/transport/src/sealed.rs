@@ -430,26 +430,41 @@ fn exact_frames(m: &dyn Medium, t: &dyn Transport, c: &TransportCapabilities) ->
             ));
         }
     }
-    for kind in kinds {
-        let exact = frame(
-            &key(1),
-            kind,
-            &vec![42; cap - sealing::FRAME_OVERHEAD],
-            c.max_payload_octets,
-        );
-        fail_if!(
-            exact.len() != cap,
-            "core frame did not reach the declared maximum"
-        );
-        let r = t.publish(&d, exact, dl);
-        fail_if!(
-            r != PublishResult::Taken,
-            "a sealed {kind:?} frame of exactly the declared maximum, {cap} octets, was {r:?} while a small one was taken"
-        );
+    // Each size is passed after the transport has settled from the last, so that a refusal
+    // from a full queue is not counted against size. A frame is padded to the exact length.
+    // A frame is at least its overhead long.
+    let sizes: Vec<usize> = size_probes(cap)
+        .into_iter()
+        .filter(|n| *n >= sealing::FRAME_OVERHEAD)
+        .collect();
+    for len in &sizes {
+        for kind in kinds {
+            m.settle();
+            let f = Payload::new(
+                PayloadKind::Sealed,
+                sealing::seal_padded(
+                    &public(&key(1)),
+                    kind,
+                    &vec![42; len.saturating_sub(sealing::FRAME_OVERHEAD)],
+                    0,
+                )
+                .unwrap(),
+            );
+            fail_if!(
+                f.len() != *len,
+                "core frame is {} octets, not the {len} the check built",
+                f.len()
+            );
+            let r = t.publish(&d, f, dl);
+            fail_if!(
+                r != PublishResult::Taken,
+                "a sealed {kind:?} frame of {len} octets, within the declared maximum of {cap}, was {r:?} while a small one was taken"
+            );
+        }
     }
     m.settle();
     Verdict::Pass(format!(
-        "sealing: a frame of exactly {cap} octets (the declared maximum) taken for each inner kind"
+        "sealing: a frame of each of {sizes:?} octets, up to the declared maximum {cap}, taken for each inner kind"
     ))
 }
 

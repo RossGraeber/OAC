@@ -140,6 +140,11 @@ fn check(report: &Report) {
     for v in report.verdicts("IFC-TRN-050") {
         assert!(matches!(v, Verdict::Pass(_)), "IFC-TRN-050: {v:?}");
     }
+    // [IFC-TRN-118]: the declared maximum and the sizes below it are taken, for the sealed
+    // frames this binding carries.
+    for v in report.verdicts("IFC-TRN-118") {
+        assert!(matches!(v, Verdict::Pass(_)), "IFC-TRN-118: {v:?}");
+    }
     // Two implementations reach each other: the two-sided checks ran.
     for id in ["IFC-TRN-043", "IFC-TRN-044", "IFC-TRN-001", "IFC-TRN-031"] {
         for v in report.verdicts(id) {
