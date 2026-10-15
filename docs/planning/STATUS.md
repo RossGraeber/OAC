@@ -1,5 +1,6 @@
 # OAC status
 
+**Last updated:** 2026-10-14 (**interfaces 0.9 proposed, lead approval pending: transport payload size (IFC-TRN-118, IFC-TRN-119), carrier appearance (IFC-TRN-120 to IFC-TRN-125), #391 evidence cells; security 0.5 and session-channels 0.3 editorial (#375 items 2 to 4); #375 item 1 split out; Refs #396, #389, #391, #375**). `spec/interfaces.md` 0.9 is on branch `spec/interfaces-0.9`, not merged. The implementation of IFC-TRN-118 to IFC-TRN-125 is open under G1 and G2 (#62, #63), F6 and F10 (#59). Risk row 84 of `docs/planning/v0.1/11-risks.md` is updated to match. The interfaces 0.8 status now reads "in force from the merge of PR #401".
 **Last updated:** 2026-10-14 (**G9, #70, slice 6: the daemon, the shim and `oac start`; Refs #70**).
 `cli/src/daemon.rs`, `relay.rs`, `shim.rs`, `commands.rs` (stacked on slice 5). `Daemon::start` takes the one-daemon lock **before** reading the key,
 loads or makes the device key (the only place key material is read), builds the identity and the authorization engine from an empty
