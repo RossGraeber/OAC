@@ -119,8 +119,8 @@ they do not prove host firewall, multicast, interface or clock behavior.
    claim: slow receiver skew can extend effective validity and fast skew reject early.
    Compare measured skew against the 5 s operating limit: a measurement above 5 s fails
    this clock condition, and the leg must not be recorded as passed. Report observed
-   skew and expiry against that limit. Sender retention remains risk row 77, pending the
-   separate IFC-TRN-034 spec amendment.
+   skew and expiry against that limit. Sender retention remains risk row 77; the IFC-TRN-034
+   amendment it once awaited is in interfaces 0.7 (#385).
 7. Replace the authenticated local relay on each host with another same-user process;
    the persisted certificate must remain unchanged and native reconnect must resume delivery.
    Replacing it with an untrusted/plain holder must refuse traffic. Record holder gaps

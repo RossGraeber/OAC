@@ -271,7 +271,7 @@ against the evidence as it stands on that date. Each criterion:
    which warn and never gate (#216).
 
 **Go/no-go: go.** Every pinned surface resolves at its pin; criterion 1's rows each cite a
-fetched source. Stage 1 is the current stage (`docs/planning/STATUS.md` "Current stage").
+fetched source. Stage 1 is the current stage (`docs/planning/STATUS.md` "Current stage"). (Dated note, 2026-10-15: that was true when written. Stage 1 exited on 2026-10-03 (#40, D7), and Stage 4 is the open stage since 2026-10-08 (#6); see `docs/planning/STATUS.md` "Current stage".)
 
 ---
 
