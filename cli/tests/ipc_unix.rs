@@ -83,6 +83,27 @@ async fn a_run_directory_other_users_can_enter_is_refused_by_the_daemon_and_the_
     assert!(scope.endpoint("codex").serve(&lock).await.is_ok());
 }
 
+/// `serve` checks the directory itself, not only the lock: a lock taken in a private
+/// directory does not let a socket be made once the directory is open to others.
+#[tokio::test]
+async fn serve_refuses_a_directory_that_stopped_being_private() {
+    let scope = Scope::unique().unwrap();
+    let lock = scope.acquire_lock().await.unwrap();
+    let endpoint = scope.endpoint("claude");
+    let dir = dir_of(&endpoint);
+    fs::set_permissions(&dir, fs::Permissions::from_mode(0o755)).unwrap();
+    match endpoint.serve(&lock).await {
+        Err(BindError::Io(e)) => assert_eq!(e.kind(), std::io::ErrorKind::PermissionDenied),
+        other => panic!("{:?}", other.err()),
+    }
+    assert!(
+        !PathBuf::from(endpoint.display_name()).exists(),
+        "no socket was made"
+    );
+    fs::set_permissions(&dir, fs::Permissions::from_mode(0o700)).unwrap();
+    assert!(endpoint.serve(&lock).await.is_ok());
+}
+
 #[tokio::test]
 async fn a_stale_socket_file_does_not_stop_a_new_daemon_but_a_live_one_does() {
     let scope = Scope::unique().unwrap();
