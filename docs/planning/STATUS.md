@@ -10,6 +10,23 @@ key, the working directory or anything a peer sent; `oac start` installs none. `
 harness is accepted and reported unpaired, and a `stop` line ends it cleanly. Dependencies: none new (`oac-transport-memory` is already a dev-dependency).
 Not claimed: any live leg (the scenario and the runs come after slice 3).
 
+**Last updated:** 2026-10-15 (**documentation sweep, Refs #70: the lead's acceptance of the D5 residuals of local IPC and peer pairing**).
+Documentation only: no code change except comments, no spec change, no gate verdict or pin change, no new UNVERIFIED item, no ADR-001
+amendment, no new risk row. Brought in line with `main` at `d4dd31b` (PR #411 merged): `README.md` (status, what works on `main`, build and
+test); `docs/planning/v0.1/06-security.md` §12 and threat rows 13 and 24 (their "NOT RUN" cells); `08-cli-and-deployment.md` §20 (`oac hook` is on
+`main`; `oac start` and `oac mcp-shim` are not built); `10-stages.md` §4 (Stage 1 is no longer current); `11-risks.md` `RISK-LOCAL-IPC`. Stale comments
+fixed (comments only): `transports/zenoh/src/lib.rs` and `tests/integration/README.md` (the IFC-TRN-034 amendment they awaited is interfaces 0.7,
+#385), `transports/memory/src/network.rs` (IFC-TRN-034 admission, not the 0.6 hold), `cli/src/main.rs` and `cli/src/verbs.rs` (the local IPC is
+merged; the connector arrives with the daemon, #413). The CLI usage text is accurate as it stands and is unchanged.
+**Accepted by the lead, 2026-10-15** (documentation only; no code change): the three D5 residuals of local IPC and peer pairing, now written
+in `11-risks.md` `RISK-LOCAL-IPC`, `06-security.md` §12 and threat rows 13 and 24, and the wiki Security page. (1) On Windows any same-user process
+can share Claude's pairing key and cause a same-key denial of service (for example a child created with the real `claude.exe` as parent,
+`PROC_THREAD_ATTRIBUTE_PARENT_PROCESS`), not only Claude's descendants. (2) Name matching (`claude`, `codex`) authenticates nothing against
+same-user code: a same-user program named `claude` becomes a harness with its own key. (3) A peer pid is read at accept, so under daemon load a
+reused pid is mis-attributed to another same-user process rather than refused. Not documented as merged: the daemon, `oac start`, `oac mcp-shim`
+(PR #413) and interfaces 0.9 (PR #408); both were open at this entry.
+**Last updated:** 2026-10-14 (**interfaces 0.9 proposed, lead approval pending: transport payload size (IFC-TRN-118, IFC-TRN-119), carrier appearance (IFC-TRN-120 to IFC-TRN-125), #391 evidence cells; security 0.5 and session-channels 0.3 editorial (#375 items 2 to 4); #375 item 1 split out; Refs #396, #389, #391, #375**). `spec/interfaces.md` 0.9 is on branch `spec/interfaces-0.9`, not merged. The implementation of IFC-TRN-118 to IFC-TRN-125 is open under G1 and G2 (#62, #63), F6 and F10 (#59). Risk row 84 of `docs/planning/v0.1/11-risks.md` is updated to match. The interfaces 0.8 status now reads "in force from the merge of PR #401".
+
 **Last updated:** 2026-10-14 (**G9, #70, slice 6: the daemon, the shim and `oac start`; Refs #70**).
 `cli/src/daemon.rs`, `relay.rs`, `shim.rs`, `commands.rs` (stacked on slice 5). `Daemon::start` takes the one-daemon lock **before** reading the key,
 loads or makes the device key (the only place key material is read), builds the identity and the authorization engine from an empty
@@ -3355,9 +3372,11 @@ L1320-L1356, L1409-L1431) adds `callId`, `threadId`, `sessionId` and
   this has not been re-checked against the docs page since (UNVERIFIED — one added data
   point, not itself a resolution; see
   `docs/planning/decisions/C2-process-model.md` §2, §10).
-- Named-pipe DACL peer-authentication behaviour not yet exercised on a live Windows
-  host (UNVERIFIED — API shape verified against Microsoft Learn only; see
-  `docs/planning/decisions/C2-process-model.md` §4, §10, §11).
+- Named-pipe DACL peer-authentication behaviour with a second real Windows account, i.e. a
+  pipe owned by another user (UNVERIFIED — API shape verified against Microsoft Learn only; see
+  `docs/planning/decisions/C2-process-model.md` §4, §10, §11). *(Dated note, 2026-10-15, G9 slice 5, PR #411: narrowed from
+  "DACL behaviour not yet exercised on a live Windows host". `cli/tests/ipc_windows.rs` reads the DACL and owner back and
+  refuses a restricted-token caller at open; the single-account case is exercised. Row 20 of `11-risks.md` stays open.)*
 - Whether `interprocess` `2.4.4` (or an alternative IPC crate) exposes a first-party
   peer-credential accessor (UNVERIFIED — not surfaced in the fetched crate docs; the
   daemon is expected to call the raw OS API directly instead; see
