@@ -600,9 +600,15 @@ list.
   supplies the peer process id (the next slice). **Residuals, accepted by the lead:** (1) a Claude
   Code that is not a `claude` executable, such as `node cli.js`, matches nothing and is
   unpairable, so its sessions stay unbound (availability only); (2) the same-key denial of
-  service above is accepted for v0.1, and no refusal based on a shell between the peer and the
-  harness is added, since it would also reject legitimate launcher chains; (3) the Windows
-  working directory relies on the 64-bit PEB layout, same-user only, and fails closed.)
+  service above is accepted for v0.1 and is open to **any same-user process**, not only the
+  harness's descendants (on Windows any same-user process can start a child whose parent is the
+  real `claude.exe`, `PROC_THREAD_ATTRIBUTE_PARENT_PROCESS`); no refusal based on a shell between
+  the peer and the harness is added, since it would also reject legitimate launcher chains;
+  (3) **name matching authenticates nothing against same-user code**: any same-user program named
+  or started as `claude` becomes a harness with a key and a working directory of its own (on
+  Linux the name is `comm`, which a process sets itself), which gives it nothing beyond what the
+  user's own processes already hold; (4) the Windows working directory relies on the 64-bit PEB
+  layout, same-user only, and fails closed.)
 - **What it invalidates.** Decision 2's OS-level peer-authentication claim
   (`docs/planning/v0.1/03-decisions-and-amendments.md` Decision 2); the zero-
   container launch story's "no extra configuration" assumption

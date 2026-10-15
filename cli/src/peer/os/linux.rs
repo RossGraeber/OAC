@@ -55,19 +55,25 @@ fn stat(pid: u32) -> Option<Stat> {
 impl ProcessTable for SystemTable {
     fn lookup(&self, pid: u32) -> Option<ProcessInfo> {
         let s = stat(pid)?;
-        // The executable's file name; the kernel's 15-character `comm` when the link cannot
-        // be read.
-        let image = fs::read_link(format!("/proc/{pid}/exe"))
+        // The name the process started under is the kernel's `comm`, set from the last
+        // component of the path `execve` was given: a symlink keeps its own name (the native
+        // install is `claude -> .../versions/2.1.287`, and its `comm` is `claude`). The
+        // resolved name is read too, from `/proc/<pid>/exe`, which follows links.
+        let resolved_image = fs::read_link(format!("/proc/{pid}/exe"))
             .ok()
-            .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
-            .unwrap_or(s.comm);
+            .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()));
+        // The process must be the same one after the reads (S2).
+        if stat(pid)?.started != s.started {
+            return None;
+        }
         Some(ProcessInfo {
             id: ProcessId {
                 pid,
                 started: s.started,
             },
             parent: Some(s.parent),
-            image,
+            image: s.comm,
+            resolved_image,
         })
     }
 
@@ -85,10 +91,17 @@ impl ProcessTable for SystemTable {
         cwd.to_str().map(str::to_owned)
     }
 
-    fn same_user(&self, pid: u32) -> bool {
+    fn same_user(&self, process: &ProcessId) -> bool {
+        let pid = process.pid;
+        // The start time is read around the owner, so a recycled id is another process.
+        let same = || stat(pid).is_some_and(|s| s.started == process.started);
+        if !same() {
+            return false;
+        }
         // SAFETY: geteuid has no preconditions and cannot fail.
         let me = unsafe { libc::geteuid() };
-        fs::metadata(format!("/proc/{pid}")).is_ok_and(|m| m.uid() == me)
+        let mine = fs::metadata(format!("/proc/{pid}")).is_ok_and(|m| m.uid() == me);
+        mine && same()
     }
 }
 

@@ -7,7 +7,7 @@
 //! `proc_bsdinfo`, `proc_vnodepathinfo`, `PROC_PIDTBSDINFO`, `PROC_PIDVNODEPATHINFO`), and the
 //! gap is a recorded residual (lead decision D9, 2026-10-14). The first Mac run is its test.
 
-use std::ffi::{CStr, c_void};
+use std::ffi::c_void;
 use std::io;
 
 use super::super::{ProcessId, ProcessInfo, ProcessTable};
@@ -45,9 +45,26 @@ fn started(info: &libc::proc_bsdinfo) -> u64 {
     info.pbi_start_tvsec * 1_000_000 + info.pbi_start_tvusec
 }
 
+/// A fixed-size, NUL-terminated name field as a string.
+fn field_str(field: &[libc::c_char]) -> String {
+    // SAFETY: a `c_char` array reinterpreted as bytes of the same length.
+    let bytes: &[u8] = unsafe { std::slice::from_raw_parts(field.as_ptr().cast(), field.len()) };
+    let end = bytes.iter().position(|b| *b == 0).unwrap_or(bytes.len());
+    String::from_utf8_lossy(&bytes[..end]).into_owned()
+}
+
 impl ProcessTable for SystemTable {
     fn lookup(&self, pid: u32) -> Option<ProcessInfo> {
         let info = bsd_info(pid)?;
+        // The name the process started under: `pbi_name` (32 octets) when set, else
+        // `pbi_comm` (16), neither of which follows a launcher symlink. The resolved
+        // executable is `proc_pidpath`'s, read too.
+        let name = field_str(&info.pbi_name);
+        let image = if name.is_empty() {
+            field_str(&info.pbi_comm)
+        } else {
+            name
+        };
         let mut path = vec![0u8; libc::PROC_PIDPATHINFO_MAXSIZE as usize];
         // SAFETY: `path` is a writable buffer of the length passed.
         let n = unsafe {
@@ -57,16 +74,14 @@ impl ProcessTable for SystemTable {
                 path.len() as u32,
             )
         };
-        let image = if n > 0 {
+        let resolved_image = (n > 0).then(|| {
             let full = String::from_utf8_lossy(&path[..n as usize]).into_owned();
             full.rsplit('/').next().unwrap_or(&full).to_owned()
-        } else {
-            // The 16-octet name in the BSD info.
-            // SAFETY: `pbi_comm` is a NUL-terminated array inside `info`.
-            unsafe { CStr::from_ptr(info.pbi_comm.as_ptr()) }
-                .to_string_lossy()
-                .into_owned()
-        };
+        });
+        // The process must be the same one after the reads (S2).
+        if bsd_info(pid).map(|i| started(&i)) != Some(started(&info)) {
+            return None;
+        }
         Some(ProcessInfo {
             id: ProcessId {
                 pid,
@@ -74,6 +89,7 @@ impl ProcessTable for SystemTable {
             },
             parent: Some(info.pbi_ppid),
             image,
+            resolved_image,
         })
     }
 
@@ -112,9 +128,14 @@ impl ProcessTable for SystemTable {
         std::str::from_utf8(&bytes[..end]).ok().map(str::to_owned)
     }
 
-    fn same_user(&self, pid: u32) -> bool {
+    fn same_user(&self, process: &ProcessId) -> bool {
         // SAFETY: geteuid has no preconditions and cannot fail.
         let me = unsafe { libc::geteuid() };
-        bsd_info(pid).is_some_and(|i| i.pbi_uid == me)
+        // The start time is read with the owner, and again after.
+        let first = bsd_info(process.pid);
+        let mine = first
+            .as_ref()
+            .is_some_and(|i| started(i) == process.started && i.pbi_uid == me);
+        mine && bsd_info(process.pid).is_some_and(|i| started(&i) == process.started)
     }
 }

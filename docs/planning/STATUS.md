@@ -18,6 +18,7 @@ chain test (`cli/tests/peer_real.rs`: a copy of the test binary named `claude`, 
 peer, twice) passes on Windows; the process tree of a running Claude Code on this machine is `claude.exe` (app) -> `claude.exe` (CLI)
 -> `cmd.exe` -> command. Not claimed: the local IPC that supplies the peer process id (slice 5), the daemon, a live Claude leg, whether the
 MCP shim is a direct child or shell-wrapped (11-risks row 58), the same-key denial of service (D5: accepted, `RISK-LOCAL-IPC`).
+Review round 1 (Opus): Linux/macOS match on the name a process started under (`comm`/`pbi_name`) and also on the resolved executable, since the native install is a symlink (`claude -> .../versions/N`) and `/proc/<pid>/exe` follows it; `same_user` takes the process id and start time, and every table re-reads the start time around its reads; the Windows snapshot refuses processes created after it; the chain test also runs with `claude` a symlink (Unix). Residual wording: any same-user process is a possible same-key denial of service, and name matching authenticates nothing against same-user code (11-risks note).
 No gate verdict, protocol requirement or pin change.
 
 **Last updated:** 2026-10-14 (**G9, #70, slice 2: the file key store's follow-ups from the #315 reviews; Refs #70**).

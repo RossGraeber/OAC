@@ -58,7 +58,12 @@ fn this_process_is_in_the_table_with_its_image_user_and_directory() {
         info.image
     );
     assert!(info.id.started > 0);
-    assert!(table.same_user(me));
+    assert!(table.same_user(&info.id));
+    // A recycled id is not the process that had it.
+    assert!(!table.same_user(&ProcessId {
+        pid: me,
+        started: info.id.started + 1,
+    }));
     let cwd = table
         .working_directory(&info.id)
         .expect("own working directory");
@@ -90,7 +95,10 @@ fn a_process_that_does_not_exist_is_not_found_and_is_nobodys_user() {
     let table = SystemTable::new().unwrap();
     let none = u32::MAX - 1;
     assert_eq!(table.lookup(none), None);
-    assert!(!table.same_user(none));
+    assert!(!table.same_user(&ProcessId {
+        pid: none,
+        started: 1,
+    }));
     assert_eq!(
         table.working_directory(&ProcessId {
             pid: none,
@@ -107,7 +115,23 @@ fn the_real_chain_names_the_nearest_claude_process_for_every_peer() {
         Ok("peer") => return peer(),
         _ => {}
     }
-    let dir = std::env::temp_dir().join(format!("oac-peer-real-{}", std::process::id()));
+    // A copy of the test binary that is itself named `claude`.
+    chain(false);
+    // The native install's shape: `claude` is a symlink to a differently named file
+    // (`claude -> .../versions/2.1.287`). The process is `claude`; its resolved executable
+    // is not. Windows has no such launcher.
+    if cfg!(unix) {
+        chain(true);
+    }
+}
+
+/// One run of the chain; `symlink` makes the executable `claude` a link to the copy.
+fn chain(symlink: bool) {
+    let dir = std::env::temp_dir().join(format!(
+        "oac-peer-real-{}-{}",
+        std::process::id(),
+        if symlink { "link" } else { "copy" }
+    ));
     let _ = std::fs::remove_dir_all(&dir);
     let bin = dir.join("bin");
     let work = dir.join("work");
@@ -118,8 +142,16 @@ fn the_real_chain_names_the_nearest_claude_process_for_every_peer() {
     } else {
         "claude"
     });
-    std::fs::copy(exe(), &claude).unwrap();
-
+    if symlink {
+        #[cfg(unix)]
+        {
+            let version = bin.join("2.1.287");
+            std::fs::copy(exe(), &version).unwrap();
+            std::os::unix::fs::symlink(&version, &claude).unwrap();
+        }
+    } else {
+        std::fs::copy(exe(), &claude).unwrap();
+    }
     let child = Command::new(&claude)
         .args(["--exact", CHAIN, "--nocapture", "--test-threads=1"])
         .env(ROLE, "harness")
