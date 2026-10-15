@@ -1,5 +1,17 @@
 # OAC status
 
+**Last updated:** 2026-10-15 (**fix: `oac start` runs on a multi-thread runtime (the reference transport requires it); Refs #70**).
+**Correction to the slice 6 entry (PR #413):** "`oac start` works" had been proven only over the in-memory transport. The first live run (slice 7, leg C, Windows, real default
+scope) panicked at start-up with the transport's message "Zenoh runtime doesn't support Tokio's current thread scheduler": `serve_in_foreground` built a current-thread
+runtime, and the transport refuses any thread inside one (`spawn_blocking` threads included). The fix is `commands::daemon_runtime()`, a multi-thread runtime with one worker; it needs
+the tokio feature `rt-multi-thread` for `cli/` (approved by the lead 2026-10-15; already enabled for the transport crate, `Cargo.lock` unchanged; 07 section 5 updated). Regression test
+`cli/tests/start_runtime.rs`: the daemon starts and stops over the real transport on loopback (an in-memory key, a test namespace, a claimed port) on `daemon_runtime()`, and a control shows the
+current-thread runtime panics with the transport's message. Leg C record, on the fixed build (ff63f4f plus this change), Windows, the real `oac start`: serves in about 6 s
+(`oac start: the daemon is running (\.\pipe\oac-<user SID>-claude)`); a probe shim connects (exit 0); a second `oac start` prints "the daemon is already running", exit 0, and there is one `oac.exe`
+process; Ctrl-C stops the foreground daemon with exit 0 in 0.3 s after "oac start: stopping" and the endpoint is gone; `oac start --detach` returns exit 0 after 4.8 s, the detached daemon is one
+process, and killing only that pid leaves no endpoint (no `oac stop` yet: the known G10 residual, so no clean shutdown for a detached daemon). The device key was made in the Credential Manager
+(target `device-key.io.github.rossgraeber.oac`; never read). The known-issue notes in README, STATUS and 08 about `oac start` can be removed once this merges.
+
 **Last updated:** 2026-10-15 (**documentation sweep, Refs #70: the lead's acceptance of the D5 residuals of local IPC and peer pairing**).
 Documentation only: no code change except comments, no spec change, no gate verdict or pin change, no new UNVERIFIED item, no ADR-001
 amendment, no new risk row. Brought in line with `main` at `d4dd31b` (PR #411 merged): `README.md` (status, what works on `main`, build and
