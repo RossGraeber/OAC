@@ -1335,14 +1335,14 @@ process is killed. That is why MCPB-CLD-009 and MCPB-CLD-010 keep it from ending
 > server that recognises a carrier is the adapter's (`adapters/claude/src/hook.rs`, G5, #66). The
 > reference server's limits and recognition rule are not requirements of this document:
 > - A carrier is recognized by its first line, which must parse as a JSON object with a string
->   `hook_event_name` and no `jsonrpc` member (`adapters/claude/src/hook.rs` lines 104 to 116).
-> - The server waits for at most 64 KiB without a newline (`MAX_HOOK_INPUT`, `adapters/claude/src/hook.rs`
->   line 68, used at `adapters/claude/src/adapter.rs` line 457). A first line still unterminated past that
->   size is served as MCP (`adapters/claude/src/io.rs` line 91, `adapters/claude/src/adapter.rs` line 475);
->   a longer line that arrives with its newline is still classified (`adapters/claude/src/io.rs` lines 88 to 92).
-> - The first line must arrive within 10 seconds of the first byte received (`FIRST_LINE_STALL`,
->   `adapters/claude/src/adapter.rs` line 83; the deadline starts at `adapters/claude/src/io.rs`
->   line 103); otherwise the connection is ended (`adapters/claude/src/adapter.rs` line 461).
+>   `hook_event_name` and no `jsonrpc` member (`classify` in `adapters/claude/src/hook.rs`).
+> - The server waits for at most 64 KiB without a newline (`MAX_HOOK_INPUT` in `adapters/claude/src/hook.rs`,
+>   used by `serve` in `adapters/claude/src/adapter.rs`). A first line still unterminated past that size
+>   is served as MCP (`Head::TooLong`, `ChannelReader::peek_line` in `adapters/claude/src/io.rs`); a longer
+>   line that arrives with its newline is still classified.
+> - The first line must arrive within 10 seconds of the first byte received (`FIRST_LINE_STALL` in
+>   `adapters/claude/src/adapter.rs`; the deadline starts at the first byte, in `ChannelReader::peek_line`);
+>   otherwise the connection is ended (`Head::Stalled`).
 
 **Native signals: the shim's hello line (revision 0.4).** The Claude Code channel server is a stdio
 process that Claude Code starts (the shim, above). Claude Code sets `CLAUDE_CODE_SESSION_ID` in that
@@ -1358,11 +1358,11 @@ protocol wire form changes.
 [MCPB-CLD-011] A Claude Code channel shim whose process environment holds a non-empty
 `CLAUDE_CODE_SESSION_ID` MUST send, as the first bytes of its connection to the OAC server and before
 any byte of the harness's stream, one hello line: a JSON object with exactly two members, `oac_hello`,
-the integer `1`, and `session_id`, a string holding exactly that variable's value, written as one line
-ended by a line feed.
+the integer `1`, and `session_id`, a string of at most 256 octets holding exactly that variable's value,
+written as one line ended by a line feed.
 
 [MCPB-CLD-012] A Claude Code channel shim MUST NOT send a hello line when `CLAUDE_CODE_SESSION_ID` is
-unset, is empty or is not valid text.
+unset, is empty, is longer than 256 octets, or is not a string that I-JSON (RFC 7493) allows.
 
 [MCPB-CLD-013] An OAC server that accepts hello lines MUST NOT pass a hello line to the MCP server.
 
@@ -1370,18 +1370,21 @@ unset, is empty or is not valid text.
 form of [MCPB-CLD-011] as not a hello.
 
 [MCPB-CLD-015] An OAC server that accepts hello lines MUST report the `session_id` of a connection's
-hello line as the cross-check value of the attachment on that connection, in its `attachment-opened`.
+hello line, a first line of the form of [MCPB-CLD-011], as the cross-check value of the attachment on that
+connection, in its `attachment-opened`.
 
 [MCPB-CLD-016] An OAC server that accepts hello lines MUST report no cross-check value for an
 attachment whose connection began with no hello line.
 
 **Evidence for MCPB-CLD-011 to MCPB-CLD-016.** The first-party environment-variable reference,
-https://code.claude.com/docs/en/env-vars.md (line 365), retrieved 2026-10-02, gives
+https://code.claude.com/docs/en/env-vars.md (line 365), retrieved 2026-10-02 at Claude Code `2.1.285`
+(`docs/planning/decisions/C4-session-identity.md` §3 "Revision, 2026-10-02"), gives
 `CLAUDE_CODE_SESSION_ID` to stdio MCP server subprocesses ("An MCP server subprocess retains the ID
 it was spawned with"; "On `--continue` or `--resume` without an explicit ID it may receive the initial
 startup ID instead"), and states that for hooks it matches the `session_id` field of the hook input
-and is updated on `/clear`. The changelog dates the variable for stdio MCP servers to Claude Code
-`2.1.154` and its `--resume` behaviour to `2.1.163`, both below the minimum version. The value an MCP
+and is updated on `/clear`. The changelog (`anthropics/claude-code` `CHANGELOG.md` at commit
+`52c76441cae91f6891e4712306bffb057ff6fec5`, retrieved 2026-10-02) dates the variable for stdio MCP servers
+to Claude Code `2.1.154` and its `--resume` behaviour to `2.1.163`, both below the minimum version. The value an MCP
 server holds can therefore differ from a later hook's `session_id` (after `/clear`, `compact` or
 `--continue`), which is why `spec/session-channels.md` compares E only at a fresh start (case 3) and
 never in pairing a transition ([SC-ID-127]). A hello is optional because a shim started outside
@@ -1393,8 +1396,9 @@ has no cross-check value and the core binds a `startup` signal under case 3(c) w
 > (`cli/src/shim.rs`, G9 #70). It builds the line with `oac_adapter_claude::hook::hello_line`, and the
 > adapter recognises it in `adapters/claude/src/hook.rs` (`classify`, `FirstLine::Hello`). The limits
 > below are the reference implementation's and are not requirements of this document:
-> - A `session_id` of more than 256 octets (`MAX_NATIVE_ID`) is not read as a hello, and the line is
->   served to the MCP server as it would be without this revision.
+> - The limit of 256 octets in [MCPB-CLD-011] and [MCPB-CLD-012] is the length of the longest harness-native
+>   id the reference adapter reads (`MAX_NATIVE_ID` in `adapters/claude/src/hook.rs`); a longer line is not
+>   a hello and is served to the MCP server as it would be without this revision.
 > - The reference adapter admits seven connections at once: four channel servers (`SHIM_PLACES`) and
 >   three places that no channel server can take (`CARRIER_PLACES`), for hook carriers, which hold a
 >   place only while they send, and for connections that have not yet sent a first line. A connection
@@ -1915,4 +1919,4 @@ Binding revision 0.1 had no table of its own; its history is in `docs/planning/S
 | 0.1 | 2026-10-06 | Frozen at Gate S2 (E7, #47): signed off on this date, in force from the merge of PR #276. |
 | 0.2 | 2026-10-08 | #69, PR #350 (lead decision of 2026-10-08 to design a Codex reply pairing and propose it as a frozen-spec change): §4.5, the Codex issued-value pairing, binds a stdio connection that Codex started to one subscribed Codex thread on a reveal of a value the implementation issued on it, one value per connection and pairing window, and serves each call only on a live confirmation from that thread (MCPB-ATT-003 to MCPB-ATT-026); bounded pairing window (60 s), confirmation wait (10 s) and confirmation life (600 s, or the item's or turn's end); no pairing value where pairing cannot complete, and at most three windows per connection; MCPB-CDX-006 (no setting members in a subscribing `thread/resume`); §4.4 states that no documented per-request signal exists, so the refusal of an unbound connection is no longer called interim; a dated note at §5.4 records that MCPB-TOOL-017, MCPB-TOOL-019 and MCPB-TOOL-021 are met as written, with their meaning unchanged; §8.2, §9, §10 and §12.2 updated; fixtures for MCPB-ATT-004 to MCPB-ATT-006, MCPB-ATT-022, MCPB-ATT-025 and MCPB-ATT-026. Minor revision (`spec/session-channels.md` §5.2, item 6): MCPB-ATT-003 is a `MAY`, MCPB-ATT-017 and MCPB-ATT-024 are `SHOULD`/`SHOULD NOT`, and every new `MUST` or `MUST NOT` binds only an implementation that pairs, so an implementation conformant to 0.1 stays conformant (§5.3, item 11). No requirement of 0.1 changes meaning, and no wire form changes. Matching changes: `spec/interfaces.md` 0.2 and `spec/security.md` 0.2. |
 | 0.3 | 2026-10-13 | #390 (the hook carrier's wire form, §8.1; in force from the merge of PR #401): adds MCPB-CLD-004 to MCPB-CLD-010. A hook handler that carries a `SessionStart` native signal parses its standard input as a JSON object, sends it as one JSON line with no line feed or carriage return before its end, copies no bytes through, writes nothing to its standard output, and an implementation registers its hook handler for no event other than `SessionStart`; an OAC server that accepts hook input as native signals treats no event other than `SessionStart` as one, and ends or deregisters no attachment because of any other event. Each id is `TODO(fixture)` (§12.3). The evidence (Claude Code `2.1.285`, captured 2026-10-12, and the first-party hooks reference) is stated in the paragraph after MCPB-CLD-010. Classified as a minor revision under E7 §7 item 2 (second bullet: no wire form changes, so no new identifier). Revision `0.2` documented the Claude stdio shim's hook-to-shim pairing (§4.4) but not the carrier's wire form. The carrier runs between two parts of one OAC install, a hook handler and the OAC server, over local IPC, and never across implementations, so no peer observes it. Stated plainly: this is breaking for a local implementation that copied the hook's bytes through or took `SessionEnd` as a signal, because such an implementation does not conform to `0.3`; §5.3 item 11 would classify it as breaking, and it is classified a minor revision under E7 §7 item 2 by the lead on 2026-10-13. No requirement of `0.2` changes meaning, and no existing wire form changes. Matching changes: `spec/interfaces.md` 0.8 (Appendix C owners for MCPB-CLD-004 to MCPB-CLD-010) and `tests/protocol/runner/run.mjs` (`spec_revision` `0.3` accepted for this document). |
-| 0.4 | 2026-10-15 | #70 (G9; the shim's hello line, §8.1; proposed; lead approval pending): adds MCPB-CLD-011 to MCPB-CLD-016. A Claude Code channel shim whose environment holds a non-empty `CLAUDE_CODE_SESSION_ID` sends, as the first bytes of its connection and before any byte of the harness's stream, one hello line, `{"oac_hello":1,"session_id":"<the value>"}`, and sends none when the variable is unset, empty or not valid text; an OAC server that accepts hello lines does not pass the line to the MCP server, takes any first line that is not exactly that form as not a hello, reports the line's `session_id` as the cross-check value of the attachment in `attachment-opened`, and reports none for a connection that began with no hello. Each id is `TODO(fixture)` (§12.3). The evidence (the first-party environment-variable reference and the changelog) is stated in the paragraph after MCPB-CLD-016. The reference implementation's connection places (four channel servers, three for hook carriers and unclassified connections; seven in all) are stated in the reference implementation note there and are not requirements. Classified as a minor revision under E7 §7 item 2, as `0.3` was: the hello runs between two parts of one OAC install, the shim and the OAC server, over local IPC, and never across implementations, so no peer observes it and no wire form of the protocol changes; a shim that sends none, or a server that reads none, still conforms to every earlier revision, and the only effect of a missing hello is the absence of a cross-check value (`spec/session-channels.md` case 3(c)). Matching changes: `spec/interfaces.md` 0.10 (Appendix C owners for MCPB-CLD-011 to MCPB-CLD-016) and `tests/protocol/runner/run.mjs` (`spec_revision` `0.4` accepted for this document). It closes 11-risks row 87 and, with the places, row 86. |
+| 0.4 | 2026-10-15 | #70 (G9; the shim's hello line, §8.1; proposed; lead approval pending): adds MCPB-CLD-011 to MCPB-CLD-016. A Claude Code channel shim whose environment holds a non-empty `CLAUDE_CODE_SESSION_ID` sends, as the first bytes of its connection and before any byte of the harness's stream, one hello line, `{"oac_hello":1,"session_id":"<the value>"}`, and sends none when the variable is unset, empty, longer than 256 octets or not a string that I-JSON allows; an OAC server that accepts hello lines does not pass the line to the MCP server, takes any first line that is not exactly that form as not a hello, reports the line's `session_id` as the cross-check value of the attachment in `attachment-opened`, and reports none for a connection that began with no hello. Each id is `TODO(fixture)` (§12.3). The evidence (the first-party environment-variable reference and the changelog) is stated in the paragraph after MCPB-CLD-016. The reference implementation's connection places (four channel servers, three for hook carriers and unclassified connections; seven in all) are stated in the reference implementation note there and are not requirements. Stated plainly: MCPB-CLD-011 is a new `MUST` that a `0.3` shim does not meet (it sends no hello), and a `0.4` shim that talks to a `0.3` server hands the hello line to the MCP server, which is not an MCP frame; §5.3 item 11 would classify that as breaking for a local implementation, and it is classified a minor revision under E7 §7 item 2 by the lead (decision D7, 2026-10-14), as `0.3` was. The hello runs between two parts of one OAC install, the shim and the OAC server, over local IPC, and never across implementations, so no peer observes it and no wire form of the protocol changes; the only effect of a missing hello is the absence of a cross-check value (`spec/session-channels.md` case 3(c)). Matching changes: `spec/interfaces.md` 0.10 (Appendix C owners for MCPB-CLD-011 to MCPB-CLD-016) and `tests/protocol/runner/run.mjs` (`spec_revision` `0.4` accepted for this document). It closes 11-risks row 87 and, with the places, row 86. |

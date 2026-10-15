@@ -1680,26 +1680,39 @@ fn without_a_hello_line_the_attachment_has_no_cross_check_value() {
     a.shutdown();
 }
 
-/// [MCPB-CLD-014], [MCPB-CLD-016]: only exactly the shim's form is a hello. Anything near it
-/// is served as before and reports no cross-check value, never a guessed one.
+/// [MCPB-CLD-014], [MCPB-CLD-016]: only exactly the shim's form is a hello. A near-hello is
+/// not consumed and not reported: it reaches the MCP server as the first line of the stream, which
+/// is not a JSON-RPC frame, and the attachment opens as it did before this revision, with no
+/// cross-check value. (What the MCP server does with such a line is `rmcp`'s: it skips it.)
 #[test]
 fn a_line_that_is_not_exactly_a_hello_reports_no_cross_check_value() {
+    let long = format!("{{\"oac_hello\":1,\"session_id\":\"{}\"}}", "x".repeat(257));
     for not in [
-        "{\"oac_hello\":2,\"session_id\":\"E\"}",
-        "{\"oac_hello\":1,\"session_id\":\"\"}",
-        "{\"oac_hello\":1,\"session_id\":\"E\",\"x\":1}",
-        "{\"oac_hello\":1}",
+        "{\"oac_hello\":2,\"session_id\":\"E\"}".to_owned(),
+        "{\"oac_hello\":1,\"session_id\":\"\"}".to_owned(),
+        "{\"oac_hello\":1,\"session_id\":\"E\",\"x\":1}".to_owned(),
+        "{\"oac_hello\":1}".to_owned(),
+        long,
     ] {
         let (a, core) = adapter_with(WAIT);
-        let (w, _h) = connect(&a);
-        w.send(not);
+        let (mut w, h) = connect(&a);
+        w.send(&not);
         w.send(&initialize("2025-11-25"));
-        std::thread::sleep(Duration::from_millis(150));
-        assert!(
-            core.cross_checks().iter().all(Option::is_none),
-            "{not}: {:?}",
-            core.cross_checks()
-        );
+        w.send(INITIALIZED);
+        w.send(TOOLS_LIST);
+        // `rmcp` skips the line it cannot read, so the opening completes as always.
+        // Whatever the MCP server answers the line with, the tools listing arrives.
+        let mut listed = false;
+        for _ in 0..4 {
+            if get(&w.frame(), &["result", "tools"]).is_some() {
+                listed = true;
+                break;
+            }
+        }
+        assert!(listed, "{not}");
+        wait_for_open(&core);
+        assert_eq!(core.cross_checks(), [None], "{not}");
+        assert!(!h.is_closed(), "{not}");
         assert!(core.signals().is_empty(), "{not}");
         a.shutdown();
     }
