@@ -1,6 +1,61 @@
 # OAC status
 
 **Last updated:** 2026-10-14 (**interfaces 0.9 proposed, lead approval pending: transport payload size (IFC-TRN-118, IFC-TRN-119), carrier appearance (IFC-TRN-120 to IFC-TRN-125), #391 evidence cells; security 0.5 and session-channels 0.3 editorial (#375 items 2 to 4); #375 item 1 split out; Refs #396, #389, #391, #375**). `spec/interfaces.md` 0.9 is on branch `spec/interfaces-0.9`, not merged. The implementation of IFC-TRN-118 to IFC-TRN-125 is open under G1 and G2 (#62, #63), F6 and F10 (#59). Risk row 84 of `docs/planning/v0.1/11-risks.md` is updated to match. The interfaces 0.8 status now reads "in force from the merge of PR #401".
+**Last updated:** 2026-10-14 (**G9, #70, slice 5: the local IPC with the peer authenticated by the operating system; Refs #70**).
+`cli/src/ipc/` (stacked on slice 4): one endpoint per harness label (D2), `\\.\pipe\oac-<user SID>-<label>` on Windows and
+`<run dir>/<label>.sock` on Unix (`$XDG_RUNTIME_DIR/oac`, else `~/.oac/run`, created 0700, refused unless private).
+Windows: each pipe is created with the descriptor `D:P(A;;GA;;;<user SID>)` (one access-allowed ACE for the daemon's own user, no
+Everyone, no anonymous), `FILE_FLAG_FIRST_PIPE_INSTANCE`, remote clients rejected; after each connection the client's process is read
+(`GetNamedPipeClientProcessId`) and its token user compared to the daemon's own, pinned by its start time. Unix: directory 0700, socket
+0600, then the peer's uid from `SO_PEERCRED` (`LOCAL_PEERCRED` on macOS, via tokio's `peer_cred`) against the daemon's own. Clients check the
+server before sending a byte (a pipe name is global, so another account could create it first): the serving process must be this user's;
+Windows clients open at the identification impersonation level. One daemon per user: `DaemonLock`, the first instance of a lock pipe
+(Windows) or `flock` on `daemon.lock` (Unix); a crash leaves nothing stale. Tests: `cli/tests/ipc.rs` (11, the contract on both OSes),
+`ipc_windows.rs` (the DACL read back: exactly one ACE, for the user; and a thread with the user's SID deny-only, which a real access check
+refuses at open), `ipc_unix.rs` and `ipc_unix_env.rs` (modes, stale socket, lock, environment). Dependency features approved by the lead
+2026-10-14 (D1): `tokio` 1.53.2 `rt, net, io-util, sync, time, macros` and `windows-sys` `Win32_Security_Authorization`; `Win32_System_Pipes`
+was already approved with the `windows-sys` row of 2026-10-08 (G-7 section 3.1, 07 section 5); no new crate. Not claimed: a second real
+account on Windows (11-risks row 20 stays open: the restricted-token test is a real access check, not a second account), shim environment
+inheritance (row 19), macOS (unbuilt, D9), and the daemon that uses this (slice 6).
+
+**Last updated:** 2026-10-14 (**G9, #70, slice 4: what the daemon observes about a local peer; Refs #70**).
+`cli/src/peer/` makes the observation the core's `PeerObservation` needs ([SC-ID-121], `spec/session-channels.md`
+6.7.2) from the peer's process id: it walks the parents in the operating system's process table and takes the
+nearest ancestor whose executable is the endpoint's harness (`claude`/`claude.exe`, `codex`; any case, with or without
+`.exe`) as the harness process (lead decision D3, 2026-10-14). The pairing key is that process's id and start time
+(a parent younger than its child is a recycled id and ends the walk; a depth bound and loop checks apply); the working
+directory is that process's, from the operating system; the harness process must be the daemon's user's. Anything unobserved is
+`None`: no key leaves a native signal unpairable, no directory means nothing binds (fail closed). A Claude Code started as
+`node cli.js` matches nothing and is unpairable (D3). The process tables: Windows (Toolhelp snapshot, process times, token
+SID, working directory from the PEB with `ReadProcessMemory`, 64-bit layout, same-user only, `None` for a 32-bit process),
+Linux (`/proc`) and macOS (`proc_pidinfo`, written against the `libc` 0.2.190 symbols and not built or run here: no Mac, residual
+D9). Dependency features approved by the lead 2026-10-14 (D1): `windows-sys` 0.61.2 gains `Win32_Security`,
+`Win32_System_Threading`, `Win32_System_Diagnostics_ToolHelp`, `Win32_System_Diagnostics_Debug`, `Wdk_System_Threading` for
+`cli/` on Windows; no new crate, and `Cargo.lock` gains only the `oac-cli` to `windows-sys` edge. Evidence: the real-process
+chain test (`cli/tests/peer_real.rs`: a copy of the test binary named `claude`, with its own working directory, a shell, then the
+peer, twice) passes on Windows; the process tree of a running Claude Code on this machine is `claude.exe` (app) -> `claude.exe` (CLI)
+-> `cmd.exe` -> command. Not claimed: the local IPC that supplies the peer process id (slice 5), the daemon, a live Claude leg, whether the
+MCP shim is a direct child or shell-wrapped (11-risks row 58), the same-key denial of service (D5: accepted, `RISK-LOCAL-IPC`).
+Review round 1 (Opus): Linux/macOS match on the name a process started under (`comm`/`pbi_name`) and also on the resolved executable, since the native install is a symlink (`claude -> .../versions/N`) and `/proc/<pid>/exe` follows it; `same_user` takes the process id and start time, and every table re-reads the start time around its reads; the Windows snapshot refuses processes created after it; the chain test also runs with `claude` a symlink (Unix). Residual wording: any same-user process is a possible same-key denial of service, and name matching authenticates nothing against same-user code (11-risks note).
+No gate verdict, protocol requirement or pin change.
+
+**Last updated:** 2026-10-14 (**G9, #70, slice 2: the file key store's follow-ups from the #315 reviews; Refs #70**).
+`cli/src/keystore.rs`: reading `OAC_DEVICE_KEY_PASSPHRASE` now overwrites the value where the process keeps it
+before removing the variable, so `/proc/<pid>/environ` no longer shows it (`FileKeyStore::passphrase_from_environment`
+stays an `unsafe fn`: the daemon's `main` calls it before it starts a thread, which is slice 6); the
+`FileKeyStore` opens the key directory and the file with `O_NOFOLLOW` (the file by `openat`, `O_NONBLOCK`) and
+checks the open handles, so a link or a pipe is refused and the file checked is the file read, with a size bound;
+a temporary-file name that is taken is skipped and its file never deleted (random 64-bit names, exclusive
+create), the "already stored" error is only for a real hard-link collision, and a stale `.device-key.*.tmp`
+(60 s) left by a crash is removed by `save` and `load`; `FileKeyStore::generate_passphrase` and `provision` generate
+the fallback passphrase on first use (C4 section 11: 256 random bits, handed to the caller before any file is made,
+never written beside the file). `oac-core` gains `SecretSeed::generate` (the one public random source for the `oac`
+binary; no new dependency) and logs `SEC-SIG-021` rather than `SEC-SIG-024` for an unreduced `S` (same accept and reject
+set; `verify_strict` rejected it already). The 07 section 5 note now says "rows above". Not done here: the singleton
+lock (slice 5, with the local IPC) and the caller of `provision` (slice 6). Residual, outside the threat model: `save` is path-based after `ensure_dir` checks the directory, so an attacker who can write the key directory's parent could redirect the write (the same user, or the directory's owner, already holds the key); `load` is the handle-based path (review of PR #407). The passphrase is read from the environment once into zeroizing storage and every entry of `environ` of that name is overwritten, including a repeated one. Tests: `cli/src/keystore.rs`
+`file_store`, `cli/tests/passphrase_environ_wipe.rs` (Linux; the child reads its own `/proc/self/environ`, with the name set once and twice), `cli/tests/passphrase_env_non_utf8.rs`, the
+signing unit test. No gate verdict, protocol requirement, pin or dependency change.
+
 **Last updated:** 2026-10-14 (**G9, #70, slice 1: the `oac hook` handler; Refs #70**).
 `cli/src/hook.rs` and `cli/src/verbs.rs` add the `oac hook` verb for `spec/bindings/mcp.md` 0.3 §8.1
 ([MCPB-CLD-004] to [MCPB-CLD-010]): it reads standard input (at most 64 KiB), parses it with the

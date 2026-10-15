@@ -30,6 +30,11 @@ oac-transport-zenoh = { path = "../transports/zenoh" }
 # default feature v1, which builds windows-native-keyring-store on Windows).
 keyring = "=4.2.0"
 zeroize = "=1.9.0"
+# The local IPC (G9 #70, `src/ipc/`): named pipes and Unix sockets with the peer's credentials,
+# and the daemon's runtime. Features approved by the lead 2026-10-14 (D1; G-7 section 8.1);
+# the crate is already in Cargo.lock at this version, and `net` adds no package that is not
+# already locked (mio, socket2).
+tokio = { version = "=1.53.2", features = ["rt", "net", "io-util", "sync", "time", "macros"] }
 
 # The encrypted-file fallback (C4 section 11; default features only) is built on Unix only,
 # where it is used (#315 review N-d). libc gives the effective uid that the file store
@@ -37,3 +42,19 @@ zeroize = "=1.9.0"
 [target.'cfg(unix)'.dependencies]
 age = "=0.12.1"
 libc = "=0.2.190"
+
+# The Windows process table (G9 #70, `src/peer/`): parent ids and executable names, process
+# start times, owner SIDs and the harness process's working directory, which no std call
+# gives. Dependency features approved by the lead 2026-10-14 (D1; G-7 section 8.1 widened):
+# the crate is already in Cargo.lock at this version; features add no package.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "=0.61.2", default-features = false, features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_System_Pipes",
+    "Win32_System_Threading",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_Diagnostics_Debug",
+    "Wdk_System_Threading",
+] }
