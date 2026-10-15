@@ -1,7 +1,7 @@
 # OAC Session Channels
 
 **Document:** `spec/session-channels.md`, the normative OAC Session Channels specification.
-**Revision:** 0.3 (proposed; lead approval pending), a minor revision of the 0.1 frozen at Gate S2 (signed off 2026-10-06, in
+**Revision:** 0.3 (in force from the merge of PR #408), a minor revision of the 0.1 frozen at Gate S2 (signed off 2026-10-06, in
 force from the merge of PR #276; E7, #47; `docs/planning/decisions/E7-interface-freeze.md`),
 made under its §7: 0.2 with `spec/security.md` 0.3 (payload sealing), and 0.3 (the meaning of "an
 equal obligation" in §5.2 item 9, Refs #375; editorial). Appendix B records the changes.
@@ -3003,4 +3003,4 @@ Retired ids: none.
 | 0.1 (draft) | 2026-10-04 | E7 (#47) freeze preparation, editorial (no requirement added or changed): Appendix A row SC-ID-080 named only Stage 2 owners (E3, E6), both closed. Its `TODO(fixture)` is now owned by F6 and F10, as the other issuer-side rows of §7.2.5 are. |
 | 0.1 | 2026-10-06 | Frozen at Gate S2 (E7, #47): signed off on this date, in force from the merge of PR #276. |
 | 0.2 | 2026-10-09 | With `spec/security.md` 0.3 and `spec/interfaces.md` 0.3 (payload sealing, on the lead's ruling of 2026-10-09 on PR #364): §5.2 item 9 classifies as a minor change a `MUST` that binds only an implementation taking up a newly defined declared value or wire form, and the narrowing of a requirement for such an implementation when it takes on an equal obligation elsewhere, with a dated note; §3.3 names the sealing fixture format of `spec/security.md` §14.10; a §7.3.2 dated note records that a sealing transport binding meets [SC-DLV-066]. No requirement of this document is added, removed or changed, and no wire form of this document changes. Minor revision under `docs/planning/decisions/E7-interface-freeze.md` §7. |
-| 0.3 (proposed; lead approval pending) | 2026-10-14 | Refs #375, editorial: §5.2 item 9 defines "an equal obligation" as an outcome every other implementation observes the same way, with a dated note testing that definition against the revision 0.3 narrowing of [IFC-TRN-034] (`spec/interfaces.md`). No requirement of this document is added, removed or changed, and no wire form changes. Minor revision under `docs/planning/decisions/E7-interface-freeze.md` §7, with `spec/security.md` 0.5 and `spec/interfaces.md` 0.9 in the same change. |
+| 0.3 (in force from the merge of PR #408) | 2026-10-14 | Refs #375, editorial: §5.2 item 9 defines "an equal obligation" as an outcome every other implementation observes the same way, with a dated note testing that definition against the revision 0.3 narrowing of [IFC-TRN-034] (`spec/interfaces.md`). No requirement of this document is added, removed or changed, and no wire form changes. Minor revision under `docs/planning/decisions/E7-interface-freeze.md` §7, with `spec/security.md` 0.5 and `spec/interfaces.md` 0.9 in the same change. |

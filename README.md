@@ -13,7 +13,7 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="Apache-2.0 license"></a>
-  <a href="docs/planning/STATUS.md"><img src="https://img.shields.io/badge/status-provider%20%26%20transport%20spikes-yellow" alt="Provider and transport spikes"></a>
+  <a href="docs/planning/STATUS.md"><img src="https://img.shields.io/badge/status-Stage%204%20open-yellow" alt="Stage 4 open: adapters and transport"></a>
 </p>
 
 ## What is OAC?
@@ -46,7 +46,7 @@ supported integration model.
 **Not on `main` yet, or not run:**
 
 - `oac status`, `oac sessions`, `oac doctor` and `oac stop` (G10). A detached Windows daemon has no console, so it writes no log and has no clean shutdown until G10; it can only be killed.
-- The live legs: a Claude Code session started through `oac`, and `oac start` on a real device key, are operator runs. The Linux run of the daemon test is pending a slot.
+- The live legs: a Claude Code session started through `oac`, and `oac start` on a real device key, are operator runs. The daemon test runs on Windows and Linux; the live Claude Code leg has not run.
 - The Codex endpoint: there is no Codex adapter until G7 and G8.
 - Interfaces 0.9 (PR #408) is merged. Its spec headers still read "proposed; lead approval pending", which the lead must settle.
 
@@ -116,7 +116,7 @@ unverified findings explicit.
 There is no GitHub-hosted CI. Before opening or merging a pull request, run
 `node scripts/local-ci.mjs` on Windows and in WSL and paste each summary (it names the
 git HEAD SHA) into the pull request. Opt-in tiers run on demand with
-`--tier keystore|scale|mutation|g3-macos`; see
+`--tier keystore|scale|mutation|lan|g3-macos`; see
 [the test strategy](docs/planning/v0.1/09-test-strategy.md) §3.
 
 ## Credits and license
