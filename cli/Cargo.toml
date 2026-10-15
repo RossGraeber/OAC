@@ -34,7 +34,7 @@ zeroize = "=1.9.0"
 # and the daemon's runtime. Features approved by the lead 2026-10-14 (D1; G-7 section 8.1);
 # the crate is already in Cargo.lock at this version, and `net` adds no package that is not
 # already locked (mio, socket2).
-tokio = { version = "=1.53.2", features = ["rt", "net", "io-util", "sync", "time", "macros"] }
+tokio = { version = "=1.53.2", features = ["rt", "net", "io-util", "sync", "time", "macros", "signal"] }
 
 # The encrypted-file fallback (C4 section 11; default features only) is built on Unix only,
 # where it is used (#315 review N-d). libc gives the effective uid that the file store
@@ -58,3 +58,10 @@ windows-sys = { version = "=0.61.2", default-features = false, features = [
     "Win32_System_Diagnostics_Debug",
     "Wdk_System_Threading",
 ] }
+
+[dev-dependencies]
+# The daemon's end-to-end test (tests/daemon.rs) runs the whole daemon over the in-memory
+# transport with the fake Claude Code endpoint driving real `oac` processes. Test-only: neither
+# is ever built into the `oac` binary (scripts/check-crate-deps.mjs).
+oac-transport-memory = { path = "../transports/memory" }
+oac-fake-claude = { path = "../tests/fakes/claude" }

@@ -32,6 +32,11 @@
 //! the session stays unbound: fail closed, nothing bound (C4 §3). The cost is availability,
 //! never authority.
 //!
+//! **The production connection lingers.** `crate::commands::hook_connector` returns a
+//! connection that, when [`run`] drops it, waits (bounded) for the daemon to close its end:
+//! the daemon learns which harness process a connection belongs to from the operating
+//! system's process table after it accepts, and this process must still be alive then.
+//!
 //! The handler reads its standard input to end of stream (bounded at 64 KiB); that Claude Code
 //! closes the pipe after writing the input is to be confirmed in the live leg.
 //!
