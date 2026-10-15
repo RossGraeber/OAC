@@ -23,8 +23,16 @@
 //!
 //! Interfaces 0.6: the local adapter budget is `shutdown_bound_ms = 1000`.
 //! `event_callback_bound_ms = 11000`, `stop_callback_bound_ms = 200`.
-//! At most four connections and 64 core invocations are admitted; stream closure costs
-//! at most 400 ms sequentially, leaving 600 ms for callback/worker coordination.
+//! At most seven connections and 64 core invocations are admitted: [`SHIM_PLACES`] (four) for
+//! channel servers, which hold a place for the life of a session, and [`CARRIER_PLACES`]
+//! (three) that no channel server can take, for hook carriers (which hold one only while they
+//! send) and for connections that have not yet said what they are. A connection is a shim
+//! once its first line is not a hook input; a shim that would be the fifth is refused then.
+//! Stream closure costs at most 700 ms sequentially (seven closures of
+//! [`oac_core::connection::CLOSE_BOUND_MS`]), the stop budget 200 ms: 900 ms of the 1000 ms
+//! bound, leaving 100 ms for callback/worker coordination. Eight places would reach the bound
+//! (the core asserts 8 * 100 + 200 < 1000 at construction) and so are not possible without
+//! raising `shutdown_bound_ms`.
 //! The core adds its own aggregate reporting/settlement budget. Awaited publication adds
 //! the transport's OPTIONAL bound; an undeclared contribution is unbounded. Every
 //! committed request still settles before shutdown returns, with no post-return input,
@@ -82,8 +90,23 @@ enum Phase {
 /// connection that has sent nothing yet is not bounded, as before.
 pub const FIRST_LINE_STALL: Duration = Duration::from_secs(10);
 
+/// Connections that may be channel servers (attachments) at once. A shim holds its place for
+/// the life of its session.
+pub const SHIM_PLACES: usize = 4;
+
+/// Places that a channel server cannot take: for hook carriers, which hold one only while
+/// they send a hook input, and for connections that have not yet sent their first line. So a
+/// `startup` hook of a new session, or a `clear`, `resume` or `compact` hook of a live one, is
+/// admitted whatever the shims hold (11-risks row 86).
+pub const CARRIER_PLACES: usize = 3;
+
 struct Att {
     phase: Phase,
+    /// Whether this connection has taken one of the [`SHIM_PLACES`]: its first line said it
+    /// is a channel server.
+    shim: bool,
+    /// The cross-check value E of the shim's hello line, when it sent a valid one.
+    cross_check: Option<String>,
     bound: Option<SessionId>,
     peer: Option<Peer<RoleServer>>,
     runtime: Option<tokio::runtime::Handle>,
@@ -192,7 +215,7 @@ impl Inner {
     /// The first `tools/list` answer is written: the attachment is open.
     pub(crate) fn listed(&self, a: &Attachment) {
         let _ev = self.events.enter();
-        let h = {
+        let (h, cross_check) = {
             if self.down.load(Ordering::SeqCst) {
                 return;
             }
@@ -204,15 +227,36 @@ impl Inner {
                 return;
             }
             att.phase = Phase::Open;
-            st.handler.clone()
+            let cross_check = att.cross_check.clone();
+            (st.handler.clone(), cross_check)
         };
         self.emit(
             h,
             AdapterEvent::AttachmentOpened {
                 attachment: a.clone(),
-                cross_check: None,
+                cross_check,
             },
         );
+    }
+
+    /// The connection's first line says it is a channel server (not a hook input). It takes
+    /// one of the [`SHIM_PLACES`], or is refused when they are all taken; `cross_check` is
+    /// its hello's value, kept for `attachment-opened`. Decided under the state lock, so two
+    /// connections cannot both take the last place.
+    pub(crate) fn admit_shim(&self, a: &Attachment, cross_check: Option<String>) -> bool {
+        let mut st = lock(&self.state);
+        if st.attachments.values().filter(|att| att.shim).count() >= SHIM_PLACES {
+            return false;
+        }
+        match st.attachments.get_mut(a) {
+            Some(att) => {
+                att.shim = true;
+                att.cross_check = cross_check;
+                true
+            }
+            // Ended or shut down meanwhile.
+            None => false,
+        }
     }
 
     /// The connection is a carrier of native signals ([`crate::hook`]). A `SessionStart`
@@ -457,6 +501,7 @@ fn serve(
                 head = read.peek_line(MAX_HOOK_INPUT, FIRST_LINE_STALL) => head,
                 _ = stop.changed() => return,
             };
+            let mut cross_check = None;
             match head {
                 Head::Stalled => return,
                 Head::Line => {
@@ -465,14 +510,28 @@ fn serve(
                         .iter()
                         .position(|&b| b == b'\n')
                         .unwrap_or(received.len());
-                    if let FirstLine::Hook(input) = hook::classify(&received[..end]) {
-                        inner.carrier(&attachment, input.session_start());
-                        return;
+                    match hook::classify(&received[..end]) {
+                        FirstLine::Hook(input) => {
+                            inner.carrier(&attachment, input.session_start());
+                            return;
+                        }
+                        // The shim's hello: E is kept for `attachment-opened`, and the line is
+                        // not the MCP server's.
+                        FirstLine::Hello(e) => {
+                            read.consume_first_line();
+                            cross_check = Some(e);
+                        }
+                        FirstLine::Mcp => {}
                     }
                 }
                 // An empty stream, or a first line too long for a hook input, is for the MCP
                 // server to end, as it always was.
                 Head::Empty | Head::TooLong => {}
+            }
+            // Not a carrier, so a channel server: it takes one of the shim places, or is
+            // refused when the shims hold them all (a carrier is admitted whatever they hold).
+            if !inner.admit_shim(&attachment, cross_check) {
+                return;
             }
             let transport = ChannelTransport::new(
                 read,
@@ -541,7 +600,7 @@ impl ProviderAdapter for ClaudeAdapter {
         true
     }
     fn connection_limit(&self) -> usize {
-        4
+        SHIM_PLACES + CARRIER_PLACES
     }
     fn set_binding_local(
         &self,
@@ -616,6 +675,8 @@ impl ProviderAdapter for ClaudeAdapter {
                 attachment.clone(),
                 Att {
                     phase: Phase::Opening,
+                    shim: false,
+                    cross_check: None,
                     bound: None,
                     peer: None,
                     runtime: None,

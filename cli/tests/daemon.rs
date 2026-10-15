@@ -158,7 +158,9 @@ struct Session {
 }
 
 impl Session {
-    fn start(dir: &Path, tag: &str, namespace: &str) -> Session {
+    /// `session_env` is the value of `CLAUDE_CODE_SESSION_ID` in the session's environment
+    /// (E), which its shim sends as the hello line; `None` leaves the variable unset.
+    fn start(dir: &Path, tag: &str, namespace: &str, session_env: Option<&str>) -> Session {
         let bin = dir.join("bin");
         let work = dir.join(format!("work-{tag}"));
         std::fs::create_dir_all(&bin).unwrap();
@@ -176,6 +178,8 @@ impl Session {
             .env(ROLE, "session")
             .env("OAC_SCOPE", namespace)
             .env("OAC_SESSION_TAG", tag)
+            .env_remove("CLAUDE_CODE_SESSION_ID")
+            .envs(session_env.map(|e| ("CLAUDE_CODE_SESSION_ID", e)))
             .env("OAC_SESSION_WORK", &work)
             // Neither a shim nor a hook handler has any use for the key's passphrase.
             .env(
@@ -293,8 +297,12 @@ fn a_daemon_serves_real_sessions_isolates_a_crash_and_shuts_down_cleanly() {
     }
 
     // Two sessions, in two harness processes with working directories of their own.
-    let mut a = Session::start(&dir, "a", &namespace);
-    let mut b = Session::start(&dir, "b", &namespace);
+    // The hook input of a session with tag `t` carries `session_id` `sess-<t>-<t>`. A's shim
+    // sends that same value as its hello (case 3(a)), B's sends none (case 3(c)), and C's
+    // sends a different one (case 3(b)): C must not be bound by its own hook.
+    let mut a = Session::start(&dir, "a", &namespace, Some("sess-a-a"));
+    let mut b = Session::start(&dir, "b", &namespace, None);
+    let mut c = Session::start(&dir, "c", &namespace, Some("another-session-id"));
 
     // Before the hook, neither is bound: no session id, an `unauthorized` refusal.
     let before = a.command("whoami", "WHOAMI");
@@ -307,6 +315,14 @@ fn a_daemon_serves_real_sessions_isolates_a_crash_and_shuts_down_cleanly() {
     let who_a = a.bound_identity();
     let who_b = b.bound_identity();
     assert_ne!(who_a, who_b, "two sessions, two session ids");
+
+    // Row 87: the hello's E differs from the hook's N, so the hook binds nothing for C
+    // (SC-ID-137): it stays unauthorized, while A and B are bound.
+    assert_eq!(c.command("hook sess-c", "HOOK-EXIT"), "HOOK-EXIT 0");
+    std::thread::sleep(Duration::from_millis(1500));
+    let who_c = c.command("whoami", "WHOAMI");
+    assert!(who_c.contains("unauthorized"), "C was bound: {who_c}");
+    assert_eq!(a.bound_identity(), who_a);
 
     // A shim crash (box 3): session B's shim is killed. Session A stays bound, with the
     // same session id, and the device keeps serving.
