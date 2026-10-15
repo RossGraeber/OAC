@@ -16,7 +16,13 @@
 //! - **Outbound** (adapter to peer): a thread that takes the adapter's writes and an async
 //!   write task. When the peer reads slowly the queue fills and the connection's writer is
 //!   paused (`WriteControl`), so the adapter's write waits and its hand-off is reported
-//!   `indeterminate` rather than buffered without bound ([IFC-ADP-053]).
+//!   `indeterminate` rather than buffered without bound ([IFC-ADP-053]). The writer is
+//!   resumed only once everything it had already handed over is in the queue, so pausing and
+//!   resuming again does not pile a backlog up. **The bound is not a hard one:** the core's
+//!   writer hands chunks to an unbounded channel and looks at the pause flag once per chunk,
+//!   so what the adapter writes between the queue filling and this thread pausing it (the
+//!   thread's wake-up latency) is held in memory, once per stall, never more. A hard bound
+//!   needs a credit or bounded writer in the core (recorded in `11-risks.md`, RISK-LOCAL-IPC).
 //!
 //! **End of connection.** End of stream or a broken pipe on the stream is how the daemon
 //! learns a connection ended (C2 §5): never a timeout of its own. The end reaches the adapter
@@ -126,23 +132,49 @@ fn forward_inbound(
 }
 
 /// Moves the adapter's writes to the write queue. A full queue pauses the connection's
-/// writer until the stream has taken the chunk. Returning drops the sender, which ends the
-/// write task: the adapter dropped its writer, or the stream failed.
+/// writer; it is resumed only when the chunk that did not fit **and everything the adapter
+/// had already handed over meanwhile** are in the queue (the pause flag is looked at once per
+/// chunk by the writer, so those are the chunks written before it took effect). Returning
+/// drops the sender, which ends the write task: the adapter dropped its writer, or the stream
+/// failed.
 fn forward_outbound(
     from_adapter: Receiver<Vec<u8>>,
     queue: tokio_mpsc::Sender<Vec<u8>>,
     control: WriteControl,
+) {
+    forward_chunks(&from_adapter, &queue, &control);
+    // However this ended, a writer still held back must not wait for a relay that is gone:
+    // closed behind it, its next write fails instead of waiting for ever.
+    drop(from_adapter);
+    control.pause(false);
+}
+
+fn forward_chunks(
+    from_adapter: &Receiver<Vec<u8>>,
+    queue: &tokio_mpsc::Sender<Vec<u8>>,
+    control: &WriteControl,
 ) {
     while let Ok(chunk) = from_adapter.recv() {
         match queue.try_send(chunk) {
             Ok(()) => {}
             Err(tokio_mpsc::error::TrySendError::Full(chunk)) => {
                 control.pause(true);
-                let sent = queue.blocking_send(chunk);
-                control.pause(false);
-                if sent.is_err() {
+                if queue.blocking_send(chunk).is_err() {
                     return;
                 }
+                // Move the backlog while the writer is held; resume it only when none is left.
+                loop {
+                    match from_adapter.try_recv() {
+                        Ok(chunk) => {
+                            if queue.blocking_send(chunk).is_err() {
+                                return;
+                            }
+                        }
+                        Err(mpsc::TryRecvError::Empty) => break,
+                        Err(mpsc::TryRecvError::Disconnected) => return,
+                    }
+                }
+                control.pause(false);
             }
             Err(tokio_mpsc::error::TrySendError::Closed(_)) => return,
         }
@@ -381,6 +413,9 @@ mod tests {
         assert!(rest.is_empty(), "the peer sees end of stream");
     }
 
+    /// Chunks the adapter tries to write to a peer that reads nothing.
+    const WRITES: usize = 50_000;
+
     #[test]
     fn a_peer_that_does_not_read_pauses_the_adapters_writes_instead_of_growing_memory() {
         let rt = Rt::new();
@@ -391,12 +426,16 @@ mod tests {
         let connection = attach(rt.handle(), Box::new(daemon_side), on_end);
         let (_h, reads, mut writes) = connection.into_parts();
         let block = vec![7u8; CHUNK];
+        let written = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let progress = written.clone();
         let writer = std::thread::spawn(move || {
-            // Far more than the queues and the pipe hold.
-            for _ in 0..200 {
+            // Far more than the queues and the pipe hold, and more than any wake-up delay
+            // of the forwarding thread lets a writer produce before it is paused.
+            for _ in 0..WRITES {
                 if writes.write_all(&block).is_err() {
                     return false;
                 }
+                progress.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             }
             true
         });
@@ -405,7 +444,38 @@ mod tests {
             !writer.is_finished(),
             "the writes are held back while the peer reads nothing"
         );
-        // The peer starts reading: the writes finish.
+        // Held back, not slow: once paused, the writer makes no progress at all.
+        let first = written.load(std::sync::atomic::Ordering::SeqCst);
+        std::thread::sleep(Duration::from_millis(300));
+        let second = written.load(std::sync::atomic::Ordering::SeqCst);
+        assert_eq!(first, second, "the writer is paused, not merely slow");
+        assert!(second < WRITES / 2, "it got {second} of {WRITES} chunks in");
+        // The peer goes away: the held writes fail instead of waiting (and nothing was lost
+        // to a hang).
+        drop(peer);
+        assert!(!writer.join().unwrap());
+        drop(reads);
+    }
+
+    #[test]
+    fn a_writer_that_was_paused_goes_on_when_the_peer_reads_and_nothing_is_lost() {
+        let rt = Rt::new();
+        let (peer, daemon_side) = duplex(1 << 10);
+        let (_n, on_end) = counter();
+        let connection = attach(rt.handle(), Box::new(daemon_side), on_end);
+        let (_h, reads, mut writes) = connection.into_parts();
+        let block = vec![7u8; CHUNK];
+        let writer = std::thread::spawn(move || {
+            for _ in 0..200 {
+                if writes.write_all(&block).is_err() {
+                    return false;
+                }
+            }
+            true
+        });
+        // (Whether the writer is held back by now is the stall test's; this one is about
+        // what happens when it resumes.) The peer starts reading after the writer has had time to stall.
+        std::thread::sleep(Duration::from_millis(100));
         let total = rt.run(async move {
             let (mut r, _w) = tokio::io::split(peer);
             let mut sink = vec![0u8; 1 << 16];

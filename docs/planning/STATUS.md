@@ -20,7 +20,9 @@ before it reads the key store** (the device key is the user's one in every names
 second peer with the same identity; review F1); only a test's in-process daemon uses a namespace. `oac start --detach` reports a start-up
 that fails at once, with the child's exit status (it holds the child); residuals for G10: a detached daemon has no console, so its log goes
 nowhere, and it can only be killed (on Windows it gets no console event: no clean shutdown, no presence withdrawal; there is no `oac stop`).
-A hook handler can take up to 5 s (Windows connect wait) plus the 3 s linger on a stuck daemon (Unix: the connect itself is unbounded); Claude Code's
+The outbound backpressure of the relay is bounded per stall, not hard (the core writer's unbounded channel and per-chunk pause flag; a credit in the core
+would make it hard: for the lead). `--detach` waits on after a child that exited 0 (another daemon holds the lock and is still starting) and fails
+at once only on a non-zero status. A hook handler can take up to 5 s (Windows connect wait) plus the 3 s linger on a stuck daemon (Unix: the connect itself is unbounded); Claude Code's
 hook timeout is the backstop. The static word check that the hook, the shim and the relay name no key store is context, not proof; the proof is
 the behavioural run with no key store and a poisoned passphrase variable (and it is one case, not a guarantee). Evidence: `cli/tests/daemon.rs`
 on real Windows runs the daemon in-process over the in-memory transport and two Claude "sessions" that are separate processes named `claude`

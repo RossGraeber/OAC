@@ -335,7 +335,12 @@ fn start_detached(scope: &Scope, stderr: &mut dyn Write) -> i32 {
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());
     match spawn_detached(&mut command) {
-        Ok(child) => wait_until_serving(child, scope, stderr),
+        Ok(child) => wait_until_serving(
+            child,
+            || scope.endpoint("claude").connect_blocking().is_ok(),
+            DETACH_WAIT,
+            stderr,
+        ),
         Err(e) => {
             let _ = writeln!(stderr, "oac start: the daemon could not be started: {e}");
             1
@@ -372,42 +377,45 @@ fn spawn_detached(command: &mut std::process::Command) -> io::Result<std::proces
     command.spawn()
 }
 
-/// Waits for the daemon just started to serve, or for the process to end (its start-up
-/// failed: the key store, a lock held by something else). This waits for a start-up to
-/// finish, once; it is not polling for anything the daemon holds.
+/// Waits for the daemon just started to serve (`serving`), or for the process to fail.
+/// This waits for a start-up to finish, once; it is not polling for anything the daemon holds.
 ///
 /// Holding the child lets a start-up that fails be reported at once, with its exit status,
-/// and reaps it (no zombie) when it does.
+/// and reaps it (no zombie) when it does. **A child that ended successfully is not a failure
+/// yet:** a second `oac start` that finds the lock held exits 0 while the first daemon, which
+/// takes the lock before it reads the key and starts the transport, may still be starting;
+/// that one is waited for like our own. Only a non-zero status fails at once, and then only
+/// when no daemon answers.
 fn wait_until_serving(
     mut child: std::process::Child,
-    scope: &Scope,
+    mut serving: impl FnMut() -> bool,
+    wait: Duration,
     stderr: &mut dyn Write,
 ) -> i32 {
-    let end = Instant::now() + DETACH_WAIT;
+    let end = Instant::now() + wait;
+    let mut ended: Option<std::process::ExitStatus> = None;
     while Instant::now() < end {
-        // Asked first: a child that ended cannot have served, and an endpoint that answers
-        // after it ended is another daemon's (a second `oac start` that lost the lock exits
-        // 0 and the first is serving).
-        match child.try_wait() {
-            Ok(Some(status)) if scope.endpoint("claude").connect_blocking().is_ok() => {
-                let _ = writeln!(
+        if ended.is_none() {
+            ended = child.try_wait().ok().flatten();
+        }
+        if serving() {
+            let _ = match ended {
+                Some(status) => writeln!(
                     stderr,
                     "oac start: the daemon is running (this start ended with {status}: another one was first)"
-                );
-                return 0;
-            }
-            Ok(Some(status)) => {
-                let _ = writeln!(
-                    stderr,
-                    "oac start: the daemon ended at start-up ({status}); run `oac start` in a terminal to see why"
-                );
-                return 1;
-            }
-            Ok(None) | Err(_) => {}
-        }
-        if scope.endpoint("claude").connect_blocking().is_ok() {
-            let _ = writeln!(stderr, "oac start: the daemon is running");
+                ),
+                None => writeln!(stderr, "oac start: the daemon is running"),
+            };
             return 0;
+        }
+        if let Some(status) = ended
+            && !status.success()
+        {
+            let _ = writeln!(
+                stderr,
+                "oac start: the daemon ended at start-up ({status}); run `oac start` in a terminal to see why"
+            );
+            return 1;
         }
         std::thread::sleep(Duration::from_millis(100));
     }
@@ -420,8 +428,71 @@ fn wait_until_serving(
 
 #[cfg(test)]
 mod tests {
-    use super::names_a_namespace;
+    use super::{names_a_namespace, wait_until_serving};
     use std::ffi::OsStr;
+    use std::process::{Child, Command};
+    use std::time::Duration;
+
+    fn exits_with(code: i32) -> Child {
+        #[cfg(windows)]
+        let mut c = {
+            let mut c = Command::new("cmd");
+            c.args(["/C", &format!("exit {code}")]);
+            c
+        };
+        #[cfg(unix)]
+        let mut c = {
+            let mut c = Command::new("sh");
+            c.args(["-c", &format!("exit {code}")]);
+            c
+        };
+        c.spawn().unwrap()
+    }
+
+    fn waited(child: Child, mut serving: impl FnMut() -> bool, wait: Duration) -> (i32, String) {
+        let mut err = Vec::new();
+        let status = wait_until_serving(child, &mut serving, wait, &mut err);
+        (status, String::from_utf8(err).unwrap())
+    }
+
+    #[test]
+    fn a_start_that_failed_is_reported_at_once_with_its_status() {
+        let began = std::time::Instant::now();
+        let (status, said) = waited(exits_with(3), || false, Duration::from_secs(20));
+        assert_eq!(status, 1);
+        assert!(said.contains("ended at start-up"), "{said}");
+        assert!(began.elapsed() < Duration::from_secs(5));
+    }
+
+    #[test]
+    fn a_start_that_exited_cleanly_because_another_daemon_is_first_waits_for_that_daemon() {
+        // The first daemon is still starting (it holds the lock; it is not serving yet): this
+        // start ended with 0, and the wait goes on until the endpoint answers.
+        let mut calls = 0;
+        let (status, said) = waited(
+            exits_with(0),
+            || {
+                calls += 1;
+                calls > 8
+            },
+            Duration::from_secs(20),
+        );
+        assert_eq!(status, 0, "{said}");
+        assert!(said.contains("another one was first"), "{said}");
+    }
+
+    #[test]
+    fn a_start_that_exited_cleanly_and_nothing_answers_does_not_report_a_daemon() {
+        let (status, said) = waited(exits_with(0), || false, Duration::from_millis(600));
+        assert_eq!(status, 1);
+        assert!(said.contains("did not start in time"), "{said}");
+    }
+
+    #[test]
+    fn a_failed_start_with_a_daemon_answering_is_the_daemon_running() {
+        let (status, _) = waited(exits_with(3), || true, Duration::from_secs(5));
+        assert_eq!(status, 0);
+    }
 
     #[test]
     fn an_unset_or_empty_scope_is_no_namespace_and_anything_else_is() {

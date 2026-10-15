@@ -638,7 +638,11 @@ list.
   unbound, fail closed); `OAC_SCOPE` is a test-isolation namespace segment that changes no check (a same-user process can already pick any name) and is refused by `oac start`
   (the device key is shared across namespaces, so a second daemon there would be a second peer with the same identity); a detached daemon
   (`oac start --detach`) has no console: its log goes nowhere and it can only be killed (Windows: no clean shutdown, no presence withdrawal; a
-  stop command is G10's); a hook handler's total time is the connect wait (Windows 5 s), the write and the 3 s linger, with Claude Code's hook timeout
+  stop command is G10's); **the outbound backpressure bound is not a hard one** (found by the re-review): the core's
+  `ConnectionWriter` hands chunks to an unbounded channel and reads the pause flag once per 8 KiB chunk, so what the adapter writes between the
+  relay's queue filling and the relay pausing the writer (the forwarding thread's wake-up) is held in memory, once per stall; the relay now drains
+  that backlog before it resumes the writer, so stalls do not accumulate, and a writer whose relay is gone is released, not left waiting. A hard bound needs
+  a credit or bounded writer in the core (a core interface change, not made here; for the lead); a hook handler's total time is the connect wait (Windows 5 s), the write and the 3 s linger, with Claude Code's hook timeout
   as the backstop;
   environment inheritance of `OAC_SCOPE`/`XDG_RUNTIME_DIR` into a shim started by a real harness (row 19) is still the live leg.)
 - **What it invalidates.** Decision 2's OS-level peer-authentication claim
