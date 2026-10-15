@@ -1,7 +1,7 @@
 # OAC status
 
 **Last updated:** 2026-10-14 (**G9, #70, slice 5: the local IPC with the peer authenticated by the operating system; Refs #70**).
-`cli/src/ipc/` (stacked on slice 4): one endpoint per harness label (D2), `\.\pipe\oac-<user SID>-<label>` on Windows and
+`cli/src/ipc/` (stacked on slice 4): one endpoint per harness label (D2), `\\.\pipe\oac-<user SID>-<label>` on Windows and
 `<run dir>/<label>.sock` on Unix (`$XDG_RUNTIME_DIR/oac`, else `~/.oac/run`, created 0700, refused unless private).
 Windows: each pipe is created with the descriptor `D:P(A;;GA;;;<user SID>)` (one access-allowed ACE for the daemon's own user, no
 Everyone, no anonymous), `FILE_FLAG_FIRST_PIPE_INSTANCE`, remote clients rejected; after each connection the client's process is read
