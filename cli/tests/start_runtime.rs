@@ -33,16 +33,47 @@ use oac_core::pipeline::{MonotonicClock, PipelineConfig};
 use oac_core::sealing::MemoryAgreementKeyStore;
 use oac_transport_zenoh::{PeerConfiguration, PeerTransport};
 
+/// Removes the namespace directory a Unix test made under the user's run directory (Windows:
+/// nothing is made), when the test ends however it ends.
+struct NamespaceDir(#[cfg(unix)] Option<std::path::PathBuf>);
+
+impl Drop for NamespaceDir {
+    fn drop(&mut self) {
+        #[cfg(unix)]
+        if let Some(dir) = self.0.take() {
+            let _ = std::fs::remove_dir_all(dir);
+        }
+    }
+}
+
+fn namespace_dir(scope: &Scope) -> NamespaceDir {
+    #[cfg(unix)]
+    {
+        NamespaceDir(
+            std::path::Path::new(&scope.endpoint("claude").display_name())
+                .parent()
+                .map(std::path::Path::to_path_buf),
+        )
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = scope;
+        NamespaceDir()
+    }
+}
+
 /// A daemon over the real transport: loopback rendezvous on a claimed port, its own
 /// partition, an in-memory key, and the test namespace for the endpoints.
-fn parts(tag: &str) -> (Parts, ports::PortClaim) {
+fn parts(tag: &str) -> (Parts, ports::PortClaim, NamespaceDir) {
     let claim = ports::PortClaim::claim();
     let port = claim.port();
     let namespace = format!("sr{}{tag}", std::process::id());
     let clock: Arc<dyn Clock> = Arc::new(SystemClock);
     let monotonic: MonotonicClock = Arc::new(Instant::now);
+    let scope = Scope::for_user_in(Some(&namespace)).unwrap();
+    let guard = namespace_dir(&scope);
     let parts = Parts {
-        scope: Scope::for_user_in(Some(&namespace)).unwrap(),
+        scope,
         key_store: Box::new(MemoryKeyStore::new()),
         pairing_store: Box::new(MemoryPairingStore::new()),
         agreement_store: Box::new(MemoryAgreementKeyStore::new()),
@@ -57,12 +88,12 @@ fn parts(tag: &str) -> (Parts, ports::PortClaim) {
         harnesses: vec![("claude".to_owned(), Arc::new(ClaudeAdapter::new()) as _)],
         log: LogSink::discard(),
     };
-    (parts, claim)
+    (parts, claim, guard)
 }
 
 #[test]
 fn the_daemon_starts_and_stops_over_the_real_transport_on_the_runtime_oac_start_uses() {
-    let (parts, _claim) = parts("a");
+    let (parts, _claim, _dir) = parts("a");
     let runtime = daemon_runtime().expect("the runtime");
     runtime.block_on(async {
         let daemon = Daemon::start(parts)
@@ -75,7 +106,7 @@ fn the_daemon_starts_and_stops_over_the_real_transport_on_the_runtime_oac_start_
 
 #[test]
 fn on_a_current_thread_runtime_the_real_transport_refuses_to_start() {
-    let (parts, _claim) = parts("b");
+    let (parts, _claim, _dir) = parts("b");
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()

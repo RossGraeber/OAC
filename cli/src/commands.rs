@@ -235,8 +235,9 @@ fn key_store() -> Box<dyn KeyStore + Send> {
 ///
 /// The reference transport's runtime panics on any thread that is inside a current-thread
 /// tokio runtime (its synchronous calls `block_in_place`; threads of `spawn_blocking`
-/// included), and the core calls the transport from the daemon's blocking tasks. The
-/// in-memory transport of most tests has no such rule, so the panic is seen only with the
+/// included), and the core calls the transport from the daemon's blocking tasks and, in
+/// `Daemon::start`, from `Pipelines::start` inline on the thread that drives the future
+/// (`block_on`'s). The in-memory transport of most tests has no such rule, so the panic is seen only with the
 /// real transport: the first live run of `oac start` found it (G9 #70, slice 7, leg C), and
 /// `tests/start_runtime.rs` starts the daemon over the real transport on this runtime.
 ///
