@@ -51,12 +51,21 @@ fn this_process_is_in_the_table_with_its_image_user_and_directory() {
     let me = std::process::id();
     let info = table.lookup(me).expect("this process");
     assert_eq!(info.id.pid, me);
-    assert_eq!(
-        normalize_image(&info.image),
-        normalize_image(exe().file_name().unwrap().to_str().unwrap()),
-        "{:?}",
+    let expected = normalize_image(exe().file_name().unwrap().to_str().unwrap());
+    // The name started under: the whole image name on Windows; the kernel's `comm`, cut to
+    // 15 octets, on Linux. The resolved name (Linux) is the full file name.
+    let started_as = normalize_image(&info.image);
+    assert!(
+        expected.starts_with(&started_as) && (cfg!(unix) || started_as == expected),
+        "{:?} for {expected}",
         info.image
     );
+    if cfg!(target_os = "linux") {
+        assert_eq!(
+            info.resolved_image.as_deref().map(normalize_image),
+            Some(expected)
+        );
+    }
     assert!(info.id.started > 0);
     assert!(table.same_user(&info.id));
     // A recycled id is not the process that had it.
