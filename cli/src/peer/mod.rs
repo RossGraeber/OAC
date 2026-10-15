@@ -28,12 +28,25 @@
 //! directory nothing can be bound either (a registration record needs one). Both fail
 //! closed.
 //!
-//! **What this does not do.** A process that descends from the harness, a tool subprocess
-//! under Claude Code say, has the same key as the harness's own shim. If it opens a second
-//! attachment, the core withholds the real one and binds neither (the same-key denial of
-//! service, [SC-ID-154]; accepted by the lead as a documented residual, D5, recorded under
-//! `RISK-LOCAL-IPC`). The key is a process's identity, not its trustworthiness: peer
-//! authentication (the local IPC's user check) decides who may connect at all.
+//! **What this does not do.**
+//!
+//! - **It authenticates nothing against code of the same user.** Matching on the executable's
+//!   name is a way to find the harness, not a check on it: any same-user program that is
+//!   named `claude` (or started under that name) becomes a harness with a key and a working
+//!   directory of its own. That grants it nothing the user's own processes lacked: a key
+//!   only lets a hook payload pair with an attachment that has the same key, and binding
+//!   still needs a signal from a connection whose peer is this user's (the local IPC's
+//!   check). The names are `comm` on Linux, so a launcher symlink such as the native
+//!   install's `claude -> .../versions/2.1.287` matches, and the resolved name is accepted
+//!   too.
+//! - **The same-key denial of service is open to any same-user process, not only the
+//!   harness's descendants.** A tool subprocess under Claude Code has the same key as the
+//!   harness's own shim, and on Windows any same-user process can start a child whose
+//!   parent is the real `claude.exe` (`PROC_THREAD_ATTRIBUTE_PARENT_PROCESS`), so it can
+//!   present the same ancestry. If it opens a second attachment, the core withholds the
+//!   real one and binds neither ([SC-ID-154]). It is a denial of service, never a hijack,
+//!   accepted by the lead as a documented residual (D5) and recorded under
+//!   `RISK-LOCAL-IPC`. The key is a process's identity, not its trustworthiness.
 //!
 //! The process table is a trait, so the walk is tested against tables of known shape; the
 //! real tables are the Windows, Linux and macOS ones in `os`.
@@ -47,7 +60,7 @@ mod os;
 
 pub use os::SystemTable;
 #[cfg(windows)]
-pub use os::{current_user_sid_string, process_is_current_user};
+pub use os::{current_user_sid_string, process_is_current_user, process_user_matches};
 
 /// The deepest chain of parents the walk follows. Real chains are a handful long; a longer
 /// one is a loop or not a harness's.
@@ -73,8 +86,16 @@ pub struct ProcessInfo {
     pub id: ProcessId,
     /// Its parent's process id, when it has one.
     pub parent: Option<u32>,
-    /// Its executable's file name (not the path), as the table gives it.
+    /// The name the process **started under**: its executable's file name as it was
+    /// launched (Windows: the image name; Linux: the kernel's `comm`, set from the path
+    /// `execve` was given; macOS: the BSD name). A launcher symlink keeps its own name here:
+    /// the native Claude Code install is `claude -> .../versions/2.1.287`, and the process
+    /// is `claude`. The process itself can change this name (`prctl(PR_SET_NAME)`), as any
+    /// same-user code can run a binary under any name; see "What this does not do".
     pub image: String,
+    /// The file name of the executable after links are resolved, when the table can read
+    /// it. A harness matches by either name.
+    pub resolved_image: Option<String>,
 }
 
 /// The operating system's process table, as far as the walk needs it.
@@ -86,9 +107,10 @@ pub trait ProcessTable {
     /// when `process` is no longer the process that started at `process.started`.
     fn working_directory(&self, process: &ProcessId) -> Option<String>;
 
-    /// Whether process `pid` belongs to the user this daemon runs as. A process of another
-    /// user is never taken for a harness.
-    fn same_user(&self, pid: u32) -> bool;
+    /// Whether `process` belongs to the user this daemon runs as. A process of another user
+    /// is never taken for a harness. `false` when the process is no longer the one that
+    /// started at `process.started`: a recycled process id is not that process.
+    fn same_user(&self, process: &ProcessId) -> bool;
 }
 
 /// The executable names of the harness a label names, normalized by [`normalize_image`];
@@ -120,8 +142,9 @@ pub fn harness_ancestor(
 ) -> Option<ProcessId> {
     let mut current = table.lookup(peer_pid)?;
     for _ in 0..MAX_ANCESTRY {
-        if images.contains(&normalize_image(&current.image).as_str()) {
-            return table.same_user(current.id.pid).then_some(current.id);
+        let named = |name: &str| images.contains(&normalize_image(name).as_str());
+        if named(&current.image) || current.resolved_image.as_deref().is_some_and(named) {
+            return table.same_user(&current.id).then_some(current.id);
         }
         let parent_pid = current.parent.filter(|p| *p != 0 && *p != current.id.pid)?;
         let parent = table.lookup(parent_pid)?;
@@ -173,6 +196,34 @@ pub fn observe(table: &dyn ProcessTable, label: &str, peer_pid: u32) -> PeerObse
     }
 }
 
+/// The start time of process `pid`, read now. A connection's peer is pinned with it at
+/// accept, so that [`observe_process`] later refuses a recycled process id.
+pub fn process_started(pid: u32) -> Option<u64> {
+    #[cfg(windows)]
+    {
+        os::process_started(pid)
+    }
+    #[cfg(not(windows))]
+    {
+        SystemTable::new()
+            .ok()?
+            .lookup(pid)
+            .map(|info| info.id.started)
+    }
+}
+
+/// [`observe`], for a peer pinned at accept: when the process now at `peer.pid` is not the
+/// one that started at `peer.started`, nothing is observed (the id was recycled).
+pub fn observe_process(table: &dyn ProcessTable, label: &str, peer: &ProcessId) -> PeerObservation {
+    if table.lookup(peer.pid).map(|info| info.id) != Some(*peer) {
+        return PeerObservation {
+            harness_label: Token::parse(label),
+            ..PeerObservation::none()
+        };
+    }
+    observe(table, label, peer.pid)
+}
+
 /// A process table given as data: for tests, and for a diagnostic that shows what a walk
 /// would do. It holds no operating-system state.
 #[derive(Clone, Debug, Default)]
@@ -203,11 +254,20 @@ impl StaticTable {
                     id: ProcessId { pid, started },
                     parent,
                     image: image.to_owned(),
+                    resolved_image: None,
                 },
                 cwd.map(str::to_owned),
                 true,
             ),
         );
+        self
+    }
+
+    /// Gives process `pid` the executable name it has after links are resolved.
+    pub fn with_resolved_image(mut self, pid: u32, resolved: &str) -> StaticTable {
+        if let Some(entry) = self.processes.get_mut(&pid) {
+            entry.0.resolved_image = Some(resolved.to_owned());
+        }
         self
     }
 
@@ -230,8 +290,10 @@ impl ProcessTable for StaticTable {
         (info.id == *process).then(|| cwd.clone()).flatten()
     }
 
-    fn same_user(&self, pid: u32) -> bool {
-        self.processes.get(&pid).is_some_and(|(_, _, mine)| *mine)
+    fn same_user(&self, process: &ProcessId) -> bool {
+        self.processes
+            .get(&process.pid)
+            .is_some_and(|(info, _, mine)| info.id == *process && *mine)
     }
 }
 
@@ -427,6 +489,49 @@ mod tests {
         let o = observe(&t, "claude", 2);
         assert!(o.pairing_key.is_some());
         assert_eq!(o.working_directory, None);
+    }
+
+    #[test]
+    fn a_launcher_symlink_started_as_claude_is_a_claude_and_so_is_its_resolved_name() {
+        // The native Claude Code install: `claude -> .../versions/2.1.287`. The process is
+        // `claude`; its resolved executable is a version file.
+        let linked = StaticTable::new()
+            .with(1, None, "init", 1, None)
+            .with(2, Some(1), "claude", 2, Some(CWD))
+            .with_resolved_image(2, "2.1.287")
+            .with(3, Some(2), "oac", 3, Some(CWD));
+        assert!(key_of(&linked, "claude", 3).is_some());
+        // Started under another name but resolving to `claude`: matched by the resolved name.
+        let renamed = StaticTable::new()
+            .with(1, None, "init", 1, None)
+            .with(2, Some(1), "launcher", 2, Some(CWD))
+            .with_resolved_image(2, "claude")
+            .with(3, Some(2), "oac", 3, Some(CWD));
+        assert!(key_of(&renamed, "claude", 3).is_some());
+        // Neither name is a harness's.
+        let neither = StaticTable::new()
+            .with(1, None, "init", 1, None)
+            .with(2, Some(1), "launcher", 2, Some(CWD))
+            .with_resolved_image(2, "2.1.287")
+            .with(3, Some(2), "oac", 3, Some(CWD));
+        assert_eq!(key_of(&neither, "claude", 3), None);
+    }
+
+    #[test]
+    fn a_recycled_process_id_is_not_the_user_it_was() {
+        let t = session();
+        assert!(t.same_user(&ProcessId {
+            pid: 30,
+            started: 300
+        }));
+        assert!(!t.same_user(&ProcessId {
+            pid: 30,
+            started: 301
+        }));
+        assert!(!t.same_user(&ProcessId {
+            pid: 999,
+            started: 300
+        }));
     }
 
     #[test]

@@ -253,9 +253,22 @@ impl Listener {
 /// What was observed about the process at the other end, by the operating system.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PeerIdentity {
-    /// The peer's process id, when the operating system reports one. It is the input of
-    /// `crate::peer::observe`.
+    /// The peer's process id, when the operating system reports one.
     pub pid: Option<u32>,
+    /// When that process started, read at accept: it pins the peer, so that a process id
+    /// recycled between the connection and the observation is refused
+    /// (`crate::peer::observe_process`).
+    pub started: Option<u64>,
+}
+
+impl PeerIdentity {
+    /// The pinned peer process, when both its id and start time were read.
+    pub fn process(&self) -> Option<crate::peer::ProcessId> {
+        Some(crate::peer::ProcessId {
+            pid: self.pid?,
+            started: self.started?,
+        })
+    }
 }
 
 /// An authenticated connection.

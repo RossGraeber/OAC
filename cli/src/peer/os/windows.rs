@@ -2,10 +2,12 @@
 
 //! The Windows process table.
 //!
-//! - Parents and executable names come from one Toolhelp snapshot taken when the table is
-//!   made (`CreateToolhelp32Snapshot`); a process that starts later is not in it, which only
-//!   makes a walk end (fail closed). The parent's start time is checked against the child's
-//!   by the caller, because a snapshot's parent id can name a recycled process.
+//! - Parent ids and executable names come from one Toolhelp snapshot taken when the table is
+//!   made (`CreateToolhelp32Snapshot`), and the time of the snapshot is kept. A process that
+//!   starts later is not in the snapshot, which only makes a walk end (fail closed). A
+//!   snapshot entry whose process id has since been recycled would be mixed with the new
+//!   process's live creation time, so a lookup refuses any process **created after the
+//!   snapshot**; the caller also checks that a parent is no younger than its child.
 //! - The start time is the process's creation time (`GetProcessTimes`, 100 ns ticks since
 //!   1601), read through a handle opened for the call.
 //! - The owner is compared by the process token's user SID (`OpenProcessToken`,
@@ -45,8 +47,9 @@ use super::super::{ProcessId, ProcessInfo, ProcessTable};
 pub struct SystemTable {
     /// pid -> (parent pid, executable file name).
     processes: HashMap<u32, (u32, String)>,
-    /// The daemon's own token user (a `TOKEN_USER` followed by its SID), 8-byte aligned.
-    own_user: Vec<u64>,
+    /// When the snapshot was taken, as 100 ns ticks since 1601 (a `FILETIME`): a process
+    /// created after it is not what the snapshot saw.
+    snapshot_at: u64,
 }
 
 impl std::fmt::Debug for SystemTable {
@@ -136,9 +139,24 @@ fn token_user(process: HANDLE) -> Option<Vec<u64>> {
 }
 
 /// The SID inside a [`token_user`] buffer.
-fn sid_of(buffer: &[u64]) -> *mut c_void {
-    // SAFETY: the buffer holds a `TOKEN_USER` (filled by GetTokenInformation), aligned.
+///
+/// # Safety
+///
+/// `buffer` must be one that [`token_user`] returned.
+unsafe fn sid_of(buffer: &[u64]) -> *mut c_void {
+    // SAFETY: the caller's buffer holds a `TOKEN_USER` (filled by GetTokenInformation), aligned.
     unsafe { (*buffer.as_ptr().cast::<TOKEN_USER>()).User.Sid }
+}
+
+/// 100 ns ticks since 1601-01-01 at the current time, on the clock process creation times
+/// use.
+fn now_ticks() -> u64 {
+    const UNIX_TO_FILETIME_SECONDS: u64 = 11_644_473_600;
+    let since_unix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
+    (since_unix.as_secs() + UNIX_TO_FILETIME_SECONDS) * 10_000_000
+        + u64::from(since_unix.subsec_nanos()) / 100
 }
 
 impl SystemTable {
@@ -150,7 +168,7 @@ impl SystemTable {
     /// be read.
     pub fn new() -> io::Result<SystemTable> {
         // SAFETY: GetCurrentProcess returns a pseudo-handle that needs no closing.
-        let own_user = token_user(unsafe { GetCurrentProcess() })
+        token_user(unsafe { GetCurrentProcess() })
             .ok_or_else(|| io::Error::other("the daemon's own token cannot be read"))?;
         // SAFETY: a snapshot of the process list; the result is checked below.
         let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
@@ -178,7 +196,8 @@ impl SystemTable {
         }
         Ok(SystemTable {
             processes,
-            own_user,
+            // After the walk of the snapshot: every process in it was created before this.
+            snapshot_at: now_ticks(),
         })
     }
 
@@ -210,10 +229,16 @@ impl ProcessTable for SystemTable {
         let (parent, image) = self.processes.get(&pid)?;
         let handle = open_process(pid, PROCESS_QUERY_LIMITED_INFORMATION)?;
         let started = creation_time(raw(&handle))?;
+        if started > self.snapshot_at {
+            // The id was recycled after the snapshot: the entry is another process's.
+            return None;
+        }
         Some(ProcessInfo {
             id: ProcessId { pid, started },
             parent: Some(*parent),
             image: image.clone(),
+            // The snapshot's name is the image name the process was started under.
+            resolved_image: None,
         })
     }
 
@@ -257,13 +282,25 @@ impl ProcessTable for SystemTable {
             return None;
         }
         let string = params + PARAMETERS_CURRENT_DIRECTORY;
-        let mut length = [0u8; 2];
-        if !Self::read(h, string, &mut length) {
+        // The whole 16-byte `UNICODE_STRING` in one read: Length (u16), MaximumLength (u16),
+        // padding, Buffer (pointer).
+        let mut unicode_string = [0u8; 16];
+        if !Self::read(h, string, &mut unicode_string) {
             return None;
         }
-        let bytes = usize::from(u16::from_le_bytes(length));
-        let buffer = Self::read_usize(h, string + UNICODE_STRING_BUFFER)?;
-        if bytes == 0 || bytes % 2 != 0 || bytes / 2 > MAX_PATH_UNITS || buffer == 0 {
+        let bytes = usize::from(u16::from_le_bytes([unicode_string[0], unicode_string[1]]));
+        let capacity = usize::from(u16::from_le_bytes([unicode_string[2], unicode_string[3]]));
+        let buffer = usize::from_le_bytes(
+            unicode_string[UNICODE_STRING_BUFFER..UNICODE_STRING_BUFFER + 8]
+                .try_into()
+                .ok()?,
+        );
+        if bytes == 0
+            || bytes % 2 != 0
+            || bytes > capacity
+            || bytes / 2 > MAX_PATH_UNITS
+            || buffer == 0
+        {
             return None;
         }
         let mut raw_units = vec![0u8; bytes];
@@ -284,15 +321,8 @@ impl ProcessTable for SystemTable {
         Some(path)
     }
 
-    fn same_user(&self, pid: u32) -> bool {
-        let Some(handle) = open_process(pid, PROCESS_QUERY_LIMITED_INFORMATION) else {
-            return false;
-        };
-        let Some(theirs) = token_user(raw(&handle)) else {
-            return false;
-        };
-        // SAFETY: both SIDs are inside their own live, aligned buffers.
-        unsafe { EqualSid(sid_of(&self.own_user), sid_of(&theirs)) != 0 }
+    fn same_user(&self, process: &ProcessId) -> bool {
+        process_user_matches(process.pid, Some(process.started))
     }
 }
 
@@ -303,7 +333,10 @@ pub fn current_user_sid_string() -> Option<String> {
     let user = token_user(unsafe { GetCurrentProcess() })?;
     let mut text: *mut u16 = std::ptr::null_mut();
     // SAFETY: the SID is inside `user`; `text` is a local out-pointer.
-    if unsafe { ConvertSidToStringSidW(sid_of(&user), &mut text) } == 0 || text.is_null() {
+    // SAFETY: `user` came from `token_user`.
+    let sid = unsafe { sid_of(&user) };
+    // SAFETY: the SID is inside `user`.
+    if unsafe { ConvertSidToStringSidW(sid, &mut text) } == 0 || text.is_null() {
         return None;
     }
     // SAFETY: on success `text` is a NUL-terminated UTF-16 string the call allocated.
@@ -320,11 +353,23 @@ pub fn current_user_sid_string() -> Option<String> {
 }
 
 /// Whether process `pid` runs as the user this process runs as. A process that cannot be
-/// opened or whose token cannot be read is not.
+/// opened or whose token cannot be read is not. Prefer [`process_user_matches`] with the
+/// process's start time when it is known, so that a recycled id is not mistaken for it.
 pub fn process_is_current_user(pid: u32) -> bool {
+    process_user_matches(pid, None)
+}
+
+/// Whether process `pid` runs as the user this process runs as and, when `started` is
+/// given, is the process that started then: the creation time is read from the same handle
+/// before and after the token is read, so the answer is about that process and no other.
+pub fn process_user_matches(pid: u32, started: Option<u64>) -> bool {
     let Some(handle) = open_process(pid, PROCESS_QUERY_LIMITED_INFORMATION) else {
         return false;
     };
+    let pinned = |h| started.is_none_or(|s| creation_time(h) == Some(s));
+    if !pinned(raw(&handle)) {
+        return false;
+    }
     let Some(theirs) = token_user(raw(&handle)) else {
         return false;
     };
@@ -332,6 +377,14 @@ pub fn process_is_current_user(pid: u32) -> bool {
     let Some(own) = token_user(unsafe { GetCurrentProcess() }) else {
         return false;
     };
-    // SAFETY: both SIDs are inside their own live, aligned buffers.
-    unsafe { EqualSid(sid_of(&own), sid_of(&theirs)) != 0 }
+    // SAFETY: both SIDs are inside their own live, aligned buffers from `token_user`.
+    let equal = unsafe { EqualSid(sid_of(&own), sid_of(&theirs)) != 0 };
+    equal && pinned(raw(&handle))
+}
+
+/// The creation time of process `pid` (100 ns ticks since 1601), or `None` when it cannot
+/// be opened. It pins a peer: the same value later is the same process.
+pub fn process_started(pid: u32) -> Option<u64> {
+    let handle = open_process(pid, PROCESS_QUERY_LIMITED_INFORMATION)?;
+    creation_time(raw(&handle))
 }

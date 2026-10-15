@@ -11,6 +11,7 @@
 use std::io::{Read, Write};
 
 use oac_cli::ipc::{Accept, Accepted, BindError, ConnectError, Endpoint, Scope, label_is_valid};
+use oac_cli::peer::ProcessTable as _;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 fn scope() -> Scope {
@@ -42,6 +43,13 @@ async fn bytes_flow_both_ways_and_the_peer_is_identified_by_the_system() {
     let mut accepted = accept_connection(&mut listener).await;
     // The client is a thread of this process: the system reports this process's id.
     assert_eq!(accepted.peer.pid, Some(std::process::id()));
+    // The peer is pinned by its start time, which is this process's.
+    let me = oac_cli::peer::SystemTable::new()
+        .unwrap()
+        .lookup(std::process::id())
+        .unwrap()
+        .id;
+    assert_eq!(accepted.peer.process(), Some(me));
     let mut got = [0u8; 5];
     accepted.stream.read_exact(&mut got).await.unwrap();
     assert_eq!(&got, b"ping\n");

@@ -27,7 +27,7 @@ use windows_sys::Win32::System::Pipes::{
 };
 
 use super::{Accept, Accepted, AsyncStream, BindError, ConnectError, PeerIdentity, Rejection};
-use crate::peer::{current_user_sid_string, process_is_current_user};
+use crate::peer::{current_user_sid_string, process_started, process_user_matches};
 
 /// The blocking client stream: a synchronous pipe handle.
 pub type Blocking = File;
@@ -197,15 +197,25 @@ impl Listener {
                 reason: "the peer could not be identified",
             }));
         }
+        // The peer is pinned by its start time: the user check is about that process, and
+        // the observation made later is refused if the id has been recycled meanwhile.
+        let Some(started) = process_started(pid) else {
+            return Ok(Accept::Rejected(Rejection {
+                reason: "the peer could not be identified",
+            }));
+        };
         // The DACL already refused other users at open; this is the second check (C2 §4).
-        if !process_is_current_user(pid) {
+        if !process_user_matches(pid, Some(started)) {
             return Ok(Accept::Rejected(Rejection {
                 reason: "the peer is another user",
             }));
         }
         Ok(Accept::Connection(Accepted {
             stream: Box::new(connected),
-            peer: PeerIdentity { pid: Some(pid) },
+            peer: PeerIdentity {
+                pid: Some(pid),
+                started: Some(started),
+            },
         }))
     }
 }
@@ -234,7 +244,7 @@ fn server_is_ours(handle: RawHandle) -> Result<bool, io::Error> {
     if unsafe { GetNamedPipeServerProcessId(handle as HANDLE, &mut pid) } == 0 {
         return Err(io::Error::last_os_error());
     }
-    Ok(pid != 0 && process_is_current_user(pid))
+    Ok(pid != 0 && process_started(pid).is_some_and(|s| process_user_matches(pid, Some(s))))
 }
 
 pub async fn connect_async(

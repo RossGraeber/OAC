@@ -191,10 +191,13 @@ impl Listener {
                 reason: "the peer is another user",
             }));
         }
+        let pid = cred.pid().and_then(|p| u32::try_from(p).ok());
         Ok(Accept::Connection(Accepted {
             stream: Box::new(stream),
             peer: PeerIdentity {
-                pid: cred.pid().and_then(|p| u32::try_from(p).ok()),
+                pid,
+                // Pinned at accept (see `PeerIdentity::started`).
+                started: pid.and_then(crate::peer::process_started),
             },
         }))
     }
