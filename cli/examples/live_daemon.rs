@@ -5,7 +5,7 @@
 //! `oac start` is the product's daemon. It keeps the user's real device key in the operating
 //! system's credential store and refuses `OAC_SCOPE` (the key is the user's one in every
 //! namespace, so a second daemon in a namespace beside the real one would be a second peer
-//! with the same identity). A live leg that drives a real harness through herdr must not
+//! with the same identity). A live leg that drives a real harness from a scripted terminal must not
 //! touch that key, so it runs this instead: the same `Daemon::start` (same lock, same
 //! endpoints, same peer authentication and observation, same relay, same Claude adapter), but
 //!
