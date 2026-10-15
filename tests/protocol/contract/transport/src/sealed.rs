@@ -383,6 +383,76 @@ pub(crate) fn frame_cap(h: &dyn TransportHarness) -> Verdict {
     Verdict::Pass("54-octet overhead: exact cap carried unchanged, cap+1 refused".into())
 }
 
+/// [IFC-TRN-118] on a sealing transport: a frame of exactly the declared `max_payload_octets`
+/// octets, for each of the three inner kinds, is not refused. A sealed payload is measured as
+/// its frame (§6.10), so the frame is built with the core's sealing API to that length and
+/// passed raw. `None` when the transport does not declare `sealing`, and the plain check runs.
+pub(crate) fn declared_size(h: &dyn TransportHarness) -> Option<Verdict> {
+    let (m, t, c) = raw(h);
+    if !c.sealing {
+        return None;
+    }
+    Some(exact_frames(&*m, &*t, &c))
+}
+
+fn exact_frames(m: &dyn Medium, t: &dyn Transport, c: &TransportCapabilities) -> Verdict {
+    let Ok(cap) = usize::try_from(c.max_payload_octets) else {
+        return Verdict::NotApplicable(
+            "declared maximum does not fit this host's address space".into(),
+        );
+    };
+    fail_if!(
+        cap < sealing::FRAME_OVERHEAD,
+        "declared maximum cannot hold a frame's overhead (IFC-TRN-109)"
+    );
+    if c.max_payload_octets > DECLARED_SIZE_LIMIT {
+        return Verdict::NotApplicable(format!(
+            "declared maximum {cap} exceeds the {DECLARED_SIZE_LIMIT} octets this check allocates"
+        ));
+    }
+    let d = Destination::Device(key(1));
+    let seen = Seen::default();
+    let _s = t.subscribe(&d, seen.handler()).unwrap();
+    m.subscribed();
+    let dl = Deadline::at(m.now() + LONG);
+    let kinds = [
+        PayloadKind::Envelope,
+        PayloadKind::Receipt,
+        PayloadKind::Presence,
+    ];
+    // Controls: a small frame of each kind is taken, so a refusal below is about size.
+    for kind in kinds {
+        let small = frame(&key(1), kind, b"size-control", c.max_payload_octets);
+        let r = t.publish(&d, small, dl);
+        if r != PublishResult::Taken {
+            return Verdict::NotApplicable(format!(
+                "a small sealed {kind:?} frame was {r:?}, so a refusal at the declared maximum cannot be put down to size (see IFC-TRN-001, IFC-TRN-031)"
+            ));
+        }
+    }
+    for kind in kinds {
+        let exact = frame(
+            &key(1),
+            kind,
+            &vec![42; cap - sealing::FRAME_OVERHEAD],
+            c.max_payload_octets,
+        );
+        fail_if!(
+            exact.len() != cap,
+            "core frame did not reach the declared maximum"
+        );
+        let r = t.publish(&d, exact, dl);
+        fail_if!(
+            r != PublishResult::Taken,
+            "a sealed {kind:?} frame of exactly the declared maximum, {cap} octets, was {r:?} while a small one was taken"
+        );
+    }
+    m.settle();
+    Verdict::Pass(format!(
+        "sealing: a frame of exactly {cap} octets (the declared maximum) taken for each inner kind"
+    ))
+}
+
 fn observations(h: &dyn TransportHarness) -> Result<Vec<SealingObservation>, Verdict> {
     let (m, t, c) = raw(h);
     m.audit_destination(&session(7));
