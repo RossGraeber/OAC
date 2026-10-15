@@ -102,6 +102,10 @@ Per PLANNING-PROMPT.md §3.3 (MCP extension model, SEP-2133): extension identifi
   an existing delivery state's or error code's meaning, changing signature scope.
 - State both lists in `spec/session-channels.md`'s versioning section (the Stage 2 counterpart
   of the M0 `05-interfaces.md` draft, §4) — never leave "breaking change" undefined.
+- Standing rule (#422): every spec revision bump (header and revision-history row) also adds
+  the revision to `REVISIONS` in `tests/protocol/runner/revisions.mjs`. The `conformance` step
+  of `node scripts/local-ci.mjs` enforces it (`FAIL revisions:`); the runner self-test plants a
+  missing revision.
 
 ## 7. The interface freeze
 

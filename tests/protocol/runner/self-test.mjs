@@ -24,6 +24,7 @@ import { parseTimestamp, isSessionId, isToken } from './core.mjs';
 import { sealBase, openBase, x25519, x25519Public, acceptableAgreementKey, seal as sealFrame, open as openFrame } from './hpke.mjs';
 import { checkIndexes, checkOwners } from './index-check.mjs';
 import { contractStrays } from './layout.mjs';
+import { REVISIONS, SPEC_DOCUMENTS, checkRevisions, revisionsNamedBy } from './revisions.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -330,6 +331,27 @@ export function selfTest() {
     const o = openFrame(frame, skR);
     expect('sealed frame round trip', o.kind === 'presence' && o.payload.equals(Buffer.from('{}')) && frame.length === 54 + 2 + 7);
     expect('sealed frame refused by another key', openFrame(frame, Buffer.alloc(32, 0x33)).kind === undefined);
+  }
+
+  // The revision lists (#422): the committed lists cover every revision the spec documents
+  // name, and a revision that is not listed (planted) fails.
+  expect('revision lists: committed lists are current', checkRevisions(readRepo).length === 0);
+  expect('revision lists: every spec file is checked', SPEC_DOCUMENTS.every((d) => d in REVISIONS) && fs.readdirSync(path.join(root, 'spec')).filter((f) => f.endsWith('.md')).length + fs.readdirSync(path.join(root, 'spec', 'bindings')).filter((f) => f.endsWith('.md')).length === SPEC_DOCUMENTS.length);
+  for (const doc of SPEC_DOCUMENTS) {
+    const { header, history } = revisionsNamedBy(readRepo(doc));
+    expect(`revision lists: ${doc} header and history are read`, header.size === 1 && history.size > 0 && history.has([...header][0]));
+    const top = [...history].pop();
+    const without = { ...REVISIONS, [doc]: REVISIONS[doc].filter((r) => r !== top) };
+    expect(`revision lists: ${doc} without ${top} fails`, checkRevisions(readRepo, without).some((m) => m.includes(`revision ${top}`)));
+  }
+  {
+    // A header the check cannot read, and a document with a new revision in both places.
+    const text = (doc, f) => (rel) => (rel === doc ? f(readRepo(rel)) : readRepo(rel));
+    expect('revision lists: a planted new header revision fails', checkRevisions(text('spec/interfaces.md', (t) => t.replace('**Revision:** 0.9', '**Revision:** 0.10'))).some((m) => m.includes('revision 0.10 (header)')));
+    expect('revision lists: a planted new binding header revision fails', checkRevisions(text('spec/bindings/mcp.md', (t) => t.replace('**Binding revision:** `0.3`', '**Binding revision:** `0.4`'))).some((m) => m.includes('revision 0.4 (header)')));
+    expect('revision lists: a planted new history row fails', checkRevisions(text('spec/security.md', (t) => t.replace('## Appendix C. Revision history', '## Appendix C. Revision history\n\n| 0.6 | 2026-10-15 | planted |'))).some((m) => m.includes('revision 0.6 (revision history)')));
+    expect('revision lists: an unreadable header fails', checkRevisions(text('spec/security.md', (t) => t.replace('**Revision:**', '**Rev:**'))).some((m) => m.includes('no revision header')));
+    expect('revision lists: a document with no list fails', checkRevisions(readRepo, {}).length === SPEC_DOCUMENTS.length);
   }
 
   return failures;
