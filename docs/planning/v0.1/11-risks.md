@@ -628,6 +628,25 @@ list.
   its id reused, and the id then names the new, same-user process, which is mis-attributed
   rather than refused (pinned by start time, same-user, inside the same-key residual above);
   (3) Linux could use `SO_PEERPIDFD` to hold the peer, not done.)
+  (Dated note, 2026-10-15, documentation sweep.) **Accepted by the lead, 2026-10-15: the three
+  widened D5 residuals of the local IPC and peer pairing.** They are stated here, in
+  `docs/planning/v0.1/06-security.md` §12 and threat rows 13 and 24, in `docs/planning/STATUS.md`, and
+  on the wiki Security page, and they stand as v0.1 residuals:
+  (a) **Same-key denial of service, any same-user process.** On Windows any same-user process can
+  share Claude's pairing key and cause a same-key denial of service, for example a child created
+  with the real `claude.exe` as its parent (`PROC_THREAD_ATTRIBUTE_PARENT_PROCESS`), not only
+  Claude's own descendants. Availability only: the victim's attachment is withheld ([SC-ID-154]),
+  and nothing binds to the other process.
+  (b) **Name matching authenticates nothing against same-user code.** Any same-user program named
+  or started as `claude` (or `codex`) becomes a harness with a key and a working directory of its
+  own. That gives it nothing beyond what the user's own processes already hold.
+  (c) **The peer pid is read at accept.** Under daemon load a reused pid is mis-attributed to
+  another same-user process rather than refused. The start-time pin keeps it inside the same-user
+  residual of (a).
+  Early-warning signal: a same-user process observed paired with a harness it did not start, or
+  SC-ID-154 withholding on a harness that never forked a second shim. Response: the G9 key design
+  and `SO_PEERPIDFD` on Linux stay open options; if a live leg shows one of (a) to (c) in practice,
+  re-open this acceptance rather than widen it.
 - **What it invalidates.** Decision 2's OS-level peer-authentication claim
   (`docs/planning/v0.1/03-decisions-and-amendments.md` Decision 2); the zero-
   container launch story's "no extra configuration" assumption

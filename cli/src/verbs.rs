@@ -3,7 +3,7 @@
 //! The `oac` verbs that exist so far (G9, #70), and their dispatch.
 //!
 //! Only `hook` is here. `start`, `mcp-shim` and the rest of the C2 §6 table arrive with the
-//! daemon and the local IPC; until then they are reported as unknown rather than faked. The
+//! daemon (slice 6, #413); until then they are reported as unknown rather than faked. The
 //! dispatch takes its streams and the way to reach the daemon as arguments, so a test drives
 //! it with in-memory ones and the binary passes the process's own.
 
@@ -25,7 +25,7 @@ pub struct Streams<'a> {
 }
 
 /// How a verb reaches the daemon: opens the local connection for the harness label, with the
-/// peer authentication of the local IPC. The binary has none until that slice lands.
+/// peer authentication of the local IPC. The binary has none until #413 lands.
 pub type Connector<'a> = &'a mut dyn FnMut(&str) -> io::Result<Box<dyn Write>>;
 
 /// Runs `args` (everything after the program name) and returns the exit status.

@@ -10,8 +10,9 @@ use std::io::{self, Write};
 
 use oac_cli::verbs::{Streams, dispatch};
 
-/// The way to the daemon. The local IPC that provides it is a later slice of #70; until then
-/// no connection can be opened, so a hook input is dropped with a diagnostic and the session
+/// The way to the daemon. The local IPC (`oac_cli::ipc`, #411) is merged, but this binary does
+/// not connect through it yet: the connector arrives with the daemon (#413). Until then no
+/// connection can be opened, so a hook input is dropped with a diagnostic and the session
 /// stays unbound (fail closed).
 fn connect(_harness: &str) -> io::Result<Box<dyn Write>> {
     Err(io::Error::new(

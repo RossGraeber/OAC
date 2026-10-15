@@ -1,5 +1,21 @@
 # OAC status
 
+**Last updated:** 2026-10-15 (**documentation sweep, Refs #70: the lead's acceptance of the D5 residuals of local IPC and peer pairing**).
+Documentation only: no code change except comments, no spec change, no gate verdict or pin change, no new UNVERIFIED item, no ADR-001
+amendment, no new risk row. Brought in line with `main` at `d4dd31b` (PR #411 merged): `README.md` (status, what works on `main`, build and
+test); `docs/planning/v0.1/06-security.md` §12 and threat rows 13 and 24 (their "NOT RUN" cells); `08-cli-and-deployment.md` §20 (`oac hook` is on
+`main`; `oac start` and `oac mcp-shim` are not built); `10-stages.md` §5 (Stage 1 is no longer current); `11-risks.md` `RISK-LOCAL-IPC`. Stale comments
+fixed (comments only): `transports/zenoh/src/lib.rs` and `tests/integration/README.md` (the IFC-TRN-034 amendment they awaited is interfaces 0.7,
+#385), `transports/memory/src/network.rs` (IFC-TRN-034 admission, not the 0.6 hold), `cli/src/main.rs` and `cli/src/verbs.rs` (the local IPC is
+merged; the connector arrives with the daemon, #413). The CLI usage text is accurate as it stands and is unchanged.
+**Accepted by the lead, 2026-10-15** (documentation only; no code change): the three D5 residuals of local IPC and peer pairing, now written
+in `11-risks.md` `RISK-LOCAL-IPC`, `06-security.md` §12 and threat rows 13 and 24, and the wiki Security page. (1) On Windows any same-user process
+can share Claude's pairing key and cause a same-key denial of service (for example a child created with the real `claude.exe` as parent,
+`PROC_THREAD_ATTRIBUTE_PARENT_PROCESS`), not only Claude's descendants. (2) Name matching (`claude`, `codex`) authenticates nothing against
+same-user code: a same-user program named `claude` becomes a harness with its own key. (3) A peer pid is read at accept, so under daemon load a
+reused pid is mis-attributed to another same-user process rather than refused. Not documented as merged: the daemon, `oac start`, `oac mcp-shim`
+(PR #413) and interfaces 0.9 (PR #408); both were open at this entry.
+
 **Last updated:** 2026-10-14 (**G9, #70, slice 5: the local IPC with the peer authenticated by the operating system; Refs #70**).
 `cli/src/ipc/` (stacked on slice 4): one endpoint per harness label (D2), `\\.\pipe\oac-<user SID>-<label>` on Windows and
 `<run dir>/<label>.sock` on Unix (`$XDG_RUNTIME_DIR/oac`, else `~/.oac/run`, created 0700, refused unless private).

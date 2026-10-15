@@ -479,8 +479,10 @@ only; none is an OAC provider surface.
   `docs/planning/PINS.md` row "Beacon (external memory service)". It is not repeated here.
   The pin holds a fixed version **only while Beacon's package self-updates stay off**
   (L1 §2). Leave them off on an OAC-enabled machine.
-- **OAC installed.** OAC is planned, not built (see "Gate-verdict caveat" at the top of
-  this file). The OAC commands below are its documented targets.
+- **OAC installed.** OAC is not released (see "Gate-verdict caveat" at the top of this file).
+  Dated note, 2026-10-15: `main` builds an `oac` binary whose only verb is `oac hook` (PR #405), with
+  the key store (#407), peer observation (#410) and local IPC (#411) behind it. `oac start` and
+  `oac mcp-shim` are not built yet (PR #413, open). The OAC commands below are its documented targets.
 - **One repository per pair of peers, if they are meant to share memory** (§20.6).
 
 ### 20.2 Beacon side — the operator's own configuration
@@ -531,8 +533,9 @@ Do not run `beacon mcp connect` for this setup. It registers the separate hosted
 
 ### 20.3 OAC side — the launch commands already in this file
 
-Only the commands in §5, §7 and §9 are used. Planned, not built; the "Gate-verdict
-caveat" at the top of this file applies to each.
+Only the commands in §5, §7 and §9 are used. Dated note, 2026-10-15: `oac start` and
+`oac mcp-shim` are not built yet (PR #413, open); the "Gate-verdict caveat" at the top of this
+file applies to each.
 
 1. Start the per-device daemon with `oac start` (§5).
 2. Claude Code: launch the session with the development-channel command in §7. The
