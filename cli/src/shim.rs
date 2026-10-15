@@ -104,20 +104,22 @@ pub async fn relay(
             if daemon_writes.write_all(&chunk).await.is_err()
                 || daemon_writes.flush().await.is_err()
             {
-                return;
+                // The daemon can no longer be written to: it is gone, not the harness.
+                return Ended::DaemonClosed;
             }
         }
         // Input closed: the session is over; closing our side tells the daemon.
         let _ = daemon_writes.shutdown().await;
+        Ended::InputClosed
     };
     let from_daemon = async move {
         let mut buf = vec![0u8; CHUNK];
         loop {
             match daemon_reads.read(&mut buf).await {
-                Ok(0) | Err(_) => return,
+                Ok(0) | Err(_) => return Ended::DaemonClosed,
                 Ok(n) => {
                     if out_tx.send(buf[..n].to_vec()).await.is_err() {
-                        return;
+                        return Ended::DaemonClosed;
                     }
                 }
             }
@@ -126,8 +128,8 @@ pub async fn relay(
     tokio::pin!(to_daemon);
     tokio::pin!(from_daemon);
     let ended = tokio::select! {
-        _ = &mut to_daemon => Ended::InputClosed,
-        _ = &mut from_daemon => Ended::DaemonClosed,
+        ended = &mut to_daemon => ended,
+        ended = &mut from_daemon => ended,
     };
     // What the daemon had already sent reaches the harness before the shim exits.
     if ended == Ended::DaemonClosed
@@ -213,6 +215,18 @@ mod tests {
             drop(_daemon_r);
             assert_eq!(relay_task.await.unwrap(), Ended::DaemonClosed);
             assert_eq!(out.0.lock().unwrap().as_slice(), b"last words\n");
+        });
+    }
+
+    #[test]
+    fn a_failed_write_to_the_daemon_is_the_daemon_gone_not_the_harness_done() {
+        rt().block_on(async {
+            let (daemon, shim_side) = duplex(1 << 16);
+            drop(daemon);
+            let input = std::io::Cursor::new(SAMPLE.to_vec());
+            let ended = relay(Box::new(shim_side), input, Shared::default()).await;
+            assert_eq!(ended, Ended::DaemonClosed);
+            assert_eq!(exit_status(ended), 1);
         });
     }
 

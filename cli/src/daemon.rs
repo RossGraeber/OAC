@@ -41,7 +41,7 @@ use std::io::Write;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use oac_core::adapter::ProviderAdapter;
+use oac_core::adapter::{ConnectionHandle, ProviderAdapter};
 use oac_core::authorization::{AuthorizationEngine, DecisionLog, LogEntry, RestoreError};
 use oac_core::clock::Clock;
 use oac_core::ids::Token;
@@ -352,6 +352,13 @@ async fn accept_loop(mut s: Serving) {
     }
 }
 
+/// Whether the core has been given a connection and whether it ended before that.
+#[derive(Default)]
+struct Gate {
+    handed: bool,
+    ended: Option<ConnectionHandle>,
+}
+
 /// Observes the peer, relays its stream and gives the connection to the core.
 async fn serve_connection(
     label: &str,
@@ -363,21 +370,43 @@ async fn serve_connection(
 ) {
     let Accepted { stream, peer } = connection;
     let observation = observation_of(label, peer.process()).await;
+    // The end of the connection can come before `connect_observed` has returned (a core that
+    // takes longer than the relay's drain to take the connection): `disconnect` of a
+    // connection the core has not registered yet frees nothing, and the place would leak. So
+    // the end waits for the handover: whichever comes second runs the disconnect.
+    let gate = Arc::new(Mutex::new(Gate::default()));
     let ending = pipelines.clone();
     let ending_runtime = runtime.clone();
+    let ending_gate = gate.clone();
     let core_connection = relay::attach(
         &runtime,
         stream,
         Box::new(move |handle| {
             // The IPC layer saw this connection end: the core frees its place (and, for an
             // attachment, ends its binding). `disconnect` blocks, so not on the runtime.
-            let (pipelines, handle) = (ending, handle.clone());
-            ending_runtime.spawn_blocking(move || pipelines.disconnect(&handle));
+            let (pipelines, handle) = (ending.clone(), handle.clone());
+            let mut state = ending_gate.lock().unwrap_or_else(|e| e.into_inner());
+            if state.handed {
+                drop(state);
+                ending_runtime.spawn_blocking(move || pipelines.disconnect(&handle));
+            } else {
+                state.ended = Some(handle);
+            }
         }),
     );
     let label = label.to_owned();
+    let handing = pipelines.clone();
     let handed = tokio::task::spawn_blocking(move || {
-        pipelines.connect_observed(adapter, core_connection, observation)
+        let result = handing.connect_observed(adapter, core_connection, observation);
+        let ended = {
+            let mut state = gate.lock().unwrap_or_else(|e| e.into_inner());
+            state.handed = true;
+            state.ended.take()
+        };
+        if let Some(handle) = ended {
+            handing.disconnect(&handle);
+        }
+        result
     })
     .await;
     match handed {

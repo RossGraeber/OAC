@@ -14,8 +14,15 @@ running; with no daemon it says `oac start` is the command and does not start on
 stop it cleanly; a second one reports "already running" and exits 0); `oac start --detach` starts it in the background and returns once it serves
 (best effort on Windows: it asks to leave the parent's job object). `oac hook` connects to the daemon; its connection lingers (3 s at most)
 until the daemon closes it, because the daemon looks the peer up in the process table after accepting and a hook that wrote one line and left
-could be gone first (found by the end-to-end test on its first run). The test-isolation namespace `OAC_SCOPE` (1 to 24 lower-case letters and digits)
-adds one segment to the endpoint names and changes no check; the daemon and the clients say when it is in use. Evidence: `cli/tests/daemon.rs`
+could be gone first (found by the end-to-end test on its first run). The test-isolation namespace `OAC_SCOPE` (1 to 24 lower-case letters and digits; empty counts as unset)
+adds one segment to the endpoint names and changes no check; the shim and the hook say when it is in use. **`oac start` refuses a set `OAC_SCOPE`
+before it reads the key store** (the device key is the user's one in every namespace, so a daemon in a namespace beside the real one would be a
+second peer with the same identity; review F1); only a test's in-process daemon uses a namespace. `oac start --detach` reports a start-up
+that fails at once, with the child's exit status (it holds the child); residuals for G10: a detached daemon has no console, so its log goes
+nowhere, and it can only be killed (on Windows it gets no console event: no clean shutdown, no presence withdrawal; there is no `oac stop`).
+A hook handler can take up to 5 s (Windows connect wait) plus the 3 s linger on a stuck daemon (Unix: the connect itself is unbounded); Claude Code's
+hook timeout is the backstop. The static word check that the hook, the shim and the relay name no key store is context, not proof; the proof is
+the behavioural run with no key store and a poisoned passphrase variable (and it is one case, not a guarantee). Evidence: `cli/tests/daemon.rs`
 on real Windows runs the daemon in-process over the in-memory transport and two Claude "sessions" that are separate processes named `claude`
 (own working directory), each starting the real `oac mcp-shim` and `oac hook` and driving the fake Claude Code endpoint: unauthorized before the
 hook; both sessions bound after it with different session ids; killing one session's shim leaves the other bound; shutdown ends the shim and the

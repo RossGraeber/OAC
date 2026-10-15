@@ -635,7 +635,11 @@ list.
   adapter does after reading the line; (2) `Pipelines::disconnect` removes what the core observed about a connection, so calling it at the
   stream's end would lose the key of a native signal the adapter has not reported yet; the relay calls it when the adapter has let go (or after a
   5 s drain). Residuals: a hook handler that cannot reach the daemon within its bound still exits 0 (the signal is lost and the session stays
-  unbound, fail closed); `OAC_SCOPE` is a test-isolation namespace segment that changes no check (a same-user process can already pick any name);
+  unbound, fail closed); `OAC_SCOPE` is a test-isolation namespace segment that changes no check (a same-user process can already pick any name) and is refused by `oac start`
+  (the device key is shared across namespaces, so a second daemon there would be a second peer with the same identity); a detached daemon
+  (`oac start --detach`) has no console: its log goes nowhere and it can only be killed (Windows: no clean shutdown, no presence withdrawal; a
+  stop command is G10's); a hook handler's total time is the connect wait (Windows 5 s), the write and the 3 s linger, with Claude Code's hook timeout
+  as the backstop;
   environment inheritance of `OAC_SCOPE`/`XDG_RUNTIME_DIR` into a shim started by a real harness (row 19) is still the live leg.)
 - **What it invalidates.** Decision 2's OS-level peer-authentication claim
   (`docs/planning/v0.1/03-decisions-and-amendments.md` Decision 2); the zero-

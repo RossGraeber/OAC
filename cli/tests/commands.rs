@@ -7,15 +7,29 @@
 
 use std::process::{Command, Stdio};
 
-/// A private runtime directory of this test run, so that no test makes anything in the
-/// user's own (Unix: `XDG_RUNTIME_DIR`).
+/// A private runtime directory of this call, so that no test makes anything in the user's
+/// own (Unix: `XDG_RUNTIME_DIR`), removed when the call is done.
 #[cfg(unix)]
-fn runtime_dir() -> std::path::PathBuf {
-    use std::os::unix::fs::PermissionsExt;
-    let dir = std::env::temp_dir().join(format!("oac-commands-test-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
-    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
-    dir
+struct RuntimeDir(std::path::PathBuf);
+
+#[cfg(unix)]
+impl RuntimeDir {
+    fn new() -> RuntimeDir {
+        use std::os::unix::fs::PermissionsExt;
+        static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+        let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!("oac-cmd-{}-{n}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+        RuntimeDir(dir)
+    }
+}
+
+#[cfg(unix)]
+impl Drop for RuntimeDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
 }
 
 fn oac(args: &[&str], scope: Option<&str>) -> std::process::Output {
@@ -26,7 +40,9 @@ fn oac(args: &[&str], scope: Option<&str>) -> std::process::Output {
         // Never the user's own endpoints, whatever these tests do.
         .env("OAC_SCOPE", scope.unwrap_or("commandstest"));
     #[cfg(unix)]
-    command.env("XDG_RUNTIME_DIR", runtime_dir());
+    let runtime = RuntimeDir::new();
+    #[cfg(unix)]
+    command.env("XDG_RUNTIME_DIR", &runtime.0);
     command.output().unwrap()
 }
 
@@ -102,7 +118,9 @@ fn the_hook_with_no_daemon_exits_zero_with_nothing_on_stdout_and_says_how_to_sta
     let mut command = Command::new(env!("CARGO_BIN_EXE_oac"));
     command.arg("hook").env("OAC_SCOPE", "nodaemonhere");
     #[cfg(unix)]
-    command.env("XDG_RUNTIME_DIR", runtime_dir());
+    let runtime = RuntimeDir::new();
+    #[cfg(unix)]
+    command.env("XDG_RUNTIME_DIR", &runtime.0);
     let mut child = command
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -120,4 +138,20 @@ fn the_hook_with_no_daemon_exits_zero_with_nothing_on_stdout_and_says_how_to_sta
     assert_eq!(out.status.code(), Some(0));
     assert!(out.stdout.is_empty());
     assert!(stderr(&out).contains("`oac start`"), "{}", stderr(&out));
+}
+
+#[test]
+fn start_refuses_a_test_namespace_before_it_reads_any_key() {
+    // The device key is the user's one in every namespace, so a daemon started in a namespace
+    // beside the real one would be a second peer with the same identity. The binary refuses
+    // before it builds a key store; the refusal is the whole of what it does (no endpoint is
+    // made, nothing is written to standard output).
+    for args in [&["start"][..], &["start", "--detach"][..]] {
+        let out = oac(args, Some("refusedns"));
+        assert_eq!(out.status.code(), Some(1), "{args:?}");
+        assert!(out.stdout.is_empty(), "{args:?}");
+        let e = stderr(&out);
+        assert!(e.contains("OAC_SCOPE is set"), "{args:?}: {e}");
+        assert!(!e.contains("is running"), "{args:?}: {e}");
+    }
 }

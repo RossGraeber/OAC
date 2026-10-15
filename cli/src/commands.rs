@@ -146,6 +146,13 @@ impl Drop for Lingering {
 
 /// The connector `oac hook` uses: the blocking client of the daemon's endpoint for the
 /// harness. A failure says how to start the daemon.
+///
+/// **How long a hook can take.** Windows: connecting waits at most `BUSY_WAIT` (5 s) while
+/// every pipe instance is busy, writing one line is bounded by the pipe's buffer, and the
+/// linger adds at most [`LINGER`] (3 s). Unix: the connect itself is not bounded here (a
+/// full backlog of a daemon that does not accept blocks it), then the same write and linger.
+/// So the handler can outlive 8 s only on a daemon that is stuck; Claude Code's own hook
+/// timeout is the backstop that ends the handler (the session start is not held past it).
 pub fn hook_connector(harness: &str) -> io::Result<Box<dyn Write>> {
     let mut stderr = io::stderr();
     let scope = user_scope("hook", &mut stderr)?;
@@ -159,6 +166,16 @@ pub fn hook_connector(harness: &str) -> io::Result<Box<dyn Write>> {
     }
 }
 
+/// Whether `OAC_SCOPE` asks for a namespace: set and not empty (an empty value counts as
+/// unset, as in `Scope::for_user`).
+fn namespace_requested() -> bool {
+    names_a_namespace(std::env::var_os("OAC_SCOPE").as_deref())
+}
+
+fn names_a_namespace(value: Option<&std::ffi::OsStr>) -> bool {
+    value.is_some_and(|v| !v.is_empty())
+}
+
 /// `oac start [--detach]`.
 pub fn start(args: &[String]) -> i32 {
     let mut stderr = io::stderr();
@@ -170,6 +187,17 @@ pub fn start(args: &[String]) -> i32 {
             return EXIT_USAGE;
         }
     };
+    // The test namespace is for the in-process daemon of a test (`Scope::for_user_in`), never
+    // for the binary: the device key is the user's one in every namespace, so a second daemon
+    // in another namespace beside the real one would be a second peer with the same
+    // identity. Refused before anything reads the key store.
+    if namespace_requested() {
+        let _ = writeln!(
+            stderr,
+            "oac start: OAC_SCOPE is set; the daemon does not run in a test namespace (it would share the device key with the real daemon). Unset OAC_SCOPE"
+        );
+        return 1;
+    }
     let scope = match user_scope("start", &mut stderr) {
         Ok(s) => s,
         Err(e) => {
@@ -282,6 +310,11 @@ const DETACH_WAIT: Duration = Duration::from_secs(20);
 /// Best effort on Windows (lead decision D4): a harness or a shell may have put this process
 /// in a job object that ends its members with the session; the child asks to leave the job,
 /// and where the system refuses, it runs in the job and ends with it.
+///
+/// **Residuals (G10).** The detached daemon has no console, so its log (standard error) goes
+/// nowhere, and it can be stopped only by ending the process: on Windows a detached process
+/// gets no console event, so there is no clean shutdown and no presence withdrawal (the
+/// peers see it leave when their liveness lapses). A stop command is G10's.
 fn start_detached(scope: &Scope, stderr: &mut dyn Write) -> i32 {
     // Already running: nothing to start.
     if scope.endpoint("claude").connect_blocking().is_ok() {
@@ -301,48 +334,8 @@ fn start_detached(scope: &Scope, stderr: &mut dyn Write) -> i32 {
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        const DETACHED_PROCESS: u32 = 0x0000_0008;
-        const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x0100_0000;
-        let flags = DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW;
-        command.creation_flags(flags | CREATE_BREAKAWAY_FROM_JOB);
-        if command.spawn().is_err() {
-            // The job does not allow breakaway: start inside it.
-            command.creation_flags(flags);
-            return finish_detach(command.spawn(), scope, stderr);
-        }
-        finish_detach_started(scope, stderr)
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        // SAFETY: setsid is async-signal-safe and touches no memory of ours.
-        unsafe {
-            command.pre_exec(|| {
-                libc::setsid();
-                Ok(())
-            });
-        }
-        finish_detach(command.spawn(), scope, stderr)
-    }
-}
-
-#[cfg(windows)]
-fn finish_detach_started(scope: &Scope, stderr: &mut dyn Write) -> i32 {
-    wait_until_serving(scope, stderr)
-}
-
-fn finish_detach(
-    spawned: io::Result<std::process::Child>,
-    scope: &Scope,
-    stderr: &mut dyn Write,
-) -> i32 {
-    match spawned {
-        Ok(_child) => wait_until_serving(scope, stderr),
+    match spawn_detached(&mut command) {
+        Ok(child) => wait_until_serving(child, scope, stderr),
         Err(e) => {
             let _ = writeln!(stderr, "oac start: the daemon could not be started: {e}");
             1
@@ -350,17 +343,91 @@ fn finish_detach(
     }
 }
 
-/// Waits for the daemon just started to serve. This waits for a start-up to finish, once; it
-/// is not polling for anything the daemon holds.
-fn wait_until_serving(scope: &Scope, stderr: &mut dyn Write) -> i32 {
+#[cfg(windows)]
+fn spawn_detached(command: &mut std::process::Command) -> io::Result<std::process::Child> {
+    use std::os::windows::process::CommandExt;
+    const DETACHED_PROCESS: u32 = 0x0000_0008;
+    const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x0100_0000;
+    let flags = DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW;
+    command.creation_flags(flags | CREATE_BREAKAWAY_FROM_JOB);
+    command.spawn().or_else(|_| {
+        // The job does not allow breakaway: start inside it.
+        command.creation_flags(flags);
+        command.spawn()
+    })
+}
+
+#[cfg(unix)]
+fn spawn_detached(command: &mut std::process::Command) -> io::Result<std::process::Child> {
+    use std::os::unix::process::CommandExt;
+    // SAFETY: setsid is async-signal-safe and touches no memory of ours.
+    unsafe {
+        command.pre_exec(|| {
+            libc::setsid();
+            Ok(())
+        });
+    }
+    command.spawn()
+}
+
+/// Waits for the daemon just started to serve, or for the process to end (its start-up
+/// failed: the key store, a lock held by something else). This waits for a start-up to
+/// finish, once; it is not polling for anything the daemon holds.
+///
+/// Holding the child lets a start-up that fails be reported at once, with its exit status,
+/// and reaps it (no zombie) when it does.
+fn wait_until_serving(
+    mut child: std::process::Child,
+    scope: &Scope,
+    stderr: &mut dyn Write,
+) -> i32 {
     let end = Instant::now() + DETACH_WAIT;
     while Instant::now() < end {
+        // Asked first: a child that ended cannot have served, and an endpoint that answers
+        // after it ended is another daemon's (a second `oac start` that lost the lock exits
+        // 0 and the first is serving).
+        match child.try_wait() {
+            Ok(Some(status)) if scope.endpoint("claude").connect_blocking().is_ok() => {
+                let _ = writeln!(
+                    stderr,
+                    "oac start: the daemon is running (this start ended with {status}: another one was first)"
+                );
+                return 0;
+            }
+            Ok(Some(status)) => {
+                let _ = writeln!(
+                    stderr,
+                    "oac start: the daemon ended at start-up ({status}); run `oac start` in a terminal to see why"
+                );
+                return 1;
+            }
+            Ok(None) | Err(_) => {}
+        }
         if scope.endpoint("claude").connect_blocking().is_ok() {
             let _ = writeln!(stderr, "oac start: the daemon is running");
             return 0;
         }
         std::thread::sleep(Duration::from_millis(100));
     }
-    let _ = writeln!(stderr, "oac start: the daemon did not start in time");
+    let _ = writeln!(
+        stderr,
+        "oac start: the daemon did not start in time (it may still be starting; run `oac start` in a terminal to see its log)"
+    );
     1
+}
+
+#[cfg(test)]
+mod tests {
+    use super::names_a_namespace;
+    use std::ffi::OsStr;
+
+    #[test]
+    fn an_unset_or_empty_scope_is_no_namespace_and_anything_else_is() {
+        assert!(!names_a_namespace(None));
+        assert!(!names_a_namespace(Some(OsStr::new(""))));
+        assert!(names_a_namespace(Some(OsStr::new("x"))));
+        assert!(names_a_namespace(Some(OsStr::new("NOT A NAME"))));
+    }
 }

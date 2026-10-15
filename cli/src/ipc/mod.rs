@@ -142,7 +142,8 @@ pub struct Scope(platform::Scope);
 
 impl Scope {
     /// The scope of the user this process runs as, in the namespace `OAC_SCOPE` names when
-    /// that variable is set (see [`Scope::for_user_in`]). On Unix this creates the run
+    /// that variable is set and not empty (an empty value counts as unset; see
+    /// [`Scope::for_user_in`]). On Unix this creates the run
     /// directory when it is missing, and refuses one that is not private.
     ///
     /// # Errors

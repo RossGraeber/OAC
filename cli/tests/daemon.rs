@@ -241,6 +241,18 @@ impl Drop for Session {
     }
 }
 
+/// Removes the namespace directory a Unix test made (Windows: nothing is made).
+struct NamespaceDir(#[cfg(unix)] Option<std::path::PathBuf>);
+
+impl Drop for NamespaceDir {
+    fn drop(&mut self) {
+        #[cfg(unix)]
+        if let Some(dir) = self.0.take() {
+            let _ = std::fs::remove_dir_all(dir);
+        }
+    }
+}
+
 #[test]
 fn a_daemon_serves_real_sessions_isolates_a_crash_and_shuts_down_cleanly() {
     match std::env::var(ROLE).as_deref() {
@@ -258,6 +270,14 @@ fn a_daemon_serves_real_sessions_isolates_a_crash_and_shuts_down_cleanly() {
     let rt = Rt::new();
 
     let scope = Scope::for_user_in(Some(&namespace)).unwrap();
+    // On Unix the namespace is a directory under the user's real run directory: removed when
+    // the test ends, however it ends.
+    let _namespace_dir = NamespaceDir(
+        #[cfg(unix)]
+        std::path::Path::new(&scope.endpoint("claude").display_name())
+            .parent()
+            .map(std::path::Path::to_path_buf),
+    );
     let p = parts(scope.clone(), &network, &log);
     let daemon = rt
         .run(Daemon::start(p))

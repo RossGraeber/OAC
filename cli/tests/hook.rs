@@ -519,19 +519,28 @@ fn a_missing_or_unknown_verb_is_a_usage_error() {
     }
 }
 
-// Key material lives in the daemon only (G9 box 2): the handler never touches it
+// Key material lives in the daemon only (G9 box 2): the handler, the shim and the relay never
+// touch it. A static check of the sources is context for the behavioural test in
+// `tests/daemon.rs` (the shim and the hook run with no key store and a poisoned passphrase
+// variable), not proof of it: a word list cannot see a key reached under another name.
+
+fn code_of(file: &str) -> String {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let text = std::fs::read_to_string(root.join(file)).unwrap();
+    // Strip comments: the module documentation names what the code does not do.
+    text.lines()
+        .filter(|l| !l.trim_start().starts_with("//"))
+        .collect::<Vec<_>>()
+        .join(
+            "
+",
+        )
+}
 
 #[test]
 fn the_handler_names_no_key_store_credential_or_environment() {
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     for file in ["hook.rs", "verbs.rs"] {
-        let text = std::fs::read_to_string(root.join(file)).unwrap();
-        // Strip comments: the module documentation names what the handler does not do.
-        let code: String = text
-            .lines()
-            .filter(|l| !l.trim_start().starts_with("//"))
-            .collect::<Vec<_>>()
-            .join("\n");
+        let code = code_of(file);
         for word in [
             "keystore",
             "keyring",
@@ -540,6 +549,24 @@ fn the_handler_names_no_key_store_credential_or_environment() {
             "PASSPHRASE",
             "std::env",
             "var_os",
+        ] {
+            assert!(!code.contains(word), "{file} names {word}");
+        }
+    }
+}
+
+#[test]
+fn the_shim_and_the_relay_name_no_key_store_or_credential() {
+    for file in ["shim.rs", "relay.rs"] {
+        let code = code_of(file);
+        for word in [
+            "keystore",
+            "keyring",
+            "oac_core::keys",
+            "DeviceKey",
+            "KeyStore",
+            "PASSPHRASE",
+            "SecretSeed",
         ] {
             assert!(!code.contains(word), "{file} names {word}");
         }
