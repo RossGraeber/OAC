@@ -33,6 +33,15 @@
 //! same-user squatter cannot act as the client. On Unix the run directory's ownership and
 //! mode do the same job, with the socket's credentials checked as well.
 //!
+//! **The pipe's owner and DACL are checked, not only its creator.** A pipe's server process
+//! id (`GetNamedPipeServerProcessId`) names the creator of one instance; another account could
+//! create the name with a permissive descriptor, hand the handle on and exit, and a later
+//! process of the victim could be given that id. So the Windows client reads the pipe
+//! **object's** owner and DACL from its handle and requires the descriptor the daemon makes:
+//! owned by the user (`O:<SID>` is in the descriptor, since an elevated administrator's default
+//! owner is `BUILTIN\Administrators`) with one ACE for the user. The creator check stays as a
+//! second check.
+//!
 //! **One daemon per user.** [`DaemonLock`] is taken before the daemon reads its key: on
 //! Windows by creating the first instance of a lock pipe, on Unix by holding `flock` on
 //! `<run dir>/daemon.lock`. A process that already holds it makes the next one
@@ -201,13 +210,15 @@ impl Endpoint {
         self.scope.0.endpoint_name(&self.label)
     }
 
-    /// Starts serving the endpoint.
+    /// Starts serving the endpoint. It takes the [`DaemonLock`] so that the one-daemon
+    /// guarantee holds by construction: removing a stale socket file, which is only safe
+    /// under the lock, cannot be reached without it.
     ///
     /// # Errors
     ///
     /// [`BindError::AlreadyRunning`] when something already serves it.
-    pub async fn bind(&self) -> Result<Listener, BindError> {
-        platform::Listener::bind(&self.scope.0, &self.label)
+    pub async fn serve(&self, _lock: &DaemonLock) -> Result<Listener, BindError> {
+        platform::Listener::serve(&self.scope.0, &self.label)
             .await
             .map(Listener)
     }
@@ -255,9 +266,17 @@ impl Listener {
 pub struct PeerIdentity {
     /// The peer's process id, when the operating system reports one.
     pub pid: Option<u32>,
-    /// When that process started, read at accept: it pins the peer, so that a process id
-    /// recycled between the connection and the observation is refused
-    /// (`crate::peer::observe_process`).
+    /// When that process started, read at accept: it pins the peer, so that the user check
+    /// and the observation made later are about one process (`crate::peer::observe_process`
+    /// refuses an id whose start time differs).
+    ///
+    /// The id itself is read at **accept**, not at connect (Windows:
+    /// `GetNamedPipeClientProcessId` after the connected instance is taken; Unix: the
+    /// listen backlog's credentials), so under load the window between the client's connect
+    /// and this read grows. If the client has exited and its id has been reused by then, the
+    /// id names the new process, which is mis-attributed rather than refused. The new
+    /// process is the same user's (the user check runs on it), so this lies inside the
+    /// accepted same-user residual (D5, `RISK-LOCAL-IPC`).
     pub started: Option<u64>,
 }
 

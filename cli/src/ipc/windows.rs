@@ -19,9 +19,13 @@ use std::time::Duration;
 use tokio::net::windows::named_pipe::{ClientOptions, NamedPipeServer, PipeMode, ServerOptions};
 use windows_sys::Win32::Foundation::{HANDLE, LocalFree};
 use windows_sys::Win32::Security::Authorization::{
-    ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1,
+    ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW, GetSecurityInfo,
+    SDDL_REVISION_1, SE_KERNEL_OBJECT,
 };
-use windows_sys::Win32::Security::SECURITY_ATTRIBUTES;
+use windows_sys::Win32::Security::{
+    ACCESS_ALLOWED_ACE, ACL, DACL_SECURITY_INFORMATION, GetAce, OWNER_SECURITY_INFORMATION,
+    SECURITY_ATTRIBUTES,
+};
 use windows_sys::Win32::System::Pipes::{
     GetNamedPipeClientProcessId, GetNamedPipeServerProcessId, WaitNamedPipeW,
 };
@@ -93,9 +97,11 @@ unsafe impl Send for SecurityDescriptor {}
 unsafe impl Sync for SecurityDescriptor {}
 
 impl SecurityDescriptor {
-    /// `D:P(A;;GA;;;<sid>)`: one ACE, for `sid`, and nothing inherited.
+    /// `O:<sid>D:P(A;;GA;;;<sid>)`: owned by `sid` (not by the creator's default owner, which
+    /// is `BUILTIN\Administrators` for an elevated admin), and one ACE, for `sid`, nothing
+    /// inherited.
     fn only_user(sid: &str) -> io::Result<SecurityDescriptor> {
-        let sddl: Vec<u16> = format!("D:P(A;;GA;;;{sid})")
+        let sddl: Vec<u16> = format!("O:{sid}D:P(A;;GA;;;{sid})")
             .encode_utf16()
             .chain(std::iter::once(0))
             .collect();
@@ -170,7 +176,7 @@ pub struct Listener {
 }
 
 impl Listener {
-    pub async fn bind(scope: &Scope, label: &str) -> Result<Listener, BindError> {
+    pub async fn serve(scope: &Scope, label: &str) -> Result<Listener, BindError> {
         let name = scope.pipe_name(label);
         let descriptor = SecurityDescriptor::only_user(&scope.sid)?;
         let next = create_instance(&name, &descriptor, true).map_err(bind_error)?;
@@ -183,11 +189,11 @@ impl Listener {
 
     pub async fn accept(&mut self) -> io::Result<Accept> {
         self.next.connect().await?;
-        // The name must stay served while this connection is handled.
-        let connected = std::mem::replace(
-            &mut self.next,
-            create_instance(&self.name, &self.descriptor, false)?,
-        );
+        // The name must stay served while this connection is handled. The next instance is
+        // made before the connected one is taken, so a failure here leaves the listener as
+        // it was.
+        let following = create_instance(&self.name, &self.descriptor, false)?;
+        let connected = std::mem::replace(&mut self.next, following);
         let mut pid = 0u32;
         // SAFETY: the handle is a live pipe handle owned by `connected`; `pid` is a local.
         let got =
@@ -197,8 +203,12 @@ impl Listener {
                 reason: "the peer could not be identified",
             }));
         }
-        // The peer is pinned by its start time: the user check is about that process, and
-        // the observation made later is refused if the id has been recycled meanwhile.
+        // The process id is read here, at accept, not at connect: the longer the daemon
+        // took to get here (under load), the likelier the client has exited and its id has
+        // been reused. A reused id names the new process, which is mis-attributed (it is
+        // not refused); the new process is the same user's (the user check below), which
+        // puts this inside the accepted same-user residual (D5). Pinning by the start time
+        // makes the later observation and the user check about one process.
         let Some(started) = process_started(pid) else {
             return Ok(Accept::Rejected(Rejection {
                 reason: "the peer could not be identified",
@@ -237,8 +247,93 @@ impl Lock {
     }
 }
 
-/// Whether the process serving the pipe behind `handle` is this user's.
-fn server_is_ours(handle: RawHandle) -> Result<bool, io::Error> {
+/// A SID as its string form.
+///
+/// # Safety
+///
+/// `sid` must point to a valid SID.
+unsafe fn sid_string(sid: *mut c_void) -> Option<String> {
+    let mut text: *mut u16 = std::ptr::null_mut();
+    // SAFETY: the caller's `sid` is valid; `text` is a local out-pointer.
+    if unsafe { ConvertSidToStringSidW(sid, &mut text) } == 0 || text.is_null() {
+        return None;
+    }
+    // SAFETY: on success `text` is a NUL-terminated UTF-16 string the call allocated.
+    let result = unsafe {
+        let mut len = 0usize;
+        while *text.add(len) != 0 {
+            len += 1;
+        }
+        String::from_utf16(std::slice::from_raw_parts(text, len)).ok()
+    };
+    // SAFETY: `text` was allocated by ConvertSidToStringSidW and is freed once.
+    unsafe { LocalFree(text.cast()) };
+    result
+}
+
+/// Whether the pipe object behind `handle` is the daemon's: **owned by `own_sid`** and
+/// carrying exactly the descriptor [`SecurityDescriptor::only_user`] makes (one access-allowed
+/// ACE, for `own_sid`).
+///
+/// This is the check that binds the pipe to its user. The process id of the instance's
+/// creator (`GetNamedPipeServerProcessId`) is not enough: another account can create
+/// `oac-<victim SID>-claude` with a permissive descriptor, pass the handle on and exit, and
+/// the id can later be reused by a process of the victim's. The owner and the DACL belong to
+/// the object, whoever holds it.
+fn pipe_is_ours(handle: RawHandle, own_sid: &str) -> io::Result<bool> {
+    let mut owner: *mut c_void = std::ptr::null_mut();
+    let mut dacl: *mut ACL = std::ptr::null_mut();
+    let mut descriptor: *mut c_void = std::ptr::null_mut();
+    // SAFETY: `handle` is a live pipe handle held by the caller, opened with read control;
+    // the out-pointers are locals.
+    let status = unsafe {
+        GetSecurityInfo(
+            handle as HANDLE,
+            SE_KERNEL_OBJECT,
+            OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
+            &mut owner,
+            std::ptr::null_mut(),
+            &mut dacl,
+            std::ptr::null_mut(),
+            &mut descriptor,
+        )
+    };
+    if status != 0 {
+        return Err(io::Error::from_raw_os_error(status as i32));
+    }
+    let ours = (|| {
+        if owner.is_null() || dacl.is_null() {
+            return false;
+        }
+        // SAFETY: `owner` and `dacl` point into `descriptor`, which is allocated until the
+        // LocalFree below; the single ACE read is within the ACL's count.
+        unsafe {
+            if sid_string(owner).as_deref() != Some(own_sid) || (*dacl).AceCount != 1 {
+                return false;
+            }
+            let mut ace: *mut c_void = std::ptr::null_mut();
+            if GetAce(dacl, 0, &mut ace) == 0 || ace.is_null() {
+                return false;
+            }
+            let ace = ace.cast::<ACCESS_ALLOWED_ACE>();
+            // `AceType` 0 is ACCESS_ALLOWED_ACE_TYPE.
+            (*ace).Header.AceType == 0
+                && sid_string(std::ptr::addr_of_mut!((*ace).SidStart).cast()).as_deref()
+                    == Some(own_sid)
+        }
+    })();
+    // SAFETY: `descriptor` was allocated by GetSecurityInfo and is freed once.
+    unsafe { LocalFree(descriptor) };
+    Ok(ours)
+}
+
+/// Whether the pipe behind `handle` is the daemon's: its object is (see [`pipe_is_ours`]),
+/// and the process that created this instance is this user's, pinned by its start time (a
+/// second check, not the first).
+fn server_is_ours(handle: RawHandle, own_sid: &str) -> Result<bool, io::Error> {
+    if !pipe_is_ours(handle, own_sid)? {
+        return Ok(false);
+    }
     let mut pid = 0u32;
     // SAFETY: `handle` is a live pipe handle held by the caller; `pid` is a local.
     if unsafe { GetNamedPipeServerProcessId(handle as HANDLE, &mut pid) } == 0 {
@@ -256,7 +351,7 @@ pub async fn connect_async(
     loop {
         match ClientOptions::new().open(&name) {
             Ok(client) => {
-                if !server_is_ours(client.as_raw_handle())? {
+                if !server_is_ours(client.as_raw_handle(), &scope.sid)? {
                     return Err(ConnectError::Foreign);
                 }
                 return Ok(Box::new(client));
@@ -292,7 +387,7 @@ pub fn connect_blocking(scope: &Scope, label: &str) -> Result<Blocking, ConnectE
             .open(&name);
         match opened {
             Ok(file) => {
-                if !server_is_ours(file.as_raw_handle())? {
+                if !server_is_ours(file.as_raw_handle(), &scope.sid)? {
                     return Err(ConnectError::Foreign);
                 }
                 return Ok(file);
