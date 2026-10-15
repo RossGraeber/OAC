@@ -431,7 +431,7 @@ fn exact_frames(m: &dyn Medium, t: &dyn Transport, c: &TransportCapabilities) ->
         }
     }
     // Each size is passed after the transport has settled from the last, so that a refusal
-    // from a full queue is not counted against size. A frame is padded to the exact length.
+    // from a full queue is not counted against size. A frame is sealed with no padding, so its length is its payload plus FRAME_OVERHEAD.
     // A frame is at least its overhead long.
     let sizes: Vec<usize> = size_probes(cap)
         .into_iter()
