@@ -84,7 +84,7 @@ pub enum Diagnostic {
         /// a native signal on this connection is unpairable.
         paired: bool,
     },
-    /// The connection ended and the core was told.
+    /// The IPC layer saw the connection end (shown before the core is told).
     Ended {
         /// The harness label of the endpoint.
         label: String,

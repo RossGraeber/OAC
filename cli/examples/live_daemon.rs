@@ -61,8 +61,10 @@ impl Events {
             "{{\"event\":{},\"unix_ms\":{ms}{comma}{body}}}\n",
             json_string(event)
         );
-        print!("{line}");
-        let _ = std::io::stdout().flush();
+        // A closed standard output must not stop the daemon: the events file still gets it.
+        let mut stdout = std::io::stdout().lock();
+        let _ = stdout.write_all(line.as_bytes());
+        let _ = stdout.flush();
         if let Some(file) = &self.file {
             let mut file = file.lock().unwrap_or_else(|e| e.into_inner());
             let _ = file.write_all(line.as_bytes());
