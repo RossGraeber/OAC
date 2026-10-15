@@ -90,14 +90,19 @@ impl Drop for Cleanup {
 #[derive(Clone, Debug)]
 pub struct Scope {
     dir: PathBuf,
+    namespace: Option<String>,
     _cleanup: Option<Arc<Cleanup>>,
 }
 
 static NEXT_SCOPE: AtomicU64 = AtomicU64::new(0);
 
 impl Scope {
-    pub fn for_user() -> io::Result<Scope> {
-        let dir = run_dir_from(
+    pub fn namespace(&self) -> Option<&str> {
+        self.namespace.as_deref()
+    }
+
+    pub fn for_user(namespace: Option<&str>) -> io::Result<Scope> {
+        let base = run_dir_from(
             std::env::var_os("XDG_RUNTIME_DIR").as_deref(),
             std::env::var_os("HOME").as_deref(),
         )
@@ -107,9 +112,18 @@ impl Scope {
                 "neither XDG_RUNTIME_DIR nor HOME is set",
             )
         })?;
+        // A namespace is one more directory, made and checked like the run directory.
+        let dir = match namespace {
+            Some(n) => {
+                ensure_private(&base)?;
+                base.join(n)
+            }
+            None => base,
+        };
         ensure_private(&dir)?;
         Ok(Scope {
             dir,
+            namespace: namespace.map(str::to_owned),
             _cleanup: None,
         })
     }
@@ -121,6 +135,7 @@ impl Scope {
         ensure_private(&dir)?;
         Ok(Scope {
             dir: dir.clone(),
+            namespace: None,
             _cleanup: Some(Arc::new(Cleanup(dir))),
         })
     }

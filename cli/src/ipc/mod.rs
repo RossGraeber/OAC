@@ -132,15 +132,56 @@ impl From<io::Error> for ConnectError {
 pub struct Scope(platform::Scope);
 
 impl Scope {
-    /// The scope of the user this process runs as. On Unix this creates the run directory
-    /// when it is missing, and refuses one that is not private.
+    /// The scope of the user this process runs as, in the namespace `OAC_SCOPE` names when
+    /// that variable is set (see [`Scope::for_user_in`]). On Unix this creates the run
+    /// directory when it is missing, and refuses one that is not private.
     ///
     /// # Errors
     ///
-    /// The operating system's error, or [`io::ErrorKind::PermissionDenied`] for a run
-    /// directory another user could enter.
+    /// The operating system's error, [`io::ErrorKind::InvalidInput`] for an `OAC_SCOPE` that
+    /// is not a scope name, or [`io::ErrorKind::PermissionDenied`] for a run directory
+    /// another user could enter.
     pub fn for_user() -> io::Result<Scope> {
-        platform::Scope::for_user().map(Scope)
+        match std::env::var("OAC_SCOPE") {
+            Ok(name) if !name.is_empty() => Scope::for_user_in(Some(&name)),
+            Ok(_) | Err(std::env::VarError::NotPresent) => Scope::for_user_in(None),
+            Err(std::env::VarError::NotUnicode(_)) => Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "OAC_SCOPE is not a scope name",
+            )),
+        }
+    }
+
+    /// The scope of this user, in the namespace `name`, or the user's ordinary one for
+    /// `None`.
+    ///
+    /// **A namespace is for test isolation and nothing else.** It only adds a validated
+    /// segment (`[a-z0-9]`, at most 24 characters) to the endpoint names (Windows) or one
+    /// subdirectory of the run directory (Unix), so that a test never touches the user's own
+    /// endpoints. It changes no check: the security descriptor, the modes, the ownership
+    /// checks, the server verification and the peer observation are the same in every
+    /// namespace. A process of the same user can already create any name it likes, so it
+    /// grants no capability. The daemon and the clients log the namespace they use.
+    ///
+    /// # Errors
+    ///
+    /// As [`Scope::for_user`], and [`io::ErrorKind::InvalidInput`] for a name that is not a
+    /// scope name.
+    pub fn for_user_in(name: Option<&str>) -> io::Result<Scope> {
+        if let Some(n) = name
+            && !scope_name_is_valid(n)
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "a scope name is 1 to 24 lower-case letters and digits",
+            ));
+        }
+        platform::Scope::for_user(name).map(Scope)
+    }
+
+    /// The namespace this scope is in, when it is not the user's ordinary one.
+    pub fn namespace(&self) -> Option<&str> {
+        self.0.namespace()
     }
 
     /// A scope of its own, not the user's, for tests and diagnostics: fresh endpoints that
@@ -171,6 +212,14 @@ impl Scope {
     pub async fn acquire_lock(&self) -> Result<DaemonLock, BindError> {
         platform::Lock::acquire(&self.0).await.map(DaemonLock)
     }
+}
+
+/// True for a scope (namespace) name: 1 to 24 lower-case letters and digits.
+pub fn scope_name_is_valid(name: &str) -> bool {
+    (1..=24).contains(&name.len())
+        && name
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
 }
 
 /// True for a label an endpoint can carry.
