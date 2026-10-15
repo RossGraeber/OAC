@@ -312,7 +312,7 @@ export const PATHS = {
   'agents-skills-sync-self-test': ['scripts/sync-agents-skills.mjs'],
   'agents-skills-sync': ['.claude/skills/', 'CLAUDE.md', '.agents/', 'AGENTS.md', 'scripts/sync-agents-skills.mjs'],
   'herdr-self-test': ['tools/herdr/', 'docs/planning/PINS.md'],
-  'conformance-self-test': ['tests/protocol/runner/'],
+  'conformance-self-test': ['tests/protocol/runner/', 'spec/'],
   conformance: ['tests/protocol/', 'spec/'],
   'fake-codex-self-test': ['tests/fakes/codex-app-server/'],
   'compiled-tests': [...RUST, 'tests/security/'],

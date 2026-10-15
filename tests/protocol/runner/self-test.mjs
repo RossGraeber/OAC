@@ -337,22 +337,39 @@ export function selfTest() {
   // name, and a revision that is not listed (planted) fails.
   expect('revision lists: committed lists are current', checkRevisions(readRepo).length === 0);
   expect('revision lists: every spec file is checked', SPEC_DOCUMENTS.every((d) => d in REVISIONS) && fs.readdirSync(path.join(root, 'spec')).filter((f) => f.endsWith('.md')).length + fs.readdirSync(path.join(root, 'spec', 'bindings')).filter((f) => f.endsWith('.md')).length === SPEC_DOCUMENTS.length);
+  // Every plant is derived from the committed text, so a later revision bump keeps it
+  // meaningful: the next revision is the highest one listed plus one minor, and each plant
+  // asserts that it changed the text (a no-op plant fails loudly).
+  const text = (doc, f) => (rel) => (rel === doc ? f(readRepo(rel)) : readRepo(rel));
+  const headerLine = /(\*\*(?:Binding )?[Rr]evision:\*\*\s*`?)(\d+\.\d+)/;
+  const nextOf = (doc) => {
+    const all = [...REVISIONS[doc], ...revisionsNamedBy(readRepo(doc)).header];
+    const [major, minor] = all.map((r) => r.split('.').map(Number)).sort((a, b) => a[0] - b[0] || a[1] - b[1]).pop();
+    return `${major}.${minor + 1}`;
+  };
   for (const doc of SPEC_DOCUMENTS) {
     const { header, history } = revisionsNamedBy(readRepo(doc));
     expect(`revision lists: ${doc} header and history are read`, header.size === 1 && history.size > 0 && history.has([...header][0]));
     const top = [...history].pop();
     const without = { ...REVISIONS, [doc]: REVISIONS[doc].filter((r) => r !== top) };
     expect(`revision lists: ${doc} without ${top} fails`, checkRevisions(readRepo, without).some((m) => m.includes(`revision ${top}`)));
+    const next = nextOf(doc);
+    const planted = (f) => {
+      const t = readRepo(doc);
+      const p = f(t);
+      return { applied: p !== t, problems: checkRevisions(text(doc, () => p)) };
+    };
+    const hdr = planted((t) => t.replace(headerLine, (m, pre) => `${pre}${next}`));
+    expect(`revision lists: ${doc} planted header revision ${next} is applied`, hdr.applied);
+    expect(`revision lists: ${doc} planted header revision ${next} fails`, hdr.problems.some((m) => m.includes(`revision ${next} (header)`)));
+    const row = planted((t) => t.replace(/^(## Appendix [A-Z]\. Revision history[^\n]*)$/m, (m) => `${m}\n\n| ${next} | 2026-10-15 | planted |`));
+    expect(`revision lists: ${doc} planted history row ${next} is applied`, row.applied);
+    expect(`revision lists: ${doc} planted history row ${next} fails`, row.problems.some((m) => m.includes(`revision ${next} (revision history)`)));
+    const unreadable = planted((t) => t.replace(/\*\*(Binding )?([Rr])evision:\*\*/, (m, b, r) => `**${b || ''}${r}ev:**`));
+    expect(`revision lists: ${doc} planted unreadable header is applied`, unreadable.applied);
+    expect(`revision lists: ${doc} planted unreadable header fails`, unreadable.problems.some((m) => m.includes('no revision header')));
   }
-  {
-    // A header the check cannot read, and a document with a new revision in both places.
-    const text = (doc, f) => (rel) => (rel === doc ? f(readRepo(rel)) : readRepo(rel));
-    expect('revision lists: a planted new header revision fails', checkRevisions(text('spec/interfaces.md', (t) => t.replace('**Revision:** 0.9', '**Revision:** 0.10'))).some((m) => m.includes('revision 0.10 (header)')));
-    expect('revision lists: a planted new binding header revision fails', checkRevisions(text('spec/bindings/mcp.md', (t) => t.replace('**Binding revision:** `0.3`', '**Binding revision:** `0.4`'))).some((m) => m.includes('revision 0.4 (header)')));
-    expect('revision lists: a planted new history row fails', checkRevisions(text('spec/security.md', (t) => t.replace('## Appendix C. Revision history', '## Appendix C. Revision history\n\n| 0.6 | 2026-10-15 | planted |'))).some((m) => m.includes('revision 0.6 (revision history)')));
-    expect('revision lists: an unreadable header fails', checkRevisions(text('spec/security.md', (t) => t.replace('**Revision:**', '**Rev:**'))).some((m) => m.includes('no revision header')));
-    expect('revision lists: a document with no list fails', checkRevisions(readRepo, {}).length === SPEC_DOCUMENTS.length);
-  }
+  expect('revision lists: a document with no list fails', checkRevisions(readRepo, {}).length === SPEC_DOCUMENTS.length);
 
   return failures;
 }
