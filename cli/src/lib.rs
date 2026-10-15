@@ -8,16 +8,25 @@
 //! - [`keystore`]: the device-key stores, the operating system's credential store and the
 //!   encrypted-file fallback (#52, F3; `docs/planning/decisions/C4-session-identity.md`
 //!   §10-§11).
+//! - [`commands`]: `start`, `mcp-shim` and the hook handler's connector, wired to the real
+//!   transport, key stores and adapters.
+//! - [`daemon`]: the per-device daemon (G9, #70).
 //! - [`hook`]: the `oac hook` handler that carries a Claude Code `SessionStart` input to the
 //!   daemon as a native signal (G9, #70; `spec/bindings/mcp.md` §8.1).
 //! - [`verbs`]: the verbs that exist so far and their dispatch.
 //! - [`ipc`]: the local IPC between the daemon and its clients, with the peer authenticated by
 //!   the operating system (G9, #70).
+//! - [`relay`]: an authenticated IPC stream as a core `Connection`, inbound bounded; outbound bounded per stall (not hard; tracked in #414).
+//! - [`shim`]: `oac mcp-shim`, the stdio byte relay a harness starts as its MCP server.
 //! - [`peer`]: what the daemon observes about the process at the other end of a local
 //!   connection (pairing key, harness working directory) from the operating system (G9, #70).
 
+pub mod commands;
+pub mod daemon;
 pub mod hook;
 pub mod ipc;
 pub mod keystore;
 pub mod peer;
+pub mod relay;
+pub mod shim;
 pub mod verbs;
