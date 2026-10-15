@@ -481,7 +481,7 @@ only; none is an OAC provider surface.
   (L1 §2). Leave them off on an OAC-enabled machine.
 - **OAC installed.** OAC is not released (see "Gate-verdict caveat" at the top of this file).
   Dated note, 2026-10-15: `main` builds an `oac` binary whose only verb is `oac hook` (PR #405), with
-  the key store (#407), peer observation (#410) and local IPC (#411) behind it. `oac start` and
+  the key store (#315, #407), peer observation (#410) and local IPC (#411) behind it. `oac start` and
   `oac mcp-shim` are not built yet (PR #413, open). The OAC commands below are its documented targets.
 - **One repository per pair of peers, if they are meant to share memory** (§20.6).
 

@@ -347,7 +347,7 @@ impl Shared {
                 continue;
             };
             if deadline.has_passed_at(due) {
-                continue; // never queued (IFC-TRN-034: no accept at or after the deadline)
+                continue; // never queued (IFC-TRN-034: no hand-over at or after the deadline)
             }
             st.next_id += 1;
             let seq = st.next_id;

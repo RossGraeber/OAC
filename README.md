@@ -44,7 +44,7 @@ published, so the installation and launch commands in planning documents are tar
   it as one line, as `spec/bindings/mcp.md` §8.1 requires. The binary has no connector to a
   daemon yet (`cli/src/main.rs`), so today the input is dropped with a diagnostic and the
   session stays unbound.
-- A device key store (`cli/src/keystore.rs`, PR #407) that uses the operating system's
+- A device key store (`cli/src/keystore.rs`, PRs #315 and #407) that uses the operating system's
   credential store, or an encrypted file where none exists.
 - Peer observation (`cli/src/peer/`, PR #410): which harness process a local connection
   belongs to, read from the operating system on Windows and Linux. macOS is written, not built.
@@ -134,7 +134,7 @@ unverified findings explicit.
 There is no GitHub-hosted CI. Before opening or merging a pull request, run
 `node scripts/local-ci.mjs` on Windows and in WSL and paste each summary (it names the
 git HEAD SHA) into the pull request. Opt-in tiers run on demand with
-`--tier keystore|scale|mutation|g3-macos`; see
+`--tier keystore|scale|mutation|lan|g3-macos`; see
 [the test strategy](docs/planning/v0.1/09-test-strategy.md) §3.
 
 ## Credits and license

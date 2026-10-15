@@ -4,7 +4,7 @@
 Documentation only: no code change except comments, no spec change, no gate verdict or pin change, no new UNVERIFIED item, no ADR-001
 amendment, no new risk row. Brought in line with `main` at `d4dd31b` (PR #411 merged): `README.md` (status, what works on `main`, build and
 test); `docs/planning/v0.1/06-security.md` §12 and threat rows 13 and 24 (their "NOT RUN" cells); `08-cli-and-deployment.md` §20 (`oac hook` is on
-`main`; `oac start` and `oac mcp-shim` are not built); `10-stages.md` §5 (Stage 1 is no longer current); `11-risks.md` `RISK-LOCAL-IPC`. Stale comments
+`main`; `oac start` and `oac mcp-shim` are not built); `10-stages.md` §4 (Stage 1 is no longer current); `11-risks.md` `RISK-LOCAL-IPC`. Stale comments
 fixed (comments only): `transports/zenoh/src/lib.rs` and `tests/integration/README.md` (the IFC-TRN-034 amendment they awaited is interfaces 0.7,
 #385), `transports/memory/src/network.rs` (IFC-TRN-034 admission, not the 0.6 hold), `cli/src/main.rs` and `cli/src/verbs.rs` (the local IPC is
 merged; the connector arrives with the daemon, #413). The CLI usage text is accurate as it stands and is unchanged.
@@ -3325,9 +3325,11 @@ L1320-L1356, L1409-L1431) adds `callId`, `threadId`, `sessionId` and
   this has not been re-checked against the docs page since (UNVERIFIED — one added data
   point, not itself a resolution; see
   `docs/planning/decisions/C2-process-model.md` §2, §10).
-- Named-pipe DACL peer-authentication behaviour not yet exercised on a live Windows
-  host (UNVERIFIED — API shape verified against Microsoft Learn only; see
-  `docs/planning/decisions/C2-process-model.md` §4, §10, §11).
+- Named-pipe DACL peer-authentication behaviour with a second real Windows account, i.e. a
+  pipe owned by another user (UNVERIFIED — API shape verified against Microsoft Learn only; see
+  `docs/planning/decisions/C2-process-model.md` §4, §10, §11). *(Dated note, 2026-10-15, G9 slice 5, PR #411: narrowed from
+  "DACL behaviour not yet exercised on a live Windows host". `cli/tests/ipc_windows.rs` reads the DACL and owner back and
+  refuses a restricted-token caller at open; the single-account case is exercised. Row 20 of `11-risks.md` stays open.)*
 - Whether `interprocess` `2.4.4` (or an alternative IPC crate) exposes a first-party
   peer-credential accessor (UNVERIFIED — not surfaced in the fetched crate docs; the
   daemon is expected to call the raw OS API directly instead; see
