@@ -1,5 +1,9 @@
 # OAC status
 
+**Last updated:** 2026-10-15 (**follow-up to the documentation sweep: #413 and #408 on `main`, and the review nits of #415**).
+Documentation only: no code change, no spec change, no gate verdict or pin change, no new UNVERIFIED item. README, `docs/planning/v0.1/08-cli-and-deployment.md` (sections 20.1 and 20.3, and a dated note on the gate-verdict caveat), `06-security.md` (section 12, a dated note, and threat rows 13, 17 and 24) and `05-interfaces.md` (a dated pointer to the current revisions) now describe the merged state. On `main`: `oac start` (with `--detach`) and `oac mcp-shim` (PR #413), and the hook connected to the daemon. Interfaces 0.9 is merged (PR #408): IFC-TRN-118 and IFC-TRN-119 (declared payload size and reliability), IFC-TRN-120 to IFC-TRN-125 (carrier appearance and announcements); security 0.5 and session-channels 0.3 are editorial. Not on `main`: `oac status`, `oac sessions`, `oac doctor` and `oac stop` (G10). Residuals recorded: a detached daemon writes no log on any platform; on Windows it has no clean shutdown; the relay outbound bound is per stall (#414); the hook connection lingers at most 3 s. Interfaces 0.9, security 0.5 and session-channels 0.3 are in force (PRs #408 and #418).
+Changes in the #415 follow-up commit (8b946cc on `docs/sweep-2026-10-15`), recorded here because that commit is merged with #415 (4aaa396): the `adapters/claude/src/hook.rs` doc comment (now "built under G9, PR #405"); the named-pipe ledger entry above, narrowed; threat rows 16, 21 and 22 of `06-security.md` given a dated note that G5 passed on 2026-10-02; the `10-stages.md` citation fixed to section 4; the key store credited to PRs #315 and #407; the `verbs.rs` comment on which verbs come with #413 and which with G10; the `network.rs` comment reworded to hand-over; the README opt-in tier list includes `lan`. Row 17 of `06-security.md` gets the same note in this follow-up.
+
 **Last updated:** 2026-10-15 (**fix: `oac start` runs on a multi-thread runtime (the reference transport requires it); Refs #70**).
 **Correction to the slice 6 entry (PR #413):** "`oac start` works" had been proven only over the in-memory transport. The first live run (slice 7, leg C, Windows, real default
 scope) panicked at start-up with the transport's message "Zenoh runtime doesn't support Tokio's current thread scheduler": `serve_in_foreground` built a current-thread
@@ -10,7 +14,7 @@ current-thread runtime panics with the transport's message. Leg C record, on the
 (`oac start: the daemon is running (\\.\pipe\oac-<user SID>-claude)`); a probe shim connects (exit 0); a second `oac start` prints "the daemon is already running", exit 0, and there is one `oac.exe`
 process; Ctrl-C stops the foreground daemon with exit 0 in 0.3 s after "oac start: stopping" and the endpoint is gone; `oac start --detach` returns exit 0 after 4.8 s, the detached daemon is one
 process, and killing only that pid leaves no endpoint (no `oac stop` yet: the known G10 residual, so no clean shutdown for a detached daemon). The device key was made in the Credential Manager
-(target `device-key.io.github.rossgraeber.oac`; never read). The known-issue notes about `oac start` that PR #423 adds are removed once both have merged.
+(target `device-key.io.github.rossgraeber.oac`; never read). The known-issue notes about `oac start` that PR #423 had added (README, 08 section 20.3) are removed in that PR after this fix merged (#425).
 
 **Last updated:** 2026-10-15 (**G9, #70, slice 3: the shim's hello line and the adapter's connection places; `spec/bindings/mcp.md` 0.4 and `spec/interfaces.md` 0.10 proposed, lead approval pending; Refs #70**).
 Closes 11-risks rows 86 and 87 in code. **Row 87:** a Claude shim whose environment holds a non-empty `CLAUDE_CODE_SESSION_ID` (E) sends one hello line
@@ -3402,7 +3406,7 @@ L1320-L1356, L1409-L1431) adds `callId`, `threadId`, `sessionId` and
   point, not itself a resolution; see
   `docs/planning/decisions/C2-process-model.md` §2, §10).
 - Named-pipe DACL peer-authentication behaviour with a second real Windows account, i.e. a
-  pipe owned by another user (UNVERIFIED — API shape verified against Microsoft Learn only; see
+  pipe owned by another user (UNVERIFIED — no second real Windows account available; API shape verified against Microsoft Learn only; see
   `docs/planning/decisions/C2-process-model.md` §4, §10, §11). *(Dated note, 2026-10-15, G9 slice 5, PR #411: narrowed from
   "DACL behaviour not yet exercised on a live Windows host". `cli/tests/ipc_windows.rs` reads the DACL and owner back and
   refuses a restricted-token caller at open; the single-account case is exercised. Row 20 of `11-risks.md` stays open.)*
