@@ -1,10 +1,42 @@
 # OAC status
 
-**Known issue (2026-10-15, reported from G9 Leg C; not reproduced in this sweep).** `oac start` (main `ff63f4f`) panics when it starts the real Zenoh transport, with "Zenoh runtime doesn't support Tokio's current thread scheduler" (zenoh-runtime 1.10.1, `lib.rs:149`). `serve_in_foreground` (`cli/src/commands.rs`) builds a current-thread Tokio runtime, and every test used the in-memory transport, so the Zenoh path was never run. `oac start`, in the foreground and with `--detach`, always builds the Zenoh peer transport, so it is not usable until the fix merges. The fix (a multi-thread runtime with one worker) needs Tokio's `rt-multi-thread` feature; it is pending the lead's approval of that feature. Remove this note when the fix PR merges. Open: the fix; the Zenoh path under `oac start` has no test.
-
 **Last updated:** 2026-10-15 (**follow-up to the documentation sweep: #413 and #408 on `main`, and the review nits of #415**).
 Documentation only: no code change, no spec change, no gate verdict or pin change, no new UNVERIFIED item. README, `docs/planning/v0.1/08-cli-and-deployment.md` (sections 20.1 and 20.3, and a dated note on the gate-verdict caveat), `06-security.md` (section 12, a dated note, and threat rows 13, 17 and 24) and `05-interfaces.md` (a dated pointer to the current revisions) now describe the merged state. On `main`: `oac start` (with `--detach`) and `oac mcp-shim` (PR #413), and the hook connected to the daemon. Interfaces 0.9 is merged (PR #408): IFC-TRN-118 and IFC-TRN-119 (declared payload size and reliability), IFC-TRN-120 to IFC-TRN-125 (carrier appearance and announcements); security 0.5 and session-channels 0.3 are editorial. Not on `main`: `oac status`, `oac sessions`, `oac doctor` and `oac stop` (G10). Residuals recorded: a detached daemon writes no log on any platform; on Windows it has no clean shutdown; the relay outbound bound is per stall (#414); the hook connection lingers at most 3 s. Interfaces 0.9, security 0.5 and session-channels 0.3 are in force (PRs #408 and #418).
 Changes in the #415 follow-up commit (8b946cc on `docs/sweep-2026-10-15`), recorded here because that commit is merged with #415 (4aaa396): the `adapters/claude/src/hook.rs` doc comment (now "built under G9, PR #405"); the named-pipe ledger entry above, narrowed; threat rows 16, 21 and 22 of `06-security.md` given a dated note that G5 passed on 2026-10-02; the `10-stages.md` citation fixed to section 4; the key store credited to PRs #315 and #407; the `verbs.rs` comment on which verbs come with #413 and which with G10; the `network.rs` comment reworded to hand-over; the README opt-in tier list includes `lan`. Row 17 of `06-security.md` gets the same note in this follow-up.
+
+**Last updated:** 2026-10-15 (**fix: `oac start` runs on a multi-thread runtime (the reference transport requires it); Refs #70**).
+**Correction to the slice 6 entry (PR #413):** "`oac start` works" had been proven only over the in-memory transport. The first live run (slice 7, leg C, Windows, real default
+scope) panicked at start-up with the transport's message "Zenoh runtime doesn't support Tokio's current thread scheduler": `serve_in_foreground` built a current-thread
+runtime, and the transport refuses any thread inside one (`spawn_blocking` threads included). The fix is `commands::daemon_runtime()`, a multi-thread runtime with one worker; it needs
+the tokio feature `rt-multi-thread` for `cli/` (approved by the lead 2026-10-15; already enabled in the graph by `zenoh-runtime` and `zenoh-transport`, `Cargo.lock` unchanged; 07 section 5 updated). Regression test
+`cli/tests/start_runtime.rs`: the daemon starts and stops over the real transport on loopback (an in-memory key, a test namespace, a claimed port) on `daemon_runtime()`, and a control shows the
+current-thread runtime panics with the transport's message. Leg C record, on the fixed build (ff63f4f plus this change), Windows, the real `oac start`: serves in about 6 s
+(`oac start: the daemon is running (\\.\pipe\oac-<user SID>-claude)`); a probe shim connects (exit 0); a second `oac start` prints "the daemon is already running", exit 0, and there is one `oac.exe`
+process; Ctrl-C stops the foreground daemon with exit 0 in 0.3 s after "oac start: stopping" and the endpoint is gone; `oac start --detach` returns exit 0 after 4.8 s, the detached daemon is one
+process, and killing only that pid leaves no endpoint (no `oac stop` yet: the known G10 residual, so no clean shutdown for a detached daemon). The device key was made in the Credential Manager
+(target `device-key.io.github.rossgraeber.oac`; never read). The known-issue notes about `oac start` that PR #423 had added (README, 08 section 20.3) are removed in that PR after this fix merged (#425).
+
+**Last updated:** 2026-10-15 (**G9, #70, slice 3: the shim's hello line and the adapter's connection places; `spec/bindings/mcp.md` 0.4 and `spec/interfaces.md` 0.10 proposed, lead approval pending; Refs #70**).
+Closes 11-risks rows 86 and 87 in code. **Row 87:** a Claude shim whose environment holds a non-empty `CLAUDE_CODE_SESSION_ID` (E) sends one hello line
+first, `{"oac_hello":1,"session_id":"<E>"}` (`oac_adapter_claude::hook::hello_line`, sent by `cli/src/shim.rs`); the adapter consumes it (`FirstLine::Hello`, `ChannelReader::consume_first_line`) and reports E
+as the attachment's `cross_check` in `attachment-opened`; any first line that is not exactly that form is served as before and gives no value. With E, a `startup` hook whose `session_id`
+differs is not bound (case 3(b), SC-ID-137): shown end to end by `cli/tests/daemon.rs` (three real sessions: E equal to the hook's id, no E, E different). **Row 86:** the adapter admits seven
+connections (`SHIM_PLACES` 4 channel servers + `CARRIER_PLACES` 3 for hook carriers and connections not yet classified); a fifth shim is refused when its first line says it is a channel server, and a
+hook carrier is admitted whatever the shims hold; the shutdown arithmetic is 7 x 100 ms + 200 ms = 900 ms inside the 1000 ms bound (8 places would reach it, so seven is the most). Spec: MCPB-CLD-011 to MCPB-CLD-016
+(all `TODO(fixture)`, the shim is not an MCP exchange), the evidence paragraph, a reference-implementation note stating the places; Appendix A 0.4; `spec/interfaces.md` 0.10 gives the six ids owners; the 0.3 header and Appendix A row now say
+"in force from the merge of PR #401", and the §8.1 note names `cli/src/hook.rs` (G9, #405) as the handler. Local-IPC only, minor revision under E7 §7 as 0.3 was (decision D7). No new dependency; no `Cargo.lock` change.
+Not claimed: a live Claude Code shim carrying the real variable (slice 7 live leg A); a fixture for any new id.
+
+
+**Last updated:** 2026-10-15 (**G9, #70, slice 7 prerequisite: the live-leg daemon; Refs #70**).
+`cli/examples/live_daemon.rs` (a development tool, not the product; `oac start` is the product's daemon and refuses `OAC_SCOPE`): the same
+`Daemon::start` with an in-memory key (made for the run, kept nowhere), the in-memory transport and the test namespace given on the command line,
+so that a live leg drives a real harness without touching the user's device key. It writes JSON lines (`ready`, `accepted` with the peer, the
+process chain from the peer to the root and the harness process the daemon found, `ended`, `log` for the core's binding lines, `stopped`) and stops on
+Ctrl-C or a `stop` line. To see this the daemon's `LogSink` gained a tap (`with_tap`, `Diagnostic`): process ids and whether the peer paired, never the
+key, the working directory or anything a peer sent; `oac start` installs none. `cli/tests/live_daemon.rs` runs the example: a peer that is not a
+harness is accepted and reported unpaired, and a `stop` line ends it cleanly. Dependencies: none new (`oac-transport-memory` is already a dev-dependency).
+Not claimed: any live leg (the scenario and the runs come after slice 3).
 
 
 **Last updated:** 2026-10-15 (**documentation sweep, Refs #70: the lead's acceptance of the D5 residuals of local IPC and peer pairing**).
@@ -22,7 +54,9 @@ can share Claude's pairing key and cause a same-key denial of service (for examp
 same-user code: a same-user program named `claude` becomes a harness with its own key. (3) A peer pid is read at accept, so under daemon load a
 reused pid is mis-attributed to another same-user process rather than refused. Not documented as merged: the daemon, `oac start`, `oac mcp-shim`
 (PR #413) and interfaces 0.9 (PR #408); both were open at this entry.
+
 **Last updated:** 2026-10-14 (**interfaces 0.9 proposed, lead approval pending: transport payload size (IFC-TRN-118, IFC-TRN-119), carrier appearance (IFC-TRN-120 to IFC-TRN-125), #391 evidence cells; security 0.5 and session-channels 0.3 editorial (#375 items 2 to 4); #375 item 1 split out; Refs #396, #389, #391, #375**). `spec/interfaces.md` 0.9 is on branch `spec/interfaces-0.9`, not merged. The implementation of IFC-TRN-118 to IFC-TRN-125 is open under G1 and G2 (#62, #63), F6 and F10 (#59). Risk row 84 of `docs/planning/v0.1/11-risks.md` is updated to match. The interfaces 0.8 status now reads "in force from the merge of PR #401".
+
 **Last updated:** 2026-10-14 (**G9, #70, slice 6: the daemon, the shim and `oac start`; Refs #70**).
 `cli/src/daemon.rs`, `relay.rs`, `shim.rs`, `commands.rs` (stacked on slice 5). `Daemon::start` takes the one-daemon lock **before** reading the key,
 loads or makes the device key (the only place key material is read), builds the identity and the authorization engine from an empty

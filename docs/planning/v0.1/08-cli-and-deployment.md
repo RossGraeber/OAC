@@ -532,7 +532,7 @@ Do not run `beacon mcp connect` for this setup. It registers the separate hosted
 
 ### 20.3 OAC side — the launch commands already in this file
 
-Only the commands in §5, §7 and §9 are used. `oac start` and `oac mcp-shim` are on `main` (PR #413); the live run is the operator's. Known issue: `oac start` panics when it starts the real Zenoh transport ("Zenoh runtime doesn't support Tokio's current thread scheduler", reported from G9 Leg C, not reproduced in this sweep); `serve_in_foreground` builds a current-thread runtime, and the fix (a multi-thread runtime with one worker, pending the lead's approval of Tokio's `rt-multi-thread` feature) has not merged. The "Gate-verdict caveat" at the top of this file applies to each.
+Only the commands in §5, §7 and §9 are used. `oac start` and `oac mcp-shim` are on `main` (PR #413); the live run is the operator's. `oac start` serves on the real Zenoh transport since PR #425 (a multi-thread runtime; the first live run had panicked on a current-thread one). The "Gate-verdict caveat" at the top of this file applies to each.
 
 1. Start the per-device daemon with `oac start` (§5).
 2. Claude Code: launch the session with the development-channel command in §7. The

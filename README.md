@@ -35,7 +35,7 @@ supported integration model.
 
 **What works on `main` today** (checked against the code and the merged pull requests):
 
-- `oac start` (`cli/src/commands.rs`, PR #413) is **not usable** until the known-issue fix merges. It always builds the Zenoh peer transport, which panics on Tokio's current-thread runtime (reported from G9 Leg C; not reproduced in this sweep), in the foreground and with `--detach` alike. Until the fix merges, only the tests run the daemon, in-process over the in-memory transport.
+- `oac start` (`cli/src/commands.rs`, PR #413) runs the daemon in the foreground, or with `--detach` as a detached process, on the real Zenoh peer transport. Since PR #425 it serves on a multi-thread Tokio runtime (`commands::daemon_runtime()`); the reference transport refuses a current-thread one. A detached daemon has no console and writes no log, and there is no `oac stop` yet (G10).
 - `oac mcp-shim --harness <claude|codex>` (PR #413) is the stdio server a harness starts: a byte relay to that harness's endpoint on the daemon. With no daemon running, it says to run `oac start` and does not start one.
 - `oac hook` (`cli/src/hook.rs`, PR #405, connected to the daemon by PR #413) carries a Claude Code `SessionStart` input to the daemon as one line, as `spec/bindings/mcp.md` section 8.1 requires. Its connection stays open for at most 3 seconds, so the daemon can look up the peer. If the daemon is not running, the input is dropped with a diagnostic and the session stays unbound (fail closed).
 - A device key store (`cli/src/keystore.rs`, PRs #315 and #407) that uses the operating system's credential store, or an encrypted file where none exists.
