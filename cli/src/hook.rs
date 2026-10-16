@@ -135,7 +135,7 @@ pub fn carrier_line(input: &[u8]) -> Result<Vec<u8>, Skip> {
     match classify(&line) {
         FirstLine::Hook(h) if h.session_start().is_some() => Ok(line),
         FirstLine::Hook(_) => Err(Skip::NotASignal),
-        FirstLine::Mcp => Err(Skip::NotAHookInput),
+        FirstLine::Mcp | FirstLine::Hello(_) => Err(Skip::NotAHookInput),
     }
 }
 

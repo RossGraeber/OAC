@@ -12,6 +12,18 @@ process; Ctrl-C stops the foreground daemon with exit 0 in 0.3 s after "oac star
 process, and killing only that pid leaves no endpoint (no `oac stop` yet: the known G10 residual, so no clean shutdown for a detached daemon). The device key was made in the Credential Manager
 (target `device-key.io.github.rossgraeber.oac`; never read). The known-issue notes about `oac start` that PR #423 adds are removed once both have merged.
 
+**Last updated:** 2026-10-15 (**G9, #70, slice 3: the shim's hello line and the adapter's connection places; `spec/bindings/mcp.md` 0.4 and `spec/interfaces.md` 0.10 proposed, lead approval pending; Refs #70**).
+Closes 11-risks rows 86 and 87 in code. **Row 87:** a Claude shim whose environment holds a non-empty `CLAUDE_CODE_SESSION_ID` (E) sends one hello line
+first, `{"oac_hello":1,"session_id":"<E>"}` (`oac_adapter_claude::hook::hello_line`, sent by `cli/src/shim.rs`); the adapter consumes it (`FirstLine::Hello`, `ChannelReader::consume_first_line`) and reports E
+as the attachment's `cross_check` in `attachment-opened`; any first line that is not exactly that form is served as before and gives no value. With E, a `startup` hook whose `session_id`
+differs is not bound (case 3(b), SC-ID-137): shown end to end by `cli/tests/daemon.rs` (three real sessions: E equal to the hook's id, no E, E different). **Row 86:** the adapter admits seven
+connections (`SHIM_PLACES` 4 channel servers + `CARRIER_PLACES` 3 for hook carriers and connections not yet classified); a fifth shim is refused when its first line says it is a channel server, and a
+hook carrier is admitted whatever the shims hold; the shutdown arithmetic is 7 x 100 ms + 200 ms = 900 ms inside the 1000 ms bound (8 places would reach it, so seven is the most). Spec: MCPB-CLD-011 to MCPB-CLD-016
+(all `TODO(fixture)`, the shim is not an MCP exchange), the evidence paragraph, a reference-implementation note stating the places; Appendix A 0.4; `spec/interfaces.md` 0.10 gives the six ids owners; the 0.3 header and Appendix A row now say
+"in force from the merge of PR #401", and the §8.1 note names `cli/src/hook.rs` (G9, #405) as the handler. Local-IPC only, minor revision under E7 §7 as 0.3 was (decision D7). No new dependency; no `Cargo.lock` change.
+Not claimed: a live Claude Code shim carrying the real variable (slice 7 live leg A); a fixture for any new id.
+
+
 **Last updated:** 2026-10-15 (**G9, #70, slice 7 prerequisite: the live-leg daemon; Refs #70**).
 `cli/examples/live_daemon.rs` (a development tool, not the product; `oac start` is the product's daemon and refuses `OAC_SCOPE`): the same
 `Daemon::start` with an in-memory key (made for the run, kept nowhere), the in-memory transport and the test namespace given on the command line,
@@ -38,6 +50,7 @@ can share Claude's pairing key and cause a same-key denial of service (for examp
 same-user code: a same-user program named `claude` becomes a harness with its own key. (3) A peer pid is read at accept, so under daemon load a
 reused pid is mis-attributed to another same-user process rather than refused. Not documented as merged: the daemon, `oac start`, `oac mcp-shim`
 (PR #413) and interfaces 0.9 (PR #408); both were open at this entry.
+
 **Last updated:** 2026-10-14 (**interfaces 0.9 proposed, lead approval pending: transport payload size (IFC-TRN-118, IFC-TRN-119), carrier appearance (IFC-TRN-120 to IFC-TRN-125), #391 evidence cells; security 0.5 and session-channels 0.3 editorial (#375 items 2 to 4); #375 item 1 split out; Refs #396, #389, #391, #375**). `spec/interfaces.md` 0.9 is on branch `spec/interfaces-0.9`, not merged. The implementation of IFC-TRN-118 to IFC-TRN-125 is open under G1 and G2 (#62, #63), F6 and F10 (#59). Risk row 84 of `docs/planning/v0.1/11-risks.md` is updated to match. The interfaces 0.8 status now reads "in force from the merge of PR #401".
 
 **Last updated:** 2026-10-14 (**G9, #70, slice 6: the daemon, the shim and `oac start`; Refs #70**).

@@ -118,7 +118,7 @@ function listFixtures() {
 // The revisions each document has had; a fixture cites the one it was written against
 // (§3.3).
 const REVISIONS = {
-  'spec/bindings/mcp.md': ['0.1', '0.2', '0.3'],
+  'spec/bindings/mcp.md': ['0.1', '0.2', '0.3', '0.4'],
   'spec/security.md': ['0.1', '0.2', '0.3'],
   'spec/session-channels.md': ['0.1', '0.2'],
   'spec/interfaces.md': ['0.1', '0.2', '0.3'],

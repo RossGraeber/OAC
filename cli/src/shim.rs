@@ -6,9 +6,18 @@
 //! The shim is a **byte relay** and nothing more: it connects to the daemon's endpoint for
 //! its harness, copies its standard input to the daemon and the daemon's answers to its
 //! standard output, and exits when either ends. It parses no MCP frame, holds no key, no
-//! policy and no session state, reads no environment variable beyond the endpoint's scope,
-//! and decides nothing: the MCP server is the harness's adapter inside the daemon
+//! policy and no session state, and decides nothing. It reads the endpoint's scope and, for a
+//! Claude Code shim only, one environment variable (below): the MCP server is the harness's adapter inside the daemon
 //! (`adapters/claude`, `adapters/codex`), which sees exactly the bytes the harness wrote.
+//!
+//! **The hello line** (`spec/bindings/mcp.md` [MCPB-CLD-011], [MCPB-CLD-012]). A shim of the
+//! `claude` harness whose environment holds a non-empty `CLAUDE_CODE_SESSION_ID` (E) sends
+//! one line first, before any byte of the harness: `{"oac_hello":1,"session_id":"<E>"}`. The
+//! daemon's Claude adapter consumes it and reports E as the attachment's cross-check value,
+//! which the core compares with the session id a `SessionStart` hook reports (case 3(a) and
+//! 3(b) of `spec/session-channels.md` §6.7.3). It is a hint and never an identity
+//! (C4 §3 "Terms"); the shim reads no other session id. The line is built by the adapter's
+//! crate ([`oac_adapter_claude::hook::hello_line`]), so the form is defined in one place.
 //!
 //! A shim that is killed or crashes closes its end of the connection, and the daemon sees the
 //! end of stream and ends that one connection ([`crate::daemon`]); no other session notices.
@@ -42,6 +51,16 @@ pub enum Ended {
     DaemonClosed,
 }
 
+/// The hello line for a shim of harness `label` whose environment holds `session_id`
+/// (`CLAUDE_CODE_SESSION_ID`): only the `claude` harness sends one, only for a non-empty
+/// value the adapter can read, and never for a value that is not valid text.
+pub fn hello_for(label: &str, session_id: Option<&std::ffi::OsStr>) -> Option<Vec<u8>> {
+    if label != "claude" {
+        return None;
+    }
+    oac_adapter_claude::hook::hello_line(session_id?.to_str()?)
+}
+
 /// The message for a daemon that cannot be reached, with the command to start it.
 pub fn unreachable_message(e: &ConnectError) -> String {
     match e {
@@ -61,10 +80,12 @@ pub async fn connect(endpoint: &Endpoint) -> Result<Box<dyn AsyncStream>, Connec
     endpoint.connect().await
 }
 
-/// Copies `input` to `stream` and `stream` to `output` until one ends. The blocking ends run
-/// on threads of their own, so neither can hold up the other.
+/// Copies `input` to `stream` and `stream` to `output` until one ends, after writing `hello`
+/// (when there is one) as the first bytes of the stream. The blocking ends run on threads of
+/// their own, so neither can hold up the other.
 pub async fn relay(
     stream: Box<dyn AsyncStream>,
+    hello: Option<Vec<u8>>,
     mut input: impl Read + Send + 'static,
     mut output: impl Write + Send + 'static,
 ) -> Ended {
@@ -100,6 +121,12 @@ pub async fn relay(
         });
 
     let to_daemon = async move {
+        if let Some(hello) = hello
+            && (daemon_writes.write_all(&hello).await.is_err()
+                || daemon_writes.flush().await.is_err())
+        {
+            return Ended::DaemonClosed;
+        }
         while let Some(chunk) = in_rx.recv().await {
             if daemon_writes.write_all(&chunk).await.is_err()
                 || daemon_writes.flush().await.is_err()
@@ -184,7 +211,7 @@ mod tests {
             let (daemon, shim_side) = duplex(1 << 16);
             let out = Shared::default();
             let input = std::io::Cursor::new(SAMPLE.to_vec());
-            let relay_task = tokio::spawn(relay(Box::new(shim_side), input, out.clone()));
+            let relay_task = tokio::spawn(relay(Box::new(shim_side), None, input, out.clone()));
             let (mut daemon_r, _daemon_w) = tokio::io::split(daemon);
             // The input was a finite file: the relay ends when it is closed, and the daemon
             // reads everything that was sent, then end of stream.
@@ -208,7 +235,7 @@ mod tests {
                     Ok(0)
                 }
             }
-            let relay_task = tokio::spawn(relay(Box::new(shim_side), Never, out.clone()));
+            let relay_task = tokio::spawn(relay(Box::new(shim_side), None, Never, out.clone()));
             let (_daemon_r, mut daemon_w) = tokio::io::split(daemon);
             daemon_w.write_all(b"last words\n").await.unwrap();
             drop(daemon_w);
@@ -224,10 +251,55 @@ mod tests {
             let (daemon, shim_side) = duplex(1 << 16);
             drop(daemon);
             let input = std::io::Cursor::new(SAMPLE.to_vec());
-            let ended = relay(Box::new(shim_side), input, Shared::default()).await;
+            let ended = relay(Box::new(shim_side), None, input, Shared::default()).await;
             assert_eq!(ended, Ended::DaemonClosed);
             assert_eq!(exit_status(ended), 1);
         });
+    }
+
+    #[test]
+    fn the_hello_line_is_the_first_thing_on_the_stream_and_the_input_follows_it() {
+        rt().block_on(async {
+            let (daemon, shim_side) = duplex(1 << 16);
+            let hello = hello_for("claude", Some("E-1".as_ref())).expect("a hello");
+            let input = std::io::Cursor::new(SAMPLE.to_vec());
+            let ended = relay(
+                Box::new(shim_side),
+                Some(hello.clone()),
+                input,
+                Shared::default(),
+            )
+            .await;
+            assert_eq!(ended, Ended::InputClosed);
+            let (mut daemon_r, _w) = tokio::io::split(daemon);
+            let mut got = Vec::new();
+            daemon_r.read_to_end(&mut got).await.unwrap();
+            let mut expected = hello;
+            expected.extend_from_slice(SAMPLE);
+            assert_eq!(got, expected);
+        });
+    }
+
+    #[test]
+    fn only_a_claude_shim_with_a_usable_value_sends_a_hello() {
+        use std::ffi::OsStr;
+        let line = hello_for("claude", Some(OsStr::new("E-1"))).unwrap();
+        assert_eq!(line, b"{\"oac_hello\":1,\"session_id\":\"E-1\"}\n");
+        assert_eq!(hello_for("claude", None), None);
+        assert_eq!(hello_for("claude", Some(OsStr::new(""))), None);
+        assert_eq!(
+            hello_for("claude", Some(OsStr::new(&"x".repeat(257)))),
+            None
+        );
+        assert_eq!(hello_for("codex", Some(OsStr::new("E-1"))), None);
+        #[cfg(unix)]
+        {
+            use std::os::unix::ffi::OsStrExt;
+            assert_eq!(
+                hello_for("claude", Some(OsStr::from_bytes(b"\xff\xfe"))),
+                None
+            );
+        }
     }
 
     #[test]
