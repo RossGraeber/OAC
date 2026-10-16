@@ -236,13 +236,30 @@ fn key_store() -> Box<dyn KeyStore + Send> {
     }
 }
 
+/// The runtime `oac start` serves on: **multi-thread, with one worker, not current-thread.**
+///
+/// The reference transport's runtime panics on any thread that is inside a current-thread
+/// tokio runtime (its synchronous calls `block_in_place`; threads of `spawn_blocking`
+/// included), and the core calls the transport from the daemon's blocking tasks and, in
+/// `Daemon::start`, from `Pipelines::start` inline on the thread that drives the future
+/// (`block_on`'s). The in-memory transport of most tests has no such rule, so the panic is seen only with the
+/// real transport: the first live run of `oac start` found it (G9 #70, slice 7, leg C), and
+/// `tests/start_runtime.rs` starts the daemon over the real transport on this runtime.
+///
+/// # Errors
+///
+/// The operating system's error when the runtime's threads cannot be made.
+pub fn daemon_runtime() -> io::Result<tokio::runtime::Runtime> {
+    tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(1)
+        .enable_all()
+        .build()
+}
+
 fn serve_in_foreground(scope: Scope, stderr: &mut dyn Write) -> i32 {
     // Before any thread starts (the passphrase variable is overwritten and removed).
     let key_store = key_store();
-    let runtime = match tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-    {
+    let runtime = match daemon_runtime() {
         Ok(r) => r,
         Err(e) => {
             let _ = writeln!(stderr, "oac start: {e}");
