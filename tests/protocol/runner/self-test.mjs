@@ -24,6 +24,7 @@ import { parseTimestamp, isSessionId, isToken } from './core.mjs';
 import { sealBase, openBase, x25519, x25519Public, acceptableAgreementKey, seal as sealFrame, open as openFrame } from './hpke.mjs';
 import { checkIndexes, checkOwners } from './index-check.mjs';
 import { contractStrays } from './layout.mjs';
+import { REVISIONS, SPEC_DOCUMENTS, checkRevisions, revisionsNamedBy } from './revisions.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -331,6 +332,44 @@ export function selfTest() {
     expect('sealed frame round trip', o.kind === 'presence' && o.payload.equals(Buffer.from('{}')) && frame.length === 54 + 2 + 7);
     expect('sealed frame refused by another key', openFrame(frame, Buffer.alloc(32, 0x33)).kind === undefined);
   }
+
+  // The revision lists (#422): the committed lists cover every revision the spec documents
+  // name, and a revision that is not listed (planted) fails.
+  expect('revision lists: committed lists are current', checkRevisions(readRepo).length === 0);
+  expect('revision lists: every spec file is checked', SPEC_DOCUMENTS.every((d) => d in REVISIONS) && fs.readdirSync(path.join(root, 'spec')).filter((f) => f.endsWith('.md')).length + fs.readdirSync(path.join(root, 'spec', 'bindings')).filter((f) => f.endsWith('.md')).length === SPEC_DOCUMENTS.length);
+  // Every plant is derived from the committed text, so a later revision bump keeps it
+  // meaningful: the next revision is the highest one listed plus one minor, and each plant
+  // asserts that it changed the text (a no-op plant fails loudly).
+  const text = (doc, f) => (rel) => (rel === doc ? f(readRepo(rel)) : readRepo(rel));
+  const headerLine = /(\*\*(?:Binding )?[Rr]evision:\*\*\s*`?)(\d+\.\d+)/;
+  const nextOf = (doc) => {
+    const all = [...REVISIONS[doc], ...revisionsNamedBy(readRepo(doc)).header];
+    const [major, minor] = all.map((r) => r.split('.').map(Number)).sort((a, b) => a[0] - b[0] || a[1] - b[1]).pop();
+    return `${major}.${minor + 1}`;
+  };
+  for (const doc of SPEC_DOCUMENTS) {
+    const { header, history } = revisionsNamedBy(readRepo(doc));
+    expect(`revision lists: ${doc} header and history are read`, header.size === 1 && history.size > 0 && history.has([...header][0]));
+    const top = [...history].pop();
+    const without = { ...REVISIONS, [doc]: REVISIONS[doc].filter((r) => r !== top) };
+    expect(`revision lists: ${doc} without ${top} fails`, checkRevisions(readRepo, without).some((m) => m.includes(`revision ${top}`)));
+    const next = nextOf(doc);
+    const planted = (f) => {
+      const t = readRepo(doc);
+      const p = f(t);
+      return { applied: p !== t, problems: checkRevisions(text(doc, () => p)) };
+    };
+    const hdr = planted((t) => t.replace(headerLine, (m, pre) => `${pre}${next}`));
+    expect(`revision lists: ${doc} planted header revision ${next} is applied`, hdr.applied);
+    expect(`revision lists: ${doc} planted header revision ${next} fails`, hdr.problems.some((m) => m.includes(`revision ${next} (header)`)));
+    const row = planted((t) => t.replace(/^(## Appendix [A-Z]\. Revision history[^\n]*)$/m, (m) => `${m}\n\n| ${next} | 2026-10-15 | planted |`));
+    expect(`revision lists: ${doc} planted history row ${next} is applied`, row.applied);
+    expect(`revision lists: ${doc} planted history row ${next} fails`, row.problems.some((m) => m.includes(`revision ${next} (revision history)`)));
+    const unreadable = planted((t) => t.replace(/\*\*(Binding )?([Rr])evision:\*\*/, (m, b, r) => `**${b || ''}${r}ev:**`));
+    expect(`revision lists: ${doc} planted unreadable header is applied`, unreadable.applied);
+    expect(`revision lists: ${doc} planted unreadable header fails`, unreadable.problems.some((m) => m.includes('no revision header')));
+  }
+  expect('revision lists: a document with no list fails', checkRevisions(readRepo, {}).length === SPEC_DOCUMENTS.length);
 
   return failures;
 }
