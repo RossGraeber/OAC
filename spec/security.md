@@ -1846,9 +1846,9 @@ statement, and when the consumer refuses the statement given, under [SEC-SEL-010
 as well (§14.1): it derives its value over the other device's statement, which it receives and
 does not use, and over its own absence of one.
 
-[SEC-SEL-051] An implementation SHOULD check the statement given at a pairing under
-[SEC-SEL-010] to [SEC-SEL-013] and [SEC-SEL-042] before it shows the comparison, and SHOULD show
-a refused statement as a value of its own, so that the operator sees a mismatch. An
+[SEC-SEL-051] An implementation SHOULD check the statement given at a pairing under the
+rules [SEC-SEL-010] to [SEC-SEL-013] and [SEC-SEL-042] before it shows the comparison, and
+SHOULD show a refused statement as a value of its own, so that the operator sees a mismatch. An
 implementation deviates when it shows the comparison over a statement that it then refuses.
 
 A refused statement shown as its own value makes the two values differ, so the operator does
