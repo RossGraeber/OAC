@@ -12,6 +12,8 @@
 //     /mnt/<d>/Users/<x>, /root, Claude Code's mangled project-dir form; raw, JSON-escaped,
 //     or percent-encoded;
 //   - the OS username and hostname (see "identity" below), and caller literals;
+//   - a Windows account security identifier (`S-1-5-21-a-b-c-rid`, whoever's: a pipe name or a
+//     process owner carries one), as `<SID>`;
 //   - e-mail addresses and token shapes (sk-, Bearer, GitHub, GitLab, npm, Slack, AWS,
 //     Google, JWT);
 //   - secret-named assignments in any case or spelling -- NAME_TOKEN=, "access_token": ,
@@ -69,6 +71,7 @@ export const PLACEHOLDER = {
   user: '<USER>',
   host: '<HOST>',
   email: '<EMAIL>',
+  sid: '<SID>',
   secret: '<SECRET>',
   hazard: '<REDACTED_HAZARD_LINE>',
 };
@@ -258,6 +261,11 @@ const SECRET_KEY_COUNT = 'secret-named key value';
 
 const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/g;
 
+// A Windows account SID (a machine or domain account: `S-1-5-21`, three sub-authorities and a
+// relative id), e.g. in the name of a named pipe the daemon serves. Identifies an account on a
+// machine, so it is stripped like the user name.
+const SID_RE = /(?<![A-Za-z0-9])S-1-5-21-\d+-\d+-\d+-\d+(?![0-9])/g;
+
 // Structural home-path shapes, whoever's they are.
 const GENERIC_HOME_RULES = [
   reRule('wsl windows profile path', new RegExp(String.raw`(?<![A-Za-z0-9._-])${SEP}mnt${SEP}[A-Za-z]${SEP}Users${SEP}(?!<)${SEG_CHARS}`, 'gi'), PLACEHOLDER.home),
@@ -315,6 +323,7 @@ export function createRedactor({ home = homedir(), username = safeUserName(), ho
   if (userMode !== 'context-only') replaceRules.push(reRule('username', identityRe(username, userMode, 'gi'), PLACEHOLDER.user));
   replaceRules.push(...TOKEN_RULES);
   replaceRules.push(reRule('email', EMAIL_RE, PLACEHOLDER.email));
+  replaceRules.push(reRule('windows account sid', SID_RE, PLACEHOLDER.sid));
 
   // Wrapped forms (#288), most specific first like the per-line rules. They act only on a
   // match that actually crosses a line break; an unbroken one is left to the per-line rules.
@@ -356,6 +365,7 @@ export function createRedactor({ home = homedir(), username = safeUserName(), ho
     ...GENERIC_HOME_RULES,
     ...TOKEN_RULES,
     reRule('email', EMAIL_RE, PLACEHOLDER.email),
+    reRule('windows account sid', SID_RE, PLACEHOLDER.sid),
     ...HAZARD_RULES.map(({ label, re }) => ({ label, detect: (line) => re.test(line) })),
   ];
 

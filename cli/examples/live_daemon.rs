@@ -23,7 +23,8 @@
 //!
 //! It stops on Ctrl-C or when a line `stop` is read on its standard input, and writes a
 //! `stopped` event after the clean shutdown. The end of its standard input (a closed or empty
-//! input) does not stop it: a run that gives it no input stops it with Ctrl-C or by ending the process. It is built from `cli/examples/`, which only
+//! input) does not stop it: a run that gives it no input stops it with Ctrl-C or by ending
+//! the process. It is built from `cli/examples/`, which only
 //! `cargo` builds on request: the `oac` binary does not contain it, and it depends on the
 //! in-memory transport, a dev-dependency (`scripts/check-crate-deps.mjs`).
 

@@ -73,9 +73,10 @@ export default {
     writeFileSync(mcpPath, JSON.stringify({ mcpServers: { oac: server } }));
     writeFileSync(
       settingsPath,
-      JSON.stringify({ hooks: { SessionStart: [{ hooks: [{ type: 'command', command: `${slash(params.oac)} hook` }] }] } }),
+      JSON.stringify({ hooks: { SessionStart: [{ hooks: [{ type: 'command', command: `"${slash(params.oac)}" hook` }] }] } }),
     );
     ctx.record('mcpConfig', { explicitEnv, server: { command: 'oac', args: server.args } });
+    ctx.record('g9', { nonVerdictBearing: 'G9 #70 slice 7 leg A: not a gate; records what the daemon observed, and never changes a gate verdict' });
 
     // Pane A: the live daemon, in the foreground.
     const wsA = await herdr.workspaceCreate({ cwd: work, label: 'oac-g9-daemon', env: { OAC_SCOPE: ns } });
