@@ -263,8 +263,10 @@ const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{
 
 // A Windows account SID (a machine or domain account: `S-1-5-21`, three sub-authorities and a
 // relative id), e.g. in the name of a named pipe the daemon serves. Identifies an account on a
-// machine, so it is stripped like the user name.
-const SID_RE = /(?<![A-Za-z0-9])S-1-5-21-\d+-\d+-\d+-\d+(?![0-9])/g;
+// machine, so it is stripped like the user name. Matched in any case, after a non-word
+// character and also right after a JSON escape (`\n`, `\r`, `\t`: the escape's letter would
+// otherwise read as a word character before the `S`), so a SID is not missed in a JSON string.
+const SID_RE = /(?:(?<![A-Za-z0-9])|(?<=\\[nrt]))S-1-5-21-\d+-\d+-\d+-\d+(?![0-9])/gi;
 
 // Structural home-path shapes, whoever's they are.
 const GENERIC_HOME_RULES = [

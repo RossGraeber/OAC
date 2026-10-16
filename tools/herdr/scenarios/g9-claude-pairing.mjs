@@ -66,8 +66,10 @@ export default {
     const settingsPath = join(work, 'settings.json');
     const slash = (p) => p.replace(/\\/g, '/');
 
-    // The MCP server and the hook handler. The hook command is a plain path (no shell syntax) so
-    // that bash, cmd and PowerShell all run it; OAC_SCOPE comes from the pane's environment.
+    // The MCP server and the hook handler. The hook command is the quoted path and its argument,
+    // a form bash and cmd run (Claude Code on Windows runs hook commands through Git Bash; a
+    // PowerShell command would need `&` before a quoted path). OAC_SCOPE comes from the pane's
+    // environment.
     const server = { command: params.oac, args: ['mcp-shim', '--harness', 'claude'] };
     if (explicitEnv) server.env = { OAC_SCOPE: ns };
     writeFileSync(mcpPath, JSON.stringify({ mcpServers: { oac: server } }));
