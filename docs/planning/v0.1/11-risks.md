@@ -652,7 +652,7 @@ list.
   `SO_PEERCRED` in the 0700 run directory. Row 19 (environment inheritance), Linux: `XDG_RUNTIME_DIR` reached the shim and the hook command through
   Claude Code (both connected to the daemon's run directory). **`OAC_SCOPE` inheritance is not shown:** the test set it in the MCP server's `env` in
   `mcp.json` and inline in the hook command, so nothing proves that Claude Code passes it on. Row 87 live, Linux: without the hello line (main `a862065`) the daemon logged SC-ID-141 (case 3(c));
-  with it (`8e490a0`, PR #424) it did not, and the real Claude's call of `whoami` returned a session id (case 3(a)). Limits: print mode only
+  with it (`8e490a0`, PR #424) it did not, and the real Claude's call of `whoami` returned a session id (case 3(a), an inference from the absent SC-ID-141 diagnostic and the bound session, not a logged case label). Limits: print mode only
   (`claude -p`; no TUI, no dialogs); no channel hand-off or delivery shown; the daemon's key was the example's in-memory key; macOS not run; Windows
   (leg A) not yet run. The working directory read (`/proc/<pid>/cwd`) is not shown by the daemon's tap.
   (Dated note, 2026-10-15, documentation sweep.) **Accepted by the lead, 2026-10-15: the three

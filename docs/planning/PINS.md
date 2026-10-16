@@ -54,7 +54,10 @@ Full policy: `docs/planning/gates/README.md`.
 This file is the single source of truth for pinned versions. `docs/planning/STATUS.md`
 carries only a summary pointer back here — see its `## Pins` section.
 
-**Last updated:** 2026-10-09 (issue #369, the lead's approval of 2026-10-09: added row
+**Last updated:** 2026-10-15 (issue #70, G9 slice 7 leg B: the Claude Code (Channels) row's last tested version
+moves from `v2.1.285` to `v2.1.287`, the version the leg ran on. Routine record-keeping for the harness rows
+(#216; "Pin-move checklist" exemption): not a pin move, and no record or verdict is invalidated; the minimum
+stays `v2.1.282`.) Previously 2026-10-09 (issue #369, the lead's approval of 2026-10-09: added row
 `hpke` (payload sealing, RFC 9180), a fixed pin at `0.12.0`, `Gates affected: none` (an
 implementation dependency of `core/`). The pin-move checklist was executed in the same
 commit: a row was added, but it names no gate, so no `G<n>-result.md` `Pin rows relied on`
@@ -132,7 +135,7 @@ signature) and `serde_jcs` (canonical serialization) pin rows, see
 
 | Surface | Stability label | Pinned version | Release date | Observed at (URL) | Retrieved | Gates affected |
 |---|---|---|---|---|---|---|
-| Claude Code (Channels) | research preview | **floating** — minimum `v2.1.282`; last tested `v2.1.285` (L3, 2026-10-01); warn on version, never gate; see "Version policy" below | 2026-09-29T19:27:30Z (UTC; the last tested version) | https://github.com/anthropics/claude-code/releases/tag/v2.1.285 | 2026-10-01 | G1; G4 (legacy-MCP negotiation); G5 (a version change invalidates none of them, #216) |
+| Claude Code (Channels) | research preview | **floating** — minimum `v2.1.282`; last tested `v2.1.287` (G9 slice 7 leg B, 2026-10-15); warn on version, never gate; see "Version policy" below | 2026-10-01T18:00:22Z (UTC; the last tested version) | https://github.com/anthropics/claude-code/releases/tag/v2.1.287 | 2026-10-15 | G1; G4 (legacy-MCP negotiation); G5 (a version change invalidates none of them, #216) |
 | Codex CLI / app-server | experimental (per-method gating) | **floating** — minimum `@openai/codex@0.154.0` (commit `6b9826e3aa83b1a5947db50f4332cb9c65f1b340`); last tested `@openai/codex@0.161.0` (commit `979011409de0a60b52f179721948e65531d26144`; S3 fixture capture herdr run, 2026-10-07, #343); warn on version, never gate; see "Version policy" below | 2026-10-07T15:58:45Z (UTC; the last tested version) | https://github.com/openai/codex/releases/tag/rust-v0.161.0 | 2026-10-07 | G2, G5, G4 (Codex leg) (a version change invalidates none of them, #216) |
 | MCP — current era | supported | `2026-07-28` | 2026-07-28 | https://modelcontextprotocol.io/specification/2026-07-28/ | 2026-09-16 | G4, G1 |
 | MCP — legacy era | supported | `2025-11-25` | 2025-11-25 | https://modelcontextprotocol.io/specification/2025-11-25/ | 2026-09-16 | G4, G1 |
@@ -181,12 +184,14 @@ anything:
   floors in the B1 record below (`>= v2.1.232` Channels, `>= v2.1.234` permission relay)
   are documentation facts about when the surface appeared. They are not this minimum.
   `v2.1.282` is above both floors.
-- **Last tested version: `v2.1.285`** (GitHub release `v2.1.285`, published
-  2026-09-29T19:27:30Z UTC, retrieved 2026-10-01 via `gh api
-  repos/anthropics/claude-code/releases/tags/v2.1.285`). It ran in the L3 Beacon live leg
-  on 2026-10-01: `claude --version` `2.1.285`
-  (`docs/planning/decisions/L1-beacon-memory.md` §13, "Live results (L3)"). Update this
-  field, and the version history below, after each live run.
+- **Last tested version: `v2.1.287`** (GitHub release `v2.1.287`, published
+  2026-10-01T18:00:22Z UTC, retrieved 2026-10-15 via `gh api
+  repos/anthropics/claude-code/releases/tags/v2.1.287`). It ran in the G9 slice 7 leg B
+  check on 2026-10-15 (WSL Ubuntu, print mode): `claude --version` `2.1.287`
+  (`docs/planning/STATUS.md`, G9 slice 7 leg B entry). Update this
+  field, and the version history below, after each live run. The previous last tested
+  version was `v2.1.285` (L3 Beacon live leg, 2026-10-01, `docs/planning/decisions/L1-beacon-memory.md`
+  §13, "Live results (L3)").
 - **Warn, never gate.** A version other than the last tested one, or below the minimum,
   is a `VERSION WARNING` finding (`tools/herdr/lib/pins.mjs` `claudeVersionWarning`).
   This applies to `claude --version` and to the wire `clientInfo.version`. The warning
@@ -209,7 +214,10 @@ anything:
   §3.1 re-check is scheduled.
 - Version history (dated additions only): `v2.1.284` in a manual L3 attempt
   (2026-09-30), and `v2.1.285` in the L3 live leg (2026-10-01), both recorded in L1 §13.
-  `v2.1.285` is the last tested version from 2026-10-01.
+  `v2.1.285` was the last tested version from 2026-10-01. `v2.1.287` in the G9 slice 7
+  leg B check (2026-10-15, `docs/planning/STATUS.md`); it is the last tested version from
+  2026-10-15. Routine record-keeping under #216: no pin moves and no verdict is
+  invalidated.
 
 #### Floating-version policy (operator decision, 2026-09-27)
 
