@@ -6,10 +6,10 @@
 // when a revision named by a spec document is not listed here.
 
 export const REVISIONS = {
-  'spec/bindings/mcp.md': ['0.1', '0.2', '0.3'],
+  'spec/bindings/mcp.md': ['0.1', '0.2', '0.3', '0.4'],
   'spec/security.md': ['0.1', '0.2', '0.3', '0.4', '0.5'],
   'spec/session-channels.md': ['0.1', '0.2', '0.3'],
-  'spec/interfaces.md': ['0.1', '0.2', '0.3', '0.4', '0.5', '0.6', '0.7', '0.8', '0.9'],
+  'spec/interfaces.md': ['0.1', '0.2', '0.3', '0.4', '0.5', '0.6', '0.7', '0.8', '0.9', '0.10'],
 };
 
 // The spec documents that carry a revision: spec/*.md and spec/bindings/*.md.
