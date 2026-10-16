@@ -8,7 +8,7 @@ a minor revision of the 0.1 frozen at Gate S2
 (payload sealing, §14; the lead's ruling of 2026-10-09 on PR #364), 0.4 (the explanation of
 late copies in §14.5, Refs #377; no requirement changed; in force from the merge of PR #385),
 0.5 (the JSON spelling and the maximum of `seq` in §14.3 and the status of the sealing rows in §13, Refs #375; editorial, no
-requirement changed) and 0.6 (the pairing comparison of an agreement statement, §5.3 and §14.3, Refs #409: a correction to the unreleased 0.3 sealing, decided by the lead; see Appendix C). Written by task E5 (#45).
+requirement changed) and 0.6 (pairing confirms each device's agreement statement, §5.3 and §14.3, Refs #409: a breaking change to the unreleased 0.3 sealing, published as a minor revision by the lead's decision as a one-off exception; see Appendix C). Written by task E5 (#45).
 Appendix C records the changes.
 **Companion document:** `spec/session-channels.md`, which defines the envelope (§4),
 versioning (§5), session identity (§6), presence and discovery (§7), and delivery states,
@@ -403,8 +403,10 @@ When either device uses a sealing transport, pairing also gives each device the 
 agreement statement (§14.3). The statement is signed by the device key that pairing makes
 trusted. That signature shows that the statement belongs to the device, not which of the
 device's statements is current, since an older statement signed by the same key is still
-valid. The operator's comparison therefore also covers the statement's agreement key and
-`seq` ([SEC-SEL-044]).
+valid. The operator's comparison therefore covers the statements of both devices, each device's
+own as well as the other's, and for each its agreement key, `seq` and `issued_at`. A device
+that gave no statement is compared as having given none, so a statement removed in transit
+shows as a mismatch ([SEC-SEL-044], [SEC-SEL-050]).
 
 [SEC-KEY-034] An implementation MUST NOT add to its trusted key set a public key whose
 encoding is not canonical (RFC 8032 §5.1.3: a y-coordinate not less than p, or a zero
@@ -1582,8 +1584,8 @@ proving test does not exist yet is an open risk, carried as `RISK-SEC-SPEC` in
 | False authority through a cited memory reference (06 row 22) | A trusted, granted peer cites a stored record ("approved in memory X") so that the receiver treats the citation as authorization or as provenance | Never in the provenance set, a separate carrier or a frame header [SEC-PRV-015]; provenance only from verified members [SEC-PRV-002]; no authorization decision takes a memory reference as input [SEC-AUZ-024]; delivery never authorizes an action the content requests [SEC-AUZ-020] | L10 (asserts that the reference is absent from every machine-set carrier): not yet built, open risk; F11: not yet built, open risk; gate G5 PASS (gate client only) | A model may still find a cited record persuasive. A citation wrapped in frame-shaped text keeps the residual of the shared-carrier forgery row above |
 | Capture of delivered content by an external memory or telemetry service (06 row 23) | The operator runs a service beside the receiving harness that records that harness's session history | None in the protocol. The capture happens inside the harness session, which no implementation controls. [SEC-PRV-016] and [SEC-PRV-017] keep an implementation from using such a service; nothing here keeps the service from recording. [SEC-PRV-018] advises against secrets in content, which limits what a capture exposes but is advice, not a control | None: an open risk, not a closed mitigation. Carried in `docs/planning/v0.1/11-risks.md` under the risk that 06 row 23 names | Capture is confirmed: one such service, at the version Decision L1 §2 pins, recorded input handed off into both v0.1 harness surfaces verbatim, and one harness's outbound tool-call arguments; a secret-shaped test token in the delivered content was stored unredacted on every path that captured it (Decision L1 §13, live leg of 2026-10-01). Any text in `content`, a secret included, can therefore reach the receiving device's disk. The service's own scoping need not match working-directory scoping (§9.3), and any forwarding beyond the device is the operator's configuration of that service |
 | Reading payloads on a shared transport: another implementation reads the content, kind, signer or recipient of a payload that is not for it, or learns which device is behind a link | It shares a transport that delivers payloads to every implementation it reaches, or it observes that transport's traffic | Each payload sealed to the recipient device's agreement key, with kind, signer, recipient and deadline inside the frame [SEC-SEL-020], [SEC-SEL-030]; a payload opened by a device it is not for is dropped silently [SEC-SEL-035]; a sealing transport carries only sealed payloads, shows no destination, carries nothing beside a frame, and shows no device key id [IFC-TRN-100], [IFC-TRN-103], [IFC-TRN-106], [IFC-TRN-107], [IFC-TRN-108], [IFC-TRN-113] | `sec-sel/SEC-SEL-020.p01`, `.p02`; `sec-sel/SEC-SEL-030.p01`, `.p02`, `.n01` to `.n08`; `sec-sel/SEC-SEL-035.p01`, `.p02`, `.n01`, `.n02`; the core's sealing built in #370 (`core/tests/sealing.rs`, `only_the_recipient_opens_and_a_third_device_stays_silent`), and the reference transport's sealed carriage built under G1 (#62, PR #364); no fixture-level or transport-suite proof yet: F10 (#59), open risk | The frame's length (to 256 octets, with the padding of [SEC-SEL-025]), its timing and its sending link stay visible, and timing can pair a frame with its answer, and so a link with a device (§14.8). No forward secrecy: whoever later obtains a recipient's agreement private key opens every recorded frame sealed to it, until the key is replaced and erased (§14.9). Every implementation on such a transport performs one key agreement per frame, which a flood can exploit; [SEC-SEL-038] lets an operator count discarded frames. A device that forwards an envelope it opened to a third device that trusts the original signer, but does not bind the envelope's `to`, makes that device answer it with a receipt, which shows other peers that the device is present: the envelope names a session, not a device, so the third device cannot tell it from a misdirected one ([SEC-SEL-035]) |
-| Agreement-key substitution or rollback: a sender is led to seal to an agreement key that the attacker holds | The attacker can deliver an agreement statement, replay an old one whose private key it has since obtained, or get one issued with a future time | Statements signed by the device key under their own domain string and admitted only under a trusted key [SEC-SEL-011], [SEC-SEL-012]; weak keys refused [SEC-SEL-013]; ordered by a signed sequence number, never by the issuer's clock: a statement must carry a higher `seq` than the held one [SEC-SEL-014], issuers count up and keep the count [SEC-SEL-040], [SEC-SEL-043], consumers keep what they hold as durably as the trusted key set [SEC-SEL-041], and a statement more than `W` ahead of the consumer's clock is refused without blocking later ones [SEC-SEL-042]; at pairing, the operator's comparison covers the statement's agreement key and `seq`, and older statements are refused under the confirmed values [SEC-SEL-044] to [SEC-SEL-046] (the row below); the recipient key taken only from an admitted statement [SEC-SEL-023] | `sec-sel/SEC-SEL-011.p01`, `SEC-SEL-012.n01` to `.n03`, `SEC-SEL-013.n01` to `.n04`, `SEC-SEL-014.p01`, `.p02`, `.n01`, `.n02`, `SEC-SEL-042.p01`, `.n01`, `SEC-SEL-023.n01`; [SEC-SEL-041] tested by `core/tests/sealing.rs` `statements_live_and_die_with_their_keys` (#370); [SEC-SEL-040] and [SEC-SEL-043]: the core's sealing built in #370, no fixture-level proof yet: F10 (#59), open risk | A stolen device key signs a statement for the attacker's agreement key (the leaked-device-key row). A peer that never receives a newer statement keeps sealing to the older key. An issuer that loses its count recovers only by pairing again with each consumer (§14.3) |
-| Stale or substituted agreement statement after pairing: an older statement of a device, whose agreement private key the attacker has obtained, is admitted when the device is paired again (the recovery of §14.3), or while the consumer holds no statement for it | Attacker can deliver on the pairing exchange or on the transport, and holds an older agreement statement of the device, signed by its device key, whose agreement private key it has obtained | At pairing, the operator's comparison covers the statement's `agreement_key` and `seq` [SEC-SEL-044]; a statement with a lower `seq`, or the confirmed `seq` under another agreement key, is refused [SEC-SEL-045]; the confirmed values are kept as durably as the trusted key entry [SEC-SEL-046], and end with it (§14.3) | `sec-sel/SEC-SEL-044.*`, `SEC-SEL-045.*`, `SEC-SEL-046.*`: TODO(fixture), F5 (pairing flow), F10, F11: not yet built, open risk | An operator who confirms without comparing the `seq` and `agreement_key` ([SEC-KEY-032]'s own residual). If the attacker withholds the statement of the confirmed `seq`, the device has no admitted statement and receives no sealed payload: the consumer fails closed, and the operator sees no sealing from that device |
+| Agreement-key substitution or rollback: a sender is led to seal to an agreement key that the attacker holds | The attacker can deliver an agreement statement, replay an old one whose private key it has since obtained, or get one issued with a future time | Statements signed by the device key under their own domain string and admitted only under a trusted key [SEC-SEL-011], [SEC-SEL-012]; weak keys refused [SEC-SEL-013]; ordered by a signed sequence number, never by the issuer's clock: a statement must carry a higher `seq` than the held one [SEC-SEL-014], issuers count up and keep the count [SEC-SEL-040], [SEC-SEL-043], consumers keep what they hold as durably as the trusted key set [SEC-SEL-041], and a statement more than `W` ahead of the consumer's clock is refused without blocking later ones [SEC-SEL-042]; at pairing, the operator's comparison covers both devices' statements, and older statements are refused under the confirmed values [SEC-SEL-044] to [SEC-SEL-050] (the row below); the recipient key taken only from an admitted statement [SEC-SEL-023] | `sec-sel/SEC-SEL-011.p01`, `SEC-SEL-012.n01` to `.n03`, `SEC-SEL-013.n01` to `.n04`, `SEC-SEL-014.p01`, `.p02`, `.n01`, `.n02`, `SEC-SEL-042.p01`, `.n01`, `SEC-SEL-023.n01`; [SEC-SEL-041] tested by `core/tests/sealing.rs` `statements_live_and_die_with_their_keys` (#370); [SEC-SEL-040] and [SEC-SEL-043]: the core's sealing built in #370, no fixture-level proof yet: F10 (#59), open risk | A stolen device key signs a statement for the attacker's agreement key (the leaked-device-key row). A peer that never receives a newer statement keeps sealing to the older key. An issuer that loses its count recovers only by pairing again with each consumer (§14.3) |
+| Stale, stripped or substituted agreement statement at and after pairing: an older statement of a device, whose agreement private key the attacker has obtained, is admitted when the device is paired again (the recovery of §14.3), after a pairing in which the statement was removed, or while the consumer holds no statement for it | Attacker can alter the pairing exchange and deliver on the transport, and holds an older agreement statement of the device, signed by its device key, whose agreement private key it has obtained | A device that uses a sealing transport gives its statement at pairing [SEC-SEL-050]; each operator's comparison covers both devices' statements, its own as well as the other's, with a missing statement counted as a value, so a removed or substituted statement shows as a mismatch [SEC-SEL-044]; a statement with a lower `seq`, the confirmed `seq` under another agreement key, or an `issued_at` earlier than the confirmed one is refused [SEC-SEL-045], [SEC-SEL-048], which closes the re-pairing after a lost count or a maximum `seq` to every statement issued before it; a key for which no pairing confirmed values admits no statement, so its first statement comes only from a pairing that confirms it, which fails closed [SEC-SEL-049]; the confirmed values are kept as durably as the trusted key entry [SEC-SEL-046] and removed in the same step as the key [SEC-SEL-047] | `sec-sel/SEC-SEL-044.*`, `SEC-SEL-045.*`, `SEC-SEL-046.*`, `SEC-SEL-047.*`, `SEC-SEL-048.*`, `SEC-SEL-049.*`, `SEC-SEL-050.*`: [SEC-SEL-044] is tested, no fixture (it depends on the operator); the others TODO(fixture), F5 (pairing flow), F10, F11: not yet built, open risk | An operator who confirms without comparing the statements' values ([SEC-KEY-032]'s own residual). An issuer whose clock runs back below the confirmed `issued_at` has its later statements refused until its key is paired again: the consumer fails closed and keeps sealing to the older key, or to none. A statement an attacker withholds after pairing keeps the consumer sealing to the older key (the row above) |
 | Clear-text fallback: a payload goes onto a sealing transport unsealed, or an unsealed payload from one is accepted | The sender holds no agreement key for the recipient, a peer sends unsealed payloads, or a core defect passes one | No payload is passed at all without an admitted agreement key, and an envelope is reported `transport-failure` [SEC-SEL-024]; the core passes and takes only sealed payloads on a sealing transport [IFC-TRN-100], [IFC-TRN-103], and the transport refuses any other kind [IFC-TRN-113] | `sec-sel/SEC-SEL-024.n01`; [IFC-TRN-100] and [IFC-TRN-103]: `core/tests/sealing.rs` `unsealed_payloads_from_a_sealing_transport_are_discarded` (#370); [IFC-TRN-113]: the reference transport's publish returns `not-taken` for a kind other than `sealed` (G1, PR #364); no transport-suite proof yet: F10 (#59), open risk | A cross-implementation transport that does not declare `sealing` still carries payloads that every implementation it reaches can read: [IFC-TRN-111] is a `SHOULD` |
 
 The three memory rows use neutral terms (§12.5). Their sources, the provider-specific
@@ -1737,23 +1739,38 @@ again a replayed older statement, whose private key may since have been stolen.
 [SEC-SEL-042] A consumer MUST NOT admit an agreement statement whose `issued_at` is not earlier
 than the consumer's own time plus the replay-window skew allowance `W` (§8.1).
 
-`issued_at` serves only this bound (fixtures `sec-sel/SEC-SEL-042.p01`, `.n01`). It keeps a
-statement issued under a clock that ran far ahead from being admitted, but it never orders
-statements, so it cannot block a later one. An issuer whose clock ran ahead has its statement
+`issued_at` serves two bounds. The first keeps a statement issued under a clock that ran far
+ahead from being admitted (fixtures `sec-sel/SEC-SEL-042.p01`, `.n01`). The second is the
+floor of [SEC-SEL-048], the `issued_at` of the statement confirmed at pairing. Neither orders
+statements, so neither lets a statement block a later one that is within both bounds. An issuer whose clock ran ahead has its statement
 refused; once its clock is right, it issues a new statement with the next `seq` and a correct
-`issued_at`, which consumers admit. Anyone who moves an issuer's clock can delay the statements
-issued meanwhile, never the ones after.
+`issued_at`, which consumers admit. Anyone who moves an issuer's clock ahead can delay the statements
+issued meanwhile, never the ones after. A clock moved back below the floor of [SEC-SEL-048]
+makes the issuer's statements fail closed until its key is paired again.
 
 **Recovery.** A consumer that holds a statement in error, such as one whose private key was
 stolen, recovers when the issuer issues a statement with a higher `seq` and the consumer
 admits it. An issuer that has lost its count ([SEC-SEL-043]) cannot know which `seq` its
 consumers hold. It recovers the way a device that replaces its device key does (§5.5): each
-consumer's operator removes its key, which removes the held statement ([SEC-SEL-015]), and
-pairs with it again.
+consumer's operator removes its key, which removes the held statement ([SEC-SEL-015]) and the
+confirmed values ([SEC-SEL-047]), and pairs with it again. The repeated pairing confirms the
+issuer's current statement, with its `seq`, `agreement_key` and `issued_at` ([SEC-SEL-044]).
 
 An issuer whose statement carries the maximum `seq` has no higher value left. Each consumer that
 holds that statement refuses every later statement from the same device key ([SEC-SEL-014]), so
-such an issuer also recovers only by pairing again with each consumer, as above.
+such an issuer recovers the same way: by removal and repeated pairing with each consumer.
+
+The repeated pairing closes both cases to an older statement. After it, a statement issued
+before the count was lost, or before the maximum was reached, carries an `issued_at` earlier
+than the `issued_at` confirmed by the repeated pairing, whatever its `seq`, so the consumer
+refuses it ([SEC-SEL-048]). That holds although its `seq` may be higher than the confirmed
+one, as it is for a statement issued before the count was lost. At the pairing itself, an
+older statement that an attacker gives in place of the issuer's current one makes the two
+operators' comparisons differ, since the issuer compares its own current statement
+([SEC-SEL-044]). The statements the issuer issues afterwards carry a higher `seq` and a later
+`issued_at` than the confirmed ones, so a normal rotation is admitted. This relies on the
+issuer's clock not running backwards below the confirmed `issued_at`: if it does, the
+issuer's statements fail closed, as under [SEC-SEL-042], until its key is paired again.
 
 The fixtures `sec-sel/SEC-SEL-010.n03` and `sec-sel/SEC-SEL-010.n04` decide the spelling and the range
 of `seq`: a statement whose `seq` is written as `1.0`, and one whose `seq` is 2^53, are each refused
@@ -1772,41 +1789,89 @@ A sealing transport carries those as it carries every payload (`spec/interfaces.
 [IFC-TRN-002]), and no other implementation can read them.
 
 **Pairing.** Pairing (§5.3) makes a device key trusted. When either device uses a sealing
-transport, each device also gives the other its current agreement statement, during pairing
-or later. A statement given later is admitted under [SEC-SEL-012] to [SEC-SEL-014] and
-[SEC-SEL-045], with no operator comparison. A statement given during pairing is admitted
-under the same rules, and the three requirements below apply to the pairing itself.
+transport, each device also gives the other its current agreement statement during the
+pairing, and the pairing is the only way a consumer receives the first statement of a device
+key. A statement that follows a pairing, such as the next one the device issues, reaches the
+consumer on the transport and is admitted under [SEC-SEL-012] to [SEC-SEL-014], [SEC-SEL-045]
+and [SEC-SEL-048], with no operator comparison. A device that takes up sealing after it was
+paired gives its first statement the way recovery does (above): its key is removed and paired
+again. [SEC-SEL-044] and [SEC-SEL-050] apply to the pairing itself; [SEC-SEL-045] to
+[SEC-SEL-049] apply to what follows it.
 
-[SEC-SEL-044] An implementation MUST, when a pairing gives it an agreement statement for the
-device key being paired, include that statement's `agreement_key` and `seq` in the operator's
-comparison under [SEC-KEY-032], so that the comparison covers the key id, the `agreement_key`
-and the `seq`, or a value derived from all three.
+[SEC-SEL-050] A device that uses a sealing transport MUST give the other device its current
+agreement statement during a pairing.
 
-The values the operator confirms are the pairing's **confirmed values**. The `seq` is needed
-because it orders the statements of one device, and the `agreement_key` is needed because
-`seq` alone is not unique once an issuer has lost its count ([SEC-SEL-043]). The `issued_at`
-member is not compared: it is read from the issuer's clock and orders nothing.
+Without it, an attacker who can alter the pairing exchange removes the statement, the
+operator sees nothing to compare, and the attacker later delivers an older statement whose
+private key it has obtained. A device that does not use a sealing transport gives none, and
+the other device compares it as having given none.
 
-[SEC-SEL-045] A consumer MUST NOT admit, for a device key whose pairing confirmed values, an
-agreement statement whose `seq` is lower than the confirmed `seq`, or whose `seq` is the
-confirmed `seq` with an `agreement_key` other than the confirmed one.
+[SEC-SEL-044] An implementation MUST, in a pairing in which either device uses a sealing
+transport, include in the operator's comparison under [SEC-KEY-032] the `agreement_key`, `seq`
+and `issued_at` of the agreement statement of each of the two devices, its own and the
+other's, with a device that gave no statement counted as a value of its own, or a value
+derived from all of them.
 
-This holds even when the consumer holds no statement for that key, for example because the
-statement given at pairing was refused under [SEC-SEL-042]. Without it, an older statement
-could be admitted at any later time, since the consumer would hold nothing that orders it.
+The comparison covers the implementation's own statement as well as the other device's, so
+that each device's operator sees both statements as that device holds them: a statement that
+was removed, replaced or altered between the devices makes the two values differ. The values
+of the other device's statement that the operator confirms are the pairing's **confirmed
+values**: `agreement_key`, `seq` and `issued_at`. The `seq` is needed because it orders the
+statements of one device, and the `agreement_key` is needed because `seq` alone is not unique
+once an issuer has lost its count ([SEC-SEL-043]). The `issued_at` is needed because it is
+the floor of [SEC-SEL-048]. A pairing confirms no values when the other device gave no
+statement, and when the consumer refuses the statement given under [SEC-SEL-010] to
+[SEC-SEL-013] or [SEC-SEL-042]; the key is then trusted and has no admitted statement
+([SEC-SEL-049]).
+
+[SEC-SEL-045] A consumer MUST NOT admit, for a device key for which a pairing confirmed
+values, an agreement statement whose `seq` is lower than the confirmed `seq`, or whose `seq`
+is the confirmed `seq` with an `agreement_key` other than the confirmed one.
+
+This holds even when the consumer holds no statement for that key, for example after it lost
+the held statement, so that nothing older than the pairing is admitted at a later time.
+
+[SEC-SEL-048] A consumer MUST NOT admit, for a device key for which a pairing confirmed
+values, an agreement statement whose `issued_at` is earlier than the confirmed `issued_at`.
+
+The floor is the `issued_at` of the statement confirmed at pairing, not that of the held
+statement, so a statement with a higher `seq` and an `issued_at` that is earlier than the held
+statement's but not earlier than the confirmed one is admitted (fixture
+`sec-sel/SEC-SEL-014.p02`, which names no confirmed values). A normal rotation, from `seq` s to
+s+1 with a later `issued_at`, meets both [SEC-SEL-045] and this rule. A clock that runs
+backwards below the floor makes the issuer's later statements fail closed at every consumer
+that confirmed values, as a clock that runs ahead does under [SEC-SEL-042], until the
+issuer's key is paired again.
+
+[SEC-SEL-049] A consumer MUST NOT admit, for a device key other than its own for which no
+pairing confirmed values, an agreement statement.
+
+A key whose pairing confirmed no values, such as one paired when the device used no sealing
+transport, obtains its first statement only through a pairing that
+confirms it, which is the removal and repeated pairing of the recovery above. Without it, an attacker
+who had a statement removed at pairing would deliver an older statement on the transport
+later, with nothing to order it.
 
 [SEC-SEL-046] A consumer MUST keep the confirmed values of a pairing as durably as the trusted
 key entry they belong to, as [SEC-SEL-041] keeps statements.
 
-The confirmed values end with that entry, as the held statement does under [SEC-SEL-015]. A
-pairing that is repeated after a removal confirms new values.
+A consumer that kept its trusted key set across a restart but not the confirmed values would
+admit again an older statement.
 
-> **Reference implementation note:** the reference pairing exchange is planned to carry each
-> device's statement beside its public key, in the offer and in the response. The key-id
-> comparison flow is planned to show the statement's `agreement_key` and `seq` beside the key
-> id. Whether the six-digit code (`docs/planning/decisions/C5-envelope-auth.md` §10(b)), which
-> derives from the key ids, is extended to cover them is for the code PR that follows this
-> revision. The signature alone does not make the comparison unnecessary (§5.3).
+[SEC-SEL-047] A consumer that removes a key from its trusted key set MUST, in the same step,
+remove the confirmed values it holds for that key.
+
+This extends [SEC-SEL-015] to the confirmed values. A pairing that is repeated after a removal
+confirms new values.
+
+> **Reference implementation note:** the reference pairing exchange already carries each
+> device's statement beside its public key, in the offer and in the response
+> (`core/src/pairing.rs`). The key-id comparison flow is to show both devices' statements
+> (`agreement_key`, `seq` and `issued_at`) beside the key id. If the six-digit code
+> (`docs/planning/decisions/C5-envelope-auth.md` §10(b)), which derives from the key ids,
+> covers the statements, they enter the commitment before the code is derived, so that an
+> attacker who holds several old statements cannot choose the one that makes the code match.
+> The signature alone does not make the comparison unnecessary (§5.3).
 
 ### 14.4 Sealing a payload
 
@@ -2043,7 +2108,12 @@ fixtures, and one that does not leaves the whole format aside.
 **Stage `agreement`** (§14.3). `context`: `consumer_time`, the consumer's clock;
 `trusted_keys`, a trusted-key list (§3.3); optionally `admitted`, an object whose members are
 key ids, each an object with `agreement_key`, `seq` and `issued_at`, the statements the consumer
-holds. `input`: `statement`. `expected`: `result`, `admitted` or `refused`.
+holds; optionally `confirmed`, an object whose members are key ids, each either an object with
+`agreement_key`, `seq` and `issued_at`, the confirmed values of a pairing ([SEC-SEL-044]), or
+`null`, a pairing that confirmed no values. When `confirmed` is present, the stage also
+applies [SEC-SEL-045], [SEC-SEL-048] and [SEC-SEL-049], and a trusted key with no member in it
+counts as `null`. When it is absent, the stage applies none of the three. `input`:
+`statement`. `expected`: `result`, `admitted` or `refused`.
 
 **Stage `seal`** (§14.4). `context`: `trusted_keys` and `admitted`, as for `agreement`.
 `input`: `recipient_key_id`; `kind`, one of `envelope`, `presence` and `receipt`; `payload`,
@@ -2279,9 +2349,13 @@ requirement whose fixtures exercise it.
 | SEC-SEL-041 | MUST | 14.3 | tested, no fixture (statement storage across a restart, #369): `core/tests/sealing.rs` `statements_live_and_die_with_their_keys`; F11 `s13_a_restart_does_not_readmit_an_older_statement`; the `agreement` fixtures run through a consumer restored from its pairing store (`core/tests/conformance.rs` `sealing_fixtures`) |
 | SEC-SEL-042 | MUST NOT | 14.3 | `sec-sel/SEC-SEL-042.p01`, `.n01` |
 | SEC-SEL-043 | MUST | 14.3 | tested, no fixture (issuer state across a restart, #369): the new `seq` is saved and read back before its statement exists, `core` test `sealing::tests::issuer_seq_rises_and_survives_a_restart` |
-| SEC-SEL-044 | MUST | 14.3 | TODO(fixture): a pairing that gives a statement, compared by the operator; needs a pairing stage or confirmed values in the `agreement` context (§14.10); F5, F10 (#59) |
-| SEC-SEL-045 | MUST NOT | 14.3 | TODO(fixture): admission against the confirmed values, with no held statement; F5, F10 (#59) |
+| SEC-SEL-044 | MUST | 14.3 | tested, no fixture (the operator's comparison of both devices' statements, which only an operator can make): a pairing test of the reference implementation, F5 (pairing flow); the confirmed values it yields are the `confirmed` context of the `agreement` fixtures (§14.10) |
+| SEC-SEL-045 | MUST NOT | 14.3 | TODO(fixture): admission against the confirmed `seq` and `agreement_key`, with no held statement, through the `confirmed` context member of the `agreement` stage (§14.10); F5, F10 (#59) |
 | SEC-SEL-046 | MUST | 14.3 | TODO(fixture): durability of the confirmed values across a restart, as SEC-SEL-041; F11 |
+| SEC-SEL-047 | MUST | 14.3 | TODO(fixture): the confirmed values removed in the same step as the key, as SEC-SEL-015; F11 |
+| SEC-SEL-048 | MUST NOT | 14.3 | TODO(fixture): a statement whose `issued_at` is before the confirmed one is refused, one at or after it is admitted (a rotation), through the `confirmed` context member (§14.10); F10 (#59) |
+| SEC-SEL-049 | MUST NOT | 14.3 | TODO(fixture): a statement for a key whose `confirmed` entry is `null` or absent is refused (§14.10); F10 (#59) |
+| SEC-SEL-050 | MUST | 14.3 | TODO(fixture): a pairing that gives the statement, which needs the pairing flow; F5 (#59) |
 
 Retired ids: none.
 
@@ -2348,4 +2422,4 @@ work.*
 | 0.3 | 2026-10-09 | Payload sealing, on the lead's ruling of 2026-10-09 on PR #364 (a transport that delivers every payload to every peer is kept, on condition that each frame is encrypted for its recipient; review finding 2). §14 added: agreement keys separate from the device key (SEC-SEL-001 to SEC-SEL-004); the signed agreement statement and its admission, under the new domain string `oac-agreement-v1` (SEC-SEL-010 to SEC-SEL-016); sealing with HPKE (RFC 9180) base mode, DHKEM(X25519, HKDF-SHA256), HKDF-SHA256 and ChaCha20Poly1305, sign-then-seal, no fallback to an unsealed payload (SEC-SEL-020 to SEC-SEL-025); opening, with silent discard and no authenticity from opening (SEC-SEL-030 to SEC-SEL-034); after the review of PR #367: a payload opened by a device it is not for is dropped silently (SEC-SEL-035), the receiving core enforces the deadline, which no longer travels beside a frame (SEC-SEL-036), keys are tried newest first (SEC-SEL-037), an aggregate discard count is allowed (SEC-SEL-038), and statements are ordered by a signed `seq` that the issuer counts up and keeps, kept as durably as the trusted key set, and refused from more than `W` in the future, a bound that never orders them (SEC-SEL-040 to SEC-SEL-043); a late payload is dropped silently on opening; replacement and the absence of forward secrecy (SEC-SEL-017, SEC-SEL-018); what stays visible (§14.8). §1.3 scope, §2.3 terms, §3.1 area `SEL`, §5.3 and §5.5 notes, the §6.2 domain table, §6.6, and three §13 rows. References renumbered to §15. Fixtures under `tests/protocol/sec-sel/` in their own format `oac-sealing-fixture/1` (§14.10); agreement test keys in `tests/protocol/sec-test-keys.json`. Minor revision under `docs/planning/decisions/E7-interface-freeze.md` §7 and `spec/session-channels.md` §5.2 item 9: every new `MUST` and `MUST NOT` binds only an implementation that uses a sealing transport, which no earlier revision defined, so an implementation conformant to 0.2 stays conformant. |
 | 0.4 (in force from the merge of PR #385) | 2026-10-11 | Refs #377, review round 1 of PR #385 (lead decision 2026-10-11). §14.5: the explanatory paragraph after SEC-SEL-036 is reworded for the late copies of a non-sealing transport, which reach the receiving core under `spec/interfaces.md` 0.7 (IFC-TRN-034, IFC-TRN-038) and draw the existing `expired` or `outside-replay-window` reporting. SEC-SEL-036 and every other requirement are unchanged, so the revision is editorial under `spec/session-channels.md` §5.2 item 8, applied through E7 §7 with a version bump under spec change control. No wire form changes. |
 | 0.5 (in force from the merge of PR #408) | 2026-10-14 | Refs #375, follow-ups from the sealing reviews of PR #367 (note a) and PR #370 (finding 6). Editorial: no requirement added, removed or changed. §14.3: the `seq` row states that the value is written as a JSON number with no sign, fraction or exponent (as SC-DLV-024 does for presence records), and a paragraph states the consequence of the maximum `seq` (an issuer whose statement carries it has no higher value left, each consumer holding that statement refuses its later statements, and the issuer recovers by pairing again); fixtures SEC-SEL-010.n03 and .n04 decide the spelling and range. §13: the three sealing rows that read `not yet built` cite the core's sealing (#370) and the reference transport's sealed carriage (G1, PR #364), and name the remaining proof, F10 (#59), as open. Not in this revision: #375 item 1 (binding the agreement statement, or its `seq`, into the pairing commitment), which changes what a pairing confirms and is not minor under `spec/session-channels.md` §5.3; it is split to its own issue. Minor revision under E7 §7, with `spec/session-channels.md` 0.3 and `spec/interfaces.md` 0.9 in the same change. |
-| 0.6 (proposed; lead approval pending) | 2026-10-15 | Refs #409, split from #375 item 1. A correction to the unreleased 0.3 sealing, decided by the lead (#409, option c), not a new major version and not a negotiated variant. It is breaking for an implementation of 0.3 sealing: §14.3 gave a pairing no comparison of the statement, and under the new requirements such an implementation must compare the agreement key and `seq` at pairing and refuse some statements it accepts today (`spec/session-channels.md` §5.3 items 6 and 11). That is accepted because 0.3 sealing has not been released and nothing in the wild depends on it. No extension identifier changes, and no wire form of the statement or the envelope changes: the pairing exchange's wire form is not specified (§5.3). Added: SEC-SEL-044 (the operator's comparison covers `agreement_key` and `seq`), SEC-SEL-045 (no admission below the confirmed `seq`, or at it under another key, even with no held statement) and SEC-SEL-046 (the confirmed values are kept as durably as the trusted key entry), all `TODO(fixture)`. §5.3 and the Pairing paragraph of §14.3 now state that the signature alone does not show the current statement, and the §14.3 reference note no longer says the statement stays out of the pairing code. §13 gains the stale-or-substituted-statement row and the rollback row cites it. Minor revision under E7 §7, with `spec/session-channels.md` 0.4 recording the classification in its §5.3. |
+| 0.6 (proposed; lead approval pending) | 2026-10-15 | Refs #409, split from #375 item 1. **A breaking change, published as a minor revision** by the lead's decision (#409, option c, 2026-10-15), as a one-off exception to `docs/planning/decisions/E7-interface-freeze.md` §7 item 2 and `spec/session-channels.md` §5.3, which classify it as breaking (items 6 and 11). It is not conforming to those rules and is not editorial. The exception rests on one fact: the 0.3 sealing is unreleased, so no implementation in the wild depends on it. An implementation of 0.3 sealing must change: §14.3 gave a pairing no comparison of the statement, and now a pairing must give and compare the statements of both devices and refuse some statements it accepts today. No extension identifier changes, and no wire form of the statement or the envelope changes: the pairing exchange's wire form is not specified (§5.3). Added, all except SEC-SEL-044 `TODO(fixture)` (SEC-SEL-044 depends on the operator and is tested, no fixture): SEC-SEL-044 (the operator's comparison covers the `agreement_key`, `seq` and `issued_at` of both devices' statements, its own as well as the other's, so a missing statement is a mismatch), SEC-SEL-045 (no admission below the confirmed `seq`, or at it under another key, even with no held statement), SEC-SEL-046 (the confirmed values are kept as durably as the trusted key entry), SEC-SEL-047 (the confirmed values are removed in the same step as the key), SEC-SEL-048 (no admission of a statement whose `issued_at` is earlier than the confirmed one, which closes the re-pairing after a lost count or a maximum `seq`), SEC-SEL-049 (no first statement for a key with no confirmed values except through a pairing that confirms it) and SEC-SEL-050 (a device that uses a sealing transport gives its statement during pairing). The confirmed values are (`agreement_key`, `seq`, `issued_at`). §14.3: the "or later" way of giving a first statement is replaced by removal and repeated pairing, and the Recovery paragraph shows why a repeated pairing refuses every earlier statement. §14.10: the `agreement` stage gains an optional `confirmed` context member. §5.3 and the reference note no longer say the statement stays out of the pairing comparison or code. §13 gains the stale, stripped or substituted statement row and the rollback row cites it. `spec/session-channels.md` 0.4 records the classification in its §5.3, and `spec/interfaces.md` 0.11 gives the owners. Lead decisions of 2026-10-15 on the review of PR #427 (D1 to D4) are applied. |

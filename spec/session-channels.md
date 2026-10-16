@@ -4,7 +4,7 @@
 **Revision:** 0.4 (proposed; lead approval pending, Refs #409; 0.3 is in force from the merge of PR #408), a minor revision of the 0.1 frozen at Gate S2 (signed off 2026-10-06, in
 force from the merge of PR #276; E7, #47; `docs/planning/decisions/E7-interface-freeze.md`),
 made under its §7: 0.2 with `spec/security.md` 0.3 (payload sealing), and 0.3 (the meaning of "an
-equal obligation" in §5.2 item 9, Refs #375; editorial) and 0.4 (the classification of the pairing correction to the unreleased 0.3 sealing in §5.3, Refs #409; editorial). Appendix B records the changes.
+equal obligation" in §5.2 item 9, Refs #375; editorial) and 0.4 (a dated note in §5.3 on the pairing change to the unreleased 0.3 sealing, a breaking change published as a minor revision by the lead's decision as a one-off exception, Refs #409). Appendix B records the changes.
 **Companion document:** `spec/security.md` (task E5, #45) holds the identity hierarchy,
 signing, replay defence, authorization and provenance rules. This document does not restate
 them.
@@ -652,14 +652,16 @@ A change that matches neither list is treated as breaking until a revision of th
 section classifies it.
 
 *Dated note, 2026-10-15 (revision 0.4, Refs #409): `spec/security.md` revision 0.6 adds
-[SEC-SEL-044] to [SEC-SEL-046], which change what a pairing confirms about an agreement statement
-and which statements a consumer admits after it. Items 6 and 11 above classify that change as
-breaking. The lead decided (#409, option c, recorded 2026-10-15) that it is a correction to the
-unreleased 0.3 sealing of `spec/security.md` §14, not a new major version and not a negotiated
-variant. The correction is breaking for an implementation of that unreleased sealing, which
-nothing in the wild depends on. This note records the decision and changes no requirement of this
-section, so it is editorial under item 8. The exception covers only that correction. A later
-change to pairing is classified under items 6 and 11 as written.*
+[SEC-SEL-044] to [SEC-SEL-050], which change what a pairing gives and confirms about an agreement
+statement and which statements a consumer admits after it. Items 6 and 11 above classify that
+change as breaking. It is a breaking change, and it is published as a minor revision by the
+lead's decision (#409, option c, recorded 2026-10-15), as a one-off exception to this section
+and to `docs/planning/decisions/E7-interface-freeze.md` §7 item 2. It does not conform to those
+rules, and no reading of them makes it editorial. The exception rests on one fact: the sealing
+of `spec/security.md` §14 at revision 0.3 is unreleased, so nothing in the wild depends on it,
+and no new major version, extension identifier or negotiated variant is made for it. The
+exception covers only that correction. A later change to pairing is classified under items 6
+and 11 as written.*
 
 ### 5.4 Receiver rules
 
@@ -3014,4 +3016,4 @@ Retired ids: none.
 | 0.1 | 2026-10-06 | Frozen at Gate S2 (E7, #47): signed off on this date, in force from the merge of PR #276. |
 | 0.2 | 2026-10-09 | With `spec/security.md` 0.3 and `spec/interfaces.md` 0.3 (payload sealing, on the lead's ruling of 2026-10-09 on PR #364): §5.2 item 9 classifies as a minor change a `MUST` that binds only an implementation taking up a newly defined declared value or wire form, and the narrowing of a requirement for such an implementation when it takes on an equal obligation elsewhere, with a dated note; §3.3 names the sealing fixture format of `spec/security.md` §14.10; a §7.3.2 dated note records that a sealing transport binding meets [SC-DLV-066]. No requirement of this document is added, removed or changed, and no wire form of this document changes. Minor revision under `docs/planning/decisions/E7-interface-freeze.md` §7. |
 | 0.3 (in force from the merge of PR #408) | 2026-10-14 | Refs #375, editorial: §5.2 item 9 defines "an equal obligation" as an outcome every other implementation observes the same way, with a dated note testing that definition against the revision 0.3 narrowing of [IFC-TRN-034] (`spec/interfaces.md`). No requirement of this document is added, removed or changed, and no wire form changes. Minor revision under `docs/planning/decisions/E7-interface-freeze.md` §7, with `spec/security.md` 0.5 and `spec/interfaces.md` 0.9 in the same change. |
-| 0.4 (proposed; lead approval pending) | 2026-10-15 | Refs #409, editorial (no requirement added, removed or changed): a dated note in §5.3 records the lead's classification (#409, option c) of the pairing correction in `spec/security.md` 0.6 as a correction to the unreleased 0.3 sealing, not a new major version, and that the change is breaking for an implementation of that sealing. Items 6 and 11 otherwise stand. No wire form of this document changes. Minor revision under `docs/planning/decisions/E7-interface-freeze.md` §7, with `spec/security.md` 0.6 in the same change. |
+| 0.4 (proposed; lead approval pending) | 2026-10-15 | Refs #409. A dated note in §5.3 records that `spec/security.md` 0.6 (SEC-SEL-044 to SEC-SEL-050, pairing confirms each device's agreement statement) is a breaking change published as a minor revision by the lead's decision (#409, option c, 2026-10-15), as a one-off exception to §5.3 and to `docs/planning/decisions/E7-interface-freeze.md` §7 item 2, because the 0.3 sealing is unreleased. It does not conform to those rules and is not editorial. No requirement of this document is added, removed or changed, and no wire form of this document changes. Companion revisions in the same change: `spec/security.md` 0.6 and `spec/interfaces.md` 0.11. |
