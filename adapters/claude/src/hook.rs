@@ -50,6 +50,18 @@
 //! the start kind; the core pairs it by what it observed itself about the connection and
 //! applies the ordered cases of `spec/session-channels.md` §6.7.3.
 //!
+//! # The hello line (cross-check value E)
+//!
+//! A connection that is the Claude Code channel server's stream (an attachment) may begin
+//! with one **hello line** from the shim: `{"oac_hello":1,"session_id":"<E>"}`, where E is the
+//! value of `CLAUDE_CODE_SESSION_ID` in the shim's own environment
+//! (`docs/planning/decisions/C4-session-identity.md` §3 "Terms"; `spec/bindings/mcp.md`
+//! [MCPB-CLD-011] to [MCPB-CLD-016], §8.1). The adapter consumes the line, so the MCP server
+//! never sees it, and reports E as the `cross_check` of the attachment's `attachment-opened`
+//! event. E is a hint the core compares with N (`spec/session-channels.md` §6.7.3): it is
+//! never N, never a pairing key, and a hook carrier has none. A first line that is not
+//! exactly that shape is not a hello and is served as before.
+//!
 //! # Start kinds
 //!
 //! C4 §3 and §6: `startup` is a fresh start. `resume`, `clear`, `fork` and `compact` are
@@ -82,6 +94,29 @@ pub enum FirstLine {
     Mcp,
     /// A hook input.
     Hook(HookInput),
+    /// The shim's hello line, with E: consumed, and the connection is the channel server's.
+    Hello(String),
+}
+
+/// The member that marks a hello line.
+pub const HELLO_MEMBER: &str = "oac_hello";
+/// The version of the hello line this adapter reads.
+pub const HELLO_VERSION: u64 = 1;
+
+/// The hello line for cross-check value `e`, with its newline; `None` when `e` is not one
+/// the adapter would read (empty, longer than [`MAX_NATIVE_ID`], or not I-JSON text). The
+/// shim sends it before any other byte of its connection.
+pub fn hello_line(e: &str) -> Option<Vec<u8>> {
+    if e.is_empty() || e.len() > MAX_NATIVE_ID || !json::is_ijson_string(e) {
+        return None;
+    }
+    Some(
+        format!(
+            "{{\"{HELLO_MEMBER}\":{HELLO_VERSION},\"session_id\":{}}}\n",
+            Json::String(e.to_owned()).to_compact()
+        )
+        .into_bytes(),
+    )
 }
 
 /// A hook input, reduced to what the adapter reads.
@@ -111,6 +146,19 @@ pub fn classify(line: &[u8]) -> FirstLine {
     };
     if object.contains("jsonrpc") {
         return FirstLine::Mcp;
+    }
+    // A hello is exactly the shim's form and not also a hook input.
+    if !object.contains("hook_event_name")
+        && object.len() == 2
+        && object
+            .get(HELLO_MEMBER)
+            .and_then(Json::as_number)
+            .is_some_and(|n| n.plain_integer_in(HELLO_VERSION, HELLO_VERSION).is_some())
+        && let Some(e) = object.get("session_id").and_then(Json::as_str)
+        && !e.is_empty()
+        && e.len() <= MAX_NATIVE_ID
+    {
+        return FirstLine::Hello(e.to_owned());
     }
     let Some(event) = object.get("hook_event_name").and_then(Json::as_str) else {
         return FirstLine::Mcp;
@@ -170,8 +218,88 @@ mod tests {
     fn signal(line: &str) -> Option<SessionStart> {
         match classify(line.as_bytes()) {
             FirstLine::Hook(h) => h.session_start(),
-            FirstLine::Mcp => panic!("not a hook input: {line}"),
+            other => panic!("not a hook input: {other:?} for {line}"),
         }
+    }
+
+    fn hello(line: &str) -> Option<String> {
+        match classify(line.as_bytes()) {
+            FirstLine::Hello(e) => Some(e),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn the_shims_hello_line_is_read_and_nothing_near_it_is() {
+        let line = hello_line("f40e86db-b0cb-439a-bb2d-17f1dd86c1d5").unwrap();
+        assert_eq!(
+            line,
+            b"{\"oac_hello\":1,\"session_id\":\"f40e86db-b0cb-439a-bb2d-17f1dd86c1d5\"}\n"
+        );
+        let text = String::from_utf8(line).unwrap();
+        let e = "f40e86db-b0cb-439a-bb2d-17f1dd86c1d5";
+        assert_eq!(hello(&text).as_deref(), Some(e));
+        // Ended by end of stream, or by CR LF.
+        assert_eq!(hello(text.trim_end()).as_deref(), Some(e));
+        assert_eq!(hello(&text.replace('\n', "\r\n")).as_deref(), Some(e));
+        // The value is exact bytes: quotes and backslashes survive the round trip.
+        let odd = "a\"b\\c\u{e9}";
+        let round = String::from_utf8(hello_line(odd).unwrap()).unwrap();
+        assert_eq!(hello(&round).as_deref(), Some(odd));
+        assert_eq!(
+            hello("{\"session_id\":\"E\",\"oac_hello\":1}").as_deref(),
+            Some("E")
+        );
+    }
+
+    #[test]
+    fn a_line_that_is_not_exactly_a_hello_is_not_one() {
+        for not in [
+            // The wrong version, or not a plain integer 1.
+            "{\"oac_hello\":2,\"session_id\":\"E\"}",
+            "{\"oac_hello\":\"1\",\"session_id\":\"E\"}",
+            "{\"oac_hello\":1.0,\"session_id\":\"E\"}",
+            "{\"oac_hello\":true,\"session_id\":\"E\"}",
+            // No value, an empty or non-string value.
+            "{\"oac_hello\":1}",
+            "{\"oac_hello\":1,\"session_id\":\"\"}",
+            "{\"oac_hello\":1,\"session_id\":7}",
+            "{\"oac_hello\":1,\"session_id\":null}",
+            // An extra member: the form is closed.
+            "{\"oac_hello\":1,\"session_id\":\"E\",\"x\":1}",
+            // A JSON-RPC frame, or a hook input, that carries the member.
+            "{\"jsonrpc\":\"2.0\",\"oac_hello\":1,\"session_id\":\"E\"}",
+            "{\"hook_event_name\":\"SessionStart\",\"oac_hello\":1,\"session_id\":\"E\"}",
+            "not json",
+            "[1]",
+        ] {
+            assert_eq!(hello(not), None, "{not}");
+        }
+        let long = format!(
+            "{{\"oac_hello\":1,\"session_id\":\"{}\"}}",
+            "x".repeat(MAX_NATIVE_ID + 1)
+        );
+        assert_eq!(hello(&long), None);
+        // A hello is neither a hook input nor an MCP frame.
+        let line = String::from_utf8(hello_line("E").unwrap()).unwrap();
+        assert!(!matches!(
+            classify(line.as_bytes()),
+            FirstLine::Hook(_) | FirstLine::Mcp
+        ));
+    }
+
+    #[test]
+    fn the_hello_line_is_built_only_for_a_value_the_adapter_would_read() {
+        assert_eq!(hello_line(""), None);
+        assert_eq!(hello_line(&"x".repeat(MAX_NATIVE_ID + 1)), None);
+        assert!(hello_line(&"x".repeat(MAX_NATIVE_ID)).is_some());
+        // A noncharacter is not I-JSON text.
+        assert_eq!(hello_line("a\u{fffe}b"), None);
+        // One line: no line break before its end, whatever the value held.
+        let line = hello_line("a\nb\r\t").unwrap();
+        assert_eq!(line.iter().filter(|b| **b == b'\n').count(), 1);
+        assert_eq!(line.last(), Some(&b'\n'));
+        assert!(!line[..line.len() - 1].contains(&b'\r'));
     }
 
     #[test]

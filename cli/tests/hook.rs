@@ -107,7 +107,9 @@ fn signal_of(line: &[u8]) -> (String, Option<StartKind>) {
             let s = h.session_start().expect("a SessionStart signal");
             (s.native_id, s.start_kind)
         }
-        FirstLine::Mcp => panic!("the server would serve this as MCP"),
+        FirstLine::Mcp | FirstLine::Hello(_) => {
+            panic!("the server would not take this as a hook input")
+        }
     }
 }
 

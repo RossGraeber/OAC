@@ -76,7 +76,12 @@ pub fn mcp_shim(args: &[String]) -> i32 {
     runtime.block_on(async {
         match shim::connect(&endpoint).await {
             Ok(stream) => {
-                let ended = shim::relay(stream, io::stdin(), io::stdout()).await;
+                // E, the harness's own session id, for a Claude Code shim (its hello line).
+                let hello = shim::hello_for(
+                    &label,
+                    std::env::var_os("CLAUDE_CODE_SESSION_ID").as_deref(),
+                );
+                let ended = shim::relay(stream, hello, io::stdin(), io::stdout()).await;
                 if ended == shim::Ended::DaemonClosed {
                     let _ = writeln!(
                         io::stderr(),
