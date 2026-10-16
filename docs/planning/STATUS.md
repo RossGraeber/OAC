@@ -1,5 +1,16 @@
 # OAC status
 
+**Last updated:** 2026-10-15 (**G9, #70, slice 7, leg B: the daemon and a real Claude Code on Linux; Refs #70**).
+Manual check (not herdr; herdr in WSL is #417), WSL Ubuntu (Linux 6.18.54.1-microsoft-standard-WSL2), Claude Code `2.1.287` (native install, already signed in; nothing was signed in or
+accepted; no credential file read). A fresh clone built `oac` and `cli/examples/live_daemon.rs`; the live daemon ran in namespace `legb` (in-memory key, socket
+`/run/user/1000/oac/legb/claude.sock`); `claude -p` ran with `--mcp-config`/`--strict-mcp-config` (server `oac` = `oac mcp-shim --harness claude`, env `OAC_SCOPE=legb`) and `--settings` (a `SessionStart`
+hook `OAC_SCOPE=legb oac hook`), so no project files and no dialog. **Ancestry (11-risks row 58, Linux):** the shim is a direct child of the process named `claude` (comm `claude`; the native binary resolves to
+`2.1.287`); the hook handler is under `sh` under that same process; the daemon found the same harness process for both (same pid and start time) and paired both; no `PR_SET_NAME` rename. **Peer
+credentials:** `SO_PEERCRED` in the 0700 directory. **Row 87 live:** on main `a862065` (no hello line) the daemon logged SC-ID-141 (case 3(c)); on PR #424's `8e490a0` it did not, and the real Claude's call of the `oac`
+server's `whoami` returned a `session_id`: bound under case 3(a), through the real chain (Claude, shim, relay, daemon, adapter, core). Ends: both connections ended with the session; `stop` stopped the daemon; the socket was
+removed. Not shown: channel hand-off, the TUI, macOS, Windows (leg A), the daemon's `/proc/<pid>/cwd` read (the tap does not report it). WSL clears `/tmp` on a VM restart: the clone must not live there. Record: the
+note in 11-risks RISK-LOCAL-IPC (2026-10-15, leg B). Evidence files were kept by the implementer (not committed): the daemon's `events.jsonl` of each run.
+
 **Last updated:** 2026-10-15 (**G9, #70, slice 3: the shim's hello line and the adapter's connection places; `spec/bindings/mcp.md` 0.4 and `spec/interfaces.md` 0.10 proposed, lead approval pending; Refs #70**).
 Closes 11-risks rows 86 and 87 in code. **Row 87:** a Claude shim whose environment holds a non-empty `CLAUDE_CODE_SESSION_ID` (E) sends one hello line
 first, `{"oac_hello":1,"session_id":"<E>"}` (`oac_adapter_claude::hook::hello_line`, sent by `cli/src/shim.rs`); the adapter consumes it (`FirstLine::Hello`, `ChannelReader::consume_first_line`) and reports E

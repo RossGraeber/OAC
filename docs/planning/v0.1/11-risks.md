@@ -645,6 +645,14 @@ list.
   a credit or bounded writer in the core (an internal core API change, not made here; tracked in #414); a hook handler's total time is the connect wait (Windows 5 s), the write and the 3 s linger, with Claude Code's hook timeout
   as the backstop;
   environment inheritance of `OAC_SCOPE`/`XDG_RUNTIME_DIR` into a shim started by a real harness (row 19) is still the live leg.)
+  (Dated note, 2026-10-15, G9 #70 slice 7, leg B.) **Linux with a real Claude Code (WSL Ubuntu, Claude Code `2.1.287`), by hand, not herdr
+  (#417):** the example live daemon in a test namespace, `claude -p` with `--mcp-config` and `--settings`. Row 58 (ancestry), Linux: the shim is a
+  direct child of the process named `claude`; the hook handler is under `sh` under that same process; the daemon found the same harness process
+  (pid and start time) for both and paired both; the process kept the name `claude` (no `PR_SET_NAME` rename). Peers were authenticated by
+  `SO_PEERCRED` in the 0700 run directory. Row 19 (environment inheritance), Linux: `OAC_SCOPE` and `XDG_RUNTIME_DIR` reached the shim and the hook
+  command in a real launch (both connected). Row 87 live, Linux: without the hello line (main `a862065`) the daemon logged SC-ID-141 (case 3(c));
+  with it (`8e490a0`, PR #424) it did not, and the real Claude's call of `whoami` returned a session id (case 3(a)). Not shown: channel hand-off,
+  the TUI and its dialogs, macOS, Windows (leg A). The working directory read (`/proc/<pid>/cwd`) is not shown by the daemon's tap.
   (Dated note, 2026-10-15, documentation sweep.) **Accepted by the lead, 2026-10-15: the three
   widened D5 residuals of the local IPC and peer pairing.** They are stated here, in
   `docs/planning/v0.1/06-security.md` §12 and threat rows 13 and 24, in `docs/planning/STATUS.md`, and
