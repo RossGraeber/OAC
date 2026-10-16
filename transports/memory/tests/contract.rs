@@ -19,8 +19,8 @@ use oac_contract_transport::{Fate, FaultControl, Medium, Report, TransportHarnes
 use oac_core::health::HealthStatus;
 use oac_core::ids::KeyId;
 use oac_core::transport::{
-    Deadline, Destination, InboundHandler, Payload, PresenceHandler, PublishResult, Reach,
-    Subscription, Transport, TransportCapabilities, TransportConfiguration, TransportError,
+    Deadline, Destination, InboundHandler, Payload, PayloadKind, PresenceHandler, PublishResult,
+    Reach, Subscription, Transport, TransportCapabilities, TransportConfiguration, TransportError,
 };
 use oac_transport_memory::{
     MemoryConfiguration, MemoryNetwork, MemoryTransport, NoFaults, ScriptedFaults,
@@ -165,6 +165,8 @@ fn the_memory_transport_passes_the_contract_suite() {
         // implementation on a one-implementation medium ([IFC-TRN-043]).
         // The held-copy check of [IFC-TRN-034] needs fault control, so the media without
         // it report it not applicable.
+        // [IFC-TRN-119] binds only a transport that declares `reliability`, and the memory
+        // transport does not.
         let mut expected = vec!["IFC-TRN-080"];
         if h.reach == Reach::LocalOnly {
             expected.insert(0, "IFC-TRN-043");
@@ -172,6 +174,7 @@ fn the_memory_transport_passes_the_contract_suite() {
         if !h.scripted {
             expected.insert(0, "IFC-TRN-034");
         }
+        expected.insert(0, "IFC-TRN-119");
         assert_eq!(not_applicable(&report), expected, "{report}");
     }
 }
@@ -199,6 +202,8 @@ fn every_transport_owned_requirement_has_a_check() {
         "IFC-TRN-060",
         "IFC-TRN-071",
         "IFC-TRN-080",
+        "IFC-TRN-118",
+        "IFC-TRN-119",
         "IFC-NEU-003",
     ];
     let report = run(&MEDIA[3]);
@@ -241,12 +246,32 @@ enum Breach {
     /// ([IFC-TRN-034]).
     ReplaysAfterDeadline,
     /// Does not deliver a payload of the declared maximum (65536 octets), and declares
-    /// `reliability` absent, as the memory transport does. [IFC-TRN-030] forgives this: no
-    /// check names a duty to carry the declared maximum (#392).
+    /// `reliability` absent, as the memory transport does. [IFC-TRN-030] forgives this (#392),
+    /// and so does [IFC-TRN-118]: the payload is taken, which is all that rule asks, and
+    /// delivery is not promised without `reliability`.
     DropsLarge,
-    /// As `DropsLarge`, but declares `reliability` present: [IFC-TRN-030] then fails it.
+    /// As `DropsLarge`, but declares `reliability` present: [IFC-TRN-030] and [IFC-TRN-119]
+    /// then fail it.
     DropsLargeClaimsReliability,
+    /// Declares the memory transport's maximum, 65536 octets, and returns `not-taken` for any
+    /// payload above 32768 octets, of any kind ([IFC-TRN-118], #421).
+    UnderSize,
+    /// As `UnderSize`, but only for a receipt and a presence record: an envelope of the
+    /// declared maximum is taken and delivered, so [IFC-TRN-030] and [IFC-TRN-031] pass it and
+    /// only the size check, which tries every kind, catches it ([IFC-TRN-118], #421).
+    UnderSizeNonEnvelope,
+    /// Refuses only the interior of the range: any payload of 32769 to 65535 octets, of any
+    /// kind, while 65536 and anything up to 32768 are taken ([IFC-TRN-118], #421). A check
+    /// that tried only a small payload and the exact maximum would pass it.
+    UnderSizeInterior,
+    /// Positive control, not a breach: declares `reliability` present and, on a medium with no
+    /// faults, loses nothing. [IFC-TRN-119] must pass it, not skip it (#421).
+    ClaimsReliabilityHonestly,
 }
+
+/// The limit below the declared maximum at which `UnderSize` and `UnderSizeNonEnvelope`
+/// refuse.
+const UNDER_LIMIT: usize = 32768;
 
 /// A copy kept for a later replay: the transport to hand it to, and what to hand over.
 type Replay = (Arc<MemoryTransport>, Destination, Payload, Deadline);
@@ -278,7 +303,9 @@ impl Transport for Broken {
         match self.breach {
             Breach::ClaimsPersistence => caps.persistence = true,
             Breach::ClaimsOrdering => caps.ordering = true,
-            Breach::DropsLargeClaimsReliability => caps.reliability = true,
+            Breach::DropsLargeClaimsReliability | Breach::ClaimsReliabilityHonestly => {
+                caps.reliability = true
+            }
             _ => {}
         }
         Ok(caps)
@@ -293,6 +320,15 @@ impl Transport for Broken {
                     .lock()
                     .unwrap()
                     .contains(&dest_key(d)) =>
+            {
+                return PublishResult::NotTaken;
+            }
+            Breach::UnderSize if p.len() > UNDER_LIMIT => return PublishResult::NotTaken,
+            Breach::UnderSizeInterior if (UNDER_LIMIT + 1..65536).contains(&p.len()) => {
+                return PublishResult::NotTaken;
+            }
+            Breach::UnderSizeNonEnvelope
+                if p.kind() != PayloadKind::Envelope && p.len() > UNDER_LIMIT =>
             {
                 return PublishResult::NotTaken;
             }
@@ -375,6 +411,15 @@ impl Transport for Broken {
     fn send_presence(&self, d: &Destination, p: Payload, deadline: Deadline) -> PublishResult {
         if self.breach == Breach::DropsPresence {
             return PublishResult::Taken;
+        }
+        if matches!(
+            self.breach,
+            Breach::UnderSize | Breach::UnderSizeNonEnvelope
+        ) && p.len() > UNDER_LIMIT
+            || self.breach == Breach::UnderSizeInterior
+                && (UNDER_LIMIT + 1..65536).contains(&p.len())
+        {
+            return PublishResult::NotTaken;
         }
         self.inner.send_presence(d, p, deadline)
     }
@@ -533,10 +578,11 @@ fn a_late_hand_over_is_caught_by_the_row_that_observes_it() {
 
 /// [IFC-TRN-030] is an integrity rule, not a delivery rule (#392). A transport declaring no
 /// `reliability` that fails to deliver a large payload passes it, on every memory medium; one
-/// declaring `reliability` present fails it. Nothing in the suite names a duty to carry
-/// the declared maximum, so no check catches `DropsLarge`; that gap is a residual for the
-/// lead, not something this suite asserts. The reliable branch has no real transport to
-/// run against (none declares `reliability`), so the planted breach is its only exercise.
+/// declaring `reliability` present fails it. The duty to accept the declared maximum is
+/// [IFC-TRN-118]'s and the duty to deliver it, with `reliability`, [IFC-TRN-119]'s (both
+/// exercised in `the_declared_size_is_held_to_acceptance_and_with_reliability_delivery`
+/// below). The reliable branch has no real transport to run against (none declares
+/// `reliability`), so the planted breach is its only exercise.
 #[test]
 fn a_lost_large_payload_is_forgiven_only_without_declared_reliability() {
     for base in MEDIA {
@@ -557,6 +603,133 @@ fn a_lost_large_payload_is_forgiven_only_without_declared_reliability() {
         });
         assert!(refused.failed("IFC-TRN-030"), "{refused}");
         assert!(refused.failed("IFC-TRN-003"), "{refused}");
+    }
+}
+
+/// [IFC-TRN-118] (interfaces 0.9, #396; the check is #421): a transport that returns
+/// `not-taken` below its declared maximum fails the size row on every memory medium. Both
+/// plants declare 65536 octets and refuse above 32768. `UnderSize` also breaks
+/// [IFC-TRN-030], which publishes the maximum as an envelope; `UnderSizeNonEnvelope` refuses
+/// only a receipt and a presence record, so the earlier rows pass it and the size row, which
+/// tries every kind, is the only one that fails (besides the roll-up). `UnderSizeInterior`
+/// takes 65536 octets and anything up to 32768 and refuses only what lies between, so it
+/// fails the size row alone too, and only because the row tries sizes below the maximum.
+/// Without the new row no check would catch either.
+#[test]
+fn a_transport_refusing_below_its_declared_size_is_caught() {
+    const SIZE: &str = "declared-size-is-not-refused";
+    for base in MEDIA {
+        for breach in [
+            Breach::UnderSize,
+            Breach::UnderSizeNonEnvelope,
+            Breach::UnderSizeInterior,
+        ] {
+            let report = run(&BrokenHarness { base, breach });
+            let size_row_failed = report
+                .rows
+                .iter()
+                .any(|r| r.id == "IFC-TRN-118" && r.check == SIZE && r.verdict.is_fail());
+            assert!(
+                size_row_failed,
+                "{breach:?} not caught as IFC-TRN-118:\n{report}"
+            );
+            assert!(report.failed("IFC-TRN-003"), "{report}");
+            assert!(
+                std::panic::catch_unwind(|| report.assert_conformant()).is_err(),
+                "{report}"
+            );
+            if matches!(
+                breach,
+                Breach::UnderSizeNonEnvelope | Breach::UnderSizeInterior
+            ) {
+                let other: Vec<_> = report
+                    .failures()
+                    .into_iter()
+                    .filter(|r| !matches!(r.id, "IFC-TRN-118" | "IFC-TRN-003"))
+                    .map(|r| r.id)
+                    .collect();
+                assert!(
+                    other.is_empty(),
+                    "{breach:?} was meant to fail only the size row, also failed {other:?}:\n{report}"
+                );
+            }
+        }
+    }
+}
+
+/// [IFC-TRN-118] asks for acceptance only, and [IFC-TRN-119] binds only a transport that
+/// declares `reliability` (interfaces 0.9). So `DropsLarge`, which takes the maximum and then
+/// loses it without declaring `reliability`, passes the size row and has the delivery row not
+/// applicable. Declaring `reliability` and losing the same payload,
+/// `DropsLargeClaimsReliability`, fails the delivery row, and still passes the size row
+/// because the payload was taken. A reliability claim that loses nothing,
+/// `ClaimsReliabilityHonestly`, passes the delivery row (a pass, not a skip). The memory
+/// transport itself passes the size row and has the delivery row not applicable.
+#[test]
+fn the_declared_size_is_held_to_acceptance_and_with_reliability_delivery() {
+    const SIZE: &str = "declared-size-is-not-refused";
+    const DELIVERY: &str = "taken-is-delivered-when-reliability-declared";
+    let verdict = |report: &Report, id: &str, check: &str| {
+        report
+            .rows
+            .iter()
+            .find(|r| r.id == id && r.check == check)
+            .unwrap_or_else(|| panic!("no {id} row {check}:\n{report}"))
+            .verdict
+            .clone()
+    };
+    // Both reaches, with and without faults, are covered by the size test above; this one
+    // needs the two-implementation reach, where delivery crosses transports.
+    for base in [MEDIA[1], MEDIA[3]] {
+        let plain = run(&base);
+        assert!(
+            matches!(verdict(&plain, "IFC-TRN-118", SIZE), Verdict::Pass(_)),
+            "{plain}"
+        );
+        assert!(
+            matches!(
+                verdict(&plain, "IFC-TRN-119", DELIVERY),
+                Verdict::NotApplicable(_)
+            ),
+            "{plain}"
+        );
+        let dropped = run(&BrokenHarness {
+            base,
+            breach: Breach::DropsLarge,
+        });
+        assert!(
+            matches!(verdict(&dropped, "IFC-TRN-118", SIZE), Verdict::Pass(_)),
+            "{dropped}"
+        );
+        assert!(
+            matches!(
+                verdict(&dropped, "IFC-TRN-119", DELIVERY),
+                Verdict::NotApplicable(_)
+            ),
+            "{dropped}"
+        );
+        let claims = run(&BrokenHarness {
+            base,
+            breach: Breach::DropsLargeClaimsReliability,
+        });
+        assert!(
+            matches!(verdict(&claims, "IFC-TRN-118", SIZE), Verdict::Pass(_)),
+            "{claims}"
+        );
+        assert!(
+            matches!(verdict(&claims, "IFC-TRN-119", DELIVERY), Verdict::Fail(_)),
+            "{claims}"
+        );
+        assert!(claims.failed("IFC-TRN-003"), "{claims}");
+        let honest = run(&BrokenHarness {
+            base,
+            breach: Breach::ClaimsReliabilityHonestly,
+        });
+        assert!(
+            matches!(verdict(&honest, "IFC-TRN-119", DELIVERY), Verdict::Pass(_)),
+            "{honest}"
+        );
+        honest.assert_conformant();
     }
 }
 
@@ -710,6 +883,11 @@ enum SealBreach {
     MalformedAfterShutdown,
     LateNetwork,
     SenderRetention,
+    /// Refuses a frame of exactly the declared maximum ([IFC-TRN-118], #421).
+    UnderCap,
+    /// Refuses a frame of 32769 to 65589 octets, and takes the declared maximum and anything
+    /// up to 32768 ([IFC-TRN-118], #421).
+    UnderCapInterior,
 }
 struct SealingHarness(SealBreach, bool, Option<Arc<AtomicUsize>>);
 struct SealingFaults {
@@ -900,6 +1078,13 @@ impl Transport for SealingTransport {
         if p.len() > 65590 && self.breach != SealBreach::OverCap {
             return PublishResult::NotTaken;
         }
+        // One octet short of the declared maximum, 65590.
+        if p.len() > 65589 && self.breach == SealBreach::UnderCap {
+            return PublishResult::NotTaken;
+        }
+        if self.breach == SealBreach::UnderCapInterior && (32769..65590).contains(&p.len()) {
+            return PublishResult::NotTaken;
+        }
         let accompanying = match self.breach {
             SealBreach::Kind => vec![b"sealed".to_vec()],
             SealBreach::Destination => vec![format!("{d:?}").into_bytes()],
@@ -1073,6 +1258,8 @@ fn sealing_plants_are_caught_under_their_requirement_ids() {
         (SealBreach::FalseDeclaration, "IFC-TRN-110"),
         (SealBreach::MalformedAfterShutdown, "IFC-TRN-071"),
         (SealBreach::SenderRetention, "IFC-TRN-034"),
+        (SealBreach::UnderCap, "IFC-TRN-118"),
+        (SealBreach::UnderCapInterior, "IFC-TRN-118"),
     ] {
         let report = run(&SealingHarness(breach, true, None));
         assert!(report.failed(id), "{breach:?} not caught as {id}: {report}");

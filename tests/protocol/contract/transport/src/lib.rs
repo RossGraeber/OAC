@@ -36,7 +36,7 @@
 //! ([IFC-TRN-003]): [IFC-TRN-001], [IFC-TRN-020], [IFC-TRN-021], [IFC-TRN-023],
 //! [IFC-TRN-026], [IFC-TRN-030], [IFC-TRN-031], [IFC-TRN-033] to [IFC-TRN-036],
 //! [IFC-TRN-040], [IFC-TRN-043], [IFC-TRN-044], [IFC-TRN-050], [IFC-TRN-060],
-//! [IFC-TRN-071], [IFC-TRN-080] and [IFC-NEU-003], plus [IFC-TYP-092] for the transport's
+//! [IFC-TRN-071], [IFC-TRN-080], [IFC-TRN-118], [IFC-TRN-119] and [IFC-NEU-003], plus [IFC-TYP-092] for the transport's
 //! `health` and [IFC-TYP-095], plus [IFC-TRN-104], [IFC-TRN-105], [IFC-TRN-107],
 //! [IFC-TRN-108], [IFC-TRN-109] and [IFC-TRN-113] when sealing is declared, and
 //! [IFC-TRN-110] against the binding. [`run`]
@@ -324,6 +324,12 @@ pub const CHECKS: &[(&str, &str, Check)] = &[
     ("IFC-TRN-023", "max-payload-floor", ifc_trn_023),
     ("IFC-TRN-026", "no-persistence-or-queueing", ifc_trn_026),
     ("IFC-TRN-030", "octets-exactly-as-passed", ifc_trn_030),
+    ("IFC-TRN-118", "declared-size-is-not-refused", ifc_trn_118),
+    (
+        "IFC-TRN-119",
+        "taken-is-delivered-when-reliability-declared",
+        ifc_trn_119,
+    ),
     ("IFC-TRN-031", "deliverable-is-taken", ifc_trn_031),
     ("IFC-TRN-033", "holds-only-in-flight", ifc_trn_033),
     (
@@ -441,6 +447,25 @@ fn panic_text(p: &Box<dyn std::any::Any + Send>) -> String {
 // ---- helpers ----------------------------------------------------------------------------
 
 const LONG: Duration = Duration::from_secs(60);
+
+/// The most the size check allocates for one payload: a transport declaring a larger
+/// `max_payload_octets` gets [`Verdict::NotApplicable`] from [IFC-TRN-118], never a pass.
+const DECLARED_SIZE_LIMIT: u64 = 64 << 20;
+
+/// The sizes [IFC-TRN-118] passes for a declared maximum of `max` octets: the maximum, one
+/// less, a quarter, a half and three quarters of it, and 65536 when that lies below it. The
+/// rule says "at most" the maximum, so a refusal anywhere in the range breaks it; these are a
+/// sample, and a refusal confined to a narrower band than they leave between them is not seen.
+fn size_probes(max: usize) -> Vec<usize> {
+    let mut v = vec![max / 4, max / 2, max / 4 * 3, max.saturating_sub(1), max];
+    if max > 65536 {
+        v.push(65536);
+    }
+    v.retain(|n| *n >= 1);
+    v.sort_unstable();
+    v.dedup();
+    v
+}
 
 /// The device key id with every hex digit `n`.
 pub fn key(n: u8) -> KeyId {
@@ -906,6 +931,183 @@ pub fn ifc_trn_030(h: &dyn TransportHarness) -> Verdict {
                 "; reliability declared absent, so payloads of lengths {lost:?} not delivered are not a failure"
             )
         }
+    ))
+}
+
+/// [IFC-TRN-118]: a payload of at most the declared `max_payload_octets` octets is not
+/// refused for its size. The check passes payloads of the sizes of `size_probes` (the
+/// maximum itself, one less, and interior sizes), of each kind
+/// the transport accepts (an envelope to a session, a receipt to a device and, through
+/// `send_presence`, a presence record to a device), and requires `taken`. It does not ask for
+/// delivery: without `reliability` that is not promised (Table 6.3, [IFC-TRN-030]), and with
+/// it, [`ifc_trn_119`] asks. A small payload of the same kind is passed first, as a control:
+/// if even that is refused, the refusal at the maximum cannot be put down to size and the
+/// row is not applicable (the rows of [IFC-TRN-001] and [IFC-TRN-031] fail instead).
+///
+/// A sealing transport carries only sealed frames ([IFC-TRN-113]) and a sealed payload is
+/// measured as its frame (§6.10), so the check passes frames of the declared maximum, one for
+/// each inner kind (`sealed::declared_size`).
+pub fn ifc_trn_118(h: &dyn TransportHarness) -> Verdict {
+    if let Some(v) = sealed::declared_size(h) {
+        return v;
+    }
+    let w = World::new(h);
+    let max = w.a.caps.max_payload_octets;
+    if max > DECLARED_SIZE_LIMIT {
+        return Verdict::NotApplicable(format!(
+            "declared maximum {max} exceeds the {DECLARED_SIZE_LIMIT} octets this check allocates"
+        ));
+    }
+    let n = usize::try_from(max).expect("bounded by DECLARED_SIZE_LIMIT");
+    let r = w.recv();
+    let dev = Destination::Device(r.key.clone());
+    let (env, rct, prs) = (Seen::default(), Seen::default(), Seen::default());
+    let _s1 = w.sub(r, &session(6), &env);
+    let _s2 = w.sub(r, &dev, &rct);
+    w.watch(r, prs.watcher());
+    let dl = w.deadline(LONG);
+    let send = |kind: PayloadKind, octets: &[u8]| match kind {
+        PayloadKind::Envelope => w.a.t.publish(&session(6), payload(kind, octets), dl),
+        PayloadKind::Receipt => w.a.t.publish(&dev, payload(kind, octets), dl),
+        _ => w.a.t.send_presence(&dev, payload(kind, octets), dl),
+    };
+    let kinds = [
+        PayloadKind::Envelope,
+        PayloadKind::Receipt,
+        PayloadKind::Presence,
+    ];
+    for kind in kinds {
+        let c = send(kind, b"size-control-118");
+        if c != PublishResult::Taken {
+            return Verdict::NotApplicable(format!(
+                "a 16-octet {kind:?} was {c:?}, so a refusal at the declared maximum cannot be put down to size (see IFC-TRN-001, IFC-TRN-031)"
+            ));
+        }
+    }
+    // Each size is passed after the transport has settled from the last, so that a refusal
+    // from a full queue is not counted against size.
+    let sizes = size_probes(n);
+    for len in &sizes {
+        let octets = vec![0x5a; *len];
+        for kind in kinds {
+            w.m.settle();
+            let got = send(kind, &octets);
+            fail_if!(
+                got != PublishResult::Taken,
+                "a {kind:?} of {len} octets, within the declared maximum of {max}, was {got:?} while a 16-octet one was taken"
+            );
+        }
+    }
+    w.m.settle();
+    Verdict::Pass(format!(
+        "an envelope, a receipt and a presence record of each of {sizes:?} octets, up to the declared maximum {max}, each taken ({})",
+        w.sides()
+    ))
+}
+
+/// [IFC-TRN-119]: a transport that declares `reliability` delivers each payload for which it
+/// returns `taken`, unless the payload's `Deadline` passes first, the destination is not
+/// reachable, or the transport is shut down or restarted first. Not applicable to a transport
+/// that declares `reliability` absent: [IFC-TRN-119] binds only one that declares it, and the
+/// rest owe [IFC-TRN-118] and [IFC-TRN-030] alone. No transport of this repository declares
+/// `reliability`, so the row is exercised only by a planted transport that claims it.
+///
+/// For each kind (an envelope to a session, a receipt to a device, a presence record to a
+/// device) the check passes three distinct payloads: a short one, one of 4096 octets and one
+/// of the declared maximum (up to 1 MiB, less the suite's routing control on a sealing
+/// transport), all with a deadline a minute away, to a subscribed destination, on a running
+/// transport. None of the three stop conditions applies then, so every payload for which
+/// `taken` came back must arrive, octet for octet. A payload that was `not-taken` is not
+/// held to delivery here (that is [IFC-TRN-118]'s and [IFC-TRN-031]'s business). The stop
+/// conditions themselves are not exercised: they relax the rule, and the suite cannot script
+/// an unreachable destination, a restart across a retransmission, or a link that loses
+/// copies under a retransmitting transport (cf. [IFC-TRN-021]).
+pub fn ifc_trn_119(h: &dyn TransportHarness) -> Verdict {
+    let w = World::new(h);
+    if !w.a.caps.reliability {
+        return Verdict::NotApplicable(
+            "reliability declared absent: IFC-TRN-119 binds only a transport that declares it; IFC-TRN-118 and IFC-TRN-030 apply".into(),
+        );
+    }
+    let r = w.recv();
+    let dev = Destination::Device(r.key.clone());
+    let (env, rct, prs) = (Seen::default(), Seen::default(), Seen::default());
+    let _s1 = w.sub(r, &session(8), &env);
+    let _s2 = w.sub(r, &dev, &rct);
+    w.watch(r, prs.watcher());
+    let limit = if w.a.caps.sealing {
+        w.a.caps
+            .max_payload_octets
+            .saturating_sub(sealed::LOGICAL_OVERHEAD)
+    } else {
+        w.a.caps.max_payload_octets
+    };
+    let big = usize::try_from(limit.min(1 << 20)).unwrap_or(1 << 20);
+    let dl = w.deadline(LONG);
+    let kinds = [
+        PayloadKind::Envelope,
+        PayloadKind::Receipt,
+        PayloadKind::Presence,
+    ];
+    // (kind, octets) of every payload that was taken.
+    let mut taken: Vec<(PayloadKind, Vec<u8>)> = Vec::new();
+    let mut refused = 0usize;
+    for (k, kind) in kinds.into_iter().enumerate() {
+        for (i, len) in [16usize, 4096, big].into_iter().enumerate() {
+            let tag = (k * 3 + i) as u8;
+            let octets: Vec<u8> = (0..len).map(|j| (j % 251) as u8 ^ tag).collect();
+            let result = match kind {
+                PayloadKind::Envelope => w.a.t.publish(&session(8), payload(kind, &octets), dl),
+                PayloadKind::Receipt => w.a.t.publish(&dev, payload(kind, &octets), dl),
+                _ => w.a.t.send_presence(&dev, payload(kind, &octets), dl),
+            };
+            if result == PublishResult::Taken {
+                taken.push((kind, octets));
+            } else {
+                refused += 1;
+            }
+        }
+    }
+    if taken.is_empty() {
+        return Verdict::NotApplicable(
+            "reliability declared, but no payload was taken, so none is held to delivery (see IFC-TRN-031)".into(),
+        );
+    }
+    let arrived = |kind: PayloadKind| -> Vec<Vec<u8>> {
+        match kind {
+            PayloadKind::Envelope => env.octets(),
+            PayloadKind::Receipt => rct.octets(),
+            _ => prs.records().iter().map(|p| p.octets().to_vec()).collect(),
+        }
+    };
+    w.eventually(|| kinds.iter().map(|k| arrived(*k).len()).sum::<usize>() >= taken.len());
+    let mut missing = Vec::new();
+    for kind in kinds {
+        let mut pool = arrived(kind);
+        for (_, octets) in taken.iter().filter(|(k, _)| *k == kind) {
+            match pool.iter().position(|g| g == octets) {
+                Some(i) => {
+                    pool.swap_remove(i);
+                }
+                None => missing.push((kind, octets.len())),
+            }
+        }
+    }
+    fail_if!(
+        !missing.is_empty(),
+        "reliability declared, but {} of {} taken payloads never arrived, although the deadline was a minute away, the destination subscribed and the transport running: (kind, octets) {missing:?}",
+        missing.len(),
+        taken.len()
+    );
+    Verdict::Pass(format!(
+        "reliability declared: all {} taken payloads (envelope, receipt, presence; up to {big} octets) arrived unchanged{} ({}); the stop conditions are not exercised",
+        taken.len(),
+        if refused > 0 {
+            format!(", {refused} not-taken ones not held to delivery")
+        } else {
+            String::new()
+        },
+        w.sides()
     ))
 }
 

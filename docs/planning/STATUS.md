@@ -1,5 +1,17 @@
 # OAC status
 
+**Last updated:** 2026-10-15 (**fix: `oac start` runs on a multi-thread runtime (the reference transport requires it); Refs #70**).
+**Correction to the slice 6 entry (PR #413):** "`oac start` works" had been proven only over the in-memory transport. The first live run (slice 7, leg C, Windows, real default
+scope) panicked at start-up with the transport's message "Zenoh runtime doesn't support Tokio's current thread scheduler": `serve_in_foreground` built a current-thread
+runtime, and the transport refuses any thread inside one (`spawn_blocking` threads included). The fix is `commands::daemon_runtime()`, a multi-thread runtime with one worker; it needs
+the tokio feature `rt-multi-thread` for `cli/` (approved by the lead 2026-10-15; already enabled in the graph by `zenoh-runtime` and `zenoh-transport`, `Cargo.lock` unchanged; 07 section 5 updated). Regression test
+`cli/tests/start_runtime.rs`: the daemon starts and stops over the real transport on loopback (an in-memory key, a test namespace, a claimed port) on `daemon_runtime()`, and a control shows the
+current-thread runtime panics with the transport's message. Leg C record, on the fixed build (ff63f4f plus this change), Windows, the real `oac start`: serves in about 6 s
+(`oac start: the daemon is running (\\.\pipe\oac-<user SID>-claude)`); a probe shim connects (exit 0); a second `oac start` prints "the daemon is already running", exit 0, and there is one `oac.exe`
+process; Ctrl-C stops the foreground daemon with exit 0 in 0.3 s after "oac start: stopping" and the endpoint is gone; `oac start --detach` returns exit 0 after 4.8 s, the detached daemon is one
+process, and killing only that pid leaves no endpoint (no `oac stop` yet: the known G10 residual, so no clean shutdown for a detached daemon). The device key was made in the Credential Manager
+(target `device-key.io.github.rossgraeber.oac`; never read). The known-issue notes about `oac start` that PR #423 adds are removed once both have merged.
+
 **Last updated:** 2026-10-15 (**G9, #70, slice 3: the shim's hello line and the adapter's connection places; `spec/bindings/mcp.md` 0.4 and `spec/interfaces.md` 0.10 proposed, lead approval pending; Refs #70**).
 Closes 11-risks rows 86 and 87 in code. **Row 87:** a Claude shim whose environment holds a non-empty `CLAUDE_CODE_SESSION_ID` (E) sends one hello line
 first, `{"oac_hello":1,"session_id":"<E>"}` (`oac_adapter_claude::hook::hello_line`, sent by `cli/src/shim.rs`); the adapter consumes it (`FirstLine::Hello`, `ChannelReader::consume_first_line`) and reports E
@@ -11,6 +23,7 @@ hook carrier is admitted whatever the shims hold; the shutdown arithmetic is 7 x
 "in force from the merge of PR #401", and the §8.1 note names `cli/src/hook.rs` (G9, #405) as the handler. Local-IPC only, minor revision under E7 §7 as 0.3 was (decision D7). No new dependency; no `Cargo.lock` change.
 Not claimed: a live Claude Code shim carrying the real variable (slice 7 live leg A); a fixture for any new id.
 
+
 **Last updated:** 2026-10-15 (**G9, #70, slice 7 prerequisite: the live-leg daemon; Refs #70**).
 `cli/examples/live_daemon.rs` (a development tool, not the product; `oac start` is the product's daemon and refuses `OAC_SCOPE`): the same
 `Daemon::start` with an in-memory key (made for the run, kept nowhere), the in-memory transport and the test namespace given on the command line,
@@ -20,6 +33,7 @@ Ctrl-C or a `stop` line. To see this the daemon's `LogSink` gained a tap (`with_
 key, the working directory or anything a peer sent; `oac start` installs none. `cli/tests/live_daemon.rs` runs the example: a peer that is not a
 harness is accepted and reported unpaired, and a `stop` line ends it cleanly. Dependencies: none new (`oac-transport-memory` is already a dev-dependency).
 Not claimed: any live leg (the scenario and the runs come after slice 3).
+
 
 **Last updated:** 2026-10-15 (**documentation sweep, Refs #70: the lead's acceptance of the D5 residuals of local IPC and peer pairing**).
 Documentation only: no code change except comments, no spec change, no gate verdict or pin change, no new UNVERIFIED item, no ADR-001
@@ -269,7 +283,10 @@ raw-octet disclosures of the third device's actual start key fail IFC-TRN-108 an
 IFC-TRN-003, while the small metadata controls stay clean. The original non-sealing
 assertions, payloads, operations and limits remain unchanged. *Dated note, 2026-10-13 (#392):*
 the one later change is to IFC-TRN-030, which no longer requires delivery from a transport declaring
-no reliability (integrity only); see the suite README.
+no reliability (integrity only); see the suite README. *Dated note, 2026-10-15 (#421):* the suite
+gains two rows for interfaces 0.9, IFC-TRN-118 (a payload of the declared `max_payload_octets` is
+not refused) and IFC-TRN-119 (a transport declaring `reliability` delivers what it takes; not
+applicable to every transport here), with planted breaches; lead-approved; no existing row changes.
 S4 evidence for sealing transports must cite this baseline or a descendant and run
 all checks. This is the approved spec-driven suite revision, not a gate verdict.
 The [suite README](../../tests/protocol/contract/transport/README.md) records the
