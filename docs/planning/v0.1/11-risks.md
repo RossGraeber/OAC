@@ -656,12 +656,12 @@ list.
   (`claude -p`; no TUI, no dialogs); no channel hand-off or delivery shown; the daemon's key was the example's in-memory key; macOS not run; Windows
   (leg A) not yet run. The working directory read (`/proc/<pid>/cwd`) is not shown by the daemon's tap.
   (Dated note, 2026-10-15, G9 #70 slice 7, leg A.) **Windows with a real Claude Code (`2.1.285`), driven by herdr** (scenario `g9-claude-pairing`, run `20261016T034720Z-5817f2`, PASS; evidence `legA-run1/`, kept by the implementer, not committed).
-Row 58 (ancestry), Windows: the shim is a direct child of `claude.exe`; the hook handler is under `bash.exe` under `bash.exe` under that `claude.exe` (hooks run through Git Bash, two levels deep); the daemon found the same harness process for both and paired
-both (`events.jsonl.txt`). Row 19 (environment inheritance), Windows: `OAC_SCOPE` set only in the pane environment reached both the MCP server and the hook command through Claude Code (both connected to the `lega` pipe); **now shown on Windows, and still
-not shown on Linux** (leg B set it explicitly). Row 20 (pipe authentication), own-user part, live: both clients passed their check of the server and the daemon accepted them as this user's; the live pipe's owner and access list, read from a separate daemon
-run of the same binary (`dacl.txt`): owner and group the user, protected DACL, exactly one ACE (allow all access) for the user's SID; **the second-account refusal is still not run (no second account)**. Row 87 live, Windows: the real Claude's `whoami`
-returned a session id and no SC-ID-141 was logged, so case 3(a) (an inference from the absent diagnostic and the bound session, not a logged case label). Limits: print mode only (no TUI, no dialog); no channel hand-off or delivery shown; no transition case run,
-so E versus N is shown only where equal, and E itself was not observed; the daemon's key was the example's in-memory key; macOS not run.
+  Row 58 (ancestry), Windows: the shim is a direct child of `claude.exe`; the hook handler is under `bash.exe` under `bash.exe` under that `claude.exe` (hooks run through Git Bash, two levels deep); the daemon found the same harness process for both and paired
+  both (`events.jsonl.txt`). Row 19 (environment inheritance), Windows: `OAC_SCOPE` set only in the pane environment reached both the MCP server and the hook command through Claude Code (both connected to the `lega` pipe); **now shown on Windows, and still
+  not shown on Linux** (leg B set it explicitly). Row 20 (pipe authentication), own-user part, live: both clients passed their check of the server and the daemon accepted them as this user's; the live pipe's owner and access list, read from a separate daemon
+  run of the same binary (`dacl.txt`): owner and group the user, protected DACL, exactly one ACE (allow all access) for the user's SID; **the second-account refusal is still not run (no second account)**. Row 87 live, Windows: the real Claude's `whoami`
+  returned a session id and no SC-ID-141 was logged, so case 3(a) (an inference from the absent diagnostic and the bound session, not a logged case label). Limits: print mode only (no TUI, no dialog); no channel hand-off or delivery shown; no transition case run,
+  so E versus N is shown only where equal, and E itself was not observed; the daemon's key was the example's in-memory key; macOS not run.
   (Dated note, 2026-10-15, documentation sweep.) **Accepted by the lead, 2026-10-15: the three
   widened D5 residuals of the local IPC and peer pairing.** They are stated here, in
   `docs/planning/v0.1/06-security.md` §12 and threat rows 13 and 24, in `docs/planning/STATUS.md`, and
