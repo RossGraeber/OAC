@@ -1,5 +1,20 @@
 # OAC status
 
+**Last updated:** 2026-10-15 (**G9, #70, slice 7, leg A: the daemon and a real Claude Code on Windows, driven by herdr; Refs #70**).
+Scenario `g9-claude-pairing` (not verdict-bearing; to be committed with `tools/herdr/scenarios/`), herdr `0.9.1` (executable sha256 equal to the PINS.md expectation), driver commit `03d0fd1`, run `20261016T034720Z-5817f2`, outcome PASS, teardown
+clean (`legA-run1/run-manifest.json`). Windows 11, Claude Code `2.1.285` (the Windows install; `harnessVersions`). Pane A ran `cli/examples/live_daemon.rs` in namespace `lega` (in-memory key); pane B ran a real `claude -p` with `--mcp-config`,
+`--strict-mcp-config`, `--settings` and `--allowedTools mcp__oac__whoami` (no project files, no dialog; nothing signed in or accepted; no credential file or `*.sqlite` read). `OAC_SCOPE` was set **only** in the panes' environment
+(`explicitEnv=0`: the MCP server's `env` in `mcp.json` has none). **Ancestry (11-risks row 58, Windows)** (`legA-run1/events.jsonl.txt`, the two `accepted` events): the shim (`oac.exe`) is a direct child of `claude.exe`; the hook handler
+(`oac.exe`) is under `bash.exe` under `bash.exe` under the same `claude.exe`; the daemon found the same harness process (same pid and start time) for both and reported `paired:true` for both; `claude.exe` runs under `powershell.exe`, `herdr.exe`,
+`node.exe`. **Row 19, Windows:** both clients reached the `lega` pipe, so `OAC_SCOPE` set only in the pane environment reached the MCP server and the hook command through Claude Code. **Pipe authentication:** both clients connected, so each passed its
+check of the server's owner and access list before sending; the pipe is `\\.\pipe\oac-<user SID>-lega-claude`. A separate daemon run (namespace `ldacl`, the same binary, not the herdr run) had its pipe read with `GetNamedSecurityInfo` while serving
+(`legA-run1/dacl.txt`): owner and group the user, a protected DACL with exactly one ACE, allow all access for the user's SID (`O:<sid>G:<sid>D:P(A;;FA;;;<sid>)`). **Row 87, Windows:** the real Claude's `whoami` returned a `session_id`
+(`legA-run1/pane-claude.txt`) and the daemon logged no SC-ID-141 (`bindingLines` is empty in `run-manifest.json` `scenarioData.observed`): case 3(a) is an **inference** from the absent diagnostic and the bound session, not a logged case label.
+Ends: both connections ended with the session and the daemon stopped on a typed `stop` (`events.jsonl.txt`: `ended` x2, `stopped`). **Limits:** print mode only (`claude -p`; no TUI, no dialog); no channel hand-off or delivery shown; no transition
+case (`--continue`, `--resume`, `/clear`) run, so E versus N is shown only where they are equal; the value E was not observed (the daemon's tap does not report it); the daemon's key was the example's in-memory key; `oac start` and the real device key were
+leg C's; macOS not run. Evidence files were kept by the implementer (not committed): `legA-run1/` (manifest, events, pane captures, `dacl.txt`, the scenario). Found on the way: the example daemon stops on end of file of its standard input, not only on a `stop`
+line (fixed in a separate pull request).
+
 **Last updated:** 2026-10-15 (**G9, #70, slice 7, leg B: the daemon and a real Claude Code on Linux; Refs #70**).
 Manual check (not herdr; herdr in WSL is #417), WSL Ubuntu (Linux 6.18.54.1-microsoft-standard-WSL2), Claude Code `2.1.287` (native install, already signed in; nothing was signed in or
 accepted; no credential file read). A fresh clone built `oac` and `cli/examples/live_daemon.rs`; the live daemon ran in namespace `legb` (in-memory key, socket
