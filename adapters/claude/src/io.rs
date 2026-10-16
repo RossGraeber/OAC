@@ -111,6 +111,16 @@ impl ChannelReader {
         }
     }
 
+    /// Consumes the first line that [`ChannelReader::peek_line`] looked at, newline included
+    /// (or all of it, when the stream ended without one): `rmcp` then reads what follows.
+    pub fn consume_first_line(&mut self) {
+        let end = self.buf[self.pos..]
+            .iter()
+            .position(|&b| b == b'\n')
+            .map_or(self.buf.len(), |i| self.pos + i + 1);
+        self.pos = end;
+    }
+
     /// The bytes received so far and not yet read, after [`ChannelReader::peek_line`]: the
     /// first line, and whatever followed it in the same chunk.
     pub fn received(&self) -> &[u8] {

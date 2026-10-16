@@ -1619,3 +1619,205 @@ fn a_new_session_id_carries_no_reply_records_forward() {
     assert_eq!(core.sent.lock().unwrap().len(), 1);
     a.shutdown();
 }
+
+// ---- G9 (#70) slice 3: the hello line (11-risks row 87) and connection places (row 86) ------
+
+impl Core {
+    /// The `cross_check` of each `attachment-opened`, in order.
+    fn cross_checks(&self) -> Vec<Option<String>> {
+        self.events
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|e| match e {
+                AdapterEvent::AttachmentOpened { cross_check, .. } => Some(cross_check.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+}
+
+fn hello(e: &str) -> String {
+    String::from_utf8(oac_adapter_claude::hook::hello_line(e).unwrap())
+        .unwrap()
+        .trim_end()
+        .to_owned()
+}
+
+/// [MCPB-CLD-011], [MCPB-CLD-013], [MCPB-CLD-015], C4 §3, row 87: the shim's hello line is consumed (the MCP
+/// opening that follows it is served as always), and its value is the attachment's
+/// cross-check value in `attachment-opened`. It is not a native signal.
+#[test]
+fn a_hello_line_gives_the_attachment_its_cross_check_value() {
+    let (a, core) = adapter_with(WAIT);
+    let (mut w, _h) = connect(&a);
+    w.send(&hello("f40e86db-b0cb-439a-bb2d-17f1dd86c1d5"));
+    let (init, tools) = open(&mut w, true);
+    // The hello did not reach the MCP server: the opening is the recorded one.
+    assert_eq!(
+        text(&init, &["result", "protocolVersion"]).as_deref(),
+        Some("2025-11-25")
+    );
+    assert!(get(&tools, &["result", "tools"]).is_some());
+    wait_for_open(&core);
+    assert_eq!(
+        core.cross_checks(),
+        [Some("f40e86db-b0cb-439a-bb2d-17f1dd86c1d5".to_owned())]
+    );
+    assert!(core.signals().is_empty(), "a hello is not a native signal");
+    a.shutdown();
+}
+
+/// [MCPB-CLD-016]: a connection with no hello reports no cross-check value (the core then
+/// binds a `startup` signal under case 3(c)); the hello line is optional.
+#[test]
+fn without_a_hello_line_the_attachment_has_no_cross_check_value() {
+    let (a, core) = adapter_with(WAIT);
+    let (mut w, _h) = connect(&a);
+    open(&mut w, true);
+    wait_for_open(&core);
+    assert_eq!(core.cross_checks(), [None]);
+    a.shutdown();
+}
+
+/// [MCPB-CLD-014], [MCPB-CLD-016]: only exactly the shim's form is a hello. A near-hello is
+/// not consumed and not reported: it reaches the MCP server as the first line of the stream, which
+/// is not a JSON-RPC frame, and the attachment opens as it did before this revision, with no
+/// cross-check value. (What the MCP server does with such a line is `rmcp`'s: it skips it.)
+#[test]
+fn a_line_that_is_not_exactly_a_hello_reports_no_cross_check_value() {
+    let long = format!("{{\"oac_hello\":1,\"session_id\":\"{}\"}}", "x".repeat(257));
+    for not in [
+        "{\"oac_hello\":2,\"session_id\":\"E\"}".to_owned(),
+        "{\"oac_hello\":1,\"session_id\":\"\"}".to_owned(),
+        "{\"oac_hello\":1,\"session_id\":\"E\",\"x\":1}".to_owned(),
+        "{\"oac_hello\":1}".to_owned(),
+        long,
+    ] {
+        let (a, core) = adapter_with(WAIT);
+        let (mut w, h) = connect(&a);
+        w.send(&not);
+        w.send(&initialize("2025-11-25"));
+        w.send(INITIALIZED);
+        w.send(TOOLS_LIST);
+        // `rmcp` skips the line it cannot read, so the opening completes as always.
+        // Whatever the MCP server answers the line with, the tools listing arrives.
+        let mut listed = false;
+        for _ in 0..4 {
+            if get(&w.frame(), &["result", "tools"]).is_some() {
+                listed = true;
+                break;
+            }
+        }
+        assert!(listed, "{not}");
+        wait_for_open(&core);
+        assert_eq!(core.cross_checks(), [None], "{not}");
+        assert!(!h.is_closed(), "{not}");
+        assert!(core.signals().is_empty(), "{not}");
+        a.shutdown();
+    }
+}
+
+/// [MCPB-CLD-015], [SC-ID-122]: a hello value is never a native id. A hello and then the end of the stream
+/// opens nothing and signals nothing.
+#[test]
+fn a_hello_alone_is_neither_an_attachment_nor_a_signal() {
+    let (a, core) = adapter_with(WAIT);
+    let (mut w, h) = connect(&a);
+    w.send(&hello("E-1"));
+    w.to_adapter.take();
+    wait_for_closed(&h);
+    assert_eq!(core.event_count(), 0);
+    a.shutdown();
+}
+
+/// Row 86: the adapter admits seven connections, four of them shims. With every shim place
+/// taken, a hook carrier is still admitted and reports its signal; a fifth shim is refused
+/// once its first line says it is one, and refusing it opens nothing and ends nothing else.
+#[test]
+fn hook_carriers_are_admitted_while_every_shim_place_is_taken() {
+    let (a, core) = adapter_with(WAIT);
+    assert_eq!(a.connection_limit(), 7);
+    let mut shims = Vec::new();
+    for i in 0..4 {
+        let (mut w, h) = connect(&a);
+        w.send(&hello(&format!("E-{i}")));
+        open(&mut w, i == 0);
+        shims.push((w, h));
+    }
+    let end = Instant::now() + WAIT;
+    while core.cross_checks().len() < 4 {
+        assert!(Instant::now() < end, "four attachments");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+
+    // A hook carrier: admitted, one signal, closed.
+    let (carrier, carrier_handle) = connect(&a);
+    carrier.send(&session_start("N-1", ",\"source\":\"startup\""));
+    wait_for_closed(&carrier_handle);
+    assert_eq!(core.signals().len(), 1);
+    assert_eq!(core.signals()[0].native_id, "N-1");
+
+    // A fifth shim, with or without a hello: refused after its first line.
+    for first in [PROBE.to_owned(), hello("E-9")] {
+        let (fifth, fifth_handle) = connect(&a);
+        assert!(
+            !fifth_handle.is_closed(),
+            "not refused before it is classified"
+        );
+        fifth.send(&first);
+        wait_for_closed(&fifth_handle);
+    }
+    assert_eq!(core.cross_checks().len(), 4, "the refusal opened nothing");
+    assert!(
+        shims.iter().all(|(_, h)| !h.is_closed()),
+        "no live shim was disturbed"
+    );
+
+    // A place is free again when a shim ends.
+    let (mut gone, gone_handle) = shims.remove(0);
+    gone.to_adapter.take();
+    wait_for_closed(&gone_handle);
+    let (mut again, again_handle) = connect(&a);
+    again.send(&hello("E-10"));
+    open(&mut again, false);
+    let end = Instant::now() + WAIT;
+    while core.cross_checks().len() < 5 {
+        assert!(Instant::now() < end, "the freed place is used");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(!again_handle.is_closed());
+    a.shutdown();
+}
+
+/// Row 86, the shutdown arithmetic: seven closures at most 100 ms each, and the 200 ms stop
+/// budget, are 900 ms: inside the 1000 ms bound with all seven places taken, four by open
+/// shims and three by connections that have not said what they are.
+#[test]
+fn shutdown_with_all_seven_places_taken_is_inside_the_bound() {
+    let (a, core) = adapter_with(WAIT);
+    let mut wires = Vec::new();
+    for i in 0..4 {
+        let (mut w, h) = connect(&a);
+        w.send(&hello(&format!("E-{i}")));
+        open(&mut w, i == 0);
+        wires.push((w, h));
+    }
+    for _ in 0..3 {
+        wires.push(connect(&a));
+    }
+    let (_over, over_handle) = connect(&a);
+    assert!(
+        over_handle.is_closed(),
+        "an eighth connection is refused at once"
+    );
+    let end = Instant::now() + WAIT;
+    while core.cross_checks().len() < 4 {
+        assert!(Instant::now() < end);
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let start = Instant::now();
+    a.shutdown();
+    assert!(start.elapsed() < Duration::from_millis(oac_adapter_claude::SHUTDOWN_BOUND_MS));
+    assert!(wires.iter().all(|(_, h)| h.is_closed()));
+}
