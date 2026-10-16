@@ -283,7 +283,10 @@ raw-octet disclosures of the third device's actual start key fail IFC-TRN-108 an
 IFC-TRN-003, while the small metadata controls stay clean. The original non-sealing
 assertions, payloads, operations and limits remain unchanged. *Dated note, 2026-10-13 (#392):*
 the one later change is to IFC-TRN-030, which no longer requires delivery from a transport declaring
-no reliability (integrity only); see the suite README.
+no reliability (integrity only); see the suite README. *Dated note, 2026-10-15 (#421):* the suite
+gains two rows for interfaces 0.9, IFC-TRN-118 (a payload of the declared `max_payload_octets` is
+not refused) and IFC-TRN-119 (a transport declaring `reliability` delivers what it takes; not
+applicable to every transport here), with planted breaches; lead-approved; no existing row changes.
 S4 evidence for sealing transports must cite this baseline or a descendant and run
 all checks. This is the approved spec-driven suite revision, not a gate verdict.
 The [suite README](../../tests/protocol/contract/transport/README.md) records the
