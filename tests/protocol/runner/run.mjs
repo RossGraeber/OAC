@@ -28,6 +28,7 @@ import { mcpBinding } from './mcpb.mjs';
 import * as sel from './stages-sel.mjs';
 import { checkIndexes, DOC_OF_PREFIX, dirOfId } from './index-check.mjs';
 import { selfTest } from './self-test.mjs';
+import { REVISIONS, checkRevisions } from './revisions.mjs';
 import { contractStrays, readContractEntries } from './layout.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
@@ -114,15 +115,6 @@ function listFixtures() {
   }
   return { fixtures: out, stray };
 }
-
-// The revisions each document has had; a fixture cites the one it was written against
-// (§3.3).
-const REVISIONS = {
-  'spec/bindings/mcp.md': ['0.1', '0.2', '0.3', '0.4'],
-  'spec/security.md': ['0.1', '0.2', '0.3'],
-  'spec/session-channels.md': ['0.1', '0.2'],
-  'spec/interfaces.md': ['0.1', '0.2', '0.3'],
-};
 
 // The fixture's own form (§3.3; spec/bindings/mcp.md §12.2).
 function formProblems(f, fx) {
@@ -245,16 +237,19 @@ function main() {
     for (const m of r.mismatches || []) console.log(`  - expected.${m.member}: expected ${JSON.stringify(m.expected)}, got ${JSON.stringify(m.actual)}`);
   }
   let indexProblems = [];
+  let revisionProblems = [];
   if (!only.length) {
     indexProblems = checkIndexes(read, parsed);
     for (const p of indexProblems) console.log(`FAIL index: ${p}`);
+    revisionProblems = checkRevisions(read);
+    for (const p of revisionProblems) console.log(`FAIL revisions: ${p}`);
   }
   console.log('');
   for (const [k, t] of [...tally.entries()].sort()) console.log(`${k.padEnd(48)} ${String(t.pass).padStart(4)} pass ${t.fail ? `${t.fail} FAIL` : ''}`);
   const total = selected.length;
-  console.log(`\nFixtures: ${total - failed}/${total} pass. Index checks: ${only.length ? 'skipped' : indexProblems.length ? `${indexProblems.length} problems` : 'clean'}.`);
+  console.log(`\nFixtures: ${total - failed}/${total} pass. Index checks: ${only.length ? 'skipped' : indexProblems.length ? `${indexProblems.length} problems` : 'clean'}. Revision lists: ${only.length ? 'skipped' : revisionProblems.length ? `${revisionProblems.length} problems` : 'current'}.`);
   if (stray.length || unmatched.length) console.log(`Layout and filter problems: ${stray.length + unmatched.length}.`);
-  const bad = failed > 0 || indexProblems.length > 0 || stray.length > 0 || unmatched.length > 0;
+  const bad = failed > 0 || indexProblems.length > 0 || revisionProblems.length > 0 || stray.length > 0 || unmatched.length > 0;
   console.log(bad ? 'Result: FAIL' : 'Result: PASS');
   process.exit(bad ? 1 : 0);
 }
