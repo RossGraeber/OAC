@@ -7,8 +7,10 @@ accepted; no credential file read). A fresh clone built `oac` and `cli/examples/
 hook `OAC_SCOPE=legb oac hook`), so no project files and no dialog. **Ancestry (11-risks row 58, Linux):** the shim is a direct child of the process named `claude` (comm `claude`; the native binary resolves to
 `2.1.287`); the hook handler is under `sh` under that same process; the daemon found the same harness process for both (same pid and start time) and paired both; no `PR_SET_NAME` rename. **Peer
 credentials:** `SO_PEERCRED` in the 0700 directory. **Row 87 live:** on main `a862065` (no hello line) the daemon logged SC-ID-141 (case 3(c)); on PR #424's `8e490a0` it did not, and the real Claude's call of the `oac`
-server's `whoami` returned a `session_id`: bound under case 3(a), through the real chain (Claude, shim, relay, daemon, adapter, core). Ends: both connections ended with the session; `stop` stopped the daemon; the socket was
-removed. Not shown: channel hand-off, the TUI, macOS, Windows (leg A), the daemon's `/proc/<pid>/cwd` read (the tap does not report it). WSL clears `/tmp` on a VM restart: the clone must not live there. Record: the
+server's `whoami` returned a `session_id`: no SC-ID-141 diagnostic, so case 3(a) (an inference from the absent diagnostic and the bound session, not a logged case label), through the real chain (Claude, shim, relay, daemon, adapter, core). Ends: the shim connection lasted the session;
+the hook connection ended about 1 ms after it was accepted (the adapter reads its one line and closes it); the daemon stopped on `stop` and exited 0. Limits: print mode only (`claude -p`; no TUI, no dialogs); no channel hand-off or delivery shown;
+the daemon's key was the example's in-memory key; `OAC_SCOPE` was set explicitly in the MCP server's `env` and in the hook command, so its inheritance through Claude Code is not shown (only `XDG_RUNTIME_DIR` was inherited); macOS not run;
+Windows (leg A) not yet run; the daemon's `/proc/<pid>/cwd` read is not reported by the tap. WSL clears `/tmp` on a VM restart: the clone must not live there. Record: the
 note in 11-risks RISK-LOCAL-IPC (2026-10-15, leg B). Evidence files were kept by the implementer (not committed): the daemon's `events.jsonl` of each run.
 
 **Last updated:** 2026-10-15 (**G9, #70, slice 3: the shim's hello line and the adapter's connection places; `spec/bindings/mcp.md` 0.4 and `spec/interfaces.md` 0.10 proposed, lead approval pending; Refs #70**).
@@ -2706,7 +2708,7 @@ Confirmed. Detailed record, sources, and constraint floors: `docs/planning/PINS.
 
 | Surface | Pinned version | Source |
 |---|---|---|
-| Claude Code | **floating**; warn on version, never gate (#216). Minimum `v2.1.282` (first version worked with, G1 2026-09-25); last tested `v2.1.285` (2026-09-29T19:27:30Z UTC; L3, 2026-10-01). The earlier fixed pin was `v2.1.274`. Channels research preview; permission relay `>= v2.1.234` satisfied. §3.1 facts re-checked at `2.1.285` on 2026-10-02 (#122, REVERIFICATION-B2.md) | PINS.md — Claude Code Channels ("Version policy") |
+| Claude Code | **floating**; warn on version, never gate (#216). Minimum `v2.1.282` (first version worked with, G1 2026-09-25); last tested `v2.1.287` (G9 slice 7 leg B, WSL, 2026-10-15; the previous last tested was `v2.1.285`, 2026-09-29T19:27:30Z UTC, L3, 2026-10-01; versions float, warn never gate, #216; `PINS.md` records its own last-tested version separately). The earlier fixed pin was `v2.1.274`. Channels research preview; permission relay `>= v2.1.234` satisfied. §3.1 facts re-checked at `2.1.285` on 2026-10-02 (#122, REVERIFICATION-B2.md) | PINS.md — Claude Code Channels ("Version policy") |
 | MCP | current `2026-07-28`; legacy `2025-11-25` | PINS.md — MCP revisions |
 | Codex CLI | **floating**; warn on version, never gate (#216). Minimum `@openai/codex@0.154.0` (first version worked with, G2 2026-09-25); last tested `@openai/codex@0.160.0`, commit `a956835d020762cb2b570053af06f643a11c0ecc` (2026-10-01T20:19:13Z UTC; G4 herdr run, 2026-10-04). The earlier fixed pin was `0.154.0` | PINS.md — Codex CLI and app-server ("Version policy") |
 | Zenoh | `1.10.1` (2026-09-07); `>= 1.10.0` required for loopback discovery | PINS.md — Zenoh |

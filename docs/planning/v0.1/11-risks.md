@@ -649,10 +649,12 @@ list.
   (#417):** the example live daemon in a test namespace, `claude -p` with `--mcp-config` and `--settings`. Row 58 (ancestry), Linux: the shim is a
   direct child of the process named `claude`; the hook handler is under `sh` under that same process; the daemon found the same harness process
   (pid and start time) for both and paired both; the process kept the name `claude` (no `PR_SET_NAME` rename). Peers were authenticated by
-  `SO_PEERCRED` in the 0700 run directory. Row 19 (environment inheritance), Linux: `OAC_SCOPE` and `XDG_RUNTIME_DIR` reached the shim and the hook
-  command in a real launch (both connected). Row 87 live, Linux: without the hello line (main `a862065`) the daemon logged SC-ID-141 (case 3(c));
-  with it (`8e490a0`, PR #424) it did not, and the real Claude's call of `whoami` returned a session id (case 3(a)). Not shown: channel hand-off,
-  the TUI and its dialogs, macOS, Windows (leg A). The working directory read (`/proc/<pid>/cwd`) is not shown by the daemon's tap.
+  `SO_PEERCRED` in the 0700 run directory. Row 19 (environment inheritance), Linux: `XDG_RUNTIME_DIR` reached the shim and the hook command through
+  Claude Code (both connected to the daemon's run directory). **`OAC_SCOPE` inheritance is not shown:** the test set it in the MCP server's `env` in
+  `mcp.json` and inline in the hook command, so nothing proves that Claude Code passes it on. Row 87 live, Linux: without the hello line (main `a862065`) the daemon logged SC-ID-141 (case 3(c));
+  with it (`8e490a0`, PR #424) it did not, and the real Claude's call of `whoami` returned a session id (case 3(a)). Limits: print mode only
+  (`claude -p`; no TUI, no dialogs); no channel hand-off or delivery shown; the daemon's key was the example's in-memory key; macOS not run; Windows
+  (leg A) not yet run. The working directory read (`/proc/<pid>/cwd`) is not shown by the daemon's tap.
   (Dated note, 2026-10-15, documentation sweep.) **Accepted by the lead, 2026-10-15: the three
   widened D5 residuals of the local IPC and peer pairing.** They are stated here, in
   `docs/planning/v0.1/06-security.md` §12 and threat rows 13 and 24, in `docs/planning/STATUS.md`, and
