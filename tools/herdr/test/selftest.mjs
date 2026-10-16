@@ -278,6 +278,8 @@ function unitRedaction() {
     `env ${secrets.assign}`,
     'contact alice.smith@example.com about buildbox-7.corp.example',
     'scratch /tmp/oac-herdr-scratch-Zq9/captures/pane.txt',
+    String.raw`pipe \\.\pipe\oac-S-1-5-21-1111111111-2222222222-3333333333-1001-lega-claude owner S-1-5-21-1111111111-2222222222-3333333333-500`,
+    String.raw`{"endpoints":["\\\\.\\pipe\\oac-S-1-5-21-1111111111-2222222222-3333333333-1001-claude"]}`,
     '-----BEGIN OPENSSH PRIVATE KEY-----',
     'b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW',
     '-----END OPENSSH PRIVATE KEY-----',
@@ -291,7 +293,7 @@ function unitRedaction() {
   check('redact: scan catches home, username, hostname, literal on unredacted text', ['home path', 'username', 'hostname', 'literal <SCRATCH>'].every((l) => preLeakLabels.has(l)), [...preLeakLabels].join(','));
   check(
     'redact: scan catches generic shapes on unredacted text',
-    ['sk- token', 'github token', 'jwt', 'bearer token', 'aws access key id', 'secret assignment', 'email', 'windows profile path', 'unix home path', 'mangled home path', 'private key block', 'authorization header'].every((l) => preGeneric.has(l)),
+    ['sk- token', 'github token', 'jwt', 'bearer token', 'aws access key id', 'secret assignment', 'email', 'windows profile path', 'unix home path', 'mangled home path', 'private key block', 'authorization header', 'windows account sid'].every((l) => preGeneric.has(l)),
     [...preGeneric].join(','),
   );
   const reportText = JSON.stringify(pre);
@@ -304,6 +306,18 @@ function unitRedaction() {
   check('redact: no identity survives', !/alice|buildbox|bob|carol|oac-herdr-scratch/i.test(text), text);
   check('redact: placeholders present', ['<USER_HOME>', '<USER>', '<HOST>', '<EMAIL>', '<SECRET>', '<SCRATCH>', '<USER_HOME_MANGLED>'].every((p) => text.includes(p)), text);
   check('redact: secret assignment keeps the variable name', text.includes('MY_SERVICE_TOKEN=<SECRET>'));
+  // A SID right after a JSON escape, and in lower case, is flagged by the scan and redacted too.
+  for (const [what, line] of [
+    ['after a JSON \\n', String.raw`{"line":"a\nS-1-5-21-1111111111-2222222222-3333333333-1001"}`],
+    ['after a JSON \\t', String.raw`{"line":"a\tS-1-5-21-1111111111-2222222222-3333333333-1001"}`],
+    ['after a JSON \\r', String.raw`{"line":"a\rS-1-5-21-1111111111-2222222222-3333333333-1001"}`],
+    ['in lower case', 's-1-5-21-1111111111-2222222222-3333333333-1001'],
+  ]) {
+    const flagged = r.scan(line).residualGenericHits.some((h) => h.label === 'windows account sid');
+    const red = r.redactText(line);
+    check(`redact: a SID ${what} is flagged by the scan and redacted`, flagged && !/21-1111111111/.test(red.text) && red.text.includes('<SID>') && reportIsClean(red.report), `${flagged} ${red.text}`);
+  }
+  check('redact: a Windows account SID is replaced, raw and JSON-escaped, and nothing near it is lost', !/S-1-5-21/.test(text) && text.includes('oac-<SID>-lega-claude') && text.includes('owner <SID>') && text.includes('oac-<SID>-claude'), text);
   check('redact: clean line untouched', text.includes('clean line: capabilities {"roots":{"listChanged":true}}'));
   check('redact: second pass is a no-op', r.redactText(text).text === text);
 

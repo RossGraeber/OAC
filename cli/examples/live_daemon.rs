@@ -22,7 +22,9 @@
 //! ```
 //!
 //! It stops on Ctrl-C or when a line `stop` is read on its standard input, and writes a
-//! `stopped` event after the clean shutdown. It is built from `cli/examples/`, which only
+//! `stopped` event after the clean shutdown. The end of its standard input (a closed or empty
+//! input) does not stop it: a run that gives it no input stops it with Ctrl-C or by ending
+//! the process. It is built from `cli/examples/`, which only
 //! `cargo` builds on request: the `oac` binary does not contain it, and it depends on the
 //! in-memory transport, a dev-dependency (`scripts/check-crate-deps.mjs`).
 
@@ -259,7 +261,9 @@ fn main() {
         harnesses: vec![("claude".to_owned(), Arc::new(ClaudeAdapter::new()) as _)],
         log,
     };
-    // A line `stop` on standard input stops the daemon as Ctrl-C does.
+    // A line `stop` on standard input stops the daemon as Ctrl-C does. The end of the input
+    // does not: the sender is kept alive, because a dropped sender would complete the receiver
+    // and stop the daemon.
     let (stop_tx, stop_rx) = tokio::sync::oneshot::channel::<()>();
     std::thread::spawn(move || {
         let stdin = std::io::stdin();
@@ -268,6 +272,10 @@ fn main() {
                 let _ = stop_tx.send(());
                 return;
             }
+        }
+        // End of input (or a read error): nothing more will arrive; keep `stop_tx` alive.
+        loop {
+            std::thread::park();
         }
     });
     let code = runtime.block_on(async {
