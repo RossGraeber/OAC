@@ -3,6 +3,8 @@
 **Source:** `docs/planning/PLANNING-PROMPT.md` §9 item 6, §6; `docs/planning/DESIGN.md`
 §Components; `.claude/skills/oac-spec-authoring/SKILL.md` §4.
 
+**Current revisions (dated note, 2026-10-15, PR #408 merged).** `spec/interfaces.md` revision 0.9 adds IFC-TRN-118 and IFC-TRN-119 (a transport does not refuse a payload for its size up to its declared `max_payload_octets`; a transport that declares `reliability` delivers each payload it takes) and IFC-TRN-120 to IFC-TRN-125 (carrier-appearance events, and the core's announcements under a 1 s hold-off and a 2 s bound). `spec/security.md` 0.5 and `spec/session-channels.md` 0.3 are editorial and change no requirement. This file does not restate them; the spec files are authoritative.
+
 **Scope.** This file fixes the OAC spec surface (envelope, addressing, capabilities,
 presence, delivery states, errors, versioning, unsupported-capability behaviour), the
 provider adapter contract, the transport contract, and the core neutral types, in
