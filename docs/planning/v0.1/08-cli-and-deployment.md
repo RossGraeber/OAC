@@ -35,6 +35,8 @@ style of `docs/planning/v0.1/04-architecture.md` lines 14-23, rather than repeat
 each command. (Dated note, 2026-10-02, #122: this paragraph previously ended "not a
 proven wake path", written before G2 passed.)
 
+(Dated note, 2026-10-15, after PR #413 merged: the `oac` side of `oac start` and `oac mcp-shim` now exists on `main`, and `oac hook` reaches the daemon. The statement above that no command here has run end to end still holds for the live Claude Code and Codex legs, which are the operator's; `oac status`, `oac sessions` and `oac doctor` are not built.)
+
 ---
 
 ## 1. Naming note — the pre-rename CLI block
@@ -479,10 +481,7 @@ only; none is an OAC provider surface.
   `docs/planning/PINS.md` row "Beacon (external memory service)". It is not repeated here.
   The pin holds a fixed version **only while Beacon's package self-updates stay off**
   (L1 §2). Leave them off on an OAC-enabled machine.
-- **OAC installed.** OAC is not released (see "Gate-verdict caveat" at the top of this file).
-  Dated note, 2026-10-15: `main` builds an `oac` binary whose only verb is `oac hook` (PR #405), with
-  the key store (#315, #407), peer observation (#410) and local IPC (#411) behind it. `oac start` and
-  `oac mcp-shim` are not built yet (PR #413, open). The OAC commands below are its documented targets.
+- **OAC installed.** OAC is not released. On `main`, `oac start` (with `--detach`) and `oac mcp-shim` exist (PR #413), and `oac hook` reaches the daemon. `oac status`, `oac sessions` and `oac doctor` are not built (G10). The commands below are the documented targets; see the "Gate-verdict caveat" at the top of this file.
 - **One repository per pair of peers, if they are meant to share memory** (§20.6).
 
 ### 20.2 Beacon side — the operator's own configuration
@@ -533,9 +532,7 @@ Do not run `beacon mcp connect` for this setup. It registers the separate hosted
 
 ### 20.3 OAC side — the launch commands already in this file
 
-Only the commands in §5, §7 and §9 are used. Dated note, 2026-10-15: `oac start` and
-`oac mcp-shim` are not built yet (PR #413, open); the "Gate-verdict caveat" at the top of this
-file applies to each.
+Only the commands in §5, §7 and §9 are used. `oac start` and `oac mcp-shim` are on `main` (PR #413); the live run is the operator's. `oac start` serves on the real Zenoh transport since PR #425 (a multi-thread runtime; the first live run had panicked on a current-thread one). The "Gate-verdict caveat" at the top of this file applies to each.
 
 1. Start the per-device daemon with `oac start` (§5).
 2. Claude Code: launch the session with the development-channel command in §7. The
