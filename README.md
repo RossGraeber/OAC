@@ -41,7 +41,7 @@ supported integration model.
 - A device key store (`cli/src/keystore.rs`, PRs #315 and #407) that uses the operating system's credential store, or an encrypted file where none exists.
 - Peer observation (`cli/src/peer/`, PR #410): which harness process a local connection belongs to, read from the operating system on Windows and Linux. macOS is written, not built.
 - Local IPC (`cli/src/ipc/`, PR #411): a per-user named pipe on Windows or a per-user socket on Unix, with operating-system peer authentication and a one-daemon lock.
-- Interfaces 0.9 (PR #408), and security 0.5 and session-channels 0.3 (PR #418), are in force: their spec headers read "in force".
+- Interfaces 0.11 (PRs #408, #424 and #427), security 0.6 and session-channels 0.4 (PR #427), and the MCP binding 0.4 (PR #424), are in force: their spec headers read "in force".
 
 **Not on `main` yet, or not run:**
 
