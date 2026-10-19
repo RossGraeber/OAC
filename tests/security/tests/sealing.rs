@@ -333,6 +333,8 @@ fn consumer(
     let mut snapshot = store.load().unwrap();
     for record in &mut snapshot.paired {
         let confirmed = match context.get("confirmed").and_then(Json::as_object) {
+            // The open floor: how "none of SEC-SEL-045/048/049 applied" is emulated when
+            // `confirmed` is absent (§14.10), since the engine always applies them.
             None => Some(
                 ConfirmedValues::from_store(
                     *open_key,

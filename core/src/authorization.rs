@@ -1242,6 +1242,9 @@ pub enum RestoreError {
     /// The snapshot holds an agreement statement for a key it does not pair, or two for one
     /// key ([SEC-SEL-015], [SEC-SEL-041]).
     StatementWithoutKey(KeyId),
+    /// The snapshot holds an agreement statement for a key whose pairing confirmed no values,
+    /// or below them ([SEC-SEL-045], [SEC-SEL-048], [SEC-SEL-049]): an old or altered store.
+    StatementBelowConfirmed(KeyId),
 }
 
 impl fmt::Display for RestoreError {
@@ -1249,6 +1252,10 @@ impl fmt::Display for RestoreError {
         match self {
             RestoreError::Store(e) => e.fmt(f),
             RestoreError::DuplicateKey(k) => write!(f, "key {k} paired twice"),
+            RestoreError::StatementBelowConfirmed(k) => write!(
+                f,
+                "agreement statement for key {k} without confirmed values, or below them"
+            ),
             RestoreError::StatementWithoutKey(k) => {
                 write!(
                     f,
@@ -1433,6 +1440,12 @@ impl AuthorizationEngine {
             let key = held.key_id().clone();
             if !engine.paired.contains_key(&key) || engine.agreements.contains_key(&key) {
                 return Err(RestoreError::StatementWithoutKey(key));
+            }
+            // A statement is held only if it meets the floors of the key's pairing; one that
+            // does not comes from an old or altered store and fails closed.
+            let confirmed = engine.paired.get(&key).and_then(PairingRecord::confirmed);
+            if check_confirmed(&held, confirmed).is_err() {
+                return Err(RestoreError::StatementBelowConfirmed(key));
             }
             engine.agreements.insert(key, held);
         }

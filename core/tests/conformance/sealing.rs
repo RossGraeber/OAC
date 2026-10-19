@@ -198,8 +198,7 @@ fn confirmed_of(context: &JsonObject, key: &KeyId) -> Result<Option<ConfirmedVal
 /// ([SEC-SEL-041]). A held statement for a key the context does not trust cannot be
 /// restored at all ([SEC-SEL-015]). The pairing record of each trusted key carries the
 /// values `floor` gives it: the context's `confirmed` when `floor` is `Floor::Context` (the
-/// `agreement` stage with a `confirmed` member), none when it is `Floor::Unset`, and
-/// otherwise values that no statement of the fixture is below, so that the three
+/// `agreement` stage with a `confirmed` member), and otherwise values that no statement of the fixture is below, so that the three
 /// floor rules do not apply.
 fn consumer(
     context: &JsonObject,
@@ -234,7 +233,6 @@ fn consumer(
     let mut snapshot = store.load().map_err(|e| e.to_string())?;
     for record in &mut snapshot.paired {
         let confirmed = match &floor {
-            Floor::Unset => None,
             Floor::Context => confirmed_of(context, &record.key_id())?,
             Floor::Open(key) => Some(
                 ConfirmedValues::from_store(
@@ -276,10 +274,11 @@ fn consumer(
 
 /// What a restored consumer's pairing records carry as confirmed values (see [`consumer`]).
 enum Floor {
-    /// None: the stages that admit no statement.
-    Unset,
     /// The context's `confirmed` member.
     Context,
+    /// How "none of [SEC-SEL-045], [SEC-SEL-048] and [SEC-SEL-049] applied" is emulated when
+    /// the context has no `confirmed` member (§14.10): the engine always applies them, so
+    /// every pairing record carries a floor that no statement of the fixture is below.
     /// Values at `seq` 0, at the earliest time, under this agreement key: no rule of
     /// [SEC-SEL-045], [SEC-SEL-048] or [SEC-SEL-049] applies to a statement under that key.
     Open(AgreementPublicKey),
@@ -360,7 +359,9 @@ fn run_seal(fx: &SealFixture) -> Result<(), String> {
     let context = obj(&fx.v, "context");
     let input = obj(&fx.v, "input");
     let expected = obj(&fx.v, "expected");
-    let (e, _) = consumer(context, SystemClock.now(), Floor::Unset)?;
+    // The stage admits no statement, but the held ones are restored under the open floor.
+    let floor_key = AgreementPublicKey::from_octets([9; 32]).ok_or("floor key")?;
+    let (e, _) = consumer(context, SystemClock.now(), Floor::Open(floor_key))?;
     let recipient = KeyId::parse(str_of(input, "recipient_key_id").ok_or("recipient")?)
         .ok_or("recipient key id")?;
     let want = (

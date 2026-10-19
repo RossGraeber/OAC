@@ -598,3 +598,57 @@ fn s13_confirmed_values_survive_a_restart_and_leave_with_the_key() {
     assert_eq!(c.confirmed_seq(&b), Some(2));
     assert_eq!(c.admit(&statement(&b, 9, 3, &at(-5))), Ok((3, at(-5))));
 }
+
+/// [SEC-SEL-049], [SEC-SEL-045], [SEC-SEL-048]: a store that holds a statement for a key
+/// whose pairing confirmed none, or that is below the confirmed values, can only be old or
+/// altered; the engine refuses to restore from it rather than seal to that key.
+#[test]
+fn s13_a_store_holding_a_statement_below_its_floor_is_refused_at_restore() {
+    use oac_core::authorization::RestoreError;
+    use oac_core::sealing::HeldStatement;
+    let b = identity("bob");
+    let held = |seq: u64, issued: &Timestamp| {
+        HeldStatement::from_store(
+            b.key_id().clone(),
+            AgreementPublicKey::from_octets([6; 32]).unwrap(),
+            seq,
+            issued.clone(),
+        )
+        .unwrap()
+    };
+    let restore = |c: &Consumer| {
+        AuthorizationEngine::restore(
+            &c.own,
+            &c.store,
+            c.clock.clone(),
+            Box::new(MemoryDecisionLog::new()),
+        )
+        .map(|_| ())
+    };
+    // Paired without a statement, a held one appears in the store.
+    let mut c = consumer();
+    c.pair(&b, None);
+    let mut snapshot = c.store.load().unwrap();
+    snapshot.agreement_statements.push(held(9, &at(-5)));
+    c.store.save(&snapshot).unwrap();
+    assert_eq!(
+        restore(&c),
+        Err(RestoreError::StatementBelowConfirmed(b.key_id().clone()))
+    );
+    // Paired with seq 5 at -20, a held statement with a lower seq, or an earlier time.
+    for bad in [held(4, &at(-5)), held(6, &at(-60))] {
+        let mut c = consumer();
+        c.pair(&b, Some(statement(&b, 5, 5, &at(-20))));
+        let mut snapshot = c.store.load().unwrap();
+        snapshot.agreement_statements = vec![bad];
+        c.store.save(&snapshot).unwrap();
+        assert_eq!(
+            restore(&c),
+            Err(RestoreError::StatementBelowConfirmed(b.key_id().clone()))
+        );
+    }
+    // The honest store restores.
+    let mut c = consumer();
+    c.pair(&b, Some(statement(&b, 5, 5, &at(-20))));
+    assert_eq!(restore(&c), Ok(()));
+}

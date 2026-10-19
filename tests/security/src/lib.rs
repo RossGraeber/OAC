@@ -1164,6 +1164,7 @@ pub const THREATS: &[Threat] = &[
             "s13_the_maximum_seq_repairing_refuses_an_older_statement",
             "s13_normal_rotation_is_still_admitted",
             "s13_confirmed_values_survive_a_restart_and_leave_with_the_key",
+            "s13_a_store_holding_a_statement_below_its_floor_is_refused_at_restore",
         ],
         facts: &[],
         core_tests: &[

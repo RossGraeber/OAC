@@ -977,6 +977,9 @@ pub enum AgreementKeyError {
     /// The highest `seq` is [`MAX_STATEMENT_SEQ`]: no later statement can be issued, and the
     /// key can be replaced only by pairing again with a new device key.
     SeqExhausted,
+    /// A restart of the `seq` count was asked for ([SEC-SEL-052]) of an issuer that has
+    /// neither lost its count nor reached [`MAX_STATEMENT_SEQ`]; nothing changed.
+    RestartNotAllowed,
     /// The saved state did not read back.
     ReadBack,
 }
@@ -989,6 +992,9 @@ impl fmt::Display for AgreementKeyError {
             AgreementKeyError::SeqExhausted => {
                 f.write_str("no agreement statement can be issued after the highest seq")
             }
+            AgreementKeyError::RestartNotAllowed => f.write_str(
+                "the seq count may restart only after it was lost or reached the maximum",
+            ),
             AgreementKeyError::ReadBack => {
                 f.write_str("the saved agreement keys did not read back")
             }
@@ -1174,7 +1180,9 @@ impl AgreementKeys {
         AgreementKeys::from_state(identity, &state)
     }
 
-    /// Restarts the `seq` count ([SEC-SEL-052]): one new agreement key whose statement has
+    /// Restarts the `seq` count, only where [SEC-SEL-052] allows it: for an issuer that has
+    /// lost its count (`store` holds no count) or whose count is [`MAX_STATEMENT_SEQ`].
+    /// One new agreement key whose statement has
     /// `seq` 0 and `issued_at` `now`, saved to `store` in place of everything it held
     /// ([SEC-SEL-043]), so [SEC-SEL-040] and [SEC-SEL-043] count only the statements issued
     /// since. Call it only for an issuer that has lost its count or reached
@@ -1187,12 +1195,20 @@ impl AgreementKeys {
     ///
     /// # Errors
     ///
-    /// [`AgreementKeyError`]; nothing changes then.
+    /// [`AgreementKeyError::RestartNotAllowed`] when the store holds a count below
+    /// [`MAX_STATEMENT_SEQ`]; otherwise [`AgreementKeyError`]; nothing changes then.
     pub fn restart_count(
         store: &dyn AgreementKeyStore,
         identity: &DeviceIdentity,
         now: &Timestamp,
     ) -> Result<AgreementKeys, AgreementKeyError> {
+        let allowed = match store.load().map_err(AgreementKeyError::Store)? {
+            None => true,
+            Some(state) => state.highest_seq.is_none_or(|h| h >= MAX_STATEMENT_SEQ),
+        };
+        if !allowed {
+            return Err(AgreementKeyError::RestartNotAllowed);
+        }
         AgreementKeys::generate(store, identity, Vec::new(), 0, now)
     }
 
@@ -1662,17 +1678,38 @@ mod tests {
         keys.replace(&store, &me, &ts("2026-10-09T12:20:00Z"))
             .unwrap();
         assert_eq!(keys.highest_seq(), 1);
-        // A failing store restarts nothing.
-        let held = MemoryAgreementKeyStore::new();
-        let before = AgreementKeys::load_or_generate(&held, &me, &t0).unwrap();
-        held.fail_saves(true);
+        // A count below the maximum may not restart: the issuer has not lost it.
+        let live = MemoryAgreementKeyStore::new();
+        let before = AgreementKeys::load_or_generate(&live, &me, &t0).unwrap();
         assert!(matches!(
-            AgreementKeys::restart_count(&held, &me, &t1),
+            AgreementKeys::restart_count(&live, &me, &t1),
+            Err(AgreementKeyError::RestartNotAllowed)
+        ));
+        assert_eq!(
+            AgreementKeys::load_or_generate(&live, &me, &t1)
+                .unwrap()
+                .statement(),
+            before.statement()
+        );
+        // A store with no count (lost) may restart.
+        assert!(AgreementKeys::restart_count(&MemoryAgreementKeyStore::new(), &me, &t1).is_ok());
+        // A failing store restarts nothing, and the count stays.
+        let max = MemoryAgreementKeyStore::new();
+        max.save(&AgreementKeyState {
+            keys: Vec::new(),
+            highest_seq: Some(MAX_STATEMENT_SEQ),
+        })
+        .unwrap();
+        max.fail_saves(true);
+        assert!(matches!(
+            AgreementKeys::restart_count(&max, &me, &t1),
             Err(AgreementKeyError::Store(_))
         ));
-        held.fail_saves(false);
-        let after = AgreementKeys::load_or_generate(&held, &me, &t1).unwrap();
-        assert_eq!(after.statement(), before.statement());
+        max.fail_saves(false);
+        assert_eq!(
+            max.load().unwrap().unwrap().highest_seq,
+            Some(MAX_STATEMENT_SEQ)
+        );
     }
 
     #[test]
