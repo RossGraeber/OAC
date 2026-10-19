@@ -6,7 +6,11 @@
 //! - `agreement` (§14.3): a consumer built as its `context` says (the trusted keys paired,
 //!   the `admitted` statements held, restored through the pairing store as after a restart)
 //!   admits the statement through `AuthorizationEngine::admit_statement`, and
-//!   `sealing::check_statement` gives the same verdict.
+//!   `sealing::check_statement` gives the same verdict. A context's optional `confirmed`
+//!   (§14.10) gives the values each key's pairing confirmed, kept in the pairing record the
+//!   engine restores, and the engine then also applies [SEC-SEL-045], [SEC-SEL-048] and
+//!   [SEC-SEL-049]. Without it the stage applies none of the three: every trusted key is
+//!   restored with a floor that no statement of the fixture is below.
 //! - `seal` (§14.4): the sender seals only to a statement its engine holds for the
 //!   recipient's key; with none, `refused` with `transport-failure` ([SEC-SEL-023],
 //!   [SEC-SEL-024]). A sealed fixture fixes its ephemeral key, which the `hpke` crate's
@@ -29,8 +33,8 @@ use oac_core::json::{self, Json, JsonObject};
 use oac_core::keys::{DeviceIdentity, DeviceKey, PublicKey};
 use oac_core::pairing::{MemoryPairingStore, PairedPeer, PairingStore};
 use oac_core::sealing::{
-    AgreementPrivateKey, AgreementPublicKey, AgreementStatement, HeldStatement, Recipient,
-    check_statement, open, recipient_of, seal_padded,
+    AgreementPrivateKey, AgreementPublicKey, AgreementStatement, ConfirmedValues, HeldStatement,
+    Recipient, check_confirmed, check_statement, open, recipient_of, seal_padded,
 };
 use oac_core::transport::PayloadKind;
 use std::collections::BTreeMap;
@@ -161,13 +165,46 @@ fn admitted(context: &JsonObject) -> Result<Vec<HeldStatement>, String> {
     Ok(out)
 }
 
+/// The values a context's `confirmed` gives for one trusted key: `None` for `null` or no
+/// member ([SEC-SEL-049]).
+fn confirmed_of(context: &JsonObject, key: &KeyId) -> Result<Option<ConfirmedValues>, String> {
+    let Some(c) = context
+        .get("confirmed")
+        .and_then(Json::as_object)
+        .and_then(|o| o.get(key.as_str()))
+    else {
+        return Ok(None);
+    };
+    let Some(c) = c.as_object() else {
+        return Ok(None);
+    };
+    Ok(Some(
+        ConfirmedValues::from_store(
+            AgreementPublicKey::from_base64url(str_of(c, "agreement_key").ok_or("confirmed key")?)
+                .ok_or("a confirmed agreement key is not acceptable")?,
+            c.get("seq")
+                .and_then(Json::as_number)
+                .and_then(|n| n.plain_integer_in(0, u64::MAX))
+                .ok_or("confirmed seq")?,
+            Timestamp::parse(str_of(c, "issued_at").ok_or("confirmed issued_at")?)
+                .ok_or("confirmed issued_at")?,
+        )
+        .ok_or("confirmed seq out of range")?,
+    ))
+}
+
 /// A consumer as a context describes it, on a clock at `now`: the trusted keys paired, and
 /// the `admitted` statements of trusted keys held, restored from its pairing store
 /// ([SEC-SEL-041]). A held statement for a key the context does not trust cannot be
-/// restored at all ([SEC-SEL-015]).
+/// restored at all ([SEC-SEL-015]). The pairing record of each trusted key carries the
+/// values `floor` gives it: the context's `confirmed` when `floor` is `Floor::Context` (the
+/// `agreement` stage with a `confirmed` member), none when it is `Floor::Unset`, and
+/// otherwise values that no statement of the fixture is below, so that the three
+/// floor rules do not apply.
 fn consumer(
     context: &JsonObject,
     now: Timestamp,
+    floor: Floor,
 ) -> Result<(AuthorizationEngine, MemoryPairingStore), String> {
     let clock: Arc<dyn Clock> = Arc::new(ManualClock::new(now.clone()));
     let own = DeviceIdentity::new(DeviceKey::generate(), Token::parse("oac-test-own").unwrap());
@@ -195,6 +232,21 @@ fn consumer(
         trusted.push(key_id);
     }
     let mut snapshot = store.load().map_err(|e| e.to_string())?;
+    for record in &mut snapshot.paired {
+        let confirmed = match &floor {
+            Floor::Unset => None,
+            Floor::Context => confirmed_of(context, &record.key_id())?,
+            Floor::Open(key) => Some(
+                ConfirmedValues::from_store(
+                    *key,
+                    0,
+                    Timestamp::parse("0000-01-01T00:00:00Z").ok_or("floor time")?,
+                )
+                .ok_or("floor")?,
+            ),
+        };
+        *record = record.clone().with_confirmed(confirmed);
+    }
     for h in admitted(context)? {
         if trusted.contains(h.key_id()) {
             snapshot.agreement_statements.push(h);
@@ -222,18 +274,45 @@ fn consumer(
     Ok((e, store))
 }
 
+/// What a restored consumer's pairing records carry as confirmed values (see [`consumer`]).
+enum Floor {
+    /// None: the stages that admit no statement.
+    Unset,
+    /// The context's `confirmed` member.
+    Context,
+    /// Values at `seq` 0, at the earliest time, under this agreement key: no rule of
+    /// [SEC-SEL-045], [SEC-SEL-048] or [SEC-SEL-049] applies to a statement under that key.
+    Open(AgreementPublicKey),
+}
+
 /// Stage `agreement` (§14.3).
 fn run_agreement(fx: &SealFixture) -> Result<(), String> {
     let context = obj(&fx.v, "context");
     let now = Timestamp::parse(str_of(context, "consumer_time").ok_or("consumer_time")?)
         .ok_or("consumer_time")?;
-    let (mut e, store) = consumer(context, now.clone())?;
     let statement = AgreementStatement::from_json(
         obj(&fx.v, "input")
             .get("statement")
             .ok_or("input.statement")?,
     )
     .ok_or("statement is not an object")?;
+    // [SEC-SEL-045], [SEC-SEL-048], [SEC-SEL-049] apply only when the context says what the
+    // pairings confirmed (§14.10).
+    let floor = if context.contains("confirmed") {
+        Floor::Context
+    } else {
+        // A statement that is refused before the floors (§14.3) needs no real key here.
+        Floor::Open(
+            statement
+                .as_json()
+                .get("agreement_key")
+                .and_then(Json::as_str)
+                .and_then(AgreementPublicKey::from_base64url)
+                .or_else(|| AgreementPublicKey::from_octets([9; 32]))
+                .ok_or("floor key")?,
+        )
+    };
+    let (mut e, store) = consumer(context, now.clone(), floor)?;
     let want = str_of(obj(&fx.v, "expected"), "result").ok_or("expected.result")?;
     let direct = check_statement(
         &statement,
@@ -241,6 +320,20 @@ fn run_agreement(fx: &SealFixture) -> Result<(), String> {
         |k| e.held_statement(k).cloned(),
         &now,
     );
+    // The pure check covers [SEC-SEL-010] to [SEC-SEL-014] and [SEC-SEL-042]; with a
+    // `confirmed` member the stage adds the floors of [SEC-SEL-045], [SEC-SEL-048] and
+    // [SEC-SEL-049], which `check_confirmed` gives for the signing key's confirmed values.
+    let direct = if context.contains("confirmed") {
+        match direct {
+            Ok(h) => {
+                let c = confirmed_of(context, h.key_id())?;
+                check_confirmed(&h, c.as_ref()).map(|()| h)
+            }
+            err => err,
+        }
+    } else {
+        direct
+    };
     let got = e.admit_statement(&statement, &store).cloned();
     if direct.is_ok() != got.is_ok() {
         return Err(format!("check_statement {direct:?}, the engine {got:?}"));
@@ -267,7 +360,7 @@ fn run_seal(fx: &SealFixture) -> Result<(), String> {
     let context = obj(&fx.v, "context");
     let input = obj(&fx.v, "input");
     let expected = obj(&fx.v, "expected");
-    let (e, _) = consumer(context, SystemClock.now())?;
+    let (e, _) = consumer(context, SystemClock.now(), Floor::Unset)?;
     let recipient = KeyId::parse(str_of(input, "recipient_key_id").ok_or("recipient")?)
         .ok_or("recipient key id")?;
     let want = (

@@ -1,0 +1,46 @@
+{
+  "fixture_format": "oac-sealing-fixture/1",
+  "requirement": "SEC-SEL-045",
+  "spec": "spec/security.md",
+  "spec_revision": "0.6",
+  "kind": "positive",
+  "description": "The statement Bob's pairing confirmed (seq 5, the same agreement key and issued_at) is admitted by a consumer that holds none: a seq equal to the confirmed one under the confirmed key is not below it.",
+  "stage": "agreement",
+  "context": {
+    "consumer_time": "2026-10-09T13:00:00Z",
+    "trusted_keys": [
+      {
+        "principal": "principal-a",
+        "key_id": "b3db3806621d3de16e61d08fcb01841f6c60c54a68e7d482076677db5c44d174",
+        "public_key": "b88HyoN6BEjyTX4WNo6n8JJcjhXQUuVjex4U1p-vqzc"
+      },
+      {
+        "principal": "principal-b",
+        "key_id": "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a",
+        "public_key": "nAwqaFMHIMyOtfh4ovJIGr8MJhLV3qhFaN550YS7M2g"
+      }
+    ],
+    "confirmed": {
+      "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a": {
+        "agreement_key": "wcSSzJLhvIMKmwB60NLYtLZcibdrU5_XcugIsJugBG8",
+        "seq": 5,
+        "issued_at": "2026-10-09T12:00:00Z"
+      }
+    }
+  },
+  "input": {
+    "statement": {
+      "agreement_key": "wcSSzJLhvIMKmwB60NLYtLZcibdrU5_XcugIsJugBG8",
+      "seq": 5,
+      "issued_at": "2026-10-09T12:00:00Z",
+      "security": {
+        "principal": "principal-b",
+        "key_id": "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a",
+        "signature": "NbmI-FQ_cvjgNl5VYWXZgvFBjgGTf46SFaTO9tH0tJMzK6o5lEuxW-DtXk4ZwkvwEtYqvoa1A-NkzDwqZoFGCw"
+      }
+    }
+  },
+  "expected": {
+    "result": "admitted"
+  }
+}
