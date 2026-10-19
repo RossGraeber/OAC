@@ -1,5 +1,8 @@
 # OAC status
 
+**Last updated:** 2026-10-18 (**status only: the spec revisions merged by PR #424 and PR #427 are marked in force; Refs #409, Refs #70**).
+`spec/bindings/mcp.md` 0.4 and `spec/interfaces.md` 0.10 are in force from the merge of PR #424 (b0ac514). `spec/security.md` 0.6, `spec/session-channels.md` 0.4 and `spec/interfaces.md` 0.11 are in force from the merge of PR #427 (5a74c6b). Each header and revision-history row changes from "proposed; lead approval pending" to "in force"; no version bump, no normative text, requirement or fixture changes. README and `docs/planning/v0.1/05-interfaces.md` name the current revisions.
+
 **Last updated:** 2026-10-15 (**G9, #70, slice 7, leg A: the daemon and a real Claude Code on Windows, driven by herdr; Refs #70**).
 Scenario `g9-claude-pairing` (not verdict-bearing; committed in #431, open; during the run the `tools/herdr` tree was dirty because it held this scenario uncommitted), herdr `0.9.1` (executable sha256 equal to the PINS.md expectation), driver commit `03d0fd1`, run `20261016T034720Z-5817f2`, outcome PASS, teardown
 clean (`legA-run1/run-manifest.json`). Windows 11, Claude Code `2.1.285` (the Windows install; `harnessVersions`). Pane A ran `cli/examples/live_daemon.rs` in namespace `lega` (in-memory key); pane B ran a real `claude -p` with `--mcp-config`,
