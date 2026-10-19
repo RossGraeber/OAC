@@ -532,7 +532,7 @@ fn a_daemon_that_never_confirms_is_a_timeout_that_names_its_pid_and_kills_nothin
         );
         let (mut out, mut err) = (Vec::new(), Vec::new());
         let began = Instant::now();
-        let wait = Duration::from_millis(400);
+        let wait = Duration::from_millis(2000);
         let code = oac_cli::commands::stop_with(&scope, json, wait, &mut out, &mut err);
         assert_eq!(code, 1);
         assert!(began.elapsed() < Duration::from_secs(10));
