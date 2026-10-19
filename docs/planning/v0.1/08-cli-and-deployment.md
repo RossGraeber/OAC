@@ -133,8 +133,21 @@ Reproduced from `docs/planning/decisions/C2-process-model.md` §6.
 | `oac status` | Report daemon up/down, device id, and transport state (peer up/down). | `0` when the daemon is up and reachable over IPC; non-zero when down or unreachable — scriptable as a liveness check. |
 | `oac sessions` | List sessions currently registered with the daemon. | `0` on a successful listing (including an empty list); non-zero if the daemon is unreachable. |
 | `oac doctor` | Preflight check (§6 below expands the check list). | `0` only if every check passes; non-zero and a per-check report otherwise. |
+| `oac stop` | Stop the running per-device daemon cleanly (G10, #71; lead approval 2026-10-18). Connects to the daemon's reserved `control` endpoint (same lock, same peer authentication as a harness endpoint; no adapter, no session), asks it to stop, and waits at most about 15 s for the daemon to say it has finished: endpoints closed, presence withdrawn, transport shut down and the lock released, so a new `oac start` may follow at once. **Never kills anything**: on timeout it prints the daemon's pid and exits `1`. With no daemon running it prints "not running" and exits `0` (there is nothing to stop). `--json` prints one canonical JSON object on standard output with `"oac_cli":1` (and `"was_running"`); diagnostics go to standard error. | `0` stopped, or not running; `1` timed out or failed; `2` usage; `4` the endpoint is another user's, busy, or the daemon speaks another control-protocol version. |
 | `oac mcp-shim` | The stdio MCP server Claude Code and Codex spawn as their child process; connects to the daemon over local IPC. **Not meant to be typed by hand** — a harness config entry invokes it, a person does not run it directly. | N/A as a person-typed command; governed by the spawning harness's own process lifecycle. |
 | *(named, semantics deferred)* | A pairing subcommand and any device-setup subcommand a future launch decision needs. Named here as a reserved placeholder; no flags or output shape are specified. Semantics owned by `docs/planning/decisions/C5-envelope-auth.md` §10(b) (pairing) — not designed here. | Not specified. |
+
+**Exit codes of the verbs (G10, #71; approved 2026-10-18).** The `--json` form of a verb prints one canonical (RFC 8785) JSON object on standard output with `"oac_cli":1`; diagnostics go to standard error.
+
+| Code | Meaning |
+|---|---|
+| `0` | OK. For `oac stop`, also "the daemon was not running". |
+| `1` | Failed, or timed out (`oac stop` after about 15 s, with the daemon's pid; nothing is killed). |
+| `2` | Usage error. |
+| `3` | The daemon is not running (the verbs that need one, `status` and `sessions`, when they exist; `stop` uses `0`, lead decision Q1). |
+| `4` | The daemon is unreachable or incompatible: the endpoint is served by another user's process, every instance stayed busy, or the control-protocol version differs. |
+
+(Dated note, 2026-10-18, #71: `oac stop` and the reserved `control` endpoint are on this branch of G10 slice 1. `oac start --detach` probes the `control` endpoint, not the `claude` endpoint, for "already running" and for "now serving", so the probe no longer takes an adapter place (`11-risks.md` row 86).)
 
 ---
 

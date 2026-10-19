@@ -2,8 +2,8 @@
 
 //! The `oac` binary.
 //!
-//! `oac start`, `oac mcp-shim` and `oac hook` (G9, #70; `status`, `sessions` and `doctor` are
-//! G10's). This crate builds the adapters and the transport and hands them to the daemon,
+//! `oac start`, `oac mcp-shim` and `oac hook` (G9, #70) and `oac stop` (G10, #71; `status`,
+//! `sessions` and `doctor` are the rest of G10). This crate builds the adapters and the transport and hands them to the daemon,
 //! which hands them to the core; it never invokes an adapter or transport contract operation
 //! itself (`docs/planning/v0.1/07-repository-and-dependencies.md` section 3).
 
@@ -22,6 +22,7 @@ fn main() {
     match args.first().map(String::as_str) {
         Some("start") => std::process::exit(commands::start(&args[1..])),
         Some("mcp-shim") => std::process::exit(commands::mcp_shim(&args[1..])),
+        Some("stop") => std::process::exit(commands::stop(&args[1..])),
         _ => {}
     }
     let mut stdin = io::stdin().lock();

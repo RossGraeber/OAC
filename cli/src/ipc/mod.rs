@@ -205,7 +205,7 @@ impl Scope {
     }
 
     /// The endpoint for harness `label` (lower-case letters and digits, starting with a
-    /// letter; `lock` is reserved).
+    /// letter; `lock` is reserved, and `control` is the daemon's control endpoint).
     pub fn endpoint(&self, label: &str) -> Endpoint {
         assert!(label_is_valid(label), "an endpoint label is [a-z][a-z0-9]*");
         Endpoint {
@@ -232,7 +232,13 @@ pub fn scope_name_is_valid(name: &str) -> bool {
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
 }
 
-/// True for a label an endpoint can carry.
+/// The reserved label of the daemon's control endpoint (G10 #71). It is served under the same
+/// lock, with the same peer authentication, as a harness endpoint, but no adapter is behind
+/// it and no session can be bound on it: it is not a harness label ([`harness_label_is_valid`]).
+pub const CONTROL_LABEL: &str = "control";
+
+/// True for a label an endpoint can carry: the harness labels and [`CONTROL_LABEL`]
+/// (`lock` is reserved for the daemon lock).
 pub fn label_is_valid(label: &str) -> bool {
     let mut chars = label.chars();
     label != "lock"
@@ -241,7 +247,13 @@ pub fn label_is_valid(label: &str) -> bool {
         && label.len() <= 32
 }
 
-/// One endpoint: a scope and a harness label.
+/// True for a label a harness can be served under (`claude`, `codex`): a valid label that is
+/// neither `lock` nor [`CONTROL_LABEL`]. `oac mcp-shim --harness control` is refused by this.
+pub fn harness_label_is_valid(label: &str) -> bool {
+    label_is_valid(label) && label != CONTROL_LABEL
+}
+
+/// One endpoint: a scope and a label.
 #[derive(Clone, Debug)]
 pub struct Endpoint {
     scope: Scope,

@@ -36,10 +36,26 @@ async fn the_run_directory_is_0700_and_the_socket_0600() {
     let lock = scope.acquire_lock().await.unwrap();
     let endpoint = scope.endpoint("claude");
     let _listener = endpoint.serve(&lock).await.unwrap();
+    // The daemon's control endpoint (G10, #71) is served the same way: the same mode, owner.
+    let control = scope.endpoint("control");
+    let _control_listener = control.serve(&lock).await.unwrap();
     let dir = dir_of(&endpoint);
     let socket = PathBuf::from(endpoint.display_name());
     assert_eq!(mode(&dir), 0o700);
     assert_eq!(mode(&socket), 0o600);
+    let control_socket = PathBuf::from(control.display_name());
+    assert_eq!(mode(&control_socket), 0o600);
+    assert_eq!(
+        fs::metadata(&control_socket).unwrap().uid(),
+        unsafe { libc::geteuid() },
+        "the control socket is the user's"
+    );
+    assert!(
+        fs::symlink_metadata(&control_socket)
+            .unwrap()
+            .file_type()
+            .is_socket()
+    );
     // The umask does not decide it.
     assert_eq!(fs::metadata(&dir).unwrap().uid(), unsafe {
         libc::geteuid()
