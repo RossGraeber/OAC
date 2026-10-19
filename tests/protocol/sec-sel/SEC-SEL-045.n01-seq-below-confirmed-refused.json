@@ -1,0 +1,47 @@
+{
+  "fixture_format": "oac-sealing-fixture/1",
+  "requirement": "SEC-SEL-045",
+  "spec": "spec/security.md",
+  "spec_revision": "0.6",
+  "kind": "negative",
+  "failure_mode": "seq below the confirmed seq, with no statement held",
+  "description": "A statement for Bob with seq 4, below the seq 5 his pairing confirmed, is refused although it is issued later and the consumer holds no statement for Bob: nothing older than the pairing is admitted at a later time.",
+  "stage": "agreement",
+  "context": {
+    "consumer_time": "2026-10-09T13:00:00Z",
+    "trusted_keys": [
+      {
+        "principal": "principal-a",
+        "key_id": "b3db3806621d3de16e61d08fcb01841f6c60c54a68e7d482076677db5c44d174",
+        "public_key": "b88HyoN6BEjyTX4WNo6n8JJcjhXQUuVjex4U1p-vqzc"
+      },
+      {
+        "principal": "principal-b",
+        "key_id": "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a",
+        "public_key": "nAwqaFMHIMyOtfh4ovJIGr8MJhLV3qhFaN550YS7M2g"
+      }
+    ],
+    "confirmed": {
+      "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a": {
+        "agreement_key": "wcSSzJLhvIMKmwB60NLYtLZcibdrU5_XcugIsJugBG8",
+        "seq": 5,
+        "issued_at": "2026-10-09T12:00:00Z"
+      }
+    }
+  },
+  "input": {
+    "statement": {
+      "agreement_key": "23CAsLfguWcZ_lB_LEDtITT6oqdmdlTBsKn5lCafOSg",
+      "seq": 4,
+      "issued_at": "2026-10-09T12:30:00Z",
+      "security": {
+        "principal": "principal-b",
+        "key_id": "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a",
+        "signature": "StSKkSzUDRnIq87dY2SWmRy6wdGnDn24v-jgGU9EpOFCjT8vkXQTjyDirIlpuv1tBB7kdPDyR1uwlub9E7uEAQ"
+      }
+    }
+  },
+  "expected": {
+    "result": "refused"
+  }
+}

@@ -24,8 +24,12 @@ function resolve(trusted, sec) {
 }
 
 // Whether a consumer whose clock reads `now` (nanoseconds) admits `st`, given its trusted
-// keys and the statements it holds (§14.3).
-export function admits(trusted, held, st, now) {
+// keys, the statements it holds and, optionally, the values each key's pairing confirmed
+// (§14.3, §14.10). `confirmed` is undefined when the context has no `confirmed` member; the
+// stage then applies none of [SEC-SEL-045], [SEC-SEL-048] and [SEC-SEL-049]. Otherwise it is
+// an object keyed by key id, each entry the confirmed values or null, and a trusted key with
+// no entry counts as null.
+export function admits(trusted, held, st, now, confirmed) {
   if (!isObj(st) || Object.keys(st).length !== STATEMENT_MEMBERS.length || !STATEMENT_MEMBERS.every((m) => has(st, m))) return false; // [SEC-SEL-010]
   const sec = st.security;
   if (!isObj(sec) || Object.keys(sec).sort().join() !== 'key_id,principal,signature') return false; // [SEC-SEL-010]
@@ -38,6 +42,12 @@ export function admits(trusted, held, st, now) {
   if (t >= now + REPLAY_WINDOW_NS) return false; // [SEC-SEL-042]
   const prior = held[sec.key_id];
   if (prior && st.seq <= prior.seq) return false; // [SEC-SEL-014]: by seq, never by issued_at
+  if (confirmed !== undefined) {
+    const c = has(confirmed, sec.key_id) ? confirmed[sec.key_id] : null;
+    if (!isObj(c)) return false; // [SEC-SEL-049]: no confirmed values, no statement
+    if (st.seq < c.seq || (st.seq === c.seq && st.agreement_key !== c.agreement_key)) return false; // [SEC-SEL-045]
+    if (t < parseTimestamp(c.issued_at)) return false; // [SEC-SEL-048]: the confirmed statement's, not the held one's
+  }
   return true;
 }
 
@@ -46,7 +56,7 @@ export function agreement(fx) {
   const c = toPlain(fx.context);
   const now = parseTimestamp(c.consumer_time);
   if (now === null) throw new Error('context.consumer_time is not a timestamp');
-  return { result: admits(c.trusted_keys || [], c.admitted || {}, toPlain(fx.input).statement, now) ? 'admitted' : 'refused' };
+  return { result: admits(c.trusted_keys || [], c.admitted || {}, toPlain(fx.input).statement, now, c.confirmed) ? 'admitted' : 'refused' };
 }
 
 export function seal(fx) {

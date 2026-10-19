@@ -49,7 +49,10 @@ use crate::pairing::{PairedPeer, PairingRecord, PairingSnapshot, PairingStore, P
 use crate::registration::RegistrationRecord;
 use crate::replay::REPLAY_WINDOW_MS;
 use crate::reply::{EnvelopeRecord, ReplyHeaders, reply_headers};
-use crate::sealing::{AgreementStatement, HeldStatement, StatementRefusal, check_statement};
+use crate::sealing::{
+    AgreementStatement, ConfirmedValues, HeldStatement, StatementRefusal, check_confirmed,
+    check_statement,
+};
 use crate::trust::{AddKeyError, TrustedKeySet};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt;
@@ -1239,6 +1242,9 @@ pub enum RestoreError {
     /// The snapshot holds an agreement statement for a key it does not pair, or two for one
     /// key ([SEC-SEL-015], [SEC-SEL-041]).
     StatementWithoutKey(KeyId),
+    /// The snapshot holds an agreement statement for a key whose pairing confirmed no values,
+    /// or below them ([SEC-SEL-045], [SEC-SEL-048], [SEC-SEL-049]): an old or altered store.
+    StatementBelowConfirmed(KeyId),
 }
 
 impl fmt::Display for RestoreError {
@@ -1246,6 +1252,10 @@ impl fmt::Display for RestoreError {
         match self {
             RestoreError::Store(e) => e.fmt(f),
             RestoreError::DuplicateKey(k) => write!(f, "key {k} paired twice"),
+            RestoreError::StatementBelowConfirmed(k) => write!(
+                f,
+                "agreement statement for key {k} without confirmed values, or below them"
+            ),
             RestoreError::StatementWithoutKey(k) => {
                 write!(
                     f,
@@ -1268,6 +1278,9 @@ pub struct KeyRemoval {
     pub bindings: Vec<SessionId>,
     /// The agreement statement held for the key, if any ([SEC-SEL-015]).
     pub agreement_statement: Option<HeldStatement>,
+    /// The values its pairing confirmed, if any, removed in the same step
+    /// ([SEC-SEL-047]).
+    pub confirmed: Option<ConfirmedValues>,
 }
 
 /// A message that passed security step 4: the only input step 5,
@@ -1428,6 +1441,12 @@ impl AuthorizationEngine {
             if !engine.paired.contains_key(&key) || engine.agreements.contains_key(&key) {
                 return Err(RestoreError::StatementWithoutKey(key));
             }
+            // A statement is held only if it meets the floors of the key's pairing; one that
+            // does not comes from an old or altered store and fails closed.
+            let confirmed = engine.paired.get(&key).and_then(PairingRecord::confirmed);
+            if check_confirmed(&held, confirmed).is_err() {
+                return Err(RestoreError::StatementBelowConfirmed(key));
+            }
             engine.agreements.insert(key, held);
         }
         Ok(engine)
@@ -1555,18 +1574,20 @@ impl AuthorizationEngine {
     ///
     /// When the pairing carried the peer's agreement statement (`spec/security.md` §14.3,
     /// "Pairing"), it is admitted in the same step under [SEC-SEL-012] to [SEC-SEL-014],
-    /// with no further confirmation, and saved with the key. A statement that is refused
-    /// leaves the pairing standing, with no statement held: payloads to that device are then
-    /// not passed to a sealing transport ([SEC-SEL-024]) until a later statement is admitted
-    /// ([`AuthorizationEngine::admit_statement`]). [`AuthorizationEngine::held_statement`]
-    /// says which.
+    /// with no further confirmation, and saved with the key. Its `agreement_key`, `seq` and
+    /// `issued_at` are the pairing's confirmed values ([SEC-SEL-044]), kept and saved with
+    /// the key ([SEC-SEL-046]); every later statement of the key must meet them
+    /// ([`AuthorizationEngine::admit_statement`]). A statement that is refused, or none,
+    /// leaves the pairing standing with no statement held and no confirmed values: payloads
+    /// to that device are then not passed to a sealing transport ([SEC-SEL-024]), and the key
+    /// admits no statement ([SEC-SEL-049]) until it is removed and paired again.
+    /// [`AuthorizationEngine::held_statement`] says which.
     pub fn pair(&mut self, peer: PairedPeer, store: &dyn PairingStore) -> Result<(), PairError> {
         let (record, statement) = peer.into_parts();
         let key_id = record.key_id();
         self.trusted
             .add_paired_key(record.principal().clone(), *record.public_key())
             .map_err(PairError::AlreadyTrusted)?;
-        self.paired.insert(key_id.clone(), record);
         let admitted = statement.and_then(|st| {
             let now = self.clock.now();
             // Only a statement signed by the key being paired is taken with it.
@@ -1574,6 +1595,8 @@ impl AuthorizationEngine {
                 .ok()
                 .filter(|h| h.key_id() == &key_id)
         });
+        let record = record.with_confirmed(admitted.as_ref().map(ConfirmedValues::of_held));
+        self.paired.insert(key_id.clone(), record);
         if let Some(h) = admitted.clone() {
             self.agreements.insert(key_id.clone(), h);
         }
@@ -1598,8 +1621,12 @@ impl AuthorizationEngine {
 
     /// Admits `statement`, carried at pairing or over any later channel, under
     /// [SEC-SEL-010] to [SEC-SEL-014] and [SEC-SEL-042] at the engine clock's time, in place
-    /// of the statement held for its key, and saves it to `store` ([SEC-SEL-041]). This
-    /// device's own statement is admitted with [`AuthorizationEngine::admit_own_statement`].
+    /// of the statement held for its key, and saves it to `store` ([SEC-SEL-041]). It also
+    /// meets the values the key's pairing confirmed: no `seq` below the confirmed one, or the
+    /// confirmed one under another agreement key ([SEC-SEL-045]), no `issued_at` earlier than
+    /// the confirmed one ([SEC-SEL-048]), and none at all for a key whose pairing confirmed no
+    /// values ([SEC-SEL-049]). This device's own statement is admitted with
+    /// [`AuthorizationEngine::admit_own_statement`].
     ///
     /// # Errors
     ///
@@ -1623,6 +1650,11 @@ impl AuthorizationEngine {
             // Its source is this device's agreement key store, not the pairing store.
             return self.admit_own_statement(statement);
         }
+        // [SEC-SEL-049], [SEC-SEL-045], [SEC-SEL-048]: the floors of the key's pairing.
+        check_confirmed(
+            &held,
+            self.paired.get(&key).and_then(PairingRecord::confirmed),
+        )?;
         let seq = held.seq();
         let previous = self.agreements.insert(key.clone(), held);
         if let Err(e) = self.save(store) {
@@ -1693,7 +1725,11 @@ impl AuthorizationEngine {
         self.trusted
             .remove(key_id)
             .ok_or(RemoveKeyError::NotTrusted)?;
-        self.paired.remove(key_id);
+        // [SEC-SEL-047]: the confirmed values are part of the record and go with it.
+        let confirmed = self
+            .paired
+            .remove(key_id)
+            .and_then(|r| r.confirmed().cloned());
         // [SEC-SEL-015]: its agreement statement goes in the same step.
         let agreement_statement = self.agreements.remove(key_id);
         let (removed, kept): (Vec<Grant>, Vec<Grant>) = std::mem::take(&mut self.grants)
@@ -1724,6 +1760,7 @@ impl AuthorizationEngine {
             grants: removed,
             bindings,
             agreement_statement,
+            confirmed,
         })
     }
 
