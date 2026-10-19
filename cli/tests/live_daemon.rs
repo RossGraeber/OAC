@@ -41,9 +41,13 @@ struct Daemon {
 
 impl Daemon {
     fn start(namespace: &str) -> Daemon {
+        Daemon::start_with(namespace, Stdio::piped())
+    }
+
+    fn start_with(namespace: &str, stdin: Stdio) -> Daemon {
         let mut child = Command::new(example())
             .args(["--namespace", namespace])
-            .stdin(Stdio::piped())
+            .stdin(stdin)
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
             .spawn()
@@ -86,6 +90,7 @@ impl Daemon {
     }
 
     fn stop(&mut self) {
+        // (only for a daemon started with a piped standard input)
         let mut stdin = self.child.stdin.take().unwrap();
         writeln!(stdin, "stop").unwrap();
         stdin.flush().unwrap();
@@ -164,4 +169,30 @@ fn the_live_daemon_needs_a_namespace_and_refuses_one_that_is_not_a_name() {
         assert!(!out.status.success(), "{args:?}");
         assert!(out.stdout.is_empty(), "{args:?}");
     }
+}
+
+/// The end of the daemon's standard input is not a stop (a run with no input, such as one in
+/// the background, must keep serving): with the input closed from the start it still serves,
+/// is still connectable, and stops only when it is ended.
+#[test]
+fn the_end_of_standard_input_does_not_stop_the_live_daemon() {
+    let namespace = format!("ld{}e", std::process::id());
+    let scope = Scope::for_user_in(Some(&namespace)).unwrap();
+    let mut daemon = Daemon::start_with(&namespace, Stdio::null());
+    #[cfg(unix)]
+    {
+        daemon.namespace_dir = std::path::Path::new(&scope.endpoint("claude").display_name())
+            .parent()
+            .map(std::path::Path::to_path_buf);
+    }
+    daemon.wait_for("ready");
+    // Long enough for a stop on end of input to have happened and been written.
+    std::thread::sleep(Duration::from_millis(800));
+    assert!(
+        daemon.child.try_wait().unwrap().is_none(),
+        "the daemon ended on the end of its standard input"
+    );
+    let stream = scope.endpoint("claude").connect_blocking().unwrap();
+    daemon.wait_for("accepted");
+    drop(stream);
 }
