@@ -1147,6 +1147,16 @@ pub const THREATS: &[Threat] = &[
         gated: &[],
     },
     Threat {
+        row: "S13-stale-statement",
+        attack: "Stale, stripped or substituted agreement statement at and after pairing",
+        spec13: &["Stale, stripped or substituted agreement statement"],
+        tests: &[],
+        facts: &[],
+        core_tests: &[],
+        status: Status::OpenRisk,
+        gated: &[],
+    },
+    Threat {
         row: "S13-sealing",
         attack: "Reading, misdirecting or unsealing payloads on a shared transport",
         spec13: &[
