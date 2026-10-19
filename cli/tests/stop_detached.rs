@@ -131,6 +131,8 @@ fn oac_stop_stops_a_detached_daemon_cleanly() {
     );
 
     // `stop` returned after the shutdown: the events record it, and the process exits 0.
+    // (The example writes `stopped` after the reply to the requester: wait for it.)
+    daemon.wait_for("stopped");
     let recorded = daemon.events();
     assert!(
         recorded.contains("\"event\":\"stop_requested\""),

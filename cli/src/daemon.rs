@@ -384,9 +384,13 @@ impl Daemon {
         for task in self.tasks {
             let _ = task.await;
         }
-        shutdown_pipelines(self.pipelines).await;
-        self.log
-            .line("shut down: presence withdrawn and the transport closed");
+        if shutdown_pipelines(self.pipelines).await {
+            self.log
+                .line("shut down: withdrawals sent, transport shut down");
+        } else {
+            self.log
+                .line("shutdown of the core failed: its task did not complete");
+        }
         drop(self.lock);
         self.control.finish().await;
     }
@@ -394,8 +398,11 @@ impl Daemon {
 
 /// `Pipelines::shutdown` blocks (adapters close their connections, withdrawals are sent), so
 /// it runs off the runtime's thread.
-async fn shutdown_pipelines(pipelines: Arc<Pipelines>) {
-    let _ = tokio::task::spawn_blocking(move || pipelines.shutdown()).await;
+/// Whether the blocking task completed.
+async fn shutdown_pipelines(pipelines: Arc<Pipelines>) -> bool {
+    tokio::task::spawn_blocking(move || pipelines.shutdown())
+        .await
+        .is_ok()
 }
 
 /// What an accept loop serves.

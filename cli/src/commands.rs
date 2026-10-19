@@ -291,6 +291,11 @@ pub fn stop_with(
                 .to_owned(),
             "{\"oac_cli\":1,\"ok\":false,\"error\":\"version\",\"was_running\":true}".to_owned(),
         ),
+        StopOutcome::Busy => (
+            EXIT_UNREACHABLE,
+            "oac stop: the daemon's control endpoint stayed busy; try again".to_owned(),
+            "{\"oac_cli\":1,\"ok\":false,\"error\":\"busy\",\"was_running\":true}".to_owned(),
+        ),
         StopOutcome::Unreachable(why) => (
             EXIT_UNREACHABLE,
             format!("oac stop: the daemon could not be reached: {why}"),

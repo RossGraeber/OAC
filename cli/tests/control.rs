@@ -375,7 +375,7 @@ fn a_real_oac_stop_stops_the_daemon_and_the_lock_is_free_when_it_returns() {
     let requested = log
         .find("stopping (requested over the local IPC)")
         .expect(&log);
-    let shut = log.find("shut down: presence withdrawn").expect(&log);
+    let shut = log.find("shut down: withdrawals sent").expect(&log);
     assert!(requested < shut, "{log}");
 
     // Nothing serves any endpoint now, and a second stop finds nothing to stop.
@@ -475,7 +475,7 @@ fn a_fifth_concurrent_control_connection_is_refused() {
     let end = Instant::now() + WAIT;
     loop {
         // A place frees when the daemon sees the close; a stop in the meantime may be
-        // answered `busy` and exits 1, so ask again until it is served.
+        // answered `busy`, which `oac stop` retries until its deadline.
         let out = rig.oac(&["stop", "--json"]);
         if out.code() == Some(0) {
             assert!(out.stdout.contains("\"stopped\":true"), "{}", out.stdout);
@@ -493,8 +493,8 @@ fn a_fifth_concurrent_control_connection_is_refused() {
 
 // ---- the client against a daemon that misbehaves ---------------------------------------
 
-/// A control endpoint that answers `reply` to the first request and, for `hold`, keeps the
-/// connection open.
+/// A control endpoint that answers every request with `replies` and keeps each connection
+/// open until the test ends.
 fn fake_control(scope: &Scope, rt: &Rt, replies: &'static [&'static str]) {
     let scope = scope.clone();
     let (ready_tx, ready) = mpsc::channel();
@@ -504,17 +504,17 @@ fn fake_control(scope: &Scope, rt: &Rt, replies: &'static [&'static str]) {
         let lock = scope.acquire_lock().await.unwrap();
         let mut listener = scope.endpoint("control").serve(&lock).await.unwrap();
         let _ = ready_tx.send(());
-        if let Ok(Accept::Connection(mut c)) = listener.accept().await {
+        let mut held = Vec::new();
+        while let Ok(Accept::Connection(mut c)) = listener.accept().await {
             let mut buf = [0u8; 256];
             let _ = c.stream.read(&mut buf).await;
             for r in replies {
                 let _ = c.stream.write_all(r.as_bytes()).await;
                 let _ = c.stream.flush().await;
             }
-            // Keep the connection and the lock until the test ends.
-            tokio::time::sleep(Duration::from_secs(60)).await;
+            held.push(c);
         }
-        drop(lock);
+        drop((held, lock));
     });
     ready.recv_timeout(WAIT).expect("the fake serves");
 }
@@ -551,6 +551,28 @@ fn a_daemon_that_never_confirms_is_a_timeout_that_names_its_pid_and_kills_nothin
             assert!(out.is_empty(), "{out}");
         }
     }
+}
+
+#[test]
+fn a_daemon_that_stays_busy_is_asked_again_and_then_exit_4() {
+    let rt = Rt::new();
+    let scope = Scope::unique().unwrap();
+    fake_control(
+        &scope,
+        &rt,
+        &["{\"error\":\"busy\",\"oac_control\":1}
+"],
+    );
+    let (mut out, mut err) = (Vec::new(), Vec::new());
+    let began = Instant::now();
+    let wait = Duration::from_millis(600);
+    let code = oac_cli::commands::stop_with(&scope, true, wait, &mut out, &mut err);
+    assert_eq!(code, 4);
+    assert!(began.elapsed() >= wait, "it asked again until the deadline");
+    assert_eq!(
+        String::from_utf8(out).unwrap().trim_end(),
+        r#"{"error":"busy","oac_cli":1,"ok":false,"was_running":true}"#
+    );
 }
 
 #[test]

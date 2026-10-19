@@ -338,6 +338,8 @@ pub enum StopOutcome {
     },
     /// The daemon speaks another protocol version.
     Version,
+    /// Every control place of the daemon stayed in use until the deadline.
+    Busy,
     /// The endpoint is served by another user's process, or every instance stayed busy, or
     /// the operating system refused: nothing was sent.
     Unreachable(String),
@@ -352,7 +354,27 @@ enum Line {
 
 /// Asks the daemon at `endpoint` to stop and waits at most `wait` for it to say it has.
 /// Never kills anything.
+///
+/// A daemon that answers `busy` (four control connections are in use) is asked again until
+/// the deadline; only a daemon still busy then is [`StopOutcome::Busy`].
 pub fn request_stop(endpoint: &Endpoint, wait: Duration) -> StopOutcome {
+    let deadline = Instant::now() + wait;
+    let mut was_busy = false;
+    loop {
+        match attempt(endpoint, deadline) {
+            StopOutcome::Busy if Instant::now() < deadline => {
+                was_busy = true;
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            // The deadline passed while a retry waited for its first answer: the daemon was
+            // busy as far as we know.
+            StopOutcome::TimedOut { pid: None } if was_busy => return StopOutcome::Busy,
+            other => return other,
+        }
+    }
+}
+
+fn attempt(endpoint: &Endpoint, deadline: Instant) -> StopOutcome {
     let mut stream = match endpoint.connect_blocking() {
         Ok(s) => s,
         Err(ConnectError::NotRunning) => return StopOutcome::NotRunning,
@@ -364,7 +386,6 @@ pub fn request_stop(endpoint: &Endpoint, wait: Duration) -> StopOutcome {
     {
         return StopOutcome::Failed(format!("the request could not be sent: {e}"));
     }
-    let deadline = Instant::now() + wait;
     // A synchronous Windows pipe handle has no read timeout: the reads are on a thread, and
     // the wait is on the channel. The total read is capped, so a daemon cannot feed it forever.
     let (tx, rx) = std::sync::mpsc::channel::<Line>();
@@ -415,6 +436,7 @@ pub fn request_stop(endpoint: &Endpoint, wait: Duration) -> StopOutcome {
                 if let Some(error) = value.get("error").and_then(Json::as_str) {
                     return match error {
                         "version" => StopOutcome::Version,
+                        "busy" => StopOutcome::Busy,
                         other => StopOutcome::Failed(format!("the daemon refused: {other}")),
                     };
                 }
