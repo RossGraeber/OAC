@@ -1,0 +1,54 @@
+{
+  "fixture_format": "oac-sealing-fixture/1",
+  "requirement": "SEC-SEL-048",
+  "spec": "spec/security.md",
+  "spec_revision": "0.6",
+  "kind": "negative",
+  "failure_mode": "issued_at earlier than the confirmed one, with a higher seq",
+  "description": "A statement for Bob with seq 9, above the held 5 and the confirmed 5, but issued an hour before the statement his pairing confirmed, is refused: after a lost count or a maximum seq, every older statement carries an earlier issued_at than the repeated pairing confirmed, whatever its seq.",
+  "stage": "agreement",
+  "context": {
+    "consumer_time": "2026-10-09T13:00:00Z",
+    "trusted_keys": [
+      {
+        "principal": "principal-a",
+        "key_id": "b3db3806621d3de16e61d08fcb01841f6c60c54a68e7d482076677db5c44d174",
+        "public_key": "b88HyoN6BEjyTX4WNo6n8JJcjhXQUuVjex4U1p-vqzc"
+      },
+      {
+        "principal": "principal-b",
+        "key_id": "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a",
+        "public_key": "nAwqaFMHIMyOtfh4ovJIGr8MJhLV3qhFaN550YS7M2g"
+      }
+    ],
+    "admitted": {
+      "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a": {
+        "agreement_key": "wcSSzJLhvIMKmwB60NLYtLZcibdrU5_XcugIsJugBG8",
+        "seq": 5,
+        "issued_at": "2026-10-09T12:00:00Z"
+      }
+    },
+    "confirmed": {
+      "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a": {
+        "agreement_key": "wcSSzJLhvIMKmwB60NLYtLZcibdrU5_XcugIsJugBG8",
+        "seq": 5,
+        "issued_at": "2026-10-09T12:00:00Z"
+      }
+    }
+  },
+  "input": {
+    "statement": {
+      "agreement_key": "23CAsLfguWcZ_lB_LEDtITT6oqdmdlTBsKn5lCafOSg",
+      "seq": 9,
+      "issued_at": "2026-10-09T11:00:00Z",
+      "security": {
+        "principal": "principal-b",
+        "key_id": "b95c9f0b995f2697a228645e86e171d702e5350a14a32c6d690ee76a1733af1a",
+        "signature": "ClNNv8qj0LeKtLGmReI2OtLtO6zl7f1zGr_NSlz_C-Oq8wYtjpL9FpmPpthQxRqVZmTJgR0gDPYTlxzrmLtyDQ"
+      }
+    }
+  },
+  "expected": {
+    "result": "refused"
+  }
+}

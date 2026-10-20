@@ -270,7 +270,7 @@ export const MUTATIONS = [
     // binds only the nonces; core's deterministic unit test can (cited in THREATS).
     name: 'S13 pairing: the code hashes the nonces only, not the principals or keys',
     file: 'core/src/pairing.rs',
-    from: '    put_principal(&mut h, initiator.0);\n    h.update(initiator.1.to_octets());\n    put_principal(&mut h, responder.0);\n    h.update(responder.1.to_octets());\n',
+    from: '    put_principal(&mut h, initiator.0);\n    h.update(initiator.1.to_octets());\n    put_value(&mut h, initiator.2);\n    put_principal(&mut h, responder.0);\n    h.update(responder.1.to_octets());\n    put_value(&mut h, responder.2);\n',
     to: '',
     coreOnly: 'pairing::tests::substituted_key_or_nonce_changes_the_code_or_fails',
   },
@@ -391,6 +391,61 @@ export const MUTATIONS = [
     from: '            b.issued_at\n                .unix_nanos()\n                .cmp(&a.issued_at.unix_nanos())\n                .then(b.seq.cmp(&a.seq))',
     to: '            a.issued_at\n                .unix_nanos()\n                .cmp(&b.issued_at.unix_nanos())\n                .then(a.seq.cmp(&b.seq))',
     coreOnly: 'sealing::tests::keys_are_tried_newest_first',
+  },
+  // #409, the agreement statement at and after pairing (spec/security.md §14.3).
+  {
+    name: 'S13 stale statement: a key with no confirmed values admits statements (SEC-SEL-049)',
+    file: 'core/src/sealing.rs',
+    from: '    let c = confirmed.ok_or(StatementRefusal::NoConfirmedValues)?;',
+    to: '    let Some(c) = confirmed else { return Ok(()) };',
+  },
+  {
+    name: 'S13 stale statement: a seq below the confirmed one is admitted (SEC-SEL-045)',
+    file: 'core/src/sealing.rs',
+    from: '    if statement.seq < c.seq\n        || (statement.seq == c.seq && statement.agreement_key != c.agreement_key)\n    {',
+    to: '    if false {',
+  },
+  {
+    name: 'S13 stale statement: the confirmed seq under another agreement key is admitted (SEC-SEL-045)',
+    file: 'core/src/sealing.rs',
+    from: '\n        || (statement.seq == c.seq && statement.agreement_key != c.agreement_key)',
+    to: '',
+  },
+  {
+    name: 'S13 stale statement: a statement issued before the confirmed one is admitted (SEC-SEL-048)',
+    file: 'core/src/sealing.rs',
+    from: '    if statement.issued_at.unix_nanos() < c.issued_at.unix_nanos() {',
+    to: '    if false {',
+  },
+  {
+    name: 'S13 stale statement: a pairing confirms no values (SEC-SEL-044, SEC-SEL-046)',
+    file: 'core/src/authorization.rs',
+    from: '        let record = record.with_confirmed(admitted.as_ref().map(ConfirmedValues::of_held));',
+    to: '        let record = record;',
+  },
+  {
+    name: "S13 stale statement: the initiator's statement is not committed to (SEC-SEL-044)",
+    file: 'core/src/pairing.rs',
+    from: '    put_value(&mut h, statement);\n    h.update(nonce);',
+    to: '    h.update(nonce);',
+  },
+  {
+    name: "S13 stale statement: the responder's statement is not in the code (SEC-SEL-044)",
+    file: 'core/src/pairing.rs',
+    from: '    put_value(&mut h, responder.2);\n',
+    to: '',
+  },
+  {
+    name: "S13 stale statement: the initiator's statement is not in the code (SEC-SEL-044)",
+    file: 'core/src/pairing.rs',
+    from: '    put_value(&mut h, initiator.2);\n',
+    to: '',
+  },
+  {
+    name: 'S13 stale statement: a refused statement is shown as no statement (SEC-SEL-051)',
+    file: 'core/src/pairing.rs',
+    from: '        _ => StatementValue::Refused,\n    }\n}',
+    to: '        _ => StatementValue::None,\n    }\n}',
   },
   {
     name: 'S13 sealing: a replacement reuses the highest seq (SEC-SEL-040)',

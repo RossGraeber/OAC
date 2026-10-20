@@ -35,21 +35,22 @@
 //! therefore a commit-then-reveal one, in the manner of a numeric-comparison pairing:
 //!
 //! 1. The initiator draws a 32-octet nonce `Ni` and sends its principal, its public key and
-//!    a commitment `SHA-256("oac-pairing-commit-v1" 0x00 || P(principal_i) || pk_i || Ni)`
-//!    ([`PairingOffer`]).
+//!    a commitment `SHA-256("oac-pairing-commit-v2" 0x00 || P(principal_i) || pk_i || S_i ||
+//!    Ni)` ([`PairingOffer`]). `S_i` is the initiator's agreement statement value, below.
 //! 2. The responder draws its own nonce `Nr` and sends its principal, its public key and
 //!    `Nr` ([`PairingResponse`]).
 //! 3. The initiator reveals `Ni` ([`PairingReveal`]); the responder checks it against the
 //!    commitment.
 //! 4. Each side computes the code from both principals, both public keys and both nonces:
 //!    the first eight octets of
-//!    `SHA-256("oac-pairing-code-v1" 0x00 || P(principal_i) || pk_i || P(principal_r) ||
-//!    pk_r || Ni || Nr)`, as a big-endian integer, modulo 10^6, written as six digits.
-//!    `P(x)` is the octet length of `x` followed by its octets.
+//!    `SHA-256("oac-pairing-code-v2" 0x00 || P(principal_i) || pk_i || S_i || P(principal_r) ||
+//!    pk_r || S_r || Ni || Nr)`, as a big-endian integer, modulo 10^6, written as six digits.
+//!    `P(x)` is the octet length of `x` followed by its octets. `S_i` and `S_r` are the
+//!    statement values of the two devices, as each side sees them (below).
 //!
-//! The initiator is bound to `Ni` before it sees `Nr`, and the responder reveals `Nr`
-//! before it sees `Ni`, so neither side, nor anyone between them, can choose keys or nonces
-//! to reach a given code: a substituted key matches the other side's code with probability
+//! The initiator is bound to `Ni` and to its statement before it sees `Nr`, and the
+//! responder reveals `Nr` and its statement before it sees `Ni`, so neither side, nor anyone
+//! between them, can choose keys, statements or nonces to reach a given code: a substituted key matches the other side's code with probability
 //! 10^-6 per attempt. The operator then either types the code one device shows into the
 //! other ([`PairingSession::confirm_entered`]: at most five wrong entries, then the session
 //! is aborted), or compares the codes both devices show and confirms they match
@@ -83,11 +84,26 @@
 //! # Agreement statements
 //!
 //! When either device uses a sealing transport, each gives the other its current agreement
-//! statement (`spec/security.md` §14.3, "Pairing"): beside its public key in the
-//! [`PairingOffer`] and the [`PairingResponse`], and beside the key file in the key-id
-//! comparison flow ([`PairedPeer::with_agreement_statement`]). The statement does not enter
-//! the commitment or the code: its signature already binds it to the key the code confirms,
-//! and [`crate::authorization::AuthorizationEngine::pair`] admits it only under that key.
+//! statement ([SEC-SEL-050]; `spec/security.md` §14.3, "Pairing"): beside its public key in
+//! the [`PairingOffer`] and the [`PairingResponse`] (a device that has one starts its side
+//! with [`PairingInitiator::start_with_statement`] or
+//! [`ResponderPairing::start_with_statement`]), and beside the key file in the key-id
+//! comparison flow ([`PairedPeer::with_agreement_statement`]).
+//!
+//! The operator's comparison covers both devices' statements, each device's own as well as
+//! the peer's ([SEC-SEL-044]). Each side derives a [`StatementValue`] for each of the two:
+//! `none` when the device gave no statement, the `agreement_key`, `seq` and `issued_at` when
+//! it gave one the other side accepts, and `refused` when it gave one that this side
+//! refuses under [SEC-SEL-010] to [SEC-SEL-013] and [SEC-SEL-042], checked before the code
+//! is shown ([SEC-SEL-051]). A statement that was removed, replaced or refused on the way
+//! gives the two sides different values, so their codes differ. The initiator's value enters
+//! the commitment, before the code is derived, so an attacker that holds several old
+//! statements cannot choose the one that makes the code match. The values of a statement
+//! this side accepted are the pairing's confirmed values, which
+//! [`crate::authorization::AuthorizationEngine::pair`] keeps with the key
+//! ([`PairingRecord::confirmed`]): they are the floor of every later statement
+//! ([SEC-SEL-045], [SEC-SEL-048], [SEC-SEL-049]). A device that uses no sealing transport
+//! takes part with `none` for its own value.
 //!
 //! # The pairing store
 //!
@@ -100,7 +116,8 @@
 use crate::authorization::{Grant, OperatorConfirmed};
 use crate::ids::{KeyId, SessionId, Timestamp, Token};
 use crate::keys::{DeviceIdentity, PublicKey, random_octets};
-use crate::sealing::{AgreementStatement, HeldStatement};
+use crate::sealing::{AgreementStatement, ConfirmedValues, HeldStatement, check_statement};
+use crate::trust::TrustedKeySet;
 use sha2::{Digest, Sha256};
 use std::fmt;
 use std::sync::Mutex;
@@ -115,8 +132,8 @@ pub const PAIRING_VALIDITY_MS: u64 = 120_000;
 /// (`docs/planning/decisions/C5-envelope-auth.md` §10(b)).
 pub const PAIRING_MAX_ATTEMPTS: u32 = 5;
 
-const COMMIT_DOMAIN: &[u8] = b"oac-pairing-commit-v1";
-const CODE_DOMAIN: &[u8] = b"oac-pairing-code-v1";
+const COMMIT_DOMAIN: &[u8] = b"oac-pairing-commit-v2";
+const CODE_DOMAIN: &[u8] = b"oac-pairing-code-v2";
 
 /// A pairing nonce: 32 octets from the operating system's random number generator.
 pub type PairingNonce = [u8; 32];
@@ -136,29 +153,151 @@ fn put_principal(h: &mut Sha256, p: &Token) {
     h.update(p.as_str().as_bytes());
 }
 
-fn commitment(principal: &Token, pk: &PublicKey, nonce: &PairingNonce) -> [u8; 32] {
+/// What one device's agreement statement counts as in the operator's comparison
+/// ([SEC-SEL-044], [SEC-SEL-051]): three values of their own, so that a missing, a refused
+/// and a given statement can never be taken for one another.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum StatementValue {
+    /// The device gave no statement.
+    None,
+    /// The device gave a statement this side accepts; its `agreement_key`, `seq` and
+    /// `issued_at`.
+    Given(ConfirmedValues),
+    /// The device gave a statement this side refuses ([SEC-SEL-010] to [SEC-SEL-013],
+    /// [SEC-SEL-042]). Shown as a value of its own, so that the operator sees a mismatch.
+    Refused,
+}
+
+impl StatementValue {
+    /// The value of a statement as its holder gave it, unchecked: `none` without one. This
+    /// is the value of this device's own statement, and the value a commitment covers.
+    pub fn of_own(statement: Option<&AgreementStatement>) -> StatementValue {
+        match statement {
+            None => StatementValue::None,
+            Some(st) => st
+                .claimed_values()
+                .map_or(StatementValue::Refused, StatementValue::Given),
+        }
+    }
+
+    /// The values the statement is accepted with, if it is.
+    pub fn given(&self) -> Option<&ConfirmedValues> {
+        match self {
+            StatementValue::Given(v) => Some(v),
+            _ => None,
+        }
+    }
+}
+
+impl fmt::Display for StatementValue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            StatementValue::None => f.write_str("none: no agreement statement given"),
+            StatementValue::Given(v) => v.fmt(f),
+            StatementValue::Refused => f.write_str("refused: the agreement statement is refused"),
+        }
+    }
+}
+
+/// The value of the statement a peer gave, checked under the rules of an admitted statement
+/// ([SEC-SEL-010] to [SEC-SEL-013], [SEC-SEL-042]) with only `own` and the peer's key
+/// trusted, at `now`: the check [SEC-SEL-051] asks for before the comparison is shown. Use
+/// it also in the key-id comparison flow, to show the peer's value beside its key id.
+pub fn judge_statement(
+    own: &DeviceIdentity,
+    peer_principal: &Token,
+    peer_key: &PublicKey,
+    statement: Option<&AgreementStatement>,
+    now: &Timestamp,
+) -> StatementValue {
+    judge_with(
+        &TrustedKeySet::new(own),
+        peer_principal,
+        peer_key,
+        statement,
+        now,
+    )
+}
+
+fn judge_with(
+    own_set: &TrustedKeySet,
+    peer_principal: &Token,
+    peer_key: &PublicKey,
+    statement: Option<&AgreementStatement>,
+    now: &Timestamp,
+) -> StatementValue {
+    let Some(st) = statement else {
+        return StatementValue::None;
+    };
+    let mut trusted = own_set.clone();
+    if trusted
+        .add_paired_key(peer_principal.clone(), *peer_key)
+        .is_err()
+    {
+        return StatementValue::Refused;
+    }
+    match check_statement(st, &trusted, |_| None, now) {
+        Ok(h) if h.key_id() == &peer_key.key_id() => {
+            StatementValue::Given(ConfirmedValues::of_held(&h))
+        }
+        _ => StatementValue::Refused,
+    }
+}
+
+fn put_value(h: &mut Sha256, v: &StatementValue) {
+    match v {
+        StatementValue::None => h.update([0]),
+        StatementValue::Given(c) => {
+            h.update([1]);
+            // A key is 43 octets of base64url and a timestamp at most 30, so one length
+            // octet holds each.
+            let key = c.agreement_key().to_base64url();
+            h.update([u8::try_from(key.len()).expect("43 octets")]);
+            h.update(key.as_bytes());
+            h.update(c.seq().to_be_bytes());
+            let at = c.issued_at().as_str();
+            h.update([u8::try_from(at.len()).expect("a timestamp is at most 30 octets")]);
+            h.update(at.as_bytes());
+        }
+        StatementValue::Refused => h.update([2]),
+    }
+}
+
+fn commitment(
+    principal: &Token,
+    pk: &PublicKey,
+    statement: &StatementValue,
+    nonce: &PairingNonce,
+) -> [u8; 32] {
     let mut h = Sha256::new();
     h.update(COMMIT_DOMAIN);
     h.update([0]);
     put_principal(&mut h, principal);
     h.update(pk.to_octets());
+    put_value(&mut h, statement);
     h.update(nonce);
     h.finalize().into()
 }
 
-fn code(
-    initiator: (&Token, &PublicKey, &PairingNonce),
-    responder: (&Token, &PublicKey, &PairingNonce),
-) -> String {
+type Party<'a> = (
+    &'a Token,
+    &'a PublicKey,
+    &'a StatementValue,
+    &'a PairingNonce,
+);
+
+fn code(initiator: Party<'_>, responder: Party<'_>) -> String {
     let mut h = Sha256::new();
     h.update(CODE_DOMAIN);
     h.update([0]);
     put_principal(&mut h, initiator.0);
     h.update(initiator.1.to_octets());
+    put_value(&mut h, initiator.2);
     put_principal(&mut h, responder.0);
     h.update(responder.1.to_octets());
-    h.update(initiator.2);
-    h.update(responder.2);
+    put_value(&mut h, responder.2);
+    h.update(initiator.3);
+    h.update(responder.3);
     let digest: [u8; 32] = h.finalize().into();
     let mut first = [0u8; 8];
     first.copy_from_slice(&digest[..8]);
@@ -174,8 +313,9 @@ pub struct PairingOffer {
     pub public_key: PublicKey,
     /// The commitment to the initiator's nonce.
     pub commitment: [u8; 32],
-    /// The initiator's current agreement statement, when it gives one (`spec/security.md`
-    /// §14.3, "Pairing"). Not committed to: its signature binds it to `public_key`.
+    /// The initiator's current agreement statement, when it gives one ([SEC-SEL-050]). Its
+    /// value is committed to by `commitment`, so a statement removed or replaced on the way
+    /// ends the exchange at the reveal.
     pub agreement_statement: Option<AgreementStatement>,
 }
 
@@ -188,8 +328,9 @@ pub struct PairingResponse {
     pub public_key: PublicKey,
     /// The responder's nonce.
     pub nonce: PairingNonce,
-    /// The responder's current agreement statement, when it gives one (`spec/security.md`
-    /// §14.3, "Pairing").
+    /// The responder's current agreement statement, when it gives one ([SEC-SEL-050]). Its
+    /// value enters the code, which the initiator can derive only after it reveals its
+    /// nonce, so it cannot be chosen to reach a given code.
     pub agreement_statement: Option<AgreementStatement>,
 }
 
@@ -266,6 +407,8 @@ pub struct PairingInitiator {
     public_key: PublicKey,
     nonce: PairingNonce,
     started: Timestamp,
+    own_set: TrustedKeySet,
+    own_value: StatementValue,
 }
 
 impl PairingInitiator {
@@ -273,7 +416,18 @@ impl PairingInitiator {
     /// pairing: the initiator sends one offer, and an exchange that does not reach its code
     /// ends that pairing; the operator starts a new one to try again.
     pub fn start(own: &DeviceIdentity, now: Timestamp) -> (PairingInitiator, PairingOffer) {
-        PairingInitiator::start_inner(own, fresh_nonce(), now)
+        PairingInitiator::start_inner(own, None, fresh_nonce(), now)
+    }
+
+    /// [`PairingInitiator::start`] for a device that uses a sealing transport: the offer
+    /// carries its current agreement statement `statement` ([SEC-SEL-050]), and the
+    /// commitment covers its value.
+    pub fn start_with_statement(
+        own: &DeviceIdentity,
+        statement: AgreementStatement,
+        now: Timestamp,
+    ) -> (PairingInitiator, PairingOffer) {
+        PairingInitiator::start_inner(own, Some(statement), fresh_nonce(), now)
     }
 
     /// [`PairingInitiator::start`] with a given nonce, for tests only: a fixed or reused
@@ -284,19 +438,32 @@ impl PairingInitiator {
         nonce: PairingNonce,
         now: Timestamp,
     ) -> (PairingInitiator, PairingOffer) {
-        PairingInitiator::start_inner(own, nonce, now)
+        PairingInitiator::start_inner(own, None, nonce, now)
+    }
+
+    /// [`PairingInitiator::start_with_statement`] with a given nonce, for tests only.
+    #[cfg(test)]
+    pub(crate) fn start_with_statement_and_nonce(
+        own: &DeviceIdentity,
+        statement: AgreementStatement,
+        nonce: PairingNonce,
+        now: Timestamp,
+    ) -> (PairingInitiator, PairingOffer) {
+        PairingInitiator::start_inner(own, Some(statement), nonce, now)
     }
 
     fn start_inner(
         own: &DeviceIdentity,
+        statement: Option<AgreementStatement>,
         nonce: PairingNonce,
         now: Timestamp,
     ) -> (PairingInitiator, PairingOffer) {
+        let own_value = StatementValue::of_own(statement.as_ref());
         let offer = PairingOffer {
             principal: own.principal().clone(),
             public_key: *own.public_key(),
-            commitment: commitment(own.principal(), own.public_key(), &nonce),
-            agreement_statement: None,
+            commitment: commitment(own.principal(), own.public_key(), &own_value, &nonce),
+            agreement_statement: statement,
         };
         (
             PairingInitiator {
@@ -304,6 +471,8 @@ impl PairingInitiator {
                 public_key: *own.public_key(),
                 nonce,
                 started: now,
+                own_set: TrustedKeySet::new(own),
+                own_value,
             },
             offer,
         )
@@ -325,13 +494,38 @@ impl PairingInitiator {
         if now.unix_nanos() >= deadline(&self.started) {
             return Err(PairingError::Expired);
         }
+        // [SEC-SEL-051]: the statement is checked before the comparison exists.
+        let peer_value = judge_with(
+            &self.own_set,
+            &response.principal,
+            &response.public_key,
+            response.agreement_statement.as_ref(),
+            now,
+        );
         let code = code(
-            (&self.principal, &self.public_key, &self.nonce),
-            (&response.principal, &response.public_key, &response.nonce),
+            (
+                &self.principal,
+                &self.public_key,
+                &self.own_value,
+                &self.nonce,
+            ),
+            (
+                &response.principal,
+                &response.public_key,
+                &peer_value,
+                &response.nonce,
+            ),
         );
         Ok((
-            PairingSession::new(response.principal, response.public_key, code, self.started)
-                .with_peer_statement(response.agreement_statement),
+            PairingSession::new(
+                response.principal,
+                response.public_key,
+                code,
+                self.started,
+                self.own_value,
+                peer_value,
+                response.agreement_statement,
+            ),
             PairingReveal { nonce: self.nonce },
         ))
     }
@@ -346,16 +540,30 @@ pub(crate) struct PairingResponder {
     nonce: PairingNonce,
     offer: PairingOffer,
     started: Timestamp,
+    own_set: TrustedKeySet,
+    own_value: StatementValue,
 }
 
 impl PairingResponder {
-    /// Step 2: answers `offer` with a fresh nonce. `now` starts the 120-second window.
+    /// Step 2: answers `offer` with a fresh nonce, giving no statement. `now` starts the
+    /// 120-second window.
+    #[cfg(test)]
     pub(crate) fn respond(
         own: &DeviceIdentity,
         offer: PairingOffer,
         now: Timestamp,
     ) -> Result<(PairingResponder, PairingResponse), PairingError> {
-        PairingResponder::respond_inner(own, offer, fresh_nonce(), now)
+        PairingResponder::respond_inner(own, None, offer, fresh_nonce(), now)
+    }
+
+    /// [`PairingResponder::respond`] for a device that gives `statement` ([SEC-SEL-050]).
+    pub(crate) fn respond_with_statement(
+        own: &DeviceIdentity,
+        statement: Option<AgreementStatement>,
+        offer: PairingOffer,
+        now: Timestamp,
+    ) -> Result<(PairingResponder, PairingResponse), PairingError> {
+        PairingResponder::respond_inner(own, statement, offer, fresh_nonce(), now)
     }
 
     /// [`PairingResponder::respond`] with a given nonce, for tests only.
@@ -366,11 +574,24 @@ impl PairingResponder {
         nonce: PairingNonce,
         now: Timestamp,
     ) -> Result<(PairingResponder, PairingResponse), PairingError> {
-        PairingResponder::respond_inner(own, offer, nonce, now)
+        PairingResponder::respond_inner(own, None, offer, nonce, now)
+    }
+
+    /// [`PairingResponder::respond_with_statement`] with a given nonce, for tests only.
+    #[cfg(test)]
+    pub(crate) fn respond_with_statement_and_nonce(
+        own: &DeviceIdentity,
+        statement: Option<AgreementStatement>,
+        offer: PairingOffer,
+        nonce: PairingNonce,
+        now: Timestamp,
+    ) -> Result<(PairingResponder, PairingResponse), PairingError> {
+        PairingResponder::respond_inner(own, statement, offer, nonce, now)
     }
 
     fn respond_inner(
         own: &DeviceIdentity,
+        statement: Option<AgreementStatement>,
         offer: PairingOffer,
         nonce: PairingNonce,
         now: Timestamp,
@@ -378,11 +599,12 @@ impl PairingResponder {
         if &offer.public_key == own.public_key() {
             return Err(PairingError::OwnKey);
         }
+        let own_value = StatementValue::of_own(statement.as_ref());
         let response = PairingResponse {
             principal: own.principal().clone(),
             public_key: *own.public_key(),
             nonce,
-            agreement_statement: None,
+            agreement_statement: statement,
         };
         Ok((
             PairingResponder {
@@ -391,6 +613,8 @@ impl PairingResponder {
                 nonce,
                 offer,
                 started: now,
+                own_set: TrustedKeySet::new(own),
+                own_value,
             },
             response,
         ))
@@ -405,21 +629,49 @@ impl PairingResponder {
         if now.unix_nanos() >= deadline(&self.started) {
             return Err(PairingError::Expired);
         }
-        let expected = commitment(&self.offer.principal, &self.offer.public_key, &reveal.nonce);
+        // The commitment covers the statement as the initiator gave it, so a statement
+        // removed or replaced on the way fails here.
+        let claimed = StatementValue::of_own(self.offer.agreement_statement.as_ref());
+        let expected = commitment(
+            &self.offer.principal,
+            &self.offer.public_key,
+            &claimed,
+            &reveal.nonce,
+        );
         if !bool::from(expected.ct_eq(&self.offer.commitment)) {
             return Err(PairingError::CommitmentMismatch);
         }
+        // [SEC-SEL-051]: the statement is checked before the comparison exists.
+        let peer_value = judge_with(
+            &self.own_set,
+            &self.offer.principal,
+            &self.offer.public_key,
+            self.offer.agreement_statement.as_ref(),
+            now,
+        );
         let code = code(
-            (&self.offer.principal, &self.offer.public_key, &reveal.nonce),
-            (&self.principal, &self.public_key, &self.nonce),
+            (
+                &self.offer.principal,
+                &self.offer.public_key,
+                &peer_value,
+                &reveal.nonce,
+            ),
+            (
+                &self.principal,
+                &self.public_key,
+                &self.own_value,
+                &self.nonce,
+            ),
         );
         Ok(PairingSession::new(
             self.offer.principal,
             self.offer.public_key,
             code,
             self.started,
-        )
-        .with_peer_statement(self.offer.agreement_statement))
+            self.own_value,
+            peer_value,
+            self.offer.agreement_statement,
+        ))
     }
 }
 
@@ -446,6 +698,7 @@ enum ResponderState {
 pub struct ResponderPairing {
     started: Timestamp,
     state: ResponderState,
+    statement: Option<AgreementStatement>,
 }
 
 impl ResponderPairing {
@@ -455,6 +708,17 @@ impl ResponderPairing {
         ResponderPairing {
             started: now,
             state: ResponderState::AwaitingOffer,
+            statement: None,
+        }
+    }
+
+    /// [`ResponderPairing::start`] for a device that uses a sealing transport: the response
+    /// carries its current agreement statement `statement` ([SEC-SEL-050]), and the code
+    /// covers its value.
+    pub fn start_with_statement(now: Timestamp, statement: AgreementStatement) -> ResponderPairing {
+        ResponderPairing {
+            statement: Some(statement),
+            ..ResponderPairing::start(now)
         }
     }
 
@@ -487,7 +751,12 @@ impl ResponderPairing {
         if now.unix_nanos() >= deadline(&self.started) {
             return Err(self.end(PairingEnd::Expired));
         }
-        match PairingResponder::respond(own, offer, self.started.clone()) {
+        match PairingResponder::respond_with_statement(
+            own,
+            self.statement.clone(),
+            offer,
+            self.started.clone(),
+        ) {
             Ok((responder, response)) => {
                 self.state = ResponderState::AwaitingReveal(Box::new(responder));
                 Ok(response)
@@ -602,6 +871,8 @@ pub struct PairingSession {
     code: String,
     started: Timestamp,
     state: SessionState,
+    own_value: StatementValue,
+    peer_value: StatementValue,
     peer_statement: Option<AgreementStatement>,
 }
 
@@ -611,6 +882,9 @@ impl PairingSession {
         peer_public_key: PublicKey,
         code: String,
         started: Timestamp,
+        own_value: StatementValue,
+        peer_value: StatementValue,
+        peer_statement: Option<AgreementStatement>,
     ) -> PairingSession {
         PairingSession {
             peer_principal,
@@ -620,13 +894,25 @@ impl PairingSession {
             state: SessionState::Open {
                 attempts_left: PAIRING_MAX_ATTEMPTS,
             },
-            peer_statement: None,
+            own_value,
+            // A refused statement is not carried on: the key is paired with none
+            // ([SEC-SEL-049]).
+            peer_statement: peer_statement.filter(|_| peer_value.given().is_some()),
+            peer_value,
         }
     }
 
-    fn with_peer_statement(mut self, statement: Option<AgreementStatement>) -> PairingSession {
-        self.peer_statement = statement;
-        self
+    /// This device's own statement value, which the code covers ([SEC-SEL-044]): show it
+    /// beside the code.
+    pub fn own_statement_value(&self) -> &StatementValue {
+        &self.own_value
+    }
+
+    /// The peer's statement value, which the code covers ([SEC-SEL-044]): show it beside the
+    /// code. A statement refused under [SEC-SEL-010] to [SEC-SEL-013] or [SEC-SEL-042] is
+    /// [`StatementValue::Refused`], checked before the code is shown ([SEC-SEL-051]).
+    pub fn peer_statement_value(&self) -> &StatementValue {
+        &self.peer_value
     }
 
     /// The six-digit code to show the operator.
@@ -662,6 +948,7 @@ impl PairingSession {
                 principal: self.peer_principal.clone(),
                 public_key: self.peer_public_key,
                 paired_at: now.clone(),
+                confirmed: None,
             },
             statement: self.peer_statement.take(),
         }
@@ -735,14 +1022,19 @@ impl PairedPeer {
                 principal,
                 public_key,
                 paired_at: now,
+                confirmed: None,
             },
             statement: None,
         })
     }
 
     /// The same pairing, carrying the peer's agreement statement, read beside its key file
-    /// (`spec/security.md` §14.3, "Pairing"). It adds no trust: the engine admits it only if
-    /// it verifies under the key being paired.
+    /// ([SEC-SEL-050]; `spec/security.md` §14.3, "Pairing"). The operator compares the
+    /// values of both devices' statements beside the key id ([SEC-SEL-044]); show the
+    /// peer's with [`judge_statement`] first ([SEC-SEL-051]). It adds no trust: the engine
+    /// admits it only if it verifies under the key being paired, and then keeps its values
+    /// as the pairing's confirmed values. Without a statement the key is paired with no
+    /// confirmed values and admits none ([SEC-SEL-049]).
     pub fn with_agreement_statement(mut self, statement: AgreementStatement) -> PairedPeer {
         self.statement = Some(statement);
         self
@@ -755,6 +1047,7 @@ impl PairedPeer {
                 principal,
                 public_key,
                 paired_at: now,
+                confirmed: None,
             },
             statement: None,
         }
@@ -788,6 +1081,7 @@ pub struct PairingRecord {
     principal: Token,
     public_key: PublicKey,
     paired_at: Timestamp,
+    confirmed: Option<ConfirmedValues>,
 }
 
 impl PairingRecord {
@@ -803,7 +1097,24 @@ impl PairingRecord {
             principal,
             public_key,
             paired_at,
+            confirmed: None,
         }
+    }
+
+    /// The same record with the values its pairing confirmed ([SEC-SEL-044]), as a store
+    /// reads them back, or as the engine sets them from the statement it admitted at the
+    /// pairing. They are kept and removed with the record ([SEC-SEL-046], [SEC-SEL-047]).
+    #[must_use]
+    pub fn with_confirmed(mut self, confirmed: Option<ConfirmedValues>) -> PairingRecord {
+        self.confirmed = confirmed;
+        self
+    }
+
+    /// The values the pairing confirmed: the floor of every later statement of the key
+    /// ([SEC-SEL-045], [SEC-SEL-048]). `None` when it confirmed none, and then the key admits
+    /// no statement ([SEC-SEL-049]).
+    pub fn confirmed(&self) -> Option<&ConfirmedValues> {
+        self.confirmed.as_ref()
     }
 
     /// The peer's principal label.
@@ -827,13 +1138,14 @@ impl PairingRecord {
     }
 }
 
-/// What a [`PairingStore`] keeps: the paired keys, the grants, the sessions for which an
-/// operator enabled permission relay, and the agreement statements held for paired keys,
-/// as durably as the keys ([SEC-SEL-041]). The binding table and the sent and hand-off
+/// What a [`PairingStore`] keeps: the paired keys with the values their pairings confirmed
+/// ([SEC-SEL-046]), the grants, the sessions for which an operator enabled permission relay,
+/// and the agreement statements held for paired keys, as durably as the keys
+/// ([SEC-SEL-041]). The binding table and the sent and hand-off
 /// records are not kept: they live in memory (`spec/security.md` §11.3, §9.5).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct PairingSnapshot {
-    /// The paired keys.
+    /// The paired keys, each with the values its pairing confirmed, if any.
     pub paired: Vec<PairingRecord>,
     /// The grants.
     pub grants: Vec<Grant>,
@@ -1206,6 +1518,83 @@ mod tests {
             PairingResponder::respond(&a, offer, at(0)).unwrap_err(),
             PairingError::OwnKey
         );
+    }
+
+    fn statement_of(id: &DeviceIdentity, octet: u8, seq: u64, ms: i64) -> AgreementStatement {
+        let key = crate::sealing::AgreementPublicKey::from_octets([octet; 32]).unwrap();
+        AgreementStatement::issue(id, &key, seq, &at(ms)).unwrap()
+    }
+
+    /// [SEC-SEL-044] and the reference note of `spec/security.md` §14.3: the initiator's
+    /// statement is in its commitment, before the code is derived. An attacker that holds
+    /// several old statements of the initiator, all signed by its device key, cannot give
+    /// the responder another one under the same commitment, so cannot pick the one that
+    /// makes the code match; and for each statement the code differs.
+    #[test]
+    fn the_statement_enters_the_commitment_before_the_code() {
+        let (a, b) = (identity("principal-a"), identity("principal-b"));
+        let (ni, nr) = ([7u8; 32], [9u8; 32]);
+        let current = statement_of(&a, 3, 4, 1_000);
+        let (_, offer) =
+            PairingInitiator::start_with_statement_and_nonce(&a, current.clone(), ni, at(2_000));
+        // The same key, principal and nonce with no statement, or another, commit differently.
+        let (_, bare) = PairingInitiator::start_with_nonce(&a, ni, at(2_000));
+        assert_ne!(offer.commitment, bare.commitment);
+        let mut codes = Vec::new();
+        for (octet, seq) in [(3u8, 4u64), (4, 3), (5, 2), (6, 1)] {
+            let old = statement_of(&a, octet, seq, 500 + i64::from(octet));
+            let (_, o) =
+                PairingInitiator::start_with_statement_and_nonce(&a, old.clone(), ni, at(2_000));
+            if old != current {
+                assert_ne!(o.commitment, offer.commitment, "seq {seq}");
+            }
+            // Handed the responder under the commitment of the current statement, an old
+            // statement ends the exchange at the reveal, before any code exists.
+            let mut swapped = offer.clone();
+            swapped.agreement_statement = Some(old.clone());
+            let (resp, _) =
+                PairingResponder::respond_with_nonce(&b, swapped, nr, at(2_000)).unwrap();
+            let outcome = resp.receive(PairingReveal { nonce: ni }, &at(2_100));
+            if old == current {
+                codes.push(outcome.unwrap().code().to_owned());
+            } else {
+                assert_eq!(outcome.unwrap_err(), PairingError::CommitmentMismatch);
+            }
+            // Each statement, committed honestly, gives its own code.
+            let (r, _) = PairingResponder::respond_with_nonce(&b, o, nr, at(2_000)).unwrap();
+            codes.push(
+                r.receive(PairingReveal { nonce: ni }, &at(2_100))
+                    .unwrap()
+                    .code()
+                    .to_owned(),
+            );
+        }
+        // The six-digit codes of four distinct statements are not all one value (the
+        // probability that they are is 10^-18).
+        codes.sort();
+        codes.dedup();
+        assert!(codes.len() > 1, "{codes:?}");
+        // The responder's statement is in the code, whatever the initiator's.
+        let responder = |st: Option<AgreementStatement>| {
+            let (r, response) = PairingResponder::respond_with_statement_and_nonce(
+                &b,
+                st,
+                offer.clone(),
+                nr,
+                at(2_000),
+            )
+            .unwrap();
+            (
+                r.receive(PairingReveal { nonce: ni }, &at(2_100)).unwrap(),
+                response,
+            )
+        };
+        let (s1, _) = responder(Some(statement_of(&b, 5, 9, 1_500)));
+        let (s2, _) = responder(Some(statement_of(&b, 5, 8, 1_500)));
+        let (s3, _) = responder(None);
+        assert_eq!(s1.own_statement_value().given().map(|g| g.seq()), Some(9));
+        assert_ne!(s1.code(), s2.code());
+        assert_ne!(s1.code(), s3.code());
     }
 
     #[test]

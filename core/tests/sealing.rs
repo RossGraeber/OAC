@@ -33,7 +33,8 @@ use oac_core::keys::{DeviceIdentity, DeviceKey};
 use oac_core::pairing::{MemoryPairingStore, PairedPeer};
 use oac_core::pipeline::{AdapterId, PipelineConfig, PipelineError, Pipelines};
 use oac_core::sealing::{
-    AgreementKeys, AgreementPublicKey, AgreementStatement, MemoryAgreementKeyStore, seal,
+    AgreementKeys, AgreementPublicKey, AgreementStatement, MemoryAgreementKeyStore,
+    StatementRefusal, seal,
 };
 use oac_core::transport::{
     CarrierHandle, Deadline, Destination, Inbound, InboundHandler, Payload, PayloadKind,
@@ -393,6 +394,11 @@ fn unstarted(bus: &SealBus, principal: &str) -> Node {
 }
 
 impl Node {
+    /// The principal this node was made with.
+    fn name(&self) -> String {
+        self.pipes.device().principal().as_str().to_owned()
+    }
+
     fn key(&self) -> KeyId {
         self.pipes.device().key_id().clone()
     }
@@ -482,6 +488,12 @@ struct Three {
 }
 
 fn three(statements: bool) -> Three {
+    three_by(|_, _| statements)
+}
+
+/// [`three`], where `statements(x, y)` says whether the device named `x` pairs the device
+/// named `y` with its statement.
+fn three_by(statements: impl Fn(&str, &str) -> bool) -> Three {
     let bus = SealBus::default();
     let (x, y, z) = (
         node(&bus, "device-x"),
@@ -489,7 +501,7 @@ fn three(statements: bool) -> Three {
         node(&bus, "device-z"),
     );
     for (a, b) in [(&x, &y), (&y, &x), (&x, &z), (&z, &x), (&y, &z), (&z, &y)] {
-        pair(a, b, statements);
+        pair(a, b, statements(&a.name(), &b.name()));
     }
     let (xa, sx) = session(&x, 1);
     let sy = SessionId::from_random_octets([2; 16]);
@@ -592,19 +604,16 @@ fn only_the_recipient_opens_and_a_third_device_stays_silent() {
 
 /// [SEC-SEL-024], [SEC-SEL-023]: with the recipient trusted but no statement held for it,
 /// nothing at all is passed to the transport, sealed or in the clear, and the envelope is
-/// `not-passed` with `transport-failure`. Once the statement arrives over a later channel
-/// (`Pipelines::admit_statement`), the same send goes through.
+/// `not-passed` with `transport-failure`. The statement cannot arrive over a later channel,
+/// because the pairing confirmed no values for the key ([SEC-SEL-049]); it comes with a
+/// pairing that confirms it, after the key is removed, and then the same send goes through.
 #[test]
 fn no_statement_means_nothing_is_passed() {
-    let t = three(false);
-    // No device holds another's statement: not even an announcement crossed.
-    assert_eq!(t.bus.log().len(), 0, "nothing crossed without statements");
-    // y now holds x's statement, and announces sy to x, sealed to x; x still holds no
-    // statement for y.
-    t.y.pipes
-        .admit_statement(&t.x.pipes.agreement_statement().unwrap(), &t.y.store)
-        .unwrap();
+    // y paired x with x's statement and so holds it; x paired y without one.
+    let t = three_by(|a, b| (a, b) == ("device-y", "device-x"));
+    // y announced sy to x, sealed to x; x holds no statement for y, so announced nothing.
     assert!(!t.bus.from(&t.y.key()).is_empty(), "y announced sy to x");
+    assert_eq!(t.bus.from(&t.x.key()).len(), 0, "x passed nothing");
     let r = t.x.adapter.send(request(&t.xa, &t.sy, "ping"));
     assert!(
         matches!(
@@ -619,11 +628,42 @@ fn no_statement_means_nothing_is_passed() {
     assert!(t.bus.from(&t.x.key()).is_empty(), "x passed nothing");
     all_sealed(&t.bus);
     assert_eq!(t.y.adapter.calls(), 0);
-    // The statement reaches x later; the retry is sealed and handed off.
-    t.x.pipes
-        .admit_statement(&t.y.pipes.agreement_statement().unwrap(), &t.x.store)
-        .unwrap();
-    sent(t.x.adapter.send(request(&t.xa, &t.sy, "again")));
+    // The statement cannot reach x over a later channel: x's pairing of y confirmed no
+    // values, so the key admits no statement ([SEC-SEL-049]).
+    assert_eq!(
+        t.x.pipes
+            .admit_statement(&t.y.pipes.agreement_statement().unwrap(), &t.x.store)
+            .unwrap_err(),
+        StatementRefusal::NoConfirmedValues
+    );
+    assert!(
+        t.x.pipes
+            .with_engine(|e| e.held_statement(&t.y.key()).is_none())
+    );
+    // It comes with a pairing that confirms it: x removes y's key and pairs again, with the
+    // statement. y then registers a new session, which it announces to x, sealed.
+    t.x.pipes.with_engine(|e| {
+        e.remove_key(&t.y.key(), OperatorConfirmed::by_operator(), &t.x.store)
+            .unwrap();
+    });
+    pair(&t.x, &t.y, true);
+    let sy3 = SessionId::from_random_octets([3; 16]);
+    grant(
+        &t.y,
+        Grant::Inbound {
+            writer: PeerSide::session(t.x.key(), t.sx.clone()),
+            target: LocalSide::Session(sy3.clone()),
+        },
+    );
+    grant(
+        &t.x,
+        Grant::Outbound {
+            writer: LocalSide::Session(t.sx.clone()),
+            target: PeerSide::session(t.y.key(), sy3.clone()),
+        },
+    );
+    session(&t.y, 3);
+    sent(t.x.adapter.send(request(&t.xa, &sy3, "again")));
     assert_eq!(t.y.adapter.texts(), ["again"]);
     all_sealed(&t.bus);
 }

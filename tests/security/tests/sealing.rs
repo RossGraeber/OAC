@@ -20,7 +20,9 @@ use oac_core::json::{self, Json, JsonObject};
 use oac_core::keys::PublicKey;
 use oac_core::pairing::{MemoryPairingStore, PairedPeer, PairingStore};
 use oac_core::presence_auth::AuthenticatedPresenceRecord;
-use oac_core::sealing::{AgreementPublicKey, AgreementStatement, HeldStatement, seal};
+use oac_core::sealing::{
+    AgreementPublicKey, AgreementStatement, ConfirmedValues, HeldStatement, seal,
+};
 use oac_core::transport::{Destination, PayloadKind};
 use oac_security_suite::pipeline::send_request;
 use oac_security_suite::sealing::{MAX_FRAME, SealBus, SealedDevice};
@@ -41,12 +43,24 @@ struct Three {
 }
 
 fn three(statements: bool) -> Three {
+    three_by(|_, _| statements)
+}
+
+/// [`three`], where `statements(x, y)` says whether the device whose principal is `x` pairs
+/// the device whose principal is `y` with its statement.
+fn three_by(statements: impl Fn(&str, &str) -> bool) -> Three {
     let bus = SealBus::default();
     let x = SealedDevice::new(&bus, identity("principal-x"));
     let y = SealedDevice::new(&bus, identity("principal-y"));
     let z = SealedDevice::new(&bus, identity("principal-z"));
     for (a, b) in [(&x, &y), (&y, &x), (&x, &z), (&z, &x), (&y, &z), (&z, &y)] {
-        a.pair(b, statements);
+        a.pair(
+            b,
+            statements(
+                a.pipes.device().principal().as_str(),
+                b.pipes.device().principal().as_str(),
+            ),
+        );
     }
     let (sx, sy) = (sid(1), sid(2));
     let xa = x.session(&sx);
@@ -174,11 +188,15 @@ fn s13_a_payload_forwarded_to_a_third_device_is_dropped() {
 /// the transport at all, sealed or in the clear ([IFC-TRN-100]).
 #[test]
 fn s13_nothing_crosses_unsealed_without_a_statement() {
-    let t = three(false);
-    // y holds x's statement (so y's announcement of sy reaches x); x holds none for y.
-    t.y.pipes
-        .admit_statement(&t.x.pipes.agreement_statement().unwrap(), &t.y.pairings)
-        .unwrap();
+    // y holds x's statement from its pairing (so y's announcement of sy reaches x); x holds
+    // none for y, and cannot be given one later ([SEC-SEL-049]).
+    let t = three_by(|a, b| (a, b) == ("principal-y", "principal-x"));
+    assert_eq!(
+        t.x.pipes
+            .admit_statement(&t.y.pipes.agreement_statement().unwrap(), &t.x.pairings)
+            .unwrap_err(),
+        oac_core::sealing::StatementRefusal::NoConfirmedValues
+    );
     let r =
         t.x.adapter
             .send(send_request(&t.xa, &t.sy, "in the clear?"));
@@ -281,7 +299,15 @@ fn s<'a>(o: &'a JsonObject, m: &str) -> &'a str {
 /// A consumer as an `agreement`-stage fixture's `context` describes it: the trusted keys
 /// paired, the `admitted` statements held, on a clock at `consumer_time`, built through the
 /// pairing store as a restarted consumer would be ([SEC-SEL-041]).
-fn consumer(context: &JsonObject) -> (AuthorizationEngine, MemoryPairingStore) {
+///
+/// Each trusted key's pairing record carries the values the context's `confirmed` gives it
+/// (`null` or no member: none, [SEC-SEL-049]); without a `confirmed` member the three rules
+/// of [SEC-SEL-045], [SEC-SEL-048] and [SEC-SEL-049] do not apply (§14.10), which the
+/// consumer is built for by confirming `open_key` at `seq` 0 and the earliest time.
+fn consumer(
+    context: &JsonObject,
+    open_key: &AgreementPublicKey,
+) -> (AuthorizationEngine, MemoryPairingStore) {
     let at = Timestamp::parse(s(context, "consumer_time")).unwrap();
     let clock: Arc<dyn Clock> = Arc::new(ManualClock::new(at.clone()));
     let own = identity("oac-test-own");
@@ -305,6 +331,35 @@ fn consumer(context: &JsonObject) -> (AuthorizationEngine, MemoryPairingStore) {
         e.pair(peer, &store).unwrap();
     }
     let mut snapshot = store.load().unwrap();
+    for record in &mut snapshot.paired {
+        let confirmed = match context.get("confirmed").and_then(Json::as_object) {
+            // The open floor: how "none of SEC-SEL-045/048/049 applied" is emulated when
+            // `confirmed` is absent (§14.10), since the engine always applies them.
+            None => Some(
+                ConfirmedValues::from_store(
+                    *open_key,
+                    0,
+                    Timestamp::parse("0000-01-01T00:00:00Z").unwrap(),
+                )
+                .unwrap(),
+            ),
+            Some(c) => c
+                .get(record.key_id().as_str())
+                .and_then(Json::as_object)
+                .map(|v| {
+                    ConfirmedValues::from_store(
+                        AgreementPublicKey::from_base64url(s(v, "agreement_key")).unwrap(),
+                        v.get("seq")
+                            .and_then(Json::as_number)
+                            .and_then(|n| n.plain_integer_in(0, u64::MAX))
+                            .unwrap(),
+                        Timestamp::parse(s(v, "issued_at")).unwrap(),
+                    )
+                    .unwrap()
+                }),
+        };
+        *record = record.clone().with_confirmed(confirmed);
+    }
     if let Some(admitted) = context.get("admitted").and_then(Json::as_object) {
         for (key, h) in admitted.iter() {
             let h = h.as_object().unwrap();
@@ -356,7 +411,6 @@ fn s13_agreement_statements_are_admitted_only_by_their_rules() {
     let fixtures = agreement_fixtures();
     assert!(fixtures.len() >= 14, "{}", fixtures.len());
     for (name, fx) in fixtures {
-        let (mut e, store) = consumer(fx.get("context").and_then(Json::as_object).unwrap());
         let st = AgreementStatement::from_json(
             fx.get("input")
                 .and_then(Json::as_object)
@@ -364,6 +418,17 @@ fn s13_agreement_statements_are_admitted_only_by_their_rules() {
                 .unwrap(),
         )
         .unwrap();
+        let open_key = st
+            .as_json()
+            .get("agreement_key")
+            .and_then(Json::as_str)
+            .and_then(AgreementPublicKey::from_base64url)
+            .or_else(|| AgreementPublicKey::from_octets([9; 32]))
+            .unwrap();
+        let (mut e, store) = consumer(
+            fx.get("context").and_then(Json::as_object).unwrap(),
+            &open_key,
+        );
         let want = s(
             fx.get("expected").and_then(Json::as_object).unwrap(),
             "result",
@@ -407,7 +472,8 @@ fn s13_a_restart_does_not_readmit_an_older_statement() {
         .unwrap()
     };
     let context = older.get("context").and_then(Json::as_object).unwrap();
-    let (mut e, store) = consumer(context);
+    let open_key = AgreementPublicKey::from_octets([9; 32]).unwrap();
+    let (mut e, store) = consumer(context, &open_key);
     // Admit seq 1, then the higher one.
     e.admit_statement(&statement(&older), &store).unwrap();
     e.admit_statement(&statement(&newer), &store).unwrap();

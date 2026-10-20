@@ -573,6 +573,88 @@ impl AgreementStatement {
     pub fn as_json(&self) -> &JsonObject {
         &self.wire
     }
+
+    /// The `agreement_key`, `seq` and `issued_at` the object claims, read without checking
+    /// the signature or the time: the values of [SEC-SEL-044]. `None` when one is missing,
+    /// of the wrong type or out of range, or the key is not acceptable. A caller that needs
+    /// the statement admitted uses [`check_statement`].
+    pub fn claimed_values(&self) -> Option<ConfirmedValues> {
+        let o = &self.wire;
+        let agreement_key = AgreementPublicKey::from_base64url(o.get("agreement_key")?.as_str()?)?;
+        let issued_at = Timestamp::parse(o.get("issued_at")?.as_str()?)?;
+        let seq = o
+            .get("seq")?
+            .as_number()?
+            .plain_integer_in(0, MAX_STATEMENT_SEQ)?;
+        Some(ConfirmedValues {
+            agreement_key,
+            seq,
+            issued_at,
+        })
+    }
+}
+
+/// The values of a device's agreement statement that a pairing's operator comparison
+/// covers and confirms ([SEC-SEL-044]): `agreement_key`, `seq` and `issued_at`. A consumer
+/// keeps them with the trusted key entry ([SEC-SEL-046]) and admits no statement below them
+/// ([SEC-SEL-045], [SEC-SEL-048]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ConfirmedValues {
+    agreement_key: AgreementPublicKey,
+    seq: u64,
+    issued_at: Timestamp,
+}
+
+impl ConfirmedValues {
+    /// Values read back from a store. `None` when `seq` is above [`MAX_STATEMENT_SEQ`]; the
+    /// key was checked when its [`AgreementPublicKey`] was built.
+    pub fn from_store(
+        agreement_key: AgreementPublicKey,
+        seq: u64,
+        issued_at: Timestamp,
+    ) -> Option<ConfirmedValues> {
+        (seq <= MAX_STATEMENT_SEQ).then_some(ConfirmedValues {
+            agreement_key,
+            seq,
+            issued_at,
+        })
+    }
+
+    /// The values of an admitted statement.
+    pub fn of_held(held: &HeldStatement) -> ConfirmedValues {
+        ConfirmedValues {
+            agreement_key: held.agreement_key,
+            seq: held.seq,
+            issued_at: held.issued_at.clone(),
+        }
+    }
+
+    /// The agreement key.
+    pub fn agreement_key(&self) -> &AgreementPublicKey {
+        &self.agreement_key
+    }
+
+    /// `seq`.
+    pub fn seq(&self) -> u64 {
+        self.seq
+    }
+
+    /// `issued_at`.
+    pub fn issued_at(&self) -> &Timestamp {
+        &self.issued_at
+    }
+}
+
+impl fmt::Display for ConfirmedValues {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "agreement_key {}, seq {}, issued_at {}",
+            self.agreement_key.to_base64url(),
+            self.seq,
+            self.issued_at
+        )
+    }
 }
 
 /// An agreement statement a consumer admitted and holds for one device key (§14.3): what a
@@ -638,6 +720,14 @@ pub enum StatementRefusal {
     TooFarAhead,
     /// A statement with the same or a higher `seq` is held for that key ([SEC-SEL-014]).
     NotNewer,
+    /// The statement's `seq` is lower than the confirmed one, or is the confirmed one under
+    /// another agreement key ([SEC-SEL-045]).
+    BelowConfirmed,
+    /// The statement's `issued_at` is earlier than the confirmed one ([SEC-SEL-048]).
+    EarlierThanConfirmed,
+    /// No pairing confirmed values for the key, so it admits no statement
+    /// ([SEC-SEL-049]).
+    NoConfirmedValues,
     /// The statement was admissible but the store did not save it, so it was not admitted
     /// (fail closed; [SEC-SEL-041]).
     NotSaved(crate::pairing::PairingStoreError),
@@ -656,6 +746,15 @@ impl fmt::Display for StatementRefusal {
             }
             StatementRefusal::NotNewer => {
                 f.write_str("an agreement statement with the same or a higher seq is held")
+            }
+            StatementRefusal::BelowConfirmed => f.write_str(
+                "agreement statement below the seq, or under another key at the seq, a pairing confirmed",
+            ),
+            StatementRefusal::EarlierThanConfirmed => {
+                f.write_str("agreement statement issued before the one a pairing confirmed")
+            }
+            StatementRefusal::NoConfirmedValues => {
+                f.write_str("no pairing confirmed an agreement statement for this key")
             }
             StatementRefusal::NotSaved(e) => write!(f, "agreement statement not saved: {e}"),
         }
@@ -721,6 +820,32 @@ pub fn check_statement(
         seq,
         issued_at,
     })
+}
+
+/// The floors a pairing sets for the statements of one device key (§14.3): `confirmed` is
+/// what the key's pairing confirmed, or `None` when it confirmed nothing.
+///
+/// # Errors
+///
+/// [`StatementRefusal::NoConfirmedValues`] for `None` ([SEC-SEL-049]);
+/// [`StatementRefusal::BelowConfirmed`] for a `seq` below the confirmed one, or the confirmed
+/// one under another agreement key ([SEC-SEL-045]);
+/// [`StatementRefusal::EarlierThanConfirmed`] for an `issued_at` earlier than the confirmed
+/// one ([SEC-SEL-048]).
+pub fn check_confirmed(
+    statement: &HeldStatement,
+    confirmed: Option<&ConfirmedValues>,
+) -> Result<(), StatementRefusal> {
+    let c = confirmed.ok_or(StatementRefusal::NoConfirmedValues)?;
+    if statement.seq < c.seq
+        || (statement.seq == c.seq && statement.agreement_key != c.agreement_key)
+    {
+        return Err(StatementRefusal::BelowConfirmed);
+    }
+    if statement.issued_at.unix_nanos() < c.issued_at.unix_nanos() {
+        return Err(StatementRefusal::EarlierThanConfirmed);
+    }
+    Ok(())
 }
 
 // ---- this device's agreement keys (§14.2, §14.3, §14.9) ----------------------------------
@@ -852,6 +977,9 @@ pub enum AgreementKeyError {
     /// The highest `seq` is [`MAX_STATEMENT_SEQ`]: no later statement can be issued, and the
     /// key can be replaced only by pairing again with a new device key.
     SeqExhausted,
+    /// A restart of the `seq` count was asked for ([SEC-SEL-052]) of an issuer that has
+    /// neither lost its count nor reached [`MAX_STATEMENT_SEQ`]; nothing changed.
+    RestartNotAllowed,
     /// The saved state did not read back.
     ReadBack,
 }
@@ -864,6 +992,9 @@ impl fmt::Display for AgreementKeyError {
             AgreementKeyError::SeqExhausted => {
                 f.write_str("no agreement statement can be issued after the highest seq")
             }
+            AgreementKeyError::RestartNotAllowed => f.write_str(
+                "the seq count may restart only after it was lost or reached the maximum",
+            ),
             AgreementKeyError::ReadBack => {
                 f.write_str("the saved agreement keys did not read back")
             }
@@ -1047,6 +1178,38 @@ impl AgreementKeys {
         // [SEC-SEL-043]: the new `seq` is durable before its statement exists.
         AgreementKeys::save_checked(store, &state)?;
         AgreementKeys::from_state(identity, &state)
+    }
+
+    /// Restarts the `seq` count, only where [SEC-SEL-052] allows it: for an issuer that has
+    /// lost its count (`store` holds no count) or whose count is [`MAX_STATEMENT_SEQ`].
+    /// One new agreement key whose statement has
+    /// `seq` 0 and `issued_at` `now`, saved to `store` in place of everything it held
+    /// ([SEC-SEL-043]), so [SEC-SEL-040] and [SEC-SEL-043] count only the statements issued
+    /// since. Call it only for an issuer that has lost its count or reached
+    /// [`MAX_STATEMENT_SEQ`], with the statement it gives at a pairing that follows the
+    /// removal of its device key by a consumer. A consumer that did not remove the key
+    /// holds a higher `seq` and refuses the new statement ([SEC-SEL-014]); it recovers by
+    /// removal and repeated pairing. The earlier agreement keys are erased with the count
+    /// ([SEC-SEL-018]): their statements are refused by every consumer that paired again,
+    /// so nothing sealed to them is still wanted.
+    ///
+    /// # Errors
+    ///
+    /// [`AgreementKeyError::RestartNotAllowed`] when the store holds a count below
+    /// [`MAX_STATEMENT_SEQ`]; otherwise [`AgreementKeyError`]; nothing changes then.
+    pub fn restart_count(
+        store: &dyn AgreementKeyStore,
+        identity: &DeviceIdentity,
+        now: &Timestamp,
+    ) -> Result<AgreementKeys, AgreementKeyError> {
+        let allowed = match store.load().map_err(AgreementKeyError::Store)? {
+            None => true,
+            Some(state) => state.highest_seq.is_none_or(|h| h >= MAX_STATEMENT_SEQ),
+        };
+        if !allowed {
+            return Err(AgreementKeyError::RestartNotAllowed);
+        }
+        AgreementKeys::generate(store, identity, Vec::new(), 0, now)
     }
 
     /// Replaces the current agreement key with a new one ([SEC-SEL-017]), whose statement has
@@ -1479,6 +1642,74 @@ mod tests {
         )
         .unwrap();
         assert_ne!(other.statement(), keys.statement());
+    }
+
+    #[test]
+    fn restart_count_starts_the_count_again() {
+        // [SEC-SEL-052]: an issuer at the maximum seq, or one that lost its count, restarts at
+        // seq 0, saved in place of everything the store held; [SEC-SEL-040] and
+        // [SEC-SEL-043] then count the statements issued since.
+        let me = identity("p");
+        let t0 = ts("2026-10-09T12:00:00Z");
+        let t1 = ts("2026-10-09T12:10:00Z");
+        let store = MemoryAgreementKeyStore::new();
+        store
+            .save(&AgreementKeyState {
+                keys: vec![StoredAgreementKey {
+                    private_key: fresh_private_key(),
+                    seq: MAX_STATEMENT_SEQ,
+                    issued_at: t0.clone(),
+                }],
+                highest_seq: Some(MAX_STATEMENT_SEQ),
+            })
+            .unwrap();
+        let mut keys = AgreementKeys::load_or_generate(&store, &me, &t0).unwrap();
+        assert!(matches!(
+            keys.replace(&store, &me, &t1),
+            Err(AgreementKeyError::SeqExhausted)
+        ));
+        let mut keys = AgreementKeys::restart_count(&store, &me, &t1).unwrap();
+        assert_eq!((keys.highest_seq(), keys.len()), (0, 1));
+        let saved = store.load().unwrap().unwrap();
+        assert_eq!((saved.highest_seq, saved.keys.len()), (Some(0), 1));
+        // A restart of the process reads the new count back, and counts on from it.
+        let again = AgreementKeys::load_or_generate(&store, &me, &t1).unwrap();
+        assert_eq!(again.statement(), keys.statement());
+        keys.replace(&store, &me, &ts("2026-10-09T12:20:00Z"))
+            .unwrap();
+        assert_eq!(keys.highest_seq(), 1);
+        // A count below the maximum may not restart: the issuer has not lost it.
+        let live = MemoryAgreementKeyStore::new();
+        let before = AgreementKeys::load_or_generate(&live, &me, &t0).unwrap();
+        assert!(matches!(
+            AgreementKeys::restart_count(&live, &me, &t1),
+            Err(AgreementKeyError::RestartNotAllowed)
+        ));
+        assert_eq!(
+            AgreementKeys::load_or_generate(&live, &me, &t1)
+                .unwrap()
+                .statement(),
+            before.statement()
+        );
+        // A store with no count (lost) may restart.
+        assert!(AgreementKeys::restart_count(&MemoryAgreementKeyStore::new(), &me, &t1).is_ok());
+        // A failing store restarts nothing, and the count stays.
+        let max = MemoryAgreementKeyStore::new();
+        max.save(&AgreementKeyState {
+            keys: Vec::new(),
+            highest_seq: Some(MAX_STATEMENT_SEQ),
+        })
+        .unwrap();
+        max.fail_saves(true);
+        assert!(matches!(
+            AgreementKeys::restart_count(&max, &me, &t1),
+            Err(AgreementKeyError::Store(_))
+        ));
+        max.fail_saves(false);
+        assert_eq!(
+            max.load().unwrap().unwrap().highest_seq,
+            Some(MAX_STATEMENT_SEQ)
+        );
     }
 
     #[test]
