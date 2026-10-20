@@ -23,15 +23,20 @@ use zenoh::sample::SampleKind;
 
 use crate::addressing::{Partition, token_name};
 use crate::config::Role;
-use crate::ports::{Claimed, PortClaim, claimed};
+use crate::ports::{Claimed, PortClaim, claimed_rebuildable};
 use crate::{LINK_LEASE_MILLIS, PeerConfiguration, PeerTransport};
 
 /// A configuration on a rendezvous port claimed for as long as it lives (`crate::ports`).
 /// Several tests of this crate run in parallel, each opening sockets, and a rendezvous port
 /// that something else already answers on is refused by design, so a port is claimed and
-/// never probed and released.
+/// never probed and released. The first start of a test goes through `Claimed::start_first`,
+/// which moves to a fresh port, bounded and logged, if a program outside the claim protocol
+/// took the port in between (#432).
 fn conf(tag: &str) -> Claimed<PeerConfiguration> {
-    claimed(|port| PeerConfiguration::rendezvous(port).with_partition(format!("live-{tag}-{port}")))
+    let tag = tag.to_owned();
+    claimed_rebuildable(move |port| {
+        PeerConfiguration::rendezvous(port).with_partition(format!("live-{tag}-{port}"))
+    })
 }
 fn key(c: char) -> KeyId {
     KeyId::parse(&c.to_string().repeat(64)).unwrap()
@@ -134,13 +139,14 @@ fn raw_session(c: &PeerConfiguration) -> zenoh::Session {
 /// since its own start. Controls with raw native subscribers show what history adds.
 #[test]
 fn a_late_started_peer_learns_of_peers_already_online() {
-    let c = conf("late");
+    let mut c = conf("late");
     let (a, b, late) = (
         PeerTransport::new(),
         PeerTransport::new(),
         PeerTransport::new(),
     );
-    a.start(&key('a'), c.clone().wrap()).unwrap();
+    c.start_first(|conf| a.start(&key('a'), conf.clone().wrap()))
+        .unwrap();
     b.start(&key('b'), c.clone().wrap()).unwrap();
     wait_for("a and b to see each other", Duration::from_secs(15), || {
         a.observed_live_links() == 1 && b.observed_live_links() == 1
@@ -224,9 +230,10 @@ fn a_late_started_peer_learns_of_peers_already_online() {
 /// one started, and the late one reports a carrier loss for the handle its frames carry.
 #[test]
 fn a_late_peer_reports_the_loss_of_a_peer_that_was_online_before_it_started() {
-    let c = conf("late-loss");
+    let mut c = conf("late-loss");
     let (early, late) = (PeerTransport::new(), PeerTransport::new());
-    early.start(&key('a'), c.clone().wrap()).unwrap();
+    c.start_first(|conf| early.start(&key('a'), conf.clone().wrap()))
+        .unwrap();
     late.start(&key('b'), c.clone().wrap()).unwrap();
     let events = Events::default();
     events.watch(&late);
@@ -248,13 +255,14 @@ fn a_late_peer_reports_the_loss_of_a_peer_that_was_online_before_it_started() {
 /// seen by another joiner through the relay.
 #[test]
 fn a_graceful_exit_is_reported_at_once_to_every_remaining_peer() {
-    let c = conf("graceful");
+    let mut c = conf("graceful");
     let (relay, j1, j2) = (
         PeerTransport::new(),
         PeerTransport::new(),
         PeerTransport::new(),
     );
-    relay.start(&key('a'), c.clone().wrap()).unwrap();
+    c.start_first(|conf| relay.start(&key('a'), conf.clone().wrap()))
+        .unwrap();
     j1.start(&key('b'), c.clone().wrap()).unwrap();
     j2.start(&key('c'), c.clone().wrap()).unwrap();
     let (er, e1, e2) = (Events::default(), Events::default(), Events::default());
@@ -300,9 +308,10 @@ fn a_graceful_exit_is_reported_at_once_to_every_remaining_peer() {
 /// its sockets and Zenoh reports the closed link at once, with no lease wait.
 #[test]
 fn an_abrupt_process_exit_is_reported_when_zenoh_sees_the_link_close() {
-    let c = conf("abrupt");
+    let mut c = conf("abrupt");
     let relay = PeerTransport::new();
-    relay.start(&key('a'), c.clone().wrap()).unwrap();
+    c.start_first(|conf| relay.start(&key('a'), conf.clone().wrap()))
+        .unwrap();
     let events = Events::default();
     events.watch(&relay);
     let mut child = Command::new(std::env::current_exe().unwrap())
@@ -512,10 +521,12 @@ fn a_silent_link_loss_is_reported_within_the_zenoh_link_lease() {
 /// never seen alive, say nothing about a carrier: no event, no change in the live links.
 #[test]
 fn an_ambiguous_token_is_unknown_and_reports_no_loss() {
-    let c = conf("ambiguous");
-    let partition = Partition::new(c.partition());
+    let mut c = conf("ambiguous");
     let t = PeerTransport::new();
-    t.start(&key('a'), c.clone().wrap()).unwrap();
+    c.start_first(|conf| t.start(&key('a'), conf.clone().wrap()))
+        .unwrap();
+    // After the start: a retry on a fresh port renames the partition.
+    let partition = Partition::new(c.partition());
     let events = Events::default();
     events.watch(&t);
     let raw = raw_session(&c);
@@ -558,9 +569,10 @@ fn an_ambiguous_token_is_unknown_and_reports_no_loss() {
 /// live set: the loss is reported once, and the new holder is seen alive.
 #[test]
 fn a_replaced_relay_is_reported_lost_and_the_new_one_is_seen_alive() {
-    let c = conf("replaced");
+    let mut c = conf("replaced");
     let (holder, joiner) = (PeerTransport::new(), PeerTransport::new());
-    holder.start(&key('a'), c.clone().wrap()).unwrap();
+    c.start_first(|conf| holder.start(&key('a'), conf.clone().wrap()))
+        .unwrap();
     joiner.start(&key('b'), c.clone().wrap()).unwrap();
     let events = Events::default();
     events.watch(&joiner);
@@ -586,14 +598,15 @@ fn a_replaced_relay_is_reported_lost_and_the_new_one_is_seen_alive() {
 /// A watcher that stalls holds up neither the frame stream nor another peer's watcher.
 #[test]
 fn a_stalled_presence_watcher_blocks_neither_frames_nor_other_peers() {
-    let c = conf("stalled");
+    let mut c = conf("stalled");
     let (relay, a, b, c3) = (
         PeerTransport::new(),
         PeerTransport::new(),
         PeerTransport::new(),
         PeerTransport::new(),
     );
-    relay.start(&key('d'), c.clone().wrap()).unwrap();
+    c.start_first(|conf| relay.start(&key('d'), conf.clone().wrap()))
+        .unwrap();
     a.start(&key('a'), c.clone().wrap()).unwrap();
     b.start(&key('b'), c.clone().wrap()).unwrap();
     c3.start(&key('c'), c.clone().wrap()).unwrap();
@@ -638,14 +651,15 @@ fn a_stalled_presence_watcher_blocks_neither_frames_nor_other_peers() {
 /// (ring sender kept alive) and by `presence::tests::a_loss_reaches_every_watcher_until_the_gate_closes`.
 #[test]
 fn no_loss_reaches_a_watcher_once_shutdown_has_begun() {
-    let c = conf("after-shutdown");
+    let mut c = conf("after-shutdown");
     let (relay, a1, a2, b) = (
         PeerTransport::new(),
         PeerTransport::new(),
         PeerTransport::new(),
         PeerTransport::new(),
     );
-    relay.start(&key('d'), c.clone().wrap()).unwrap();
+    c.start_first(|conf| relay.start(&key('d'), conf.clone().wrap()))
+        .unwrap();
     a1.start(&key('a'), c.clone().wrap()).unwrap();
     a2.start(&key('c'), c.clone().wrap()).unwrap();
     b.start(&key('b'), c.clone().wrap()).unwrap();
@@ -697,10 +711,11 @@ fn no_loss_reaches_a_watcher_once_shutdown_has_begun() {
 /// contains a device key id or a session id, and the carrier handle prints nothing.
 #[test]
 fn token_names_and_carrier_losses_name_no_device_or_session() {
-    let c = conf("names");
+    let mut c = conf("names");
     let (a, b) = (PeerTransport::new(), PeerTransport::new());
     let (ka, kb) = (key('a'), key('b'));
-    a.start(&ka, c.clone().wrap()).unwrap();
+    c.start_first(|conf| a.start(&ka, conf.clone().wrap()))
+        .unwrap();
     b.start(&kb, c.clone().wrap()).unwrap();
     let events = Events::default();
     events.watch(&b);

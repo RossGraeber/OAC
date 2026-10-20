@@ -86,3 +86,50 @@ fn the_rendezvous_range_lies_below_the_linux_ephemeral_range() {
         "ip_local_port_range starts at {low}, inside the rendezvous range {RENDEZVOUS_PORTS:?}"
     );
 }
+
+/// `start_first` (#432) moves to a fresh claimed port on the foreign-holder refusal and on no
+/// other error, and gives up after the bounded number of attempts.
+#[test]
+fn start_first_retries_on_the_foreign_holder_refusal_only_and_is_bounded() {
+    let refusal = format!("port 1 {}", ports::FOREIGN_HOLDER_REFUSAL);
+
+    // Refused once: the second attempt runs on another port, whose claim is held.
+    let mut value = ports::claimed_rebuildable(|port| port);
+    let first = value.port();
+    let mut seen = Vec::new();
+    let outcome = value.start_first(|port| {
+        seen.push(*port);
+        if seen.len() == 1 {
+            Err(refusal.clone())
+        } else {
+            Ok(())
+        }
+    });
+    assert_eq!(outcome, Ok(()));
+    assert_eq!(seen.len(), 2);
+    assert_eq!(seen[0], first);
+    assert_ne!(seen[1], first);
+    assert_eq!(*value, seen[1], "the value was rebuilt on the new port");
+    assert_eq!(value.port(), seen[1]);
+    let other = open(value.port());
+    assert!(matches!(other.try_lock(), Err(TryLockError::WouldBlock)));
+
+    // Any other error is returned at once, never retried.
+    let mut value = ports::claimed_rebuildable(|port| port);
+    let mut calls = 0;
+    let outcome = value.start_first(|_| {
+        calls += 1;
+        Err::<(), _>("the peer session did not open".to_owned())
+    });
+    assert_eq!((calls, outcome.is_err()), (1, true));
+
+    // A refusal that persists is retried a bounded number of times, then returned.
+    let mut value = ports::claimed_rebuildable(|port| port);
+    let mut calls = 0;
+    let outcome = value.start_first(|_| {
+        calls += 1;
+        Err::<(), _>(refusal.clone())
+    });
+    assert_eq!(calls, ports::FOREIGN_HOLDER_ATTEMPTS);
+    assert_eq!(outcome, Err(refusal));
+}
