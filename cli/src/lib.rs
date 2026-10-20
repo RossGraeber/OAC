@@ -13,6 +13,7 @@
 //! - [`daemon`]: the per-device daemon (G9, #70).
 //! - [`control`]: the daemon's reserved `control` endpoint and `oac stop`'s client of it (G10, #71).
 //! - [`status`]: the daemon's status report and `oac status`'s rendering of it (G10, #71).
+//! - [`doctor`]: `oac doctor`'s checks and their report (G10, #71).
 //! - [`logfile`]: the daemon's crash-safe, size-bounded, user-private log file (G10, #71).
 //! - [`hook`]: the `oac hook` handler that carries a Claude Code `SessionStart` input to the
 //!   daemon as a native signal (G9, #70; `spec/bindings/mcp.md` §8.1).
@@ -27,6 +28,7 @@
 pub mod commands;
 pub mod control;
 pub mod daemon;
+pub mod doctor;
 pub mod hook;
 pub mod ipc;
 pub mod keystore;

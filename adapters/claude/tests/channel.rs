@@ -1821,3 +1821,50 @@ fn shutdown_with_all_seven_places_taken_is_inside_the_bound() {
     assert!(start.elapsed() < Duration::from_millis(oac_adapter_claude::SHUTDOWN_BOUND_MS));
     assert!(wires.iter().all(|(_, h)| h.is_closed()));
 }
+
+/// G10 (#71): `oac doctor` reports a Claude session that never negotiated a legacy MCP
+/// revision. A connection that probed (or asked for a modern revision) and ended with no
+/// legacy `initialize` completed is counted, and `health` is `Degraded` with a neutral
+/// detail; one that went on to a legacy `initialize` is not counted.
+#[test]
+fn a_probe_without_a_legacy_initialize_degrades_health_and_a_full_opening_does_not() {
+    use oac_core::health::HealthState;
+    let (a, core) = adapter_with(WAIT);
+    // A stateless-only client: the probe, then it goes away.
+    let (mut w, _h) = connect(&a);
+    w.send(PROBE);
+    let answer = w.frame();
+    assert_eq!(
+        number(&answer, &["error", "code"]).as_deref(),
+        Some("-32601")
+    );
+    w.to_adapter = None;
+    let end = Instant::now() + WAIT;
+    let health = loop {
+        let h = a.health();
+        if h.state != HealthState::Healthy || Instant::now() >= end {
+            break h;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    assert_eq!(health.state, HealthState::Degraded);
+    let detail = health.detail.expect("a detail");
+    assert!(
+        detail.starts_with("1 connection(s) did not complete"),
+        "{detail}"
+    );
+    // The ordinary opening (probe, then a legacy initialize) adds nothing.
+    let (mut w2, h2) = connect(&a);
+    let _ = open(&mut w2, true);
+    assert_eq!(wait_for_open(&core), h2);
+    w2.to_adapter = None;
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(
+        a.health()
+            .detail
+            .as_deref()
+            .map(|d| d.starts_with("1 connection(s)")),
+        Some(true)
+    );
+    a.shutdown();
+}

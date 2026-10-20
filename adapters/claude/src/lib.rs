@@ -35,4 +35,4 @@ pub mod hook;
 mod io;
 mod server;
 
-pub use adapter::{ClaudeAdapter, SHUTDOWN_BOUND_MS};
+pub use adapter::{ClaudeAdapter, SHUTDOWN_BOUND_MS, UNNEGOTIATED_DETAIL};

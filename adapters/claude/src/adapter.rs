@@ -40,7 +40,7 @@
 //! production installs the cooperative local handler before admitting connections.
 
 use std::collections::{HashMap, VecDeque};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::RecvTimeoutError;
 use std::sync::{Arc, Mutex, MutexGuard, RwLock};
 use std::time::Duration;
@@ -64,6 +64,10 @@ use crate::channel::{
 use crate::hook::{self, FirstLine, MAX_HOOK_INPUT, SessionStart};
 use crate::io::{ChannelReader, ChannelWriter, Head};
 use crate::server::{ChannelServer, ChannelTransport};
+
+/// The tail of the `health` detail that says connections did not negotiate a legacy MCP
+/// revision (`oac doctor` recognises the detail by it).
+pub const UNNEGOTIATED_DETAIL: &str = "did not complete a legacy MCP revision negotiation";
 
 /// How long `deliver` waits for the notification's write to complete before it reports
 /// `indeterminate` ([IFC-ADP-053]): the write neither completed nor failed in that time.
@@ -170,6 +174,11 @@ pub(crate) struct Inner {
     /// How long `deliver` waits for a write ([`HANDOFF_WAIT`] unless set).
     handoff_wait: Duration,
     admission: Mutex<(CallAdmission, u64, u64)>,
+    /// How many connections since this adapter was built sent the `server/discover` probe or
+    /// asked for a revision this server does not speak, and ended without completing a
+    /// legacy `initialize` (`Inner::note_unnegotiated`). `oac doctor` reports it through
+    /// `health` (G10, #71).
+    unnegotiated: AtomicU64,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -177,6 +186,13 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 
 impl Inner {
+    /// Notes one connection that asked for the stateless revision (or probed for it) and
+    /// ended with no legacy `initialize` completed: Claude Code does not register such a
+    /// server as a channel (`spec/bindings/mcp.md` [MCPB-CLD-001]).
+    pub(crate) fn note_unnegotiated(&self) {
+        self.unnegotiated.fetch_add(1, Ordering::SeqCst);
+    }
+
     fn emit(&self, h: Option<AdapterEventHandler>, e: AdapterEvent) {
         let (handler, admission, bound) = {
             let st = lock(&self.state);
@@ -472,6 +488,7 @@ impl ClaudeAdapter {
                 calls: RwLock::new(()),
                 handoff_wait: wait,
                 admission: Mutex::new((CallAdmission::default(), 1000, 100)),
+                unnegotiated: AtomicU64::new(0),
             }),
         }
     }
@@ -835,7 +852,13 @@ impl ProviderAdapter for ClaudeAdapter {
         if self.inner.down.load(Ordering::SeqCst) {
             HealthStatus::new(HealthState::Unavailable)
         } else {
-            HealthStatus::new(HealthState::Healthy)
+            match self.inner.unnegotiated.load(Ordering::SeqCst) {
+                0 => HealthStatus::new(HealthState::Healthy),
+                n => HealthStatus::with_detail(
+                    HealthState::Degraded,
+                    format!("{n} connection(s) {UNNEGOTIATED_DETAIL}"),
+                ),
+            }
         }
     }
 

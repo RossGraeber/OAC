@@ -140,6 +140,25 @@ pub struct ChannelTransport {
     inner: AsyncRwTransport<RoleServer, ChannelReader, ChannelWriter>,
     adapter: Arc<Inner>,
     attachment: Attachment,
+    negotiation: Negotiation,
+}
+
+/// What one connection did about the protocol revision. When the connection ends having
+/// sent the probe or asked for a revision this server does not speak, and never being
+/// answered a legacy `initialize`, the adapter counts it ([`Inner::note_unnegotiated`]):
+/// that is a harness that will not register the server as a channel.
+struct Negotiation {
+    adapter: Arc<Inner>,
+    asked_modern: bool,
+    answered: bool,
+}
+
+impl Drop for Negotiation {
+    fn drop(&mut self) {
+        if self.asked_modern && !self.answered {
+            self.adapter.note_unnegotiated();
+        }
+    }
 }
 
 impl ChannelTransport {
@@ -152,6 +171,11 @@ impl ChannelTransport {
     ) -> ChannelTransport {
         ChannelTransport {
             inner: AsyncRwTransport::new_server(read, write),
+            negotiation: Negotiation {
+                adapter: adapter.clone(),
+                asked_modern: false,
+                answered: false,
+            },
             adapter,
             attachment,
         }
@@ -169,6 +193,12 @@ impl Transport<RoleServer> for ChannelTransport {
             &item,
             JsonRpcMessage::Response(r) if matches!(r.result, ServerResult::ListToolsResult(_))
         );
+        if matches!(
+            &item,
+            JsonRpcMessage::Response(r) if matches!(r.result, ServerResult::InitializeResult(_))
+        ) {
+            self.negotiation.answered = true;
+        }
         let sent = self.inner.send(item);
         let adapter = self.adapter.clone();
         let attachment = self.attachment.clone();
@@ -184,6 +214,17 @@ impl Transport<RoleServer> for ChannelTransport {
     async fn receive(&mut self) -> Option<ClientJsonRpcMessage> {
         loop {
             let msg = self.inner.receive().await?;
+            if let JsonRpcMessage::Request(req) = &msg {
+                match &req.request {
+                    ClientRequest::DiscoverRequest(_) => self.negotiation.asked_modern = true,
+                    ClientRequest::InitializeRequest(init)
+                        if !LEGACY_REVISIONS.contains(&init.params.protocol_version) =>
+                    {
+                        self.negotiation.asked_modern = true;
+                    }
+                    _ => {}
+                }
+            }
             if let JsonRpcMessage::Request(req) = &msg
                 && matches!(req.request, ClientRequest::DiscoverRequest(_))
             {
