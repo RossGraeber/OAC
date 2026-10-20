@@ -551,16 +551,28 @@ fn a_rotation_that_fails_keeps_the_current_log_and_logging_goes_on() {
         longest = longest.max(std::fs::metadata(&current).unwrap().len());
     }
     assert!(longest > limit, "the file grew past the limit: {longest}");
-    assert!(longest <= limit * logfile::HARD_CAP_FACTOR + 200, "{longest}");
+    assert!(
+        longest <= limit * logfile::HARD_CAP_FACTOR + 200,
+        "{longest}"
+    );
     let kept = read(&current);
     let first = kept.lines().next().unwrap();
     assert!(
         first.contains("log restarted: ") && first.contains("bytes discarded, rotation failing ("),
         "the restarted file begins with the marker: {first}"
     );
-    assert_eq!(kept.matches("log restarted").count(), kept.matches("log restarted: ").count());
-    assert!(kept.lines().last().unwrap().ends_with("line 0199"), "the newest line is kept");
-    assert!(!kept.contains("line 0000"), "the oldest lines were discarded");
+    assert_eq!(
+        kept.matches("log restarted").count(),
+        kept.matches("log restarted: ").count()
+    );
+    assert!(
+        kept.lines().last().unwrap().ends_with("line 0199"),
+        "the newest line is kept"
+    );
+    assert!(
+        !kept.contains("line 0000"),
+        "the oldest lines were discarded"
+    );
     // What follows the marker is contiguous and in order.
     let numbers: Vec<usize> = kept
         .lines()
@@ -626,8 +638,14 @@ fn a_sink_whose_rotation_fails_keeps_the_newest_lines_and_keeps_using_the_file()
         read(&dir.join(ROTATED_FILE_NAME)),
         read(&dir.join(LOG_FILE_NAME))
     );
-    assert!(all.contains("while blocked 099"), "the newest lines are kept");
-    assert!(!all.contains("while blocked 000"), "the oldest were discarded");
+    assert!(
+        all.contains("while blocked 099"),
+        "the newest lines are kept"
+    );
+    assert!(
+        !all.contains("while blocked 000"),
+        "the oldest were discarded"
+    );
     assert!(
         all.contains("log restarted: ") && all.contains("rotation failing"),
         "the restart is marked: {all}"
