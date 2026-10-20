@@ -42,6 +42,7 @@
 use std::fmt;
 use std::future::Future;
 use std::io::Write;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -64,6 +65,7 @@ use crate::ipc::{
     Accept, Accepted, BindError, CONTROL_LABEL, DaemonLock, Endpoint, Listener, Scope,
     harness_label_is_valid,
 };
+use crate::logfile::LogFile;
 use crate::peer::{self, ProcessTable};
 use crate::relay;
 
@@ -73,10 +75,22 @@ const TICK: Duration = Duration::from_secs(1);
 /// Where the daemon writes what an operator might read: findings, decisions and refusals.
 /// Lines name connections, session ids and requirement ids only; they hold no message
 /// content, native id, working directory or key ([IFC-TYP-092], [SEC-KEY-004]).
+///
+/// A sink writes to a stream (standard error for `oac start`) and, when it has one, also to
+/// the log file (`crate::logfile`, G10 #71), so that the lines outlive the process. **A log
+/// never stops the daemon:** a file that cannot be opened is a warning and the sink goes on
+/// with the stream alone; a file that fails while the daemon runs is warned about once on the
+/// stream and left.
 #[derive(Clone)]
 pub struct LogSink {
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
+    file: Option<Arc<Mutex<FileLog>>>,
     tap: Option<Tap>,
+}
+
+/// The file half of a sink: the file while it works.
+struct FileLog {
+    file: Option<LogFile>,
 }
 
 /// What a connection's life looked like from the daemon, for a diagnostic tool.
@@ -109,7 +123,33 @@ impl LogSink {
     pub fn new(writer: impl Write + Send + 'static) -> LogSink {
         LogSink {
             writer: Arc::new(Mutex::new(Box::new(writer))),
+            file: None,
             tap: None,
+        }
+    }
+
+    /// This sink, and every line also appended to `file`.
+    pub fn with_file(mut self, file: LogFile) -> LogSink {
+        self.file = Some(Arc::new(Mutex::new(FileLog { file: Some(file) })));
+        self
+    }
+
+    /// This sink with the log file of `namespace` (`None`: the user's own) in the user's state
+    /// directory, or, when it cannot be opened, **one warning on the stream and the sink as it
+    /// was**: the daemon runs without a log file. Returns the path of the file when there is
+    /// one.
+    pub fn with_default_file(self, namespace: Option<&str>) -> (LogSink, Option<PathBuf>) {
+        match LogFile::open(namespace) {
+            Ok(file) => {
+                let path = file.path();
+                (self.with_file(file), Some(path))
+            }
+            Err(e) => {
+                self.plain(&format!(
+                    "oac-daemon: warning: the log file could not be opened ({e}); continuing without it"
+                ));
+                (self, None)
+            }
         }
     }
 
@@ -135,8 +175,42 @@ impl LogSink {
 
     /// Writes one line, ignoring a failing writer: a log must not stop the daemon.
     pub fn line(&self, text: &str) {
+        self.plain(&format!("oac-daemon: {text}"));
+    }
+
+    /// Writes `text` as one line as it is (a line that is not the daemon's own, such as `oac
+    /// start`'s). Each destination gets the whole line in **one write**, then a flush; the
+    /// file first, so that a line the stream's reader never sees is still kept.
+    pub fn plain(&self, text: &str) {
+        if let Some(file) = &self.file {
+            let failed = {
+                let mut log = file.lock().unwrap_or_else(|e| e.into_inner());
+                match log.file.as_mut().map(|f| f.append(text)) {
+                    Some(Err(e)) => {
+                        log.file = None;
+                        Some(e)
+                    }
+                    _ => None,
+                }
+            };
+            if let Some(e) = failed {
+                self.write_stream(&format!(
+                    "oac-daemon: warning: writing the log file failed ({e}); continuing without it"
+                ));
+            }
+        }
+        self.write_stream(text);
+    }
+
+    fn write_stream(&self, text: &str) {
         let mut writer = self.writer.lock().unwrap_or_else(|e| e.into_inner());
-        let _ = writeln!(writer, "oac-daemon: {text}");
+        let _ = writer.write_all(
+            format!(
+                "{text}
+"
+            )
+            .as_bytes(),
+        );
         let _ = writer.flush();
     }
 }

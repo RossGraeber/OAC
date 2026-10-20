@@ -129,7 +129,7 @@ Reproduced from `docs/planning/decisions/C2-process-model.md` §6.
 
 | Command | Purpose | Exit-code behaviour |
 |---|---|---|
-| `oac start` | Start (or confirm running) the per-device daemon. **Idempotent**: running it while a daemon is already up for this device is a no-op success, not an error. **Foreground by default**; `--detach` self-daemonizes into the background. | `0` on a daemon now running (newly started or already up); non-zero on failure to bind the IPC endpoint or start. |
+| `oac start` | Start (or confirm running) the per-device daemon. **Idempotent**: running it while a daemon is already up for this device is a no-op success, not an error. **Foreground by default**; `--detach` self-daemonizes into the background. The daemon's log lines go to standard error and also to a **log file that survives a crash** (G10, #71 slice 2; below the table). `--detach` reads the child's standard error until it serves or ends, so a start that fails shows the child's own reason and the log's path. `oac start --help` prints the log path. | `0` on a daemon now running (newly started or already up); non-zero on failure to bind the IPC endpoint or start. |
 | `oac status` | Report daemon up/down, device id, and transport state (peer up/down). | `0` when the daemon is up and reachable over IPC; non-zero when down or unreachable — scriptable as a liveness check. |
 | `oac sessions` | List sessions currently registered with the daemon. | `0` on a successful listing (including an empty list); non-zero if the daemon is unreachable. |
 | `oac doctor` | Preflight check (§6 below expands the check list). | `0` only if every check passes; non-zero and a per-check report otherwise. |
@@ -148,6 +148,16 @@ Reproduced from `docs/planning/decisions/C2-process-model.md` §6.
 | `4` | The daemon is unreachable or incompatible: the endpoint is served by another user's process, every instance stayed busy, or the control-protocol version differs. |
 
 A daemon built before this change has no control endpoint (v0.1 is unreleased), so `oac stop` reports it as not running; end such a process yourself.
+
+**The daemon log file (G10, #71, slice 2; lead decision 2026-10-18, Q2: "logs should always be preserved to survive a crash").**
+
+- **Where.** `LOCALAPPDATA\OAC\logs\daemon.log` on Windows and `~/.local/state/OAC/logs/daemon.log` on Unix: the per-user state directory the relay's TLS material also uses. The previous file is `daemon.log.1`. A test namespace (`OAC_SCOPE`, test processes only; `oac start` refuses it) writes under `logs/ns-<name>/` instead and never touches the user's own log. `oac start --help` prints the path. Reading it (`oac status`, `oac status --log`) is slice 3; until then open the file.
+- **Who can read it.** The user only. Unix: directory `0700`, file `0600`; a directory or file that is not the user's or is open to others is refused, never repaired, and a symlink in the file's place is refused (`O_NOFOLLOW`). Windows: the directory and the file carry a protected DACL with one ACE, for the user (the pattern of the named pipes, C2 §4); the DACL is read back before the file is used. An administrator or root remains inside the operating system's trust boundary.
+- **Crash safety, and what it costs.** Each line is one `write` on a file opened for append, then a flush: the line is in the operating system's file cache when the call returns, so it survives the end of the daemon process at any instant, a kill or a crash included. At most the line being written at that instant is lost; a line is never split across the two files. It is **not fsynced**: an fsync per line is a disk round trip (milliseconds, on Windows `FlushFileBuffers`), and the requirement is a daemon crash, not a machine crash; a power loss or an operating-system crash can lose the last seconds.
+- **Bounded.** At 1 MiB the file is renamed to `daemon.log.1` (replacing the previous one) and a new one begun: at most two files, about 2 MiB, however long the daemon runs. A line is cut at 4 KiB. Each line begins `unix_ms=<time> `.
+- **Content.** The same contract as the standard-error log: connection labels, session ids and requirement ids; no message content, native session id, working directory or key.
+- **A log never stops the daemon.** If the file cannot be opened, the daemon prints one warning on standard error and runs without it; if a write fails later, one warning and the file is left.
+- **A failed `--detach`.** The child's standard error is a pipe that `oac start --detach` relays (at most 16 KiB, control characters made `?`) until the daemon serves or ends; a start that ends non-zero prints the child's own reason, its exit status and the log's path, in place of "run `oac start` in a terminal".
 
 (Dated note, 2026-10-18, #71: `oac stop` and the reserved `control` endpoint are on this branch of G10 slice 1. `oac start --detach` probes the `control` endpoint, not the `claude` endpoint, for "already running" and for "now serving", so the probe no longer takes an adapter place (`11-risks.md` row 86).)
 
@@ -547,7 +557,7 @@ Do not run `beacon mcp connect` for this setup. It registers the separate hosted
 
 ### 20.3 OAC side — the launch commands already in this file
 
-Only the commands in §5, §7 and §9 are used. `oac start` and `oac mcp-shim` are on `main` (PR #413); the live run is the operator's. `oac start` serves on the real Zenoh transport since PR #425 (a multi-thread runtime; the first live run had panicked on a current-thread one). The "Gate-verdict caveat" at the top of this file applies to each.
+Only the commands in §5, §7 and §9 are used. `oac start` and `oac mcp-shim` are on `main` (PR #413); the live run is the operator's. `oac start` writes its log to a file that survives a crash (§5). `oac start` serves on the real Zenoh transport since PR #425 (a multi-thread runtime; the first live run had panicked on a current-thread one). The "Gate-verdict caveat" at the top of this file applies to each.
 
 1. Start the per-device daemon with `oac start` (§5).
 2. Claude Code: launch the session with the development-channel command in §7. The

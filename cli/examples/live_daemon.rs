@@ -18,8 +18,12 @@
 //!   the harness, whether it paired, and the core's binding lines.
 //!
 //! ```text
-//! cargo run -p oac-cli --example live_daemon -- --namespace g9a --events <file>
+//! cargo run -p oac-cli --example live_daemon -- --namespace g9a --events <file> [--state-dir <dir>]
 //! ```
+//!
+//! Its log lines also go to the daemon log file of the namespace (`oac_cli::logfile`, G10 #71):
+//! under `<dir>/OAC/logs/ns-<namespace>/` with `--state-dir`, else in the user's state
+//! directory. A start that fails says why on standard error and exits 1.
 //!
 //! It stops on Ctrl-C, when a line `stop` is read on its standard input, or when `oac stop`
 //! asks over the control endpoint (G10, #71; a `stop_requested` event), and writes a
@@ -38,6 +42,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use oac_adapter_claude::ClaudeAdapter;
 use oac_cli::daemon::{Daemon, Diagnostic, LogSink, Parts};
 use oac_cli::ipc::Scope;
+use oac_cli::logfile::{LogFile, MAX_LOG_BYTES};
 use oac_cli::peer::{self, ProcessId, ProcessTable};
 use oac_core::clock::{Clock, SystemClock};
 use oac_core::ids::Token;
@@ -190,22 +195,26 @@ fn tap(events: Events) -> oac_cli::daemon::Tap {
 struct Arguments {
     namespace: String,
     events: Option<PathBuf>,
+    state_dir: Option<PathBuf>,
 }
 
 fn arguments() -> Result<Arguments, String> {
     let mut namespace = None;
     let mut events = None;
+    let mut state_dir = None;
     let mut args = std::env::args().skip(1);
     while let Some(flag) = args.next() {
         match flag.as_str() {
             "--namespace" => namespace = args.next(),
             "--events" => events = args.next().map(PathBuf::from),
+            "--state-dir" => state_dir = args.next().map(PathBuf::from),
             other => return Err(format!("unknown argument {other:?}")),
         }
     }
     Ok(Arguments {
         namespace: namespace.ok_or("--namespace <name> is required")?,
         events,
+        state_dir,
     })
 }
 
@@ -213,7 +222,9 @@ fn main() {
     let args = match arguments() {
         Ok(a) => a,
         Err(e) => {
-            eprintln!("live_daemon: {e}\nusage: live_daemon --namespace <name> [--events <file>]");
+            eprintln!(
+                "live_daemon: {e}\nusage: live_daemon --namespace <name> [--events <file>] [--state-dir <dir>]"
+            );
             std::process::exit(2);
         }
     };
@@ -248,6 +259,21 @@ fn main() {
         partial: Vec::new(),
     })
     .with_tap(tap(events.clone()));
+    // The log file; a daemon runs without it when it cannot be opened (one warning).
+    let opened = match &args.state_dir {
+        Some(dir) => LogFile::open_in(dir, Some(&args.namespace), MAX_LOG_BYTES),
+        None => LogFile::open(Some(&args.namespace)),
+    };
+    let log = match opened {
+        Ok(file) => log.with_file(file),
+        Err(e) => {
+            log.plain(&format!(
+                "oac-daemon: warning: the log file could not be opened ({e}); continuing without it"
+            ));
+            log
+        }
+    };
+    let failure_log = log.clone();
     let parts = Parts {
         scope,
         key_store: Box::new(MemoryKeyStore::new()),
@@ -310,6 +336,8 @@ fn main() {
                 0
             }
             Err(e) => {
+                eprintln!("live_daemon: the daemon did not start: {e}");
+                failure_log.plain(&format!("live_daemon: the daemon did not start: {e}"));
                 events.emit(
                     "failed",
                     &format!("\"error\":{}", json_string(&e.to_string())),

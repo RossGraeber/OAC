@@ -1,0 +1,505 @@
+// SPDX-License-Identifier: Apache-2.0
+
+//! The daemon's log file (G10, #71, slice 2; lead decision 2026-10-18, Q2: "logs should always
+//! be preserved to survive a crash"), with real processes and the real file system.
+//!
+//! - an in-process daemon writes its lines to the file of a test namespace, and a test
+//!   namespace never touches the user's own log;
+//! - the lines survive a daemon that is killed hard (the `live_daemon` example, ended with
+//!   the system's kill);
+//! - rotation keeps at most two files and loses no line but the oldest;
+//! - the file and its directory are private to the user (Unix: mode and owner; Windows: the
+//!   DACL, read back by the code under test and, independently, by `icacls`);
+//! - a symlink in the log's place is refused (Unix), and so is a directory or file that other
+//!   users could enter or read;
+//! - a detached start that fails shows the child's own reason and names the log file.
+//!
+//! The "no forbidden content" check (no working directory, no native session id) is in
+//! `tests/daemon.rs`, where real sessions with both exist.
+//!
+//! `oac start` itself is never run (it would make the user's device key). Every wait is
+//! bounded and a child is killed when its guard drops (#435).
+
+use std::path::{Path, PathBuf};
+use std::process::{Child, Command, Stdio};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+use oac_adapter_claude::ClaudeAdapter;
+use oac_cli::daemon::{Daemon, LogSink, Parts};
+use oac_cli::ipc::Scope;
+use oac_cli::logfile::{
+    self, LOG_FILE_NAME, LogFile, MAX_LOG_BYTES, ROTATED_FILE_NAME, log_directory,
+};
+use oac_core::clock::{Clock, SystemClock};
+use oac_core::ids::Token;
+use oac_core::keys::MemoryKeyStore;
+use oac_core::pairing::MemoryPairingStore;
+use oac_core::pipeline::PipelineConfig;
+use oac_core::sealing::MemoryAgreementKeyStore;
+use oac_transport_memory::{MemoryConfiguration, MemoryNetwork, MemoryTransport};
+
+const WAIT: Duration = Duration::from_secs(30);
+
+fn example() -> PathBuf {
+    let mut path = std::env::current_exe().unwrap();
+    path.pop(); // deps
+    path.pop(); // debug
+    path.push("examples");
+    path.push(format!("live_daemon{}", std::env::consts::EXE_SUFFIX));
+    path
+}
+
+/// A directory of the test's own, removed when it drops.
+struct Temp(PathBuf);
+
+impl Temp {
+    fn new(tag: &str) -> Temp {
+        let dir = std::env::temp_dir().join(format!("oac-logfile-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        Temp(dir)
+    }
+}
+
+impl Drop for Temp {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+/// Removes a path when it drops (a log directory made in the user's real state directory).
+struct Remove(PathBuf);
+
+impl Drop for Remove {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+/// On Unix the endpoints of a namespace are a directory under the real run directory.
+struct NamespaceDir(#[cfg(unix)] Option<PathBuf>);
+
+impl NamespaceDir {
+    #[cfg_attr(not(unix), allow(unused_variables))]
+    fn of(scope: &Scope) -> NamespaceDir {
+        NamespaceDir(
+            #[cfg(unix)]
+            Path::new(&scope.endpoint("claude").display_name())
+                .parent()
+                .map(Path::to_path_buf),
+        )
+    }
+}
+
+impl Drop for NamespaceDir {
+    fn drop(&mut self) {
+        #[cfg(unix)]
+        if let Some(dir) = self.0.take() {
+            let _ = std::fs::remove_dir_all(dir);
+        }
+    }
+}
+
+/// A child killed and reaped when the guard drops.
+struct Kill(Child);
+
+impl Drop for Kill {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+fn read(path: &Path) -> String {
+    std::fs::read_to_string(path).unwrap_or_default()
+}
+
+fn wait_until(what: &str, mut done: impl FnMut() -> bool) {
+    let end = Instant::now() + WAIT;
+    while !done() {
+        assert!(Instant::now() < end, "timed out waiting for {what}");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+fn parts(scope: Scope, network: &MemoryNetwork, log: LogSink) -> Parts {
+    let net = network.clone();
+    let clock: Arc<dyn Clock> = Arc::new(SystemClock);
+    Parts {
+        scope,
+        key_store: Box::new(MemoryKeyStore::new()),
+        pairing_store: Box::new(MemoryPairingStore::new()),
+        agreement_store: Box::new(MemoryAgreementKeyStore::new()),
+        principal: Token::parse("test").unwrap(),
+        transport: Arc::new(MemoryTransport::new()),
+        transport_configuration: MemoryConfiguration::wrap(network),
+        clock,
+        monotonic: Arc::new(move || net.now()),
+        config: PipelineConfig::default(),
+        harnesses: vec![("claude".to_owned(), Arc::new(ClaudeAdapter::new()) as _)],
+        log,
+    }
+}
+
+// ---- 1: an in-process daemon writes its lines to the file of its namespace -----------------
+
+#[test]
+fn an_in_process_daemon_writes_its_lines_to_the_file_of_its_test_namespace() {
+    let namespace = format!("lf{}a", std::process::id());
+    let scope = Scope::for_user_in(Some(&namespace)).unwrap();
+    let _run_dir = NamespaceDir::of(&scope);
+    let user_log = logfile::default_log_path(None);
+    let user_log_before = user_log
+        .as_ref()
+        .and_then(|p| std::fs::metadata(p).ok())
+        .map(|m| (m.len(), m.modified().ok()));
+
+    let file = LogFile::open(Some(&namespace)).expect("the log file of the namespace opens");
+    let path = file.path();
+    let _cleanup = Remove(path.parent().unwrap().to_path_buf());
+    assert_eq!(
+        Some(path.clone()),
+        logfile::default_log_path(Some(&namespace)),
+        "the namespace's log is where the helper says"
+    );
+    assert!(
+        path.to_string_lossy().contains(&format!("ns-{namespace}")),
+        "{}",
+        path.display()
+    );
+
+    let sink = LogSink::new(std::io::sink()).with_file(file);
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let network = MemoryNetwork::new();
+    runtime.block_on(async {
+        let daemon = Daemon::start(parts(scope, &network, sink))
+            .await
+            .unwrap_or_else(|e| panic!("the daemon starts: {e}"));
+        daemon.shutdown().await;
+    });
+
+    let kept = read(&path);
+    assert!(kept.contains("oac-daemon: serving"), "{kept}");
+    assert!(kept.contains("oac-daemon: shut down"), "{kept}");
+    assert!(
+        kept.lines().all(|l| l.starts_with("unix_ms=")),
+        "every line carries its time: {kept}"
+    );
+
+    // The user's own log was not touched by the namespace.
+    let user_log_after = user_log
+        .as_ref()
+        .and_then(|p| std::fs::metadata(p).ok())
+        .map(|m| (m.len(), m.modified().ok()));
+    assert_eq!(user_log_before, user_log_after);
+}
+
+// ---- 2: the lines survive a daemon killed hard -------------------------------------------
+
+#[test]
+fn lines_survive_a_daemon_that_is_killed_hard() {
+    let temp = Temp::new("kill");
+    let namespace = format!("lf{}b", std::process::id());
+    let scope = Scope::for_user_in(Some(&namespace)).unwrap();
+    let _run_dir = NamespaceDir::of(&scope);
+    let events = temp.0.join("events.jsonl");
+    let state = temp.0.join("state");
+    let child = Command::new(example())
+        .args(["--namespace", &namespace, "--events"])
+        .arg(&events)
+        .arg("--state-dir")
+        .arg(&state)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("the example is built by `cargo test`");
+    let mut daemon = Kill(child);
+    wait_until("the daemon to be ready", || {
+        read(&events).contains("\"event\":\"ready\"")
+    });
+    let log = log_directory(&state, Some(&namespace))
+        .unwrap()
+        .join(LOG_FILE_NAME);
+    // The line written before the kill is already on disk: no clean shutdown is needed.
+    daemon.0.kill().expect("the daemon is killed");
+    let status = daemon.0.wait().expect("the daemon is reaped");
+    assert!(!status.success(), "the daemon was killed: {status:?}");
+    let recorded = read(&events);
+    assert!(
+        !recorded.contains("\"event\":\"stopped\""),
+        "no clean shutdown ran: {recorded}"
+    );
+    let kept = read(&log);
+    assert!(kept.contains("oac-daemon: serving"), "{kept}");
+    assert!(!kept.contains("shut down"), "{kept}");
+}
+
+// ---- 3: rotation at the limit ------------------------------------------------------------
+
+#[test]
+fn the_log_rotates_at_its_limit_and_keeps_one_previous_file() {
+    assert_eq!(MAX_LOG_BYTES, 1024 * 1024, "the limit is 1 MiB");
+    let temp = Temp::new("rotate");
+    let limit = 4096;
+    let mut log = LogFile::open_in(&temp.0, Some("rot"), limit).unwrap();
+    let dir = log_directory(&temp.0, Some("rot")).unwrap();
+    let mut total = 0;
+    for i in 0..300 {
+        log.append(&format!("line number {i:04} {}", "x".repeat(20)))
+            .unwrap();
+        total += 1;
+        for name in [LOG_FILE_NAME, ROTATED_FILE_NAME] {
+            let size = std::fs::metadata(dir.join(name)).map_or(0, |m| m.len());
+            assert!(size <= limit, "{name} is {size} bytes after line {i}");
+        }
+    }
+    assert!(dir.join(ROTATED_FILE_NAME).exists(), "it rotated");
+    assert!(!dir.join("daemon.log.2").exists(), "one previous file only");
+    let current = read(&dir.join(LOG_FILE_NAME));
+    let previous = read(&dir.join(ROTATED_FILE_NAME));
+    assert!(current.contains("line number 0299"), "the newest is kept");
+    assert!(!current.contains("line number 0000"), "the oldest is gone");
+    assert!(!previous.contains("line number 0000"));
+    // What is kept is contiguous and in order, and no line is split across the two files.
+    let kept: Vec<&str> = previous.lines().chain(current.lines()).collect();
+    assert!(kept.len() < total);
+    let first: usize = kept[0]
+        .split("line number ")
+        .nth(1)
+        .unwrap()
+        .get(..4)
+        .unwrap()
+        .parse()
+        .unwrap();
+    for (offset, line) in kept.iter().enumerate() {
+        assert!(
+            line.contains(&format!("line number {:04} ", first + offset)) && line.ends_with('x'),
+            "line {offset}: {line}"
+        );
+    }
+}
+
+// ---- 4: the permissions ------------------------------------------------------------------
+
+#[test]
+fn the_file_and_its_directory_are_private_to_the_user() {
+    let temp = Temp::new("private");
+    let mut log = LogFile::open_in(&temp.0, None, MAX_LOG_BYTES).unwrap();
+    log.append("a line").unwrap();
+    let file = log.path();
+    let dir = file.parent().unwrap().to_path_buf();
+    assert!(logfile::is_private(&file).unwrap());
+    assert!(logfile::is_private(&dir).unwrap());
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        let euid = unsafe { libc::geteuid() };
+        let f = std::fs::metadata(&file).unwrap();
+        let d = std::fs::metadata(&dir).unwrap();
+        assert_eq!(f.permissions().mode() & 0o777, 0o600);
+        assert_eq!(d.permissions().mode() & 0o777, 0o700);
+        assert_eq!((f.uid(), d.uid()), (euid, euid));
+        // A previous file made by a rotation is as private.
+        let mut small = LogFile::open_in(&temp.0, Some("rp"), 100).unwrap();
+        for _ in 0..10 {
+            small.append("rotate me please").unwrap();
+        }
+        let old = log_directory(&temp.0, Some("rp"))
+            .unwrap()
+            .join(ROTATED_FILE_NAME);
+        assert_eq!(
+            std::fs::metadata(old).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+    }
+
+    #[cfg(windows)]
+    {
+        // The DACL read back by `icacls`, independently of the code that set it: one entry,
+        // the user's, and none for Everyone, Users, Authenticated Users, SYSTEM or the
+        // Administrators group.
+        for (path, inherit) in [(&file, ""), (&dir, "(OI)(CI)")] {
+            let out = Command::new("icacls")
+                .arg(path)
+                .stdin(Stdio::null())
+                .output()
+                .expect("icacls runs");
+            let text = String::from_utf8_lossy(&out.stdout).into_owned();
+            let entries = text.matches(":(").count();
+            assert_eq!(entries, 1, "{text}");
+            assert!(text.contains(&format!("{inherit}(F)")), "{text}");
+            let user = std::env::var("USERNAME").unwrap();
+            assert!(
+                text.to_lowercase().contains(&user.to_lowercase()),
+                "{user}: {text}"
+            );
+            for other in [
+                "Everyone",
+                "BUILTIN\\Users",
+                "Authenticated Users",
+                "SYSTEM",
+                "Administrators",
+            ] {
+                assert!(!text.contains(other), "{other}: {text}");
+            }
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn a_directory_or_file_that_others_can_use_is_refused_and_not_repaired() {
+    use std::os::unix::fs::PermissionsExt;
+    let temp = Temp::new("loose");
+    let dir = log_directory(&temp.0, Some("loose")).unwrap();
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let e = LogFile::open_in(&temp.0, Some("loose"), MAX_LOG_BYTES).unwrap_err();
+    assert_eq!(e.kind(), std::io::ErrorKind::PermissionDenied, "{e}");
+    assert_eq!(
+        std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777,
+        0o755,
+        "not repaired"
+    );
+
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let file = dir.join(LOG_FILE_NAME);
+    std::fs::write(&file, "old\n").unwrap();
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
+    let e = LogFile::open_in(&temp.0, Some("loose"), MAX_LOG_BYTES).unwrap_err();
+    assert_eq!(e.kind(), std::io::ErrorKind::PermissionDenied, "{e}");
+    assert_eq!(read(&file), "old\n", "nothing was written");
+}
+
+// ---- 5: a symlinked log path is refused (Unix) -------------------------------------------
+
+#[cfg(unix)]
+#[test]
+fn a_symlinked_log_path_is_refused() {
+    let temp = Temp::new("link");
+    let dir = log_directory(&temp.0, Some("lnk")).unwrap();
+    // Made private by a first open, then the file is replaced by a link to a victim.
+    drop(LogFile::open_in(&temp.0, Some("lnk"), MAX_LOG_BYTES).unwrap());
+    let victim = temp.0.join("victim.txt");
+    std::fs::write(&victim, "victim\n").unwrap();
+    let file = dir.join(LOG_FILE_NAME);
+    std::fs::remove_file(&file).unwrap();
+    std::os::unix::fs::symlink(&victim, &file).unwrap();
+    let e = LogFile::open_in(&temp.0, Some("lnk"), MAX_LOG_BYTES).unwrap_err();
+    assert_eq!(e.kind(), std::io::ErrorKind::PermissionDenied, "{e}");
+    assert_eq!(
+        read(&victim),
+        "victim\n",
+        "the link's target was not written"
+    );
+
+    // The same for the log directory.
+    let elsewhere = temp.0.join("elsewhere");
+    std::fs::create_dir_all(&elsewhere).unwrap();
+    let ns = log_directory(&temp.0, Some("lnk2")).unwrap();
+    std::fs::create_dir_all(ns.parent().unwrap()).unwrap();
+    std::os::unix::fs::symlink(&elsewhere, &ns).unwrap();
+    assert!(LogFile::open_in(&temp.0, Some("lnk2"), MAX_LOG_BYTES).is_err());
+    assert!(!elsewhere.join(LOG_FILE_NAME).exists());
+}
+
+// ---- failure handling: a log never stops the daemon ----------------------------------------
+
+#[test]
+fn a_log_file_that_cannot_be_opened_is_a_warning_and_the_daemon_runs() {
+    let temp = Temp::new("noopen");
+    // A file where the `OAC` directory should be: the log directory cannot be made.
+    std::fs::write(temp.0.join("OAC"), "in the way").unwrap();
+    assert!(LogFile::open_in(&temp.0, Some("blk"), MAX_LOG_BYTES).is_err());
+
+    let namespace = format!("lf{}c", std::process::id());
+    let scope = Scope::for_user_in(Some(&namespace)).unwrap();
+    let _run_dir = NamespaceDir::of(&scope);
+    let seen = Arc::new(std::sync::Mutex::new(Vec::<u8>::new()));
+    struct Stream(Arc<std::sync::Mutex<Vec<u8>>>);
+    impl std::io::Write for Stream {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    // The sink as `oac start` builds it, with an invalid namespace standing for a file that
+    // cannot be opened: one warning on the stream, no file, the sink works.
+    let (sink, path) = LogSink::new(Stream(seen.clone())).with_default_file(Some("NOT A NAME"));
+    assert!(path.is_none());
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let network = MemoryNetwork::new();
+    runtime.block_on(async {
+        let daemon = Daemon::start(parts(scope, &network, sink))
+            .await
+            .unwrap_or_else(|e| panic!("the daemon runs without a log file: {e}"));
+        daemon.shutdown().await;
+    });
+    let text = String::from_utf8_lossy(&seen.lock().unwrap()).into_owned();
+    assert_eq!(
+        text.matches("warning: the log file could not be opened")
+            .count(),
+        1,
+        "{text}"
+    );
+    assert!(text.contains("continuing without it"), "{text}");
+    assert!(text.contains("oac-daemon: serving"), "{text}");
+}
+
+// ---- 7: a detached start that fails shows its reason ---------------------------------------
+
+#[test]
+fn a_detached_start_that_fails_relays_the_childs_reason_and_names_the_log() {
+    let namespace = format!("lf{}d", std::process::id());
+    let scope = Scope::for_user_in(Some(&namespace)).unwrap();
+    let _run_dir = NamespaceDir::of(&scope);
+    let log_path = logfile::default_log_path(Some(&namespace)).unwrap();
+    let _cleanup = Remove(log_path.parent().unwrap().to_path_buf());
+
+    // Something holds the namespace's lock and serves nothing, so a second daemon stops at
+    // the lock and nothing answers on the control endpoint.
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let lock = runtime
+        .block_on(scope.acquire_lock())
+        .expect("the lock is free");
+
+    let mut command = Command::new(example());
+    command
+        .args(["--namespace", &namespace])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null());
+    let mut said = Vec::new();
+    let began = Instant::now();
+    let status = oac_cli::commands::start_detached_command(&mut command, &scope, WAIT, &mut said);
+    let said = String::from_utf8_lossy(&said).into_owned();
+    assert_eq!(status, 1, "{said}");
+    assert!(
+        began.elapsed() < WAIT,
+        "reported at once, not at the end of the wait"
+    );
+    // The child's own reason, then where its log is.
+    assert!(said.contains("already running"), "{said}");
+    assert!(said.contains("ended at start-up"), "{said}");
+    assert!(said.contains(&log_path.display().to_string()), "{said}");
+    assert!(!said.contains("in a terminal"), "{said}");
+    // And the reason is in the log file too.
+    let kept = read(&log_path);
+    assert!(kept.contains("already running"), "{kept}");
+    drop(lock);
+    drop(runtime);
+}

@@ -10,8 +10,9 @@
 //! **Key material is read here and nowhere near a shim or a hook handler.** Only `start`
 //! builds a key store; `mcp-shim` and `hook` connect to the daemon and nothing else.
 
-use std::io::{self, Write};
-use std::sync::Arc;
+use std::io::{self, Read, Write};
+use std::path::Path;
+use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant};
 
 use oac_adapter_claude::ClaudeAdapter;
@@ -28,6 +29,7 @@ use crate::control::{self, StopOutcome};
 use crate::daemon::{Daemon, LogSink, Parts, StartError};
 use crate::ipc::{CONTROL_LABEL, ConnectError, Scope, harness_label_is_valid};
 use crate::keystore::{FallbackKeyStore, OsKeyStore};
+use crate::logfile;
 use crate::shim;
 use crate::verbs::{EXIT_FAILED, EXIT_OK, EXIT_UNREACHABLE};
 
@@ -189,6 +191,10 @@ pub fn start(args: &[String]) -> i32 {
     let detach = match args {
         [] => false,
         [flag] if flag == "--detach" => true,
+        [flag] if flag == "--help" || flag == "-h" => {
+            let _ = io::stdout().write_all(start_help().as_bytes());
+            return EXIT_OK;
+        }
         _ => {
             let _ = writeln!(stderr, "usage: oac start [--detach]");
             return EXIT_USAGE;
@@ -216,6 +222,28 @@ pub fn start(args: &[String]) -> i32 {
         return start_detached(&scope, &mut stderr);
     }
     serve_in_foreground(scope, &mut stderr)
+}
+
+/// `oac start --help`: what the verb does and where its log is.
+fn start_help() -> String {
+    let log = logfile::default_log_path(None).map_or_else(
+        || "(the per-user state directory cannot be found)".to_owned(),
+        |p| p.display().to_string(),
+    );
+    format!(
+        "usage: oac start [--detach]
+
+         Runs the per-device daemon: in the foreground, or with --detach as a background process
+         that this command leaves once it serves (stop it with `oac stop`).
+
+         The daemon's log lines go to standard error and also to a file that survives a crash:
+           {log}
+         It is private to your user, and rotated at {} KiB to {} (one previous file is kept).
+         It holds no message content, session id, working directory or key.
+",
+        logfile::MAX_LOG_BYTES / 1024,
+        logfile::ROTATED_FILE_NAME
+    )
 }
 
 /// How long `oac stop` waits for the daemon to say it has stopped.
@@ -379,6 +407,9 @@ fn serve_in_foreground(scope: Scope, stderr: &mut dyn Write) -> i32 {
     let clock: Arc<dyn Clock> = Arc::new(SystemClock);
     let monotonic: MonotonicClock = Arc::new(Instant::now);
     let claude: Arc<dyn ProviderAdapter> = Arc::new(ClaudeAdapter::new());
+    // The log file: the lines also go where a crash does not take them (G10, #71). A file
+    // that cannot be opened is one warning on standard error, and the daemon runs without it.
+    let (log, log_path) = LogSink::new(io::stderr()).with_default_file(None);
     let parts = Parts {
         scope,
         key_store,
@@ -391,31 +422,31 @@ fn serve_in_foreground(scope: Scope, stderr: &mut dyn Write) -> i32 {
         monotonic,
         config: PipelineConfig::default(),
         harnesses: vec![("claude".to_owned(), claude)],
-        log: LogSink::new(io::stderr()),
+        log: log.clone(),
     };
     runtime.block_on(async {
         match Daemon::start(parts).await {
             Ok(daemon) => {
-                let _ = writeln!(
-                    io::stderr(),
-                    "oac start: the daemon is running ({})",
-                    daemon.endpoints().join(", ")
-                );
+                log.plain(&format!(
+                    "oac start: the daemon is running ({}){}",
+                    daemon.endpoints().join(", "),
+                    log_path.map_or_else(String::new, |p| format!("; log: {}", p.display()))
+                ));
                 let requested = daemon.stop_requested();
                 let why = tokio::select! {
                     () = wait_for_stop() => "stopping",
                     () = requested => "stopping (requested over the local IPC)",
                 };
-                let _ = writeln!(io::stderr(), "oac start: {why}");
+                log.plain(&format!("oac start: {why}"));
                 daemon.shutdown().await;
                 0
             }
             Err(StartError::AlreadyRunning) => {
-                let _ = writeln!(io::stderr(), "oac start: the daemon is already running");
+                log.plain("oac start: the daemon is already running");
                 0
             }
             Err(e) => {
-                let _ = writeln!(io::stderr(), "oac start: {e}");
+                log.plain(&format!("oac start: {e}"));
                 1
             }
         }
@@ -447,9 +478,11 @@ const DETACH_WAIT: Duration = Duration::from_secs(20);
 /// in a job object that ends its members with the session; the child asks to leave the job,
 /// and where the system refuses, it runs in the job and ends with it.
 ///
-/// The detached daemon has no console, so its log (standard error) goes nowhere. It is
-/// stopped cleanly with `oac stop` (G10, #71), over the control endpoint: a detached process
-/// on Windows gets no console event, so that is the only clean shutdown there.
+/// The detached daemon has no console. Its standard error is a pipe that this command reads
+/// until the daemon serves or ends, so a start that fails shows the daemon's own reason, and
+/// the daemon's log file (`crate::logfile`) is named. It is stopped cleanly with `oac stop`
+/// (G10, #71), over the control endpoint: a detached process on Windows gets no console
+/// event, so that is the only clean shutdown there.
 fn start_detached(scope: &Scope, stderr: &mut dyn Write) -> i32 {
     // Already running: nothing to start.
     // The probe is the control endpoint, which has no adapter: it takes no harness's slot.
@@ -468,18 +501,95 @@ fn start_detached(scope: &Scope, stderr: &mut dyn Write) -> i32 {
     command
         .arg("start")
         .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null());
-    match spawn_detached(&mut command) {
+        .stdout(std::process::Stdio::null());
+    start_detached_command(&mut command, scope, DETACH_WAIT, stderr)
+}
+
+/// Starts `command` as `--detach` starts the daemon (see [`spawn_detached`]) with its
+/// standard error piped, and waits for the daemon to serve on `scope`'s control endpoint, for
+/// at most `wait`. What the process writes to standard error is relayed to `stderr` (at most
+/// [`RELAY_LIMIT`] bytes) until it serves or ends, and a failure names the log file of the
+/// scope. Public so that a test runs the failure path with a stand-in daemon that fails.
+pub fn start_detached_command(
+    command: &mut std::process::Command,
+    scope: &Scope,
+    wait: Duration,
+    stderr: &mut dyn Write,
+) -> i32 {
+    command.stderr(std::process::Stdio::piped());
+    match spawn_detached(command) {
         Ok(child) => wait_until_serving(
             child,
             || scope.endpoint(CONTROL_LABEL).connect_blocking().is_ok(),
-            DETACH_WAIT,
+            wait,
+            logfile::default_log_path(scope.namespace()).as_deref(),
             stderr,
         ),
         Err(e) => {
             let _ = writeln!(stderr, "oac start: the daemon could not be started: {e}");
             1
+        }
+    }
+}
+
+/// The most the start relays of a child's standard error.
+pub const RELAY_LIMIT: usize = 16 * 1024;
+
+/// A child's standard error, read on a thread of its own so that no wait here depends on it.
+/// The channel disconnects when the stream ends.
+fn read_in_background(child: &mut std::process::Child) -> Option<mpsc::Receiver<Vec<u8>>> {
+    let mut stream = child.stderr.take()?;
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let mut buffer = [0u8; 2048];
+        while let Ok(n) = stream.read(&mut buffer) {
+            if n == 0 || tx.send(buffer[..n].to_vec()).is_err() {
+                break;
+            }
+        }
+    });
+    Some(rx)
+}
+
+/// What has been read of a child's standard error, written to `out` with control characters
+/// other than line breaks and tabs made `?` (the text is a child's, shown on a terminal),
+/// within `budget` bytes. `wait` is how long to wait for the first chunk when there is none;
+/// returns whether the stream has ended.
+fn relay(
+    rx: &mpsc::Receiver<Vec<u8>>,
+    budget: &mut usize,
+    wait: Duration,
+    out: &mut dyn Write,
+) -> bool {
+    let mut next = rx.recv_timeout(wait);
+    loop {
+        match next {
+            Ok(chunk) => {
+                if *budget > 0 {
+                    let shown = chunk.len().min(*budget);
+                    *budget -= shown;
+                    let text: String = String::from_utf8_lossy(&chunk[..shown])
+                        .chars()
+                        .map(|c| {
+                            if c.is_control() && !"\n\t".contains(c) {
+                                '?'
+                            } else {
+                                c
+                            }
+                        })
+                        .collect();
+                    let _ = out.write_all(text.as_bytes());
+                    if *budget == 0 {
+                        let _ = writeln!(out, "\n(the daemon's output is cut here)");
+                    }
+                }
+                next = rx.try_recv().map_err(|e| match e {
+                    mpsc::TryRecvError::Empty => mpsc::RecvTimeoutError::Timeout,
+                    mpsc::TryRecvError::Disconnected => mpsc::RecvTimeoutError::Disconnected,
+                });
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => return false,
+            Err(mpsc::RecvTimeoutError::Disconnected) => return true,
         }
     }
 }
@@ -528,15 +638,28 @@ pub fn spawn_detached(command: &mut std::process::Command) -> io::Result<std::pr
 /// takes the lock before it reads the key and starts the transport, may still be starting;
 /// that one is waited for like our own. Only a non-zero status fails at once, and then only
 /// when no daemon answers.
+///
+/// **The child's standard error is relayed** to `stderr` while it runs, and a failure says
+/// where its log is (`log`), so the reason is the child's own and not a guess.
 fn wait_until_serving(
     mut child: std::process::Child,
     mut serving: impl FnMut() -> bool,
     wait: Duration,
+    log: Option<&Path>,
     stderr: &mut dyn Write,
 ) -> i32 {
+    let output = read_in_background(&mut child);
+    let mut budget = RELAY_LIMIT;
+    let mut show = |stderr: &mut dyn Write, wait: Duration| -> bool {
+        output
+            .as_ref()
+            .is_none_or(|rx| relay(rx, &mut budget, wait, stderr))
+    };
+    let log_hint = log.map_or_else(String::new, |p| format!("; its log: {}", p.display()));
     let end = Instant::now() + wait;
     let mut ended: Option<std::process::ExitStatus> = None;
     while Instant::now() < end {
+        show(stderr, Duration::ZERO);
         if ended.is_none() {
             ended = child.try_wait().ok().flatten();
         }
@@ -553,17 +676,22 @@ fn wait_until_serving(
         if let Some(status) = ended
             && !status.success()
         {
+            // The child has ended: take what it wrote last (its end closes the stream), but
+            // do not wait for a grandchild that kept the stream open.
+            let drain_end = Instant::now() + Duration::from_secs(2);
+            while Instant::now() < drain_end && !show(stderr, Duration::from_millis(100)) {}
             let _ = writeln!(
                 stderr,
-                "oac start: the daemon ended at start-up ({status}); run `oac start` in a terminal to see why"
+                "oac start: the daemon ended at start-up ({status}){log_hint}"
             );
             return 1;
         }
         std::thread::sleep(Duration::from_millis(100));
     }
+    show(stderr, Duration::ZERO);
     let _ = writeln!(
         stderr,
-        "oac start: the daemon did not start in time (it may still be starting; run `oac start` in a terminal to see its log)"
+        "oac start: the daemon did not start in time (it may still be starting){log_hint}"
     );
     1
 }
@@ -572,6 +700,7 @@ fn wait_until_serving(
 mod tests {
     use super::{names_a_namespace, wait_until_serving};
     use std::ffi::OsStr;
+    use std::path::Path;
     use std::process::{Child, Command};
     use std::time::Duration;
 
@@ -593,8 +722,43 @@ mod tests {
 
     fn waited(child: Child, mut serving: impl FnMut() -> bool, wait: Duration) -> (i32, String) {
         let mut err = Vec::new();
-        let status = wait_until_serving(child, &mut serving, wait, &mut err);
+        let status = wait_until_serving(child, &mut serving, wait, None, &mut err);
         (status, String::from_utf8(err).unwrap())
+    }
+
+    fn says_then_exits(code: i32, said: &str) -> Child {
+        #[cfg(windows)]
+        let mut c = {
+            let mut c = Command::new("cmd");
+            c.args(["/C", &format!("echo {said} 1>&2 & exit {code}")]);
+            c
+        };
+        #[cfg(unix)]
+        let mut c = {
+            let mut c = Command::new("sh");
+            c.args(["-c", &format!("echo '{said}' >&2; exit {code}")]);
+            c
+        };
+        c.stderr(std::process::Stdio::piped());
+        c.spawn().unwrap()
+    }
+
+    #[test]
+    fn a_start_that_failed_relays_the_childs_reason_and_names_the_log() {
+        let mut err = Vec::new();
+        let status = wait_until_serving(
+            says_then_exits(3, "the device key: not here"),
+            || false,
+            Duration::from_secs(20),
+            Some(Path::new("some").join("daemon.log").as_path()),
+            &mut err,
+        );
+        let said = String::from_utf8(err).unwrap();
+        assert_eq!(status, 1);
+        assert!(said.contains("the device key: not here"), "{said}");
+        assert!(said.contains("ended at start-up"), "{said}");
+        assert!(said.contains("daemon.log"), "{said}");
+        assert!(!said.contains("in a terminal"), "{said}");
     }
 
     #[test]

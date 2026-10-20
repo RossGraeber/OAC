@@ -30,6 +30,7 @@ use std::time::{Duration, Instant};
 use oac_adapter_claude::ClaudeAdapter;
 use oac_cli::daemon::{Daemon, LogSink, Parts, StartError};
 use oac_cli::ipc::Scope;
+use oac_cli::logfile::{LogFile, MAX_LOG_BYTES, log_directory};
 use oac_core::clock::{Clock, SystemClock};
 use oac_core::ids::Token;
 use oac_core::keys::MemoryKeyStore;
@@ -129,8 +130,9 @@ impl Captured {
     }
 }
 
-fn parts(scope: Scope, network: &MemoryNetwork, log: &Captured) -> Parts {
+fn parts(scope: Scope, network: &MemoryNetwork, log: &Captured, state: &Path) -> Parts {
     let net = network.clone();
+    let scope_namespace = scope.namespace().map(str::to_owned);
     let clock: Arc<dyn Clock> = Arc::new(SystemClock);
     Parts {
         scope,
@@ -144,7 +146,12 @@ fn parts(scope: Scope, network: &MemoryNetwork, log: &Captured) -> Parts {
         monotonic: Arc::new(move || net.now()),
         config: PipelineConfig::default(),
         harnesses: vec![("claude".to_owned(), Arc::new(ClaudeAdapter::new()) as _)],
-        log: LogSink::new(log.clone()),
+        // The daemon's lines also go to the log file of the test's namespace, under the
+        // test's own state directory (G10 #71): checked for forbidden content at the end.
+        log: LogSink::new(log.clone()).with_file(
+            LogFile::open_in(state, scope_namespace.as_deref(), MAX_LOG_BYTES)
+                .expect("the log file opens"),
+        ),
     }
 }
 
@@ -296,14 +303,15 @@ fn a_daemon_serves_real_sessions_isolates_a_crash_and_shuts_down_cleanly() {
             .parent()
             .map(std::path::Path::to_path_buf),
     );
-    let p = parts(scope.clone(), &network, &log);
+    let state = dir.join("state");
+    let p = parts(scope.clone(), &network, &log, &state);
     let daemon = rt
         .run(Daemon::start(p))
         .unwrap_or_else(|e| panic!("the daemon starts: {e}"));
 
     // A second start, while the first runs, creates no second daemon (box 5): it stops at the
     // lock, before it reads a key or starts a transport.
-    let second = parts(scope.clone(), &network, &log);
+    let second = parts(scope.clone(), &network, &log, &state);
     match rt.run(Daemon::start(second)) {
         Err(StartError::AlreadyRunning) => {}
         Err(other) => panic!("{other}"),
@@ -378,6 +386,31 @@ fn a_daemon_serves_real_sessions_isolates_a_crash_and_shuts_down_cleanly() {
 
     let text = log.text();
     assert!(text.contains("serving"), "{text}");
+
+    // The log file kept the lines, and none of what its contract excludes: the sessions'
+    // native ids (the hook's `session_id` and the shim's hello) and their working
+    // directories (G10 #71, test 6).
+    let file = log_directory(&state, Some(&namespace))
+        .unwrap()
+        .join("daemon.log");
+    let kept = std::fs::read_to_string(&file).expect("the log file exists");
+    assert!(kept.contains("serving"), "{kept}");
+    assert!(kept.contains("shut down"), "{kept}");
+    for forbidden in [
+        "sess-a",
+        "sess-b",
+        "sess-c",
+        "another-session-id",
+        "work-a",
+        "work-b",
+        "work-c",
+        dir.to_string_lossy().as_ref(),
+    ] {
+        assert!(
+            !kept.contains(forbidden),
+            "the log file holds {forbidden:?}:\n{kept}"
+        );
+    }
     let _ = std::fs::remove_dir_all(&dir);
 }
 
