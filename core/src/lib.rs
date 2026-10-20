@@ -75,6 +75,10 @@
 //! the sealed frame; [`pipeline`] seals every payload it passes to, and opens every payload
 //! it takes from, a transport that declares `sealing`.
 //!
+//! Added by G10 (#71): [`status`], the snapshot [`pipeline::Pipelines::status`] returns for an
+//! operator's `status` verb: transport and adapter health, this device's own sessions, and
+//! counters, with no harness-native id and no working directory.
+//!
 //! Requirement ids in square brackets name the requirement a rule implements.
 
 pub mod adapter;
@@ -107,5 +111,6 @@ pub mod sealing;
 pub mod sender;
 pub mod session_binding;
 pub mod signing;
+pub mod status;
 pub mod transport;
 pub mod trust;
