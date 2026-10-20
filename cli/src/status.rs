@@ -422,15 +422,9 @@ pub fn render_sessions_human(status: &JsonObject) -> String {
         .unwrap_or_default();
     let total = int(status, "sessions_total").unwrap_or(0);
     if sessions.is_empty() {
-        out.push_str(
-            "no sessions
-",
-        );
+        out.push_str("no sessions\n");
     } else {
-        out.push_str(
-            "SESSION  HARNESS  EXTENSION  ACTIVE-INBOUND  STATE
-",
-        );
+        out.push_str("SESSION  HARNESS  EXTENSION  ACTIVE-INBOUND  STATE\n");
     }
     for session in sessions.iter().filter_map(Json::as_object) {
         let extension = match (text(session, "extension"), int(session, "major")) {
@@ -535,8 +529,7 @@ mod tests {
         assert!(human.contains("unbound attachments (claude): 2"), "{human}");
         assert_eq!(
             render_sessions_human(&parse_object(r#"{"sessions":[],"sessions_total":0}"#)),
-            "no sessions
-"
+            "no sessions\n"
         );
     }
 }

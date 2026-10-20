@@ -636,8 +636,8 @@ fn a_bound_session_is_listed_and_its_row_goes_when_its_shim_is_killed() {
     }
 
     // The shim is killed: its connection ends (EOF), the core ends the binding, and the
-    // daemon logs that it freed the connection. The hook's connection was freed as well, so
-    // the second such line is the shim's.
+    // daemon logs that it freed the connection. Two freed lines are enough: only the shim and
+    // the hook connect to the `claude` endpoint, and control connections never log the line.
     assert!(
         session
             .command("crash-shim", "SHIM-KILLED")
