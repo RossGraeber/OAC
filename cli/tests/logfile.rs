@@ -684,13 +684,19 @@ fn a_sink_whose_rotation_fails_keeps_the_newest_lines_and_keeps_using_the_file()
     );
 }
 
-/// Makes `path` impossible to open for writing (not a directory in the way: the file itself),
-/// and back.
+/// Makes the log file impossible to open for writing by the log's private open, and back.
+///
+/// Unix: the file is moved to `<name>.real` and a symlink to it takes its place. The log opens
+/// with `O_NOFOLLOW`, so its open fails with a link in the way **for any user**. A permission
+/// bit would not do: the local-ci gate runs the tests in a user namespace as root, and root with
+/// `CAP_DAC_OVERRIDE` ignores mode 0400. `read` follows the link, so the content seen is the
+/// same. Windows: the readonly attribute (a write open is then denied to everyone).
 fn block_writes(path: &Path) {
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o400)).unwrap();
+        let real = real_path(path);
+        std::fs::rename(path, &real).unwrap();
+        std::os::unix::fs::symlink(&real, path).unwrap();
     }
     #[cfg(not(unix))]
     {
@@ -700,11 +706,19 @@ fn block_writes(path: &Path) {
     }
 }
 
+#[cfg(unix)]
+fn real_path(path: &Path) -> PathBuf {
+    let mut name = path.file_name().unwrap().to_os_string();
+    name.push(".real");
+    path.with_file_name(name)
+}
+
 fn allow_writes(path: &Path) {
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        // The link goes and the file, still private (0600), comes back.
+        std::fs::remove_file(path).unwrap();
+        std::fs::rename(real_path(path), path).unwrap();
     }
     #[cfg(not(unix))]
     {
