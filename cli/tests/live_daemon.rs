@@ -34,6 +34,7 @@ fn example() -> std::path::PathBuf {
 /// namespace directory it made under the user's run directory, removed.
 struct Daemon {
     child: Child,
+    state: std::path::PathBuf,
     lines: Receiver<String>,
     #[cfg(unix)]
     namespace_dir: Option<std::path::PathBuf>,
@@ -45,8 +46,15 @@ impl Daemon {
     }
 
     fn start_with(namespace: &str, stdin: Stdio) -> Daemon {
+        // The daemon's log file goes under a state directory of this test's, not the user's.
+        let state = std::env::temp_dir().join(format!(
+            "oac-live-daemon-state-{}-{namespace}",
+            std::process::id()
+        ));
         let mut child = Command::new(example())
             .args(["--namespace", namespace])
+            .arg("--state-dir")
+            .arg(&state)
             .stdin(stdin)
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
@@ -66,6 +74,7 @@ impl Daemon {
         });
         Daemon {
             child,
+            state,
             lines,
             #[cfg(unix)]
             namespace_dir: None,
@@ -101,6 +110,7 @@ impl Drop for Daemon {
     fn drop(&mut self) {
         let _ = self.child.kill();
         let _ = self.child.wait();
+        let _ = std::fs::remove_dir_all(&self.state);
         #[cfg(unix)]
         if let Some(dir) = self.namespace_dir.take() {
             let _ = std::fs::remove_dir_all(dir);

@@ -29,6 +29,7 @@ fn example() -> std::path::PathBuf {
 struct Detached {
     child: Child,
     events: std::path::PathBuf,
+    state: std::path::PathBuf,
     #[cfg(unix)]
     namespace_dir: Option<std::path::PathBuf>,
 }
@@ -57,6 +58,7 @@ impl Drop for Detached {
         let _ = self.child.kill();
         let _ = self.child.wait();
         let _ = std::fs::remove_file(&self.events);
+        let _ = std::fs::remove_dir_all(&self.state);
         #[cfg(unix)]
         if let Some(dir) = self.namespace_dir.take() {
             let _ = std::fs::remove_dir_all(dir);
@@ -70,10 +72,15 @@ fn oac_stop_stops_a_detached_daemon_cleanly() {
     let events =
         std::env::temp_dir().join(format!("oac-stop-detached-{}.jsonl", std::process::id()));
     let _ = std::fs::remove_file(&events);
+    // The daemon's log file goes under a state directory of this test's, not the user's.
+    let state =
+        std::env::temp_dir().join(format!("oac-stop-detached-state-{}", std::process::id()));
     let mut command = Command::new(example());
     command
         .args(["--namespace", &namespace, "--events"])
         .arg(&events)
+        .arg("--state-dir")
+        .arg(&state)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
@@ -82,6 +89,7 @@ fn oac_stop_stops_a_detached_daemon_cleanly() {
     let mut daemon = Detached {
         child,
         events,
+        state,
         #[cfg(unix)]
         namespace_dir: None,
     };
