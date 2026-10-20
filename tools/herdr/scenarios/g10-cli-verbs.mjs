@@ -206,12 +206,14 @@ async function runInner(ctx, hooks) {
     let holdGapMs = null;
     if (logPath && existsSync(logPath)) {
       const log = readFileSync(logPath, 'utf8');
-      withdrawn = log.includes('shut down: withdrawals sent');
       // This run's lines only: after the last `serving` line. The first `freed a connection on claude` is
       // the hook carrier's, the last the shim's; their gap is at least the hold when the hold worked.
       const mine = log.split(/\r?\n/).filter(Boolean);
       const from = mine.map((l) => l.includes('oac-daemon: serving')).lastIndexOf(true);
-      const freed = mine.slice(from + 1).filter((l) => l.includes('freed a connection on claude')).map((l) => Number(/^unix_ms=(\d+) /.exec(l)?.[1]));
+      // Both checks read this run's lines only: the file also holds earlier runs'.
+      const thisRun = mine.slice(from + 1);
+      withdrawn = thisRun.some((l) => l.includes('shut down: withdrawals sent'));
+      const freed = thisRun.filter((l) => l.includes('freed a connection on claude')).map((l) => Number(/^unix_ms=(\d+) /.exec(l)?.[1]));
       if (freed.length >= 2 && freed.every(Number.isFinite)) holdGapMs = freed.at(-1) - freed[0];
       if (holdGapMs === null || holdGapMs < hold * 1000) ctx.finding(`the session was not held for ${hold} s: gap between the hook and the shim ending ${holdGapMs === null ? 'unknown' : `${holdGapMs} ms`}`);
       const tail = log.split(/\r?\n/).filter(Boolean).slice(-40);
