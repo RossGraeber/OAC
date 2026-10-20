@@ -64,6 +64,7 @@ use crate::ipc::{
     Accept, Accepted, BindError, CONTROL_LABEL, DaemonLock, Endpoint, Listener, Scope,
     harness_label_is_valid,
 };
+use crate::logfile::LogFile;
 use crate::peer::{self, ProcessTable};
 use crate::relay;
 
@@ -73,10 +74,30 @@ const TICK: Duration = Duration::from_secs(1);
 /// Where the daemon writes what an operator might read: findings, decisions and refusals.
 /// Lines name connections, session ids and requirement ids only; they hold no message
 /// content, native id, working directory or key ([IFC-TYP-092], [SEC-KEY-004]).
+///
+/// A sink writes to a stream (standard error for `oac start`) and, when it has one, also to
+/// the log file (`crate::logfile`, G10 #71), so that the lines outlive the process. **A log
+/// never stops the daemon:** a file that cannot be opened is a warning and the sink goes on
+/// with the stream alone; a file that fails while the daemon runs is warned about once on the
+/// stream and left.
 #[derive(Clone)]
 pub struct LogSink {
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
+    file: Option<Arc<Mutex<FileLog>>>,
     tap: Option<Tap>,
+}
+
+/// Opens the log file when the daemon holds the lock.
+type Opener = Box<dyn FnOnce() -> std::io::Result<LogFile> + Send>;
+
+/// The file half of a sink.
+struct FileLog {
+    /// The file once it is open (never closed for good by a transient error).
+    file: Option<LogFile>,
+    /// What opens it, until [`LogSink::attach_file`] runs it.
+    opener: Option<Opener>,
+    /// Whether the current run of failed writes has been warned about.
+    warned: bool,
 }
 
 /// What a connection's life looked like from the daemon, for a diagnostic tool.
@@ -109,8 +130,91 @@ impl LogSink {
     pub fn new(writer: impl Write + Send + 'static) -> LogSink {
         LogSink {
             writer: Arc::new(Mutex::new(Box::new(writer))),
+            file: None,
             tap: None,
         }
+    }
+
+    /// This sink, and every line also appended to `file` (already open).
+    pub fn with_file(mut self, file: LogFile) -> LogSink {
+        self.file = Some(Arc::new(Mutex::new(FileLog {
+            file: Some(file),
+            opener: None,
+            warned: false,
+        })));
+        self
+    }
+
+    /// This sink, with a log file that `opener` opens when [`LogSink::attach_file`] is called
+    /// (`Daemon::start` does, **once it holds the lock**): until then lines go to the stream
+    /// only, so a start that loses the race to a running daemon never touches that daemon's
+    /// file. If the opener fails, **one warning on the stream** and the daemon runs without it.
+    pub fn with_file_opener(
+        mut self,
+        opener: impl FnOnce() -> std::io::Result<LogFile> + Send + 'static,
+    ) -> LogSink {
+        self.file = Some(Arc::new(Mutex::new(FileLog {
+            file: None,
+            opener: Some(Box::new(opener)),
+            warned: false,
+        })));
+        self
+    }
+
+    /// [`LogSink::with_file_opener`] for the log file of `namespace` (`None`: the user's own)
+    /// in the user's state directory.
+    pub fn with_default_file_after_lock(self, namespace: Option<&str>) -> LogSink {
+        let namespace = namespace.map(str::to_owned);
+        self.with_file_opener(move || LogFile::open(namespace.as_deref()))
+    }
+
+    /// Opens the log file, if the sink was given an opener. Called by `Daemon::start` right
+    /// after it takes the lock.
+    pub fn attach_file(&self) {
+        let Some(file) = &self.file else { return };
+        let failed = {
+            let mut log = file.lock().unwrap_or_else(|e| e.into_inner());
+            match log.opener.take().map(|open| open()) {
+                Some(Ok(opened)) => {
+                    log.file = Some(opened);
+                    None
+                }
+                Some(Err(e)) => Some(e),
+                None => None,
+            }
+        };
+        if let Some(e) = failed {
+            self.write_stream(&format!(
+                "oac-daemon: warning: the log file could not be opened ({e}); continuing without it"
+            ));
+        }
+    }
+
+    /// Records that the process panicked, in the log file and on the stream, then lets the
+    /// previous panic hook run. **Only the source location is written** (`file:line`), never
+    /// the panic's message, which could carry what the log must not hold. The hook takes no
+    /// lock it could wait on: a panic inside the sink must not hang.
+    pub fn install_panic_hook(&self) {
+        let sink = self.clone();
+        let previous = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            let place = info.location().map_or_else(
+                || "an unknown place".to_owned(),
+                |l| format!("{}:{}", l.file(), l.line()),
+            );
+            let text = format!("oac-daemon: panicked at {place}");
+            if let Some(file) = &sink.file
+                && let Ok(mut log) = file.try_lock()
+                && let Some(f) = log.file.as_mut()
+            {
+                let _ = f.append(&text);
+            }
+            if let Ok(mut writer) = sink.writer.try_lock() {
+                let _ = writer.write_all(format!("{text}\n").as_bytes());
+                let _ = writer.flush();
+            }
+            previous(info);
+        }));
     }
 
     /// This sink, and `tap` shown every connection's accept and end. **For a diagnostic tool
@@ -135,8 +239,41 @@ impl LogSink {
 
     /// Writes one line, ignoring a failing writer: a log must not stop the daemon.
     pub fn line(&self, text: &str) {
+        self.plain(&format!("oac-daemon: {text}"));
+    }
+
+    /// Writes `text` as one line as it is (a line that is not the daemon's own, such as `oac
+    /// start`'s). Each destination gets the whole line in **one write**, then a flush; the
+    /// file first, so that a line the stream's reader never sees is still kept.
+    pub fn plain(&self, text: &str) {
+        if let Some(file) = &self.file {
+            let warn = {
+                let mut log = file.lock().unwrap_or_else(|e| e.into_inner());
+                match log.file.as_mut().map(|f| f.append(text)) {
+                    Some(Err(e)) if !log.warned => {
+                        log.warned = true;
+                        Some(e)
+                    }
+                    Some(Ok(())) => {
+                        log.warned = false;
+                        None
+                    }
+                    _ => None,
+                }
+            };
+            if let Some(e) = warn {
+                // Once per run of failures; the file is kept and tried again on the next line.
+                self.write_stream(&format!(
+                    "oac-daemon: warning: writing the log file failed ({e}); will keep trying"
+                ));
+            }
+        }
+        self.write_stream(text);
+    }
+
+    fn write_stream(&self, text: &str) {
         let mut writer = self.writer.lock().unwrap_or_else(|e| e.into_inner());
-        let _ = writeln!(writer, "oac-daemon: {text}");
+        let _ = writer.write_all(format!("{text}\n").as_bytes());
         let _ = writer.flush();
     }
 }
@@ -272,6 +409,9 @@ impl Daemon {
 
         // 1. One daemon per user, before the key is read.
         let lock = scope.acquire_lock().await?;
+        // The log file is opened only now: a start that lost the race to a running daemon
+        // must not rotate, repair or otherwise touch that daemon's file.
+        log.attach_file();
 
         // 2. Identity and policy: the one place the key is read.
         let key = DeviceKey::load_or_generate(&*key_store).map_err(StartError::Key)?;
