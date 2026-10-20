@@ -994,6 +994,23 @@ list.
 
 ## R5 — Low-impact / non-dependency risks
 
+### RISK-DOCTOR-NEGOTIATION-COUNT — the revision check counts since the daemon started
+
+- **Risk.** The Claude adapter counts connections that probed for the stateless revision (or
+  asked for one it does not speak) and ended with no legacy `initialize` answered, and
+  reports `Degraded` from then until the daemon restarts. `oac doctor` shows FAIL "a Claude
+  session did not negotiate a legacy MCP revision". A harness that later negotiates properly
+  does not clear it, so a stale count can fail a healthy host; and a client that asks for a
+  modern revision but is answered with a legacy `initialize` ([MCPB-ERA-003]) is not counted.
+- **Early-warning signal.** A FAIL on a host whose Claude sessions all registered.
+- **Response.** Restart the daemon; if the count proves too sticky, make it decay or per
+  attachment. The counter holds a number and no identity of the client.
+- **Also recorded (G10 slice 5).** `claude --version` is the one harness command doctor runs;
+  it is found on an absolute `PATH` entry only, and a `PATH` that an attacker controls can
+  already run anything as the user. The credential probe writes a non-secret entry
+  `doctor-probe` and deletes it; a crash between the two leaves that entry, which holds no
+  key.
+
 ### RISK-SESSION-ID-DISCLOSURE — `oac sessions` shows session ids across projects
 
 - **Risk.** `oac sessions` lists the full session id of every one of this device's own

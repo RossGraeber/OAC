@@ -111,7 +111,7 @@ const repoRoot = resolve(dirname(scriptPath), '..');
 const BASH_BODIES = '.github/local-ci.sh';
 const PORTED_FILE = 'scripts/local-ci.ported.json';
 // Steps of this runner's own, with no counterpart in a deleted workflow.
-const LOCAL_ONLY = new Set(['local-ci-self-test', 'cargo-config', 'environment', 'test-listeners-self-test', 'test-listeners']);
+const LOCAL_ONLY = new Set(['local-ci-self-test', 'cargo-config', 'environment', 'test-listeners-self-test', 'test-listeners', 'doctor-boundary-self-test', 'doctor-boundary']);
 // Tiers of this runner's own, with no counterpart in a deleted workflow: none of their steps
 // has a row in the frozen port contract, and no ported row may name one (--self-test).
 export const LOCAL_TIERS = new Set(['lan']);
@@ -176,6 +176,8 @@ export const TIERS = {
     // this runner's own (refs #7): nothing the default tier runs listens beyond loopback
     { id: 'test-listeners-self-test', name: 'loopback-only listeners self-test', cmd: ['node', 'scripts/check-test-listeners.mjs', '--self-test'] },
     { id: 'test-listeners', name: 'loopback-only listeners (opt-in LAN tests excepted)', cmd: ['node', 'scripts/check-test-listeners.mjs'] },
+    { id: 'doctor-boundary-self-test', name: 'cli/ harness-credential boundary self-test', cmd: ['node', 'scripts/check-doctor-boundary.mjs', '--self-test'] },
+    { id: 'doctor-boundary', name: 'cli/src names no harness credential file, database or configuration directory (G10 #71)', cmd: ['node', 'scripts/check-doctor-boundary.mjs'] },
     { id: 'skills', name: 'skill budgets', cmd: ['node', 'scripts/check-skills.mjs'] },
     { id: 'agents-skills-sync-self-test', name: 'Codex skills copy self-test', cmd: ['node', 'scripts/sync-agents-skills.mjs', '--self-test'] },
     { id: 'agents-skills-sync', name: 'Codex skills copy matches its source', cmd: ['node', 'scripts/sync-agents-skills.mjs', '--check'] },
@@ -308,6 +310,8 @@ export const PATHS = {
   'herdr-containment': [...PRODUCT, 'tools/herdr/', 'tests/integration/', '.github/workflows/', '.gitmodules', '**/Cargo.toml', '**/Cargo.lock', '**/package.json', '**/package-lock.json', 'scripts/check-herdr-containment.mjs'],
   'test-listeners-self-test': ['scripts/check-test-listeners.mjs'],
   'test-listeners': ['core/', 'cli/', 'adapters/', 'transports/', 'tests/', 'tools/', 'scripts/'],
+  'doctor-boundary-self-test': ['scripts/check-doctor-boundary.mjs'],
+  'doctor-boundary': ['cli/', 'scripts/check-doctor-boundary.mjs'],
   skills: ['.claude/skills/', 'CLAUDE.md', 'scripts/check-skills.mjs'],
   'agents-skills-sync-self-test': ['scripts/sync-agents-skills.mjs'],
   'agents-skills-sync': ['.claude/skills/', 'CLAUDE.md', '.agents/', 'AGENTS.md', 'scripts/sync-agents-skills.mjs'],

@@ -565,8 +565,9 @@ pub enum StatusOutcome {
     Version,
     /// Every control place of the daemon stayed in use until the deadline.
     Busy,
-    /// The endpoint is served by another user's process, or the operating system refused:
-    /// nothing was sent.
+    /// The endpoint is served by another user's process: nothing was sent.
+    Foreign,
+    /// The operating system refused: nothing was sent.
     Unreachable(String),
     /// The daemon answered, and not with a status.
     Failed(String),
@@ -596,6 +597,7 @@ fn attempt_status(endpoint: &Endpoint, deadline: Instant, was_busy: bool) -> Sta
         Ok(s) => s,
         Err(ConnectError::NotRunning) => return StatusOutcome::NotRunning,
         Err(ConnectError::Busy) => return StatusOutcome::Busy,
+        Err(ConnectError::Foreign) => return StatusOutcome::Foreign,
         Err(e) => return StatusOutcome::Unreachable(e.to_string()),
     };
     if let Err(e) = stream

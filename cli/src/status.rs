@@ -227,7 +227,7 @@ fn int(object: &JsonObject, name: &str) -> Option<u64> {
 /// `text` with every control character (C0, DEL, C1) and bidirectional override replaced by
 /// `?`. The canonical form writes such characters raw, so free text is cleaned at the source
 /// as well as when it is shown.
-fn clean(text: &str) -> String {
+pub(crate) fn clean(text: &str) -> String {
     text.chars()
         .map(|c| {
             if c.is_control() || is_hostile(c) {

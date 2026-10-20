@@ -27,8 +27,9 @@ use oac_transport_zenoh::{PeerConfiguration, PeerTransport};
 
 use crate::control::{self, StatusOutcome, StopOutcome};
 use crate::daemon::{Daemon, LogSink, Parts, StartError};
+use crate::doctor;
 use crate::ipc::{CONTROL_LABEL, ConnectError, Scope, harness_label_is_valid};
-use crate::keystore::{FallbackKeyStore, OsKeyStore};
+use crate::keystore::{self, FallbackKeyStore, OsKeyStore};
 use crate::logfile;
 use crate::shim;
 use crate::status;
@@ -454,6 +455,70 @@ pub fn sessions_with(
     )
 }
 
+/// `oac doctor [--json]`: a preflight report, one line per check (PASS, WARN, FAIL or SKIP).
+///
+/// Exit status (`verbs`): 0 when no check FAILs (warnings and skips do not count); 1 when one
+/// does; 2 usage. See [`crate::doctor`].
+pub fn doctor(args: &[String]) -> i32 {
+    let mut stdout = io::stdout();
+    let mut stderr = io::stderr();
+    let json = match args {
+        [] => false,
+        [flag] if flag == "--json" => true,
+        _ => {
+            let _ = writeln!(stderr, "usage: oac doctor [--json]");
+            return EXIT_USAGE;
+        }
+    };
+    // A scope that cannot be made (a run directory that is not private) is a finding, not a
+    // reason to stop: the report says so.
+    let scope = Scope::for_user();
+    let namespace = scope
+        .as_ref()
+        .ok()
+        .and_then(|s| s.namespace().map(str::to_owned));
+    if let Some(namespace) = &namespace {
+        let _ = writeln!(stderr, "oac doctor: using the test namespace {namespace:?}");
+    }
+    let service = doctor::credential_service(namespace.as_deref());
+    let path = std::env::var_os("PATH");
+    let credential = move || keystore::probe_credential_store(&service);
+    let claude = move || doctor::probe_claude(path.as_deref(), doctor::CLAUDE_WAIT);
+    let probes = doctor::Probes {
+        status_wait: STATUS_WAIT,
+        negotiation: std::env::var_os(doctor::NEGOTIATION_VARIABLE),
+        credential: &credential,
+        fallback_file: keystore::fallback_key_file_exists(),
+        claude: &claude,
+    };
+    doctor_with(&scope, &probes, json, &mut stdout)
+}
+
+/// [`doctor`] for a given scope and probes, writing the report to `stdout`.
+pub fn doctor_with(
+    scope: &io::Result<Scope>,
+    probes: &doctor::Probes<'_>,
+    json: bool,
+    stdout: &mut dyn Write,
+) -> i32 {
+    let checks = doctor::run(scope, probes);
+    let report = if json {
+        format!(
+            "{}
+",
+            doctor::render_json(&checks)
+        )
+    } else {
+        doctor::render_human(&checks)
+    };
+    let _ = stdout.write_all(report.as_bytes());
+    if doctor::all_clear(&checks) {
+        EXIT_OK
+    } else {
+        EXIT_FAILED
+    }
+}
+
 type Render = dyn Fn(&oac_core::json::JsonObject) -> String;
 
 #[allow(clippy::too_many_arguments)]
@@ -493,6 +558,17 @@ fn ask_status(
             EXIT_UNREACHABLE,
             format!("oac {verb}: the daemon's control endpoint stayed busy; try again"),
             "{\"oac_cli\":1,\"ok\":false,\"running\":true,\"error\":\"busy\"}".to_owned(),
+        ),
+        StatusOutcome::Foreign => (
+            EXIT_UNREACHABLE,
+            format!(
+                "oac {verb}: the daemon could not be reached: {}",
+                ConnectError::Foreign
+            ),
+            format!(
+                "{{\"oac_cli\":1,\"ok\":false,\"error\":\"unreachable\",\"detail\":{}}}",
+                control::json_string(&ConnectError::Foreign.to_string())
+            ),
         ),
         StatusOutcome::Unreachable(why) => (
             EXIT_UNREACHABLE,

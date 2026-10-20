@@ -26,6 +26,77 @@ pub const SERVICE: &str = "io.github.rossgraeber.oac";
 /// The credential-store account name of OAC's device key.
 pub const ACCOUNT: &str = "device-key";
 
+/// The account name of the entry `oac doctor` probes the credential store with.
+pub const PROBE_ACCOUNT: &str = "doctor-probe";
+
+/// What a probe of the credential store found.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CredentialProbe {
+    /// A value was written, read back and deleted.
+    Works,
+    /// This host has no credential store.
+    Unavailable,
+    /// The store exists and is locked or inaccessible.
+    Locked,
+    /// The store answered, and the write, read or delete failed or read back wrongly.
+    Failed,
+}
+
+/// Writes, reads back and deletes a fixed non-secret value under `service` and
+/// [`PROBE_ACCOUNT`]: the check `oac doctor` makes that the operating system's credential
+/// store is usable (G10, #71).
+///
+/// **It never touches the device key's entry**: the account is fixed, and it is a different
+/// one from [`ACCOUNT`] under every service. No key material is read or written, so this
+/// runs in the `oac doctor` process, which never holds any. The entry is deleted again; a
+/// failed delete is [`CredentialProbe::Failed`].
+pub fn probe_credential_store(service: &str) -> CredentialProbe {
+    const VALUE: &[u8] = b"oac-doctor-probe";
+    let entry = match keyring::Entry::new(service, PROBE_ACCOUNT) {
+        Ok(e) => e,
+        Err(e) => return probe_failure(e),
+    };
+    if let Err(e) = entry.set_secret(VALUE) {
+        return probe_failure(e);
+    }
+    let read_back = match entry.get_secret() {
+        Ok(v) => Zeroizing::new(v).as_slice() == VALUE,
+        Err(_) => false,
+    };
+    let deleted = match entry.delete_credential() {
+        Ok(()) | Err(keyring::Error::NoEntry) => true,
+        Err(_) => false,
+    };
+    if read_back && deleted {
+        CredentialProbe::Works
+    } else {
+        CredentialProbe::Failed
+    }
+}
+
+/// Whether the encrypted-file fallback's key file exists (C4 §11): `Some` on a Unix host,
+/// `None` where there is no such fallback. **Existence only**: the file is never opened or
+/// read, and the passphrase that would unlock it is not looked at.
+pub fn fallback_key_file_exists() -> Option<bool> {
+    #[cfg(unix)]
+    {
+        let path = FileKeyStore::default_path()?;
+        Some(std::fs::symlink_metadata(path).is_ok())
+    }
+    #[cfg(not(unix))]
+    {
+        None
+    }
+}
+
+fn probe_failure(e: keyring::Error) -> CredentialProbe {
+    match map_error(e) {
+        KeyStoreError::Unavailable(_) => CredentialProbe::Unavailable,
+        KeyStoreError::Locked(_) => CredentialProbe::Locked,
+        _ => CredentialProbe::Failed,
+    }
+}
+
 /// The operating system's credential store: Windows Credential Manager, macOS Keychain, or
 /// the Secret Service on other Unix hosts (`keyring` 4.2.0, feature `v1`; C1 §8).
 pub struct OsKeyStore {

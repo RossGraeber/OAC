@@ -35,7 +35,7 @@ style of `docs/planning/v0.1/04-architecture.md` lines 14-23, rather than repeat
 each command. (Dated note, 2026-10-02, #122: this paragraph previously ended "not a
 proven wake path", written before G2 passed.)
 
-(Dated note, 2026-10-15, after PR #413 merged: the `oac` side of `oac start` and `oac mcp-shim` now exists on `main`, and `oac hook` reaches the daemon. The statement above that no command here has run end to end still holds for the live Claude Code and Codex legs, which are the operator's; `oac status`, `oac sessions` and `oac doctor` are not built.)
+(Dated note, 2026-10-15, after PR #413 merged: the `oac` side of `oac start` and `oac mcp-shim` now exists on `main`, and `oac hook` reaches the daemon. The statement above that no command here has run end to end still holds for the live Claude Code and Codex legs, which are the operator's; `oac status`, `oac sessions` and `oac doctor` were not built then; see the dated note in §5.)
 
 ---
 
@@ -132,7 +132,7 @@ Reproduced from `docs/planning/decisions/C2-process-model.md` §6.
 | `oac start` | Start (or confirm running) the per-device daemon. **Idempotent**: running it while a daemon is already up for this device is a no-op success, not an error. **Foreground by default**; `--detach` self-daemonizes into the background. The daemon's log lines go to standard error and also to a **log file that survives a crash** (G10, #71 slice 2; below the table). `--detach` reads the child's standard error until it serves or ends, so a start that fails shows the child's own reason and the log's path. `oac start --help` prints the log path. | `0` on a daemon now running (newly started or already up); non-zero on failure to bind the IPC endpoint or start. |
 | `oac status` | Report daemon up/down, device id, transport state and adapter state (G10, #71 slice 3; lead approval 2026-10-18). Asks the daemon's reserved `control` endpoint (`status` op: same bounds as `stop`, one JSON line back) for a snapshot the core takes with no lock held across a transport or adapter call (`spec/interfaces.md` Tables 5.2 and 6.4: the core is the caller of `health`). Shows: the daemon's pid, version and uptime; the test namespace, if any; the device id (the public key id); the endpoints served (labels); the transport's `health`; each adapter's `health`; this device's own sessions (session id, harness label if known, `online` or `withheld`, agreed `active_inbound`); counters (open connections, unbound attachments, pending and held signals, trusted devices, grants, discarded frames); and the path of the daemon's log file (below the table). It never shows a harness-native session id or a working directory ([IFC-TYP-020], [IFC-TYP-092]). `--json` prints one canonical object with `"oac_cli":1`, `"ok"`, `"running"` and the members below; diagnostics go to standard error. | `0` the daemon answered; `1` it did not answer in time, or answered something else; `2` usage; `3` the daemon is not running; `4` the endpoint is another user's, busy (retried until the deadline), or the daemon speaks another control-protocol version. Scriptable as a liveness check (`3` is "down"). |
 | `oac sessions` | List this device's own sessions (G10, #71 slice 4; lead approval 2026-10-18, Q3: own sessions only; remote sessions come later, gated by grants). Asks the daemon for the same `status` reply as `oac status` (same bounds, retries and exit codes; no separate control op) and shows only its session rows: one row per session (session id, harness label, agreed extension and major version, active inbound yes or no, state `online` or `withheld`), then the open attachments with no session bound, counted per harness label. An empty list prints `no sessions`. It shows the full session id (an address, not a permission; lead decision Q4, residual recorded in `11-risks.md`, RISK-SESSION-ID-DISCLOSURE) and nothing else that could identify a project: no working directory, harness-native id or display name ([IFC-TYP-020], [IFC-TYP-092]). `--json` prints one canonical object with `"oac_cli":1`, `"ok"`, `"running"` and the members below; diagnostics go to standard error. | `0` the daemon answered, an empty list included; `1` it did not answer in time, or answered something else; `2` usage; `3` the daemon is not running; `4` the endpoint is another user's, busy (retried until the deadline), or the daemon speaks another control-protocol version. |
-| `oac doctor` | Preflight check (§6 below expands the check list). | `0` only if every check passes; non-zero and a per-check report otherwise. |
+| `oac doctor` | Preflight check (G10, #71 slice 5; lead approval 2026-10-18). Runs the checks of §6 and reports each as `PASS`, `WARN`, `FAIL` or `SKIP` with a one-line neutral detail; the human form is one line per check and a count. `--json` prints one canonical object with `"oac_cli":1`, `"ok"` (no check failed) and `"checks"`: `[{"name","result":"pass"\|"warn"\|"fail"\|"skip","detail"}]`. It asks the running daemon once (the `status` op of `oac status`); it never starts a transport or an adapter, never holds key material, and never reads a harness's credential file, database or configuration directory. | `0` when no check fails (warnings and skips do not count); `1` when one does; `2` usage. It does not use `3` or `4`: a missing or unreachable daemon is the `daemon` check's `FAIL`. |
 | `oac stop` | Stop the running per-device daemon cleanly (G10, #71; lead approval 2026-10-18). Connects to the daemon's reserved `control` endpoint (same lock, same peer authentication as a harness endpoint; no adapter, no session), asks it to stop, and waits at most about 15 s for the daemon to say it has finished: endpoints closed, withdrawals sent, transport shut down and the lock released, so a new `oac start` may follow at once. **Never kills anything**: on timeout it prints the daemon's pid and exits `1`. With no daemon running it prints "not running" and exits `0` (there is nothing to stop). `--json` prints one canonical JSON object on standard output with `"oac_cli":1` (and `"was_running"`); diagnostics go to standard error. | `0` stopped, or not running; `1` timed out or failed; `2` usage; `4` the endpoint is another user's, busy (retried until the deadline), or the daemon speaks another control-protocol version. |
 | `oac mcp-shim` | The stdio MCP server Claude Code and Codex spawn as their child process; connects to the daemon over local IPC. **Not meant to be typed by hand** — a harness config entry invokes it, a person does not run it directly. | N/A as a person-typed command; governed by the spawning harness's own process lifecycle. |
 | *(named, semantics deferred)* | A pairing subcommand and any device-setup subcommand a future launch decision needs. Named here as a reserved placeholder; no flags or output shape are specified. Semantics owned by `docs/planning/decisions/C5-envelope-auth.md` §10(b) (pairing) — not designed here. | Not specified. |
@@ -178,7 +178,7 @@ The `status` op is bounded like `stop`: a request of at most 1 KiB within 2 s, a
 - **A log never stops the daemon.** If the file cannot be opened, the daemon prints one warning on standard error and runs without it; if a write fails later, the file is kept and tried again on the next line, with one warning on standard error per run of failures.
 - **A failed `--detach`.** The child's standard error is a pipe that `oac start --detach` relays (at most 16 KiB, control characters made `?`) until the daemon serves or ends; a start that ends non-zero prints the child's own reason, its exit status and the log's path, in place of "run `oac start` in a terminal".
 
-(Dated note, 2026-10-20, #71: `oac status` (slice 3) and `oac sessions` (slice 4) are built; `oac doctor` is not.)
+(Dated note, 2026-10-20, #71: `oac status` (slice 3), `oac sessions` (slice 4) and `oac doctor` (slice 5) are built.)
 
 (Dated note, 2026-10-18, #71: `oac stop` and the reserved `control` endpoint are on this branch of G10 slice 1. `oac start --detach` probes the `control` endpoint, not the `claude` endpoint, for "already running" and for "now serving", so the probe no longer takes an adapter place (`11-risks.md` row 86).)
 
@@ -187,30 +187,35 @@ The `status` op is bounded like `stop`: a request of at most 1 KiB within 2 s, a
 ## 6. `oac doctor` check list
 
 Expanded from the doctor row in §5, per `docs/planning/decisions/C2-process-model.md`
-§6 and `docs/planning/PINS.md`'s constraint floors:
+§6 and `docs/planning/PINS.md`'s constraint floors, as built in G10 slice 5 (#71, lead
+approval 2026-10-18). Each check is `PASS`, `WARN`, `FAIL` or `SKIP`.
 
-1. **IPC path exists with correct permissions** — the Windows named-pipe DACL or Unix
-   socket-directory/socket-file permissions (`0700`/`0600`), per
-   `docs/planning/decisions/C2-process-model.md` §4.
-2. **Credential store reachable** — the OS credential store `keyring` `4.2.0` targets
-   (Windows Credential Manager / macOS Keychain / Linux Secret Service or
-   `linux-keyutils`), per `docs/planning/decisions/C4-session-identity.md` §10.
-3. **Transport peer able to come up** — the daemon's in-process transport peer can bind
-   its local listener, per `docs/planning/decisions/C7-zenoh-transport.md` §5.
-4. **Claude Code version at/above the floor in `docs/planning/PINS.md`** (UNVERIFIED —
-   `>= v2.1.232` is an open UNVERIFIED item, not confirmable on `channels.md` at
-   `v2.1.274`; see `docs/planning/STATUS.md` "Open UNVERIFIED items" and
-   `docs/planning/PINS.md`) — **plus** `MCP_PROTOCOL_NEGOTIATION` set correctly
-   (`legacy`, or unset), per `docs/planning/PINS.md` "Constraint floors" and the Claude
-   Code Channels pin record. (Dated note, 2026-10-02, #122: the `>= v2.1.232` item is
-   closed as drift, because the changelog dates `--channels` to `2.1.80`. The operative
-   floor in `docs/planning/PINS.md` is now the minimum version, `v2.1.282` (#216). See
-   `docs/planning/REVERIFICATION-B2.md` Drift register D6.)
-5. **Codex daemon reachability** — whether the Codex app-server's control socket
-   (`CODEX_HOME/app-server-control/app-server-control.sock`, §10 below) is reachable.
+| Check | What it does | `PASS` | `WARN` | `FAIL` | `SKIP` |
+|---|---|---|---|---|---|
+| `daemon` | Connects to the `control` endpoint, with the client's server check, and asks for `status` | running | the endpoint stayed busy | "no daemon; run `oac start`"; "endpoint served by another user"; another control-protocol version; no answer | |
+| `ipc_permissions` | Unix: the run directory is a real directory owned by this user and closed to others (the check in `cli/src/ipc/unix.rs`, made when the scope is made). Windows: the client's read-back of the pipe's owner and access list, made while connecting (`cli/src/ipc/windows.rs`) | it is this user's alone | | it is not | Windows, no daemon: no pipe to inspect |
+| `credential_store` | Writes, reads back and deletes a fixed non-secret value under service `io.github.rossgraeber.oac` (a test namespace gets its own service) and entry `doctor-probe`. **Never `device-key`**, and key material stays in the daemon. On Unix it also says whether the encrypted-file fallback's key file exists, by path only; the file is never opened | it worked | | "credential store unavailable" | |
+| `transport` | The `transport` health in the daemon's `status` reply; doctor starts no transport (#305 owner comment) | healthy | | degraded or unavailable: "the transport peer cannot link" (local mode has no scouting) | no daemon |
+| `mcp_revision` | (a) this process's `MCP_PROTOCOL_NEGOTIATION`; (b) the Claude adapter's `health`, which is `Degraded` after a connection sent the `server/discover` probe or asked for a revision this server does not speak and ended with no legacy `initialize` answered (counted since the daemon started) | unset or `legacy`, and no such connection | set to anything else (it affects harnesses started from this environment) | "a Claude session did not negotiate a legacy MCP revision" | |
+| `pairing` | `trusted_devices` and `grants` in the `status` reply (the pairing verb is #437) | either is above 0 | both 0: "no pairings or grants; default deny, nothing is delivered" | | no daemon |
+| `claude_version` | Runs `claude --version`, a documented flag, only if `claude` is on `PATH` (absolute `PATH` entries only), with a 5 s limit, no input and at most 4 KiB read; compares with the minimum `v2.1.282` of `docs/planning/PINS.md` | at or above the minimum | below it, not recognised, or `claude` did not answer. Never `FAIL`: warn on a version, never gate (#216) | | `claude` is not on `PATH` (a host that uses only another harness has nothing wrong) |
+| `codex` | | | | | always: "not wired into the daemon (#433)" |
 
-**Report shape.** Each failing check reports on its own; `oac doctor` exits `0` only if
-every check passes, matching §5's exit-code cell for this command.
+**Deviations from C2 §6, approved 2026-10-18.** The Codex daemon check is `SKIP` until the
+daemon wires the Codex adapter (#433), where C2 §6 lists "Codex daemon reachability". The
+transport check reads the daemon's own `transport` health instead of binding a listener, and
+its failure is worded "the transport peer cannot link". The Claude check is a warning on the
+version, and the negotiation variable check gains the adapter's evidence of a session that
+did not negotiate. The report shape is per check, not all-or-nothing: the exit status is `0`
+unless a check fails.
+
+**Never read.** Doctor never reads a harness's credential file (`auth.json`,
+`.credentials.json`), a `*.sqlite` file, or the contents of `CODEX_HOME` or
+`CLAUDE_CONFIG_DIR`, and never scrapes a UI (ADR-001 Boundary). `scripts/local-ci.mjs` step
+`doctor-boundary` fails if a file in `cli/src` names any of those words.
+
+**Report shape.** Each check reports on its own, whatever the others found. `oac doctor`
+exits `0` unless a check fails.
 
 **No Beacon check, deliberately.** `oac doctor` does not inspect harness MCP configuration
 for a Beacon entry: those files "hold other servers' credentials"
@@ -527,7 +532,7 @@ only; none is an OAC provider surface.
   `docs/planning/PINS.md` row "Beacon (external memory service)". It is not repeated here.
   The pin holds a fixed version **only while Beacon's package self-updates stay off**
   (L1 §2). Leave them off on an OAC-enabled machine.
-- **OAC installed.** OAC is not released. On `main`, `oac start` (with `--detach`) and `oac mcp-shim` exist (PR #413), and `oac hook` reaches the daemon. `oac status` and `oac sessions` exist (G10 slices 3 and 4); `oac doctor` is not built. The commands below are the documented targets; see the "Gate-verdict caveat" at the top of this file.
+- **OAC installed.** OAC is not released. On `main`, `oac start` (with `--detach`) and `oac mcp-shim` exist (PR #413), and `oac hook` reaches the daemon. `oac status`, `oac sessions` and `oac doctor` exist (G10 slices 3 to 5). The commands below are the documented targets; see the "Gate-verdict caveat" at the top of this file.
 - **One repository per pair of peers, if they are meant to share memory** (§20.6).
 
 ### 20.2 Beacon side — the operator's own configuration
