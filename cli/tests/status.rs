@@ -807,6 +807,8 @@ fn session() {
 struct Hung {
     inner: ClaudeAdapter,
     release: Arc<std::sync::atomic::AtomicBool>,
+    /// `health` panics once, when set.
+    panic_once: std::sync::atomic::AtomicBool,
 }
 
 impl ProviderAdapter for Hung {
@@ -873,6 +875,12 @@ impl ProviderAdapter for Hung {
         self.inner.accept_requests(sink);
     }
     fn health(&self) -> HealthStatus {
+        if self
+            .panic_once
+            .swap(false, std::sync::atomic::Ordering::SeqCst)
+        {
+            panic!("health panics (a test)");
+        }
         while !self.release.load(std::sync::atomic::Ordering::SeqCst) {
             std::thread::sleep(Duration::from_millis(10));
         }
@@ -890,13 +898,12 @@ fn a_health_that_never_returns_is_a_timeout_every_time_and_does_not_keep_the_dae
     let adapter = Arc::new(Hung {
         inner: ClaudeAdapter::new(),
         release: release.clone(),
+        panic_once: AtomicBool::new(false),
     });
     let rig = Rig::start_with(
         "h",
         adapter,
-        Options {
-            status_deadline: Duration::from_millis(500),
-        },
+        Options::default().with_status_deadline(Duration::from_millis(500)),
     );
     // The first request is answered `timeout` once the deadline passes: exit 1, not a hang.
     let began = Instant::now();
@@ -941,4 +948,25 @@ fn a_health_that_never_returns_is_a_timeout_every_time_and_does_not_keep_the_dae
         "the daemon's runtime did not end while a health call was stuck"
     );
     release.store(true, Ordering::SeqCst);
+}
+
+#[test]
+fn a_health_that_panics_does_not_leave_every_later_status_a_timeout() {
+    use std::sync::atomic::AtomicBool;
+    let adapter = Arc::new(Hung {
+        inner: ClaudeAdapter::new(),
+        release: Arc::new(AtomicBool::new(true)),
+        panic_once: AtomicBool::new(true),
+    });
+    let rig = Rig::start_with("p", adapter, Options::default());
+    // The snapshot thread panics: that request is not answered with a status ...
+    let first = rig.oac(&["status"]);
+    assert_eq!(first.code(), Some(1), "{}{}", first.stdout, first.stderr);
+    // ... but the in-flight marker is cleared, so the next one is a real status.
+    let second = rig.oac(&["status", "--json"]);
+    assert_eq!(second.code(), Some(0), "{}{}", second.stdout, second.stderr);
+    assert_eq!(
+        string(&object(&second.stdout), "version"),
+        env!("CARGO_PKG_VERSION")
+    );
 }

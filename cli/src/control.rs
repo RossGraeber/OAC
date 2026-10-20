@@ -341,9 +341,16 @@ impl Control {
         let spawned = std::thread::Builder::new()
             .name("oac-status".into())
             .spawn(move || {
-                let reply = status.reply();
-                *inflight.lock().unwrap_or_else(|e| e.into_inner()) = None;
-                let _ = done.send(reply);
+                // Cleared when the thread ends however it ends: a `health` that panics must
+                // not leave every later request answered `timeout`.
+                struct Clear(Arc<Mutex<Option<Instant>>>);
+                impl Drop for Clear {
+                    fn drop(&mut self) {
+                        *self.0.lock().unwrap_or_else(|e| e.into_inner()) = None;
+                    }
+                }
+                let _clear = Clear(inflight);
+                let _ = done.send(status.reply());
             });
         if spawned.is_err() {
             *self

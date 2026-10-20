@@ -336,10 +336,19 @@ pub struct Parts {
 
 /// Knobs of a daemon that a test turns; `oac start` uses the defaults.
 #[derive(Clone, Copy, Debug)]
+#[non_exhaustive]
 pub struct Options {
     /// How long a `status` request waits for the transport's and the adapters' `health`
     /// before it is answered `timeout`.
     pub status_deadline: Duration,
+}
+
+impl Options {
+    /// These options with `status_deadline` set.
+    pub fn with_status_deadline(mut self, status_deadline: Duration) -> Options {
+        self.status_deadline = status_deadline;
+        self
+    }
 }
 
 impl Default for Options {
