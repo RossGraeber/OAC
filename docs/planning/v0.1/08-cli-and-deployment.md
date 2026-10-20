@@ -137,19 +137,25 @@ Reproduced from `docs/planning/decisions/C2-process-model.md` §6.
 | `oac mcp-shim` | The stdio MCP server Claude Code and Codex spawn as their child process; connects to the daemon over local IPC. **Not meant to be typed by hand** — a harness config entry invokes it, a person does not run it directly. | N/A as a person-typed command; governed by the spawning harness's own process lifecycle. |
 | *(named, semantics deferred)* | A pairing subcommand and any device-setup subcommand a future launch decision needs. Named here as a reserved placeholder; no flags or output shape are specified. Semantics owned by `docs/planning/decisions/C5-envelope-auth.md` §10(b) (pairing) — not designed here. | Not specified. |
 
-**Exit codes of the verbs (G10, #71; approved 2026-10-18).** The `--json` form of a verb prints one canonical (RFC 8785) JSON object on standard output with `"oac_cli":1`; diagnostics go to standard error.
+**Exit codes of the verbs (G10, #71; approved 2026-10-18; checked against `cli/src/verbs.rs`, `commands.rs` and `shim.rs` on 2026-10-20).** One table for every verb. The `--json` form of `status`, `sessions`, `doctor` and `stop` prints one canonical (RFC 8785) JSON object on standard output with `"oac_cli":1`; diagnostics go to standard error. `start`, `mcp-shim` and `hook` have no `--json` form.
 
 | Code | Meaning |
 |---|---|
-| `0` | OK. For `oac stop`, also "the daemon was not running". |
-| `1` | Failed, or timed out (`oac stop` after about 15 s, with the daemon's pid; nothing is killed). |
-| `2` | Usage error. |
-| `3` | The daemon is not running (the verbs that need one: `status` and `sessions`; `stop` uses `0`, lead decision Q1). |
-| `4` | The daemon is unreachable or incompatible: the endpoint is served by another user's process, every instance stayed busy, or the control-protocol version differs. |
+| `0` | OK. For `oac stop`, also "the daemon was not running". For `oac start`, a daemon now running (new or already up) and `--help`. For `oac doctor`, no check failed (warnings and skips do not count). For `oac mcp-shim`, the harness closed its input. `oac hook` always exits `0`, so a misfire adds no hook-error notice. |
+| `1` | Failed, or timed out: `oac stop` after about 15 s (the daemon's pid is printed; nothing is killed); `oac start` could not start or bind, or `OAC_SCOPE` is set; `oac doctor` with a failing check; `oac status` and `oac sessions` when the daemon did not answer in time or answered something else; `oac mcp-shim` could not reach the daemon, or the daemon ended the connection. |
+| `2` | Usage error: an unknown flag or command, or no command. `oac mcp-shim` without `--harness <claude\|codex>`. |
+| `3` | The daemon is not running, for the verbs that need one: `status` and `sessions`. `stop` uses `0` (lead decision Q1) and `doctor` reports it as the `daemon` check's `FAIL` (exit `1`). |
+| `4` | The daemon is unreachable or incompatible: the endpoint is served by another user's process, every instance stayed busy until the deadline, or the control-protocol version differs. `status`, `sessions` and `stop` only. |
 
 A daemon built before this change has no control endpoint (v0.1 is unreleased), so `oac stop` reports it as not running; end such a process yourself.
 
-**`oac status --json` members (G10, #71, slice 3).** One canonical object: `oac_cli` (`1`), `ok` (`true`), `running` (`true`), then the daemon's report. A daemon that is not running or not reachable prints `{"error":...,"oac_cli":1,"ok":false,"running":...}` (`error` is `not_running`, `version`, `busy`, `unreachable` or `failed`) and the human message goes to standard error.
+**The error object (`status`, `sessions`, `stop` with `--json`).** `{"error":"<kind>","oac_cli":1,"ok":false,...}` on standard output, with the human message on standard error. `error` is `not_running` (`status`, `sessions`; `running` is `false`), `version` or `busy` (`running` is `true`), `unreachable` or `failed` (with `detail`, a string; no `running` member) and, for `stop` only, `timeout` (with `pid` when known). The mapping to exit codes is the table above: `not_running` `3`; `version`, `busy`, `unreachable` `4`; `failed`, `timeout` `1`. `stop` carries `was_running` in place of `running`, except `unreachable` and `failed`, which carry neither. A usage error (`2`) prints no JSON. Neither does a failure to make the user's scope (`user_scope`, for example no home or state directory): `stop`, `status` and `sessions` then exit `1` with the reason on standard error only, whatever `--json` says; `doctor` is the exception, as it reports a scope it cannot make as a finding.
+
+**`oac stop --json` members (G10, #71, slice 1).** Success: `{"oac_cli":1,"ok":true,"stopped":<bool>,"was_running":<bool>}` and, when the daemon said it, `"pid"`. Both booleans are `true` when the daemon confirmed that it had finished and `false` when there was no daemon (exit `0` either way). Failure: the error object above (exit `1` or `4`).
+
+**`oac doctor --json` members (G10, #71, slice 5).** `{"checks":[{"detail","name","result"}],"ok":<bool>,"oac_cli":1}`. `result` is `pass`, `warn`, `fail` or `skip`; `name` is one of the §6 names, in the §6 order; `ok` is `true` when no check failed (exit `0`; `1` otherwise). A daemon that is not running is a `FAIL` row, never the error object, and `doctor` has no `3` or `4`.
+
+**`oac status --json` members (G10, #71, slice 3).** One canonical object: `oac_cli` (`1`), `ok` (`true`), `running` (`true`), then the daemon's report. A daemon that is not running or not reachable prints the error object above, and the human message goes to standard error.
 
 **`oac sessions --json` members (G10, #71, slice 4).** One canonical object: `oac_cli` (`1`), `ok` (`true`), `running` (`true`), `sessions_total` and `sessions` (as in the `oac status` table above, including `extension` and `major`), and `unbound`: `[{"harness","unbound_attachments"}]`, one entry per adapter, the harness label and the number of its open attachments with no session bound. A daemon that is not running or not reachable prints the same error object as `oac status`.
 
@@ -178,7 +184,7 @@ The `status` op is bounded like `stop`: a request of at most 1 KiB within 2 s, a
 - **A log never stops the daemon.** If the file cannot be opened, the daemon prints one warning on standard error and runs without it; if a write fails later, the file is kept and tried again on the next line, with one warning on standard error per run of failures.
 - **A failed `--detach`.** The child's standard error is a pipe that `oac start --detach` relays (at most 16 KiB, control characters made `?`) until the daemon serves or ends; a start that ends non-zero prints the child's own reason, its exit status and the log's path, in place of "run `oac start` in a terminal".
 
-(Dated note, 2026-10-20, #71: `oac status` (slice 3), `oac sessions` (slice 4) and `oac doctor` (slice 5) are built.)
+(Dated note, 2026-10-20, #71: the `credential_store` row of section 6 had its WARN, FAIL and SKIP cells misplaced; corrected to `cli/src/doctor.rs`, after a live run on WSL showed the FAIL case. `oac status` (slice 3), `oac sessions` (slice 4) and `oac doctor` (slice 5) are built. Slice 6 (this change) consolidates the exit codes and the `--json` shapes above and corrects the error-object and `stop` members to the code.)
 
 (Dated note, 2026-10-18, #71: `oac stop` and the reserved `control` endpoint are on this branch of G10 slice 1. `oac start --detach` probes the `control` endpoint, not the `claude` endpoint, for "already running" and for "now serving", so the probe no longer takes an adapter place (`11-risks.md` row 86).)
 
@@ -194,7 +200,7 @@ approval 2026-10-18). Each check is `PASS`, `WARN`, `FAIL` or `SKIP`.
 |---|---|---|---|---|---|
 | `daemon` | Connects to the `control` endpoint, with the client's server check, and asks for `status` | running | the endpoint stayed busy | "no daemon; run `oac start`"; "endpoint served by another user"; another control-protocol version; no answer | |
 | `ipc_permissions` | Unix: the run directory is a real directory owned by this user and closed to others (the check in `cli/src/ipc/unix.rs`, made when the scope is made). Windows: the client's read-back of the pipe's owner and access list, made while connecting (`cli/src/ipc/windows.rs`) | it is this user's alone | | it is not | Windows, no daemon or the endpoint stayed busy: no pipe to inspect |
-| `credential_store` | Writes, reads back and deletes a fixed non-secret value under service `io.github.rossgraeber.oac` (a test namespace gets its own service) and entry `doctor-probe`. **Never `device-key`**, and key material stays in the daemon. On Unix it also says whether the encrypted-file fallback's key file exists, by path only; the file is never opened | it worked | | unavailable, and the Unix fallback key file exists (the daemon uses it): "credential store unavailable; the daemon uses the encrypted-file fallback" | unavailable with no fallback file, locked, or the probe failed: "credential store unavailable" | `OAC_SCOPE` is not a valid namespace; or the test-only switch `OAC_DOCTOR_NO_CREDENTIAL_PROBE` inside a test namespace |
+| `credential_store` | Writes, reads back and deletes a fixed non-secret value under service `io.github.rossgraeber.oac` (a test namespace gets its own service) and entry `doctor-probe`. **Never `device-key`**, and key material stays in the daemon. On Unix it also says whether the encrypted-file fallback's key file exists, by path only; the file is never opened | it worked | unavailable, and the Unix fallback key file exists (the daemon uses it): "credential store unavailable; the daemon uses the encrypted-file fallback" | unavailable with no fallback key file (or the host cannot say), locked, or the probe failed: "credential store unavailable ...", with the fallback state appended | `OAC_SCOPE` is not a valid namespace; or the test-only switch `OAC_DOCTOR_NO_CREDENTIAL_PROBE` inside a test namespace |
 | `transport` | The `transport` health in the daemon's `status` reply; doctor starts no transport (#305 owner comment) | healthy | | degraded or unavailable: "the transport peer cannot link" (local mode has no scouting) | no daemon |
 | `mcp_revision` | (a) this process's `MCP_PROTOCOL_NEGOTIATION`; (b) the Claude adapter's `health`, which is `Degraded` after a connection sent the `server/discover` probe or asked for a revision this server does not speak and ended with no legacy `initialize` answered (counted since the daemon started) | unset or `legacy`, and no such connection | set to anything else (it affects harnesses started from this environment); or a connection that never negotiated a legacy revision: "a Claude session did not negotiate a legacy MCP revision (counted since the daemon started)". **WARN, not FAIL** (lead decision L1, 2026-10-20): the counter is cumulative and never decays, so it cannot tell a session broken now from one fixed since; revisit when a decay or per-attachment rule exists | | |
 | `pairing` | `trusted_devices` and `grants` in the `status` reply (the pairing verb is #437) | either is above 0 | both 0: "no pairings or grants; default deny, nothing is delivered" | | no daemon |
@@ -586,10 +592,10 @@ Do not run `beacon mcp connect` for this setup. It registers the separate hosted
 
 Only the commands in §5, §7 and §9 are used. `oac start` and `oac mcp-shim` are on `main` (PR #413); the live run is the operator's. `oac start` writes its log to a file that survives a crash (§5). `oac start` serves on the real Zenoh transport since PR #425 (a multi-thread runtime; the first live run had panicked on a current-thread one). The "Gate-verdict caveat" at the top of this file applies to each.
 
-1. Start the per-device daemon with `oac start` (§5).
+1. Start the per-device daemon with `oac start` (§5), or `oac start --detach` to leave it running in the background. `oac doctor` runs the preflight (§6), `oac status` and `oac sessions` show the daemon and this device's own sessions, and `oac stop` ends it cleanly (§5). None of them reads, wraps or configures Beacon (§6, last paragraph).
 2. Claude Code: launch the session with the development-channel command in §7. The
    consent dialog in §8 is unchanged.
-3. Codex: register `oac mcp-shim` once with the command in §9.
+3. Codex: register `oac mcp-shim` once with the command in §9. The daemon serves no Codex endpoint yet (#433), so `oac doctor` reports its `codex` check as `SKIP`.
 
 Each harness then holds two independent MCP servers in its own configuration: OAC's
 (`oac mcp-shim`) and Beacon's (`beacon`). Neither knows about the other, and OAC never
