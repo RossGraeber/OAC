@@ -139,7 +139,7 @@ fn short_deadline_does_not_wait_for_a_stalled_native_subscriber() {
         );
         entered_rx.recv_timeout(Duration::from_secs(5)).unwrap();
         let mut timings = Vec::new();
-        let mut max_call = Duration::ZERO;
+        let mut calls = Vec::new();
         let mut taken = 0;
         for frame in std::iter::once(small).chain(frames) {
             let prefix = frame[..33].to_vec();
@@ -151,15 +151,24 @@ fn short_deadline_does_not_wait_for_a_stalled_native_subscriber() {
                 Deadline::at(deadline),
             );
             let elapsed = start.elapsed();
-            max_call = max_call.max(elapsed);
+            calls.push(elapsed);
             timings.push((prefix, deadline));
             taken += usize::from(result == PublishResult::Taken);
         }
-        // Scheduler tolerance; catches the review's 200-291 ms blocking regression.
-        // This is not a universal wall-clock deadline guarantee.
+        // A transport that blocks on the stalled subscriber blocks the calls that meet the
+        // backed-up queue, one after another (the review's 200-291 ms regression). A
+        // scheduler preemption on a loaded machine delays one call, or two at most (#443:
+        // 180 ms once under a parallel WSL gate). So at most two calls may reach 100 ms and
+        // none may reach a second. This is not a universal wall-clock deadline guarantee.
+        let max_call = calls.iter().copied().max().unwrap_or_default();
+        let slow = calls
+            .iter()
+            .filter(|c| **c >= Duration::from_millis(100))
+            .count();
         assert!(
-            max_call < Duration::from_millis(100),
-            "publish blocked: {max_call:?}"
+            slow <= 2 && max_call < Duration::from_secs(1),
+            "publish blocked: {slow} of {} calls took 100 ms or more, the longest {max_call:?}: {calls:?}",
+            calls.len()
         );
         // Allow the full 600 ms callback stall, then drain observations through a barrier.
         thread::sleep(Duration::from_millis(650));
