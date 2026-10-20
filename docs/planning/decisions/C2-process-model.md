@@ -262,6 +262,18 @@ leak Zenoh-specific concepts into the neutral protocol."
 
 **`oac stop` (dated note, 2026-10-18, G10 #71; lead approval of the verb and the reserved `control` endpoint).** `oac stop [--json]` asks the running daemon, over the `control` endpoint (§4), to stop cleanly, and waits at most about 15 s for it to say it has: the daemon replies `stopping`, runs its ordinary shutdown (endpoints stop accepting, withdrawals are sent, the transport shuts down, the lock is released), and only then writes `stopped` to the waiting requester. It never kills a process; on timeout it exits `1` and prints the daemon's pid. With no daemon it prints "not running" and exits `0` (lead decision Q1). Exit codes: `0` ok, `1` failed or timed out, `2` usage, `3` daemon not running (for the verbs that need one), `4` unreachable or incompatible (foreign, busy, version). This closes the detached-daemon residual recorded under `RISK-LOCAL-IPC` (no clean shutdown on Windows).
 
+**G10 close-out for the lead (dated note, 2026-10-20, #71; documentation only; no change to the table above).** The verbs delivered, each with the lead's approval of 2026-10-18, are `oac stop` (slice 1, PR #440), the daemon log (slice 2, PR #442), `oac status` (slice 3, PR #444), `oac sessions` (slice 4, PR #446) and `oac doctor` (slice 5, PR #447); `oac start`, `oac mcp-shim` and `oac hook` came with G9. The authoritative statement of each verb, its exit codes and its `--json` shape is `docs/planning/v0.1/08-cli-and-deployment.md` section 5, checked against the code on 2026-10-20. The approved deviations from the table above:
+
+1. **`oac stop` is added** (the table has no stop verb), over a reserved `control` endpoint; it never kills; `0` when there is no daemon (Q1).
+2. **Exit codes are one set** for every verb: `0` ok, `1` failed or timed out, `2` usage, `3` the daemon is not running (`status`, `sessions`), `4` unreachable or incompatible (foreign endpoint, busy, control-protocol version). The table above says only "non-zero" for `status` and `sessions`.
+3. **`oac status`** reports adapter state, this device's own sessions, counters and the log path, besides daemon up or down, device id and transport state. It asks the `control` endpoint, so it takes no adapter place.
+4. **`oac sessions` lists this device's own sessions only** (Q3), with full session ids (Q4; `RISK-SESSION-ID-DISCLOSURE`). It reuses the `status` op; there is no separate control op. Remote sessions come later and are gated by grants.
+5. **`oac doctor` is per check, not all-or-nothing:** exit `0` unless a check FAILs; a warning or a skip does not fail it. Codex daemon reachability is `SKIP` until the daemon wires the Codex adapter (#433). The transport check reads the daemon's own `transport` health instead of bringing a Zenoh peer up. The Claude check is a warning on the version (never a gate, #216), and the negotiation check also reads the Claude adapter's evidence of a session that did not negotiate a legacy revision (WARN, decision L1, 2026-10-20). It never reads a harness's credential file, database or configuration directory.
+6. **`oac start` writes a log file that survives a crash** (Q2) and `--detach` relays the child's standard error until it serves; `oac start --help` prints the path.
+7. **`--json` with `"oac_cli":1`** on `stop`, `status`, `sessions` and `doctor`.
+
+Not delivered, by design: a pairing verb (#437), a verb that reads the log, `oac status` for other devices, and the Codex endpoint (#433).
+
 Two documented one-line launch commands, verified against first-party docs rather than
 copied from the presumptive shape in the task breakdown:
 

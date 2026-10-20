@@ -35,7 +35,8 @@ supported integration model.
 
 **What works on `main` today** (checked against the code and the merged pull requests):
 
-- `oac start` (`cli/src/commands.rs`, PR #413) runs the daemon in the foreground, or with `--detach` as a detached process, on the real Zenoh peer transport. Since PR #425 it serves on a multi-thread Tokio runtime (`commands::daemon_runtime()`); the reference transport refuses a current-thread one. A detached daemon has no console and writes no log, and there is no `oac stop` yet (G10).
+- `oac start` (`cli/src/commands.rs`, PR #413) runs the daemon in the foreground, or with `--detach` as a detached process, on the real Zenoh peer transport. Since PR #425 it serves on a multi-thread Tokio runtime (`commands::daemon_runtime()`); the reference transport refuses a current-thread one. Its log lines are also appended to a file that survives a crash, and `oac start --help` prints the path (G10 slice 2, PR #442).
+- `oac stop` (PR #440), `oac status` (PR #444), `oac sessions` (PR #446) and `oac doctor` (PR #447) are G10's verbs, each with `--json`. `oac stop` asks a detached daemon to stop cleanly, which a detached daemon on Windows could not do before.
 - `oac mcp-shim --harness <claude|codex>` (PR #413) is the stdio server a harness starts: a byte relay to that harness's endpoint on the daemon. With no daemon running, it says to run `oac start` and does not start one.
 - `oac hook` (`cli/src/hook.rs`, PR #405, connected to the daemon by PR #413) carries a Claude Code `SessionStart` input to the daemon as one line, as `spec/bindings/mcp.md` section 8.1 requires. Its connection stays open for at most 3 seconds, so the daemon can look up the peer. If the daemon is not running, the input is dropped with a diagnostic and the session stays unbound (fail closed).
 - A device key store (`cli/src/keystore.rs`, PRs #315 and #407) that uses the operating system's credential store, or an encrypted file where none exists.
@@ -45,9 +46,28 @@ supported integration model.
 
 **Not on `main` yet, or not run:**
 
-- `oac status`, `oac sessions`, `oac doctor` and `oac stop` (G10). A detached daemon writes no log (its stderr is discarded) on every platform; on Windows it also has no clean shutdown and can only be killed; `oac stop` is G10.
-- The live legs: a Claude Code session started through `oac`, and `oac start` on a real device key, are operator runs. The daemon test runs on Windows and Linux; the live Claude Code leg has not run.
+- The pairing verbs (#437) and a verb that reads the daemon log.
+- The live check of the G10 verbs together with a real Claude Code session has not run (see the status ledger). The daemon test runs on Windows and Linux.
 - The Codex endpoint: there is no Codex adapter until G7 and G8.
+
+## Using the CLI
+
+The `oac` binary (build it with `cargo build -p oac-cli`; nothing is released or installed yet) needs no
+config file. The verbs (full detail: [CLI and deployment](docs/planning/v0.1/08-cli-and-deployment.md) section 5):
+
+```sh
+oac start [--detach]   # run the per-device daemon; --detach leaves it in the background
+oac status [--json]    # is it running: pid, version, uptime, device id, transport and adapter health
+oac sessions [--json]  # this device's own sessions (session id, harness, online or withheld)
+oac doctor [--json]    # preflight checks: PASS, WARN, FAIL or SKIP, one line each
+oac stop [--json]      # ask the daemon to stop cleanly (never kills; waits about 15 s)
+```
+
+- `oac start` is idempotent: with a daemon already up it succeeds and does nothing. Its log lines go to standard error and to a log file that survives a crash; `oac start --help` prints the path.
+- `--json` prints one object with `"oac_cli":1` on standard output; diagnostics go to standard error.
+- Exit codes: `0` ok (`oac stop` also when no daemon was running), `1` failed or timed out, `2` usage, `3` the daemon is not running (`status`, `sessions`), `4` the daemon is unreachable or incompatible. `oac doctor` exits `1` only when a check fails.
+- `oac mcp-shim` and `oac hook` are started by a harness, not typed.
+- The first `oac start` creates the device key in the operating system's credential store, or in an encrypted file where none exists.
 
 **Build and test.** `rust-toolchain.toml` pins Rust 1.98.1.
 
