@@ -148,10 +148,10 @@ fn parts(scope: Scope, network: &MemoryNetwork, log: &Captured, state: &Path) ->
         harnesses: vec![("claude".to_owned(), Arc::new(ClaudeAdapter::new()) as _)],
         // The daemon's lines also go to the log file of the test's namespace, under the
         // test's own state directory (G10 #71): checked for forbidden content at the end.
-        log: LogSink::new(log.clone()).with_file(
-            LogFile::open_in(state, scope_namespace.as_deref(), MAX_LOG_BYTES)
-                .expect("the log file opens"),
-        ),
+        log: LogSink::new(log.clone()).with_file_opener({
+            let state = state.to_path_buf();
+            move || LogFile::open_in(&state, scope_namespace.as_deref(), MAX_LOG_BYTES)
+        }),
     }
 }
 

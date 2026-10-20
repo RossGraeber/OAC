@@ -260,19 +260,13 @@ fn main() {
     })
     .with_tap(tap(events.clone()));
     // The log file; a daemon runs without it when it cannot be opened (one warning).
-    let opened = match &args.state_dir {
-        Some(dir) => LogFile::open_in(dir, Some(&args.namespace), MAX_LOG_BYTES),
-        None => LogFile::open(Some(&args.namespace)),
-    };
-    let log = match opened {
-        Ok(file) => log.with_file(file),
-        Err(e) => {
-            log.plain(&format!(
-                "oac-daemon: warning: the log file could not be opened ({e}); continuing without it"
-            ));
-            log
-        }
-    };
+    // It is opened by `Daemon::start` once the lock is held, as for `oac start`.
+    let namespace = args.namespace.clone();
+    let state_dir = args.state_dir.clone();
+    let log = log.with_file_opener(move || match &state_dir {
+        Some(dir) => LogFile::open_in(dir, Some(&namespace), MAX_LOG_BYTES),
+        None => LogFile::open(Some(&namespace)),
+    });
     let failure_log = log.clone();
     let parts = Parts {
         scope,

@@ -68,15 +68,6 @@ impl Drop for Temp {
     }
 }
 
-/// Removes a path when it drops (a log directory made in the user's real state directory).
-struct Remove(PathBuf);
-
-impl Drop for Remove {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.0);
-    }
-}
-
 /// On Unix the endpoints of a namespace are a directory under the real run directory.
 struct NamespaceDir(#[cfg(unix)] Option<PathBuf>);
 
@@ -149,24 +140,28 @@ fn an_in_process_daemon_writes_its_lines_to_the_file_of_its_test_namespace() {
     let namespace = format!("lf{}a", std::process::id());
     let scope = Scope::for_user_in(Some(&namespace)).unwrap();
     let _run_dir = NamespaceDir::of(&scope);
-    let user_log = logfile::default_log_path(None);
-    let user_log_before = user_log
-        .as_ref()
-        .and_then(|p| std::fs::metadata(p).ok())
-        .map(|m| (m.len(), m.modified().ok()));
-
-    let file = LogFile::open(Some(&namespace)).expect("the log file of the namespace opens");
+    // A state directory of the test's own: nothing in the user's is touched.
+    let temp = Temp::new("inproc");
+    let file = LogFile::open_in(&temp.0, Some(&namespace), MAX_LOG_BYTES)
+        .expect("the log file of the namespace opens");
     let path = file.path();
-    let _cleanup = Remove(path.parent().unwrap().to_path_buf());
     assert_eq!(
-        Some(path.clone()),
-        logfile::default_log_path(Some(&namespace)),
-        "the namespace's log is where the helper says"
+        path,
+        log_directory(&temp.0, Some(&namespace))
+            .unwrap()
+            .join(LOG_FILE_NAME),
+        "the namespace's log is in the namespace's directory"
     );
     assert!(
         path.to_string_lossy().contains(&format!("ns-{namespace}")),
         "{}",
         path.display()
+    );
+    assert!(
+        !log_directory(&temp.0, None)
+            .unwrap()
+            .join(LOG_FILE_NAME)
+            .exists()
     );
 
     let sink = LogSink::new(std::io::sink()).with_file(file);
@@ -189,13 +184,6 @@ fn an_in_process_daemon_writes_its_lines_to_the_file_of_its_test_namespace() {
         kept.lines().all(|l| l.starts_with("unix_ms=")),
         "every line carries its time: {kept}"
     );
-
-    // The user's own log was not touched by the namespace.
-    let user_log_after = user_log
-        .as_ref()
-        .and_then(|p| std::fs::metadata(p).ok())
-        .map(|m| (m.len(), m.modified().ok()));
-    assert_eq!(user_log_before, user_log_after);
 }
 
 // ---- 2: the lines survive a daemon killed hard -------------------------------------------
@@ -433,9 +421,8 @@ fn a_log_file_that_cannot_be_opened_is_a_warning_and_the_daemon_runs() {
         }
     }
     // The sink as `oac start` builds it, with an invalid namespace standing for a file that
-    // cannot be opened: one warning on the stream, no file, the sink works.
-    let (sink, path) = LogSink::new(Stream(seen.clone())).with_default_file(Some("NOT A NAME"));
-    assert!(path.is_none());
+    // cannot be opened (it opens nothing): one warning on the stream, no file, the sink works.
+    let sink = LogSink::new(Stream(seen.clone())).with_default_file_after_lock(Some("NOT A NAME"));
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -465,8 +452,22 @@ fn a_detached_start_that_fails_relays_the_childs_reason_and_names_the_log() {
     let namespace = format!("lf{}d", std::process::id());
     let scope = Scope::for_user_in(Some(&namespace)).unwrap();
     let _run_dir = NamespaceDir::of(&scope);
-    let log_path = logfile::default_log_path(Some(&namespace)).unwrap();
-    let _cleanup = Remove(log_path.parent().unwrap().to_path_buf());
+    // A state directory of the test's own, with the running daemon's log in it.
+    let temp = Temp::new("failed-start");
+    let state = temp.0.join("state");
+    let log_path = log_directory(&state, Some(&namespace))
+        .unwrap()
+        .join(LOG_FILE_NAME);
+    let mut running = LogFile::open_in(&state, Some(&namespace), 200).unwrap();
+    for i in 0..3 {
+        running
+            .append(&format!("the running daemon, line {i}"))
+            .unwrap();
+    }
+    let before = (
+        read(&log_path),
+        std::fs::metadata(&log_path).unwrap().modified().ok(),
+    );
 
     // Something holds the namespace's lock and serves nothing, so a second daemon stops at
     // the lock and nothing answers on the control endpoint.
@@ -480,12 +481,19 @@ fn a_detached_start_that_fails_relays_the_childs_reason_and_names_the_log() {
 
     let mut command = Command::new(example());
     command
-        .args(["--namespace", &namespace])
+        .args(["--namespace", &namespace, "--state-dir"])
+        .arg(&state)
         .stdin(Stdio::null())
         .stdout(Stdio::null());
     let mut said = Vec::new();
     let began = Instant::now();
-    let status = oac_cli::commands::start_detached_command(&mut command, &scope, WAIT, &mut said);
+    let status = oac_cli::commands::start_detached_command(
+        &mut command,
+        &scope,
+        WAIT,
+        Some(&log_path),
+        &mut said,
+    );
     let said = String::from_utf8_lossy(&said).into_owned();
     assert_eq!(status, 1, "{said}");
     assert!(
@@ -497,9 +505,130 @@ fn a_detached_start_that_fails_relays_the_childs_reason_and_names_the_log() {
     assert!(said.contains("ended at start-up"), "{said}");
     assert!(said.contains(&log_path.display().to_string()), "{said}");
     assert!(!said.contains("in a terminal"), "{said}");
-    // And the reason is in the log file too.
-    let kept = read(&log_path);
-    assert!(kept.contains("already running"), "{kept}");
+    // The start that lost the race did not touch the running daemon's log: not a byte, not a
+    // rotation (the file is a few bytes under its limit, so a line would have rotated it), not
+    // a permission change.
+    let after = (
+        read(&log_path),
+        std::fs::metadata(&log_path).unwrap().modified().ok(),
+    );
+    assert_eq!(before, after);
+    assert!(!log_path.with_file_name(ROTATED_FILE_NAME).exists());
+    assert!(logfile::is_private(&log_path).unwrap());
     drop(lock);
     drop(runtime);
+}
+
+// ---- a rotation that fails never loses the current log -------------------------------------
+
+/// Makes `daemon.log.1` impossible to replace (a non-empty directory is in its place), on
+/// every system; the stand-in for a sharing violation, an antivirus scan or a viewer.
+fn block_rotation(directory: &Path) {
+    let previous = directory.join(ROTATED_FILE_NAME);
+    std::fs::create_dir_all(&previous).unwrap();
+    std::fs::write(previous.join("in-the-way"), "x").unwrap();
+}
+
+fn unblock_rotation(directory: &Path) {
+    std::fs::remove_dir_all(directory.join(ROTATED_FILE_NAME)).unwrap();
+}
+
+#[test]
+fn a_rotation_that_fails_keeps_the_current_log_and_logging_goes_on() {
+    let temp = Temp::new("rotfail");
+    let limit = 1000;
+    let mut log = LogFile::open_in(&temp.0, Some("rf"), limit).unwrap();
+    let dir = log_directory(&temp.0, Some("rf")).unwrap();
+    let current = dir.join(LOG_FILE_NAME);
+    block_rotation(&dir);
+
+    // Past the limit the rotation fails every time; the lines still go to the current file,
+    // which is never deleted, until the hard cap, and then they are dropped with an error.
+    let mut written = Vec::new();
+    let mut dropped = 0;
+    for i in 0..200 {
+        let line = format!("line {i:04}");
+        match log.append(&line) {
+            Ok(()) => written.push(line),
+            Err(_) => dropped += 1,
+        }
+        assert!(current.exists(), "the current log was deleted at line {i}");
+    }
+    assert!(dropped > 0, "the hard cap was never reached");
+    let size = std::fs::metadata(&current).unwrap().len();
+    assert!(size > limit, "the file grew past the limit: {size}");
+    assert!(size <= limit * logfile::HARD_CAP_FACTOR, "{size}");
+    let kept = read(&current);
+    for (n, line) in written.iter().enumerate() {
+        assert!(
+            kept.lines()
+                .nth(n)
+                .is_some_and(|l| l.ends_with(line.as_str())),
+            "line {n} {line}"
+        );
+    }
+
+    // The obstacle goes: the next write rotates (the old log is kept as .1) and goes on.
+    unblock_rotation(&dir);
+    log.append("after the obstacle").unwrap();
+    log.append("and one more").unwrap();
+    let previous = read(&dir.join(ROTATED_FILE_NAME));
+    assert_eq!(previous, kept, "the whole current log became .1");
+    let now = read(&current);
+    assert!(
+        now.contains("after the obstacle") && now.contains("and one more"),
+        "{now}"
+    );
+    assert!(!now.contains("line 0000"));
+}
+
+#[test]
+fn a_sink_whose_rotation_fails_warns_once_and_keeps_using_the_file() {
+    struct Stream(Arc<std::sync::Mutex<Vec<u8>>>);
+    impl std::io::Write for Stream {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let temp = Temp::new("sinkfail");
+    let dir = log_directory(&temp.0, Some("sf")).unwrap();
+    let seen = Arc::new(std::sync::Mutex::new(Vec::<u8>::new()));
+    let sink = LogSink::new(Stream(seen.clone()))
+        .with_file(LogFile::open_in(&temp.0, Some("sf"), 500).unwrap());
+    block_rotation(&dir);
+    for i in 0..100 {
+        sink.line(&format!("while blocked {i:03}"));
+    }
+    unblock_rotation(&dir);
+    sink.line("recovered");
+    sink.line("and still logging");
+
+    let text = String::from_utf8_lossy(&seen.lock().unwrap()).into_owned();
+    assert_eq!(
+        text.matches("warning: writing the log file failed").count(),
+        1,
+        "one warning for the run of failures: {text}"
+    );
+    assert_eq!(
+        text.matches("while blocked").count(),
+        100,
+        "the stream lost nothing"
+    );
+    let all = format!(
+        "{}{}",
+        read(&dir.join(ROTATED_FILE_NAME)),
+        read(&dir.join(LOG_FILE_NAME))
+    );
+    assert!(
+        all.contains("while blocked 000"),
+        "the oldest line survived"
+    );
+    assert!(
+        all.contains("recovered") && all.contains("and still logging"),
+        "{all}"
+    );
 }

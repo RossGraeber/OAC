@@ -407,9 +407,13 @@ fn serve_in_foreground(scope: Scope, stderr: &mut dyn Write) -> i32 {
     let clock: Arc<dyn Clock> = Arc::new(SystemClock);
     let monotonic: MonotonicClock = Arc::new(Instant::now);
     let claude: Arc<dyn ProviderAdapter> = Arc::new(ClaudeAdapter::new());
-    // The log file: the lines also go where a crash does not take them (G10, #71). A file
-    // that cannot be opened is one warning on standard error, and the daemon runs without it.
-    let (log, log_path) = LogSink::new(io::stderr()).with_default_file(None);
+    // The log file: the lines also go where a crash does not take them (G10, #71). It is
+    // opened by `Daemon::start` once it holds the lock (a start that loses the race never
+    // touches the running daemon's file); one that cannot be opened is one warning on
+    // standard error, and the daemon runs without it. A panic leaves a line in it.
+    let log = LogSink::new(io::stderr()).with_default_file_after_lock(None);
+    log.install_panic_hook();
+    let log_path = logfile::default_log_path(None);
     let parts = Parts {
         scope,
         key_store,
@@ -502,18 +506,22 @@ fn start_detached(scope: &Scope, stderr: &mut dyn Write) -> i32 {
         .arg("start")
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null());
-    start_detached_command(&mut command, scope, DETACH_WAIT, stderr)
+    let log = logfile::default_log_path(scope.namespace());
+    start_detached_command(&mut command, scope, DETACH_WAIT, log.as_deref(), stderr)
 }
 
 /// Starts `command` as `--detach` starts the daemon (see [`spawn_detached`]) with its
 /// standard error piped, and waits for the daemon to serve on `scope`'s control endpoint, for
 /// at most `wait`. What the process writes to standard error is relayed to `stderr` (at most
 /// [`RELAY_LIMIT`] bytes) until it serves or ends, and a failure names the log file of the
-/// scope. Public so that a test runs the failure path with a stand-in daemon that fails.
+/// scope. Public so that a test runs the failure path with a stand-in daemon that fails;
+/// `log` is the path a failure names.
+#[doc(hidden)]
 pub fn start_detached_command(
     command: &mut std::process::Command,
     scope: &Scope,
     wait: Duration,
+    log: Option<&Path>,
     stderr: &mut dyn Write,
 ) -> i32 {
     command.stderr(std::process::Stdio::piped());
@@ -522,7 +530,7 @@ pub fn start_detached_command(
             child,
             || scope.endpoint(CONTROL_LABEL).connect_blocking().is_ok(),
             wait,
-            logfile::default_log_path(scope.namespace()).as_deref(),
+            log,
             stderr,
         ),
         Err(e) => {

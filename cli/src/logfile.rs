@@ -35,7 +35,10 @@
 //!
 //! At [`MAX_LOG_BYTES`] the file is closed and renamed to `daemon.log.1`, replacing the
 //! previous one, and a new `daemon.log` is begun: at most two files and about 2 MiB, however
-//! long the daemon runs. A line is cut at [`MAX_LINE_BYTES`].
+//! long the daemon runs. A line is cut at [`MAX_LINE_BYTES`]. **The current file is never
+//! deleted**: if the rename fails (a sharing violation, a scanner, a viewer holding `.1`) the
+//! file keeps growing and each line retries; past [`HARD_CAP_FACTOR`] times the limit lines are
+//! dropped, with one warning per run of failures (`LogSink`), until a rotation succeeds.
 //!
 //! # Content
 //!
@@ -55,6 +58,9 @@ pub const LOG_FILE_NAME: &str = "daemon.log";
 pub const ROTATED_FILE_NAME: &str = "daemon.log.1";
 /// The size at which the log is rotated.
 pub const MAX_LOG_BYTES: u64 = 1024 * 1024;
+/// While rotation keeps failing the log grows past its limit, to this many times the limit; past
+/// that, lines are dropped (and warned about once) until a rotation succeeds.
+pub const HARD_CAP_FACTOR: u64 = 4;
 /// The longest line written, in bytes (longer is cut at a character boundary).
 pub const MAX_LINE_BYTES: usize = 4096;
 
@@ -100,7 +106,8 @@ pub fn default_log_path(namespace: Option<&str>) -> Option<PathBuf> {
 #[derive(Debug)]
 pub struct LogFile {
     directory: PathBuf,
-    file: File,
+    /// `None` only after a rotation that renamed the file and could not yet open the next.
+    file: Option<File>,
     size: u64,
     limit: u64,
 }
@@ -136,7 +143,7 @@ impl LogFile {
         let (file, size) = os::open_private_file(&directory.join(LOG_FILE_NAME))?;
         Ok(LogFile {
             directory,
-            file,
+            file: Some(file),
             size,
             limit,
         })
@@ -152,35 +159,53 @@ impl LogFile {
     ///
     /// # Errors
     ///
-    /// The operating system's error. The caller stops using the log after one: see
-    /// `LogSink`.
+    /// The operating system's error, or `Other` when the file is [`HARD_CAP_FACTOR`] times
+    /// the limit because rotation keeps failing (the line is dropped). **An error is
+    /// transient:** the file is never deleted or closed for good, and the next call tries
+    /// again (the caller, `LogSink`, warns once per run of failures).
     pub fn append(&mut self, text: &str) -> io::Result<()> {
         let line = render(text);
         let length = line.len() as u64;
         if self.size > 0 && self.size + length > self.limit {
-            self.rotate()?;
+            // A failed rotation is not an error for this line: the line goes to the current
+            // file, which keeps growing until the hard cap, and the next line tries again.
+            let rotated = self.rotate();
+            if rotated.is_err() && self.size + length > self.limit.saturating_mul(HARD_CAP_FACTOR) {
+                return Err(io::Error::other(
+                    "the log is past its hard cap because it cannot be rotated; lines are dropped until it can",
+                ));
+            }
+            if self.file.is_none() {
+                rotated?;
+            }
         }
-        self.file.write_all(line.as_bytes())?;
-        self.file.flush()?;
+        if self.file.is_none() {
+            let (file, size) = os::open_private_file(&self.directory.join(LOG_FILE_NAME))?;
+            self.file = Some(file);
+            self.size = size;
+        }
+        let file = self.file.as_mut().expect("opened above");
+        file.write_all(line.as_bytes())?;
+        file.flush()?;
         self.size += length;
         Ok(())
     }
 
-    /// Closes the current file, keeps it as the one previous log and begins a new one.
+    /// Keeps the current file as the one previous log and begins a new one. **The current
+    /// file is never deleted:** if it cannot be renamed (a sharing violation on Windows, an
+    /// antivirus scan, a viewer holding `daemon.log.1`, a directory in the way), nothing
+    /// changes and the caller goes on writing to it.
     fn rotate(&mut self) -> io::Result<()> {
         let current = self.directory.join(LOG_FILE_NAME);
         let previous = self.directory.join(ROTATED_FILE_NAME);
-        // Give up the handle first: some systems do not rename a file that is open. A write
-        // after this point goes to the new file or, on an error, is the caller's to handle.
-        let placeholder = os::placeholder()?;
-        drop(std::mem::replace(&mut self.file, placeholder));
-        let _ = fs::remove_file(&previous);
-        if fs::rename(&current, &previous).is_err() {
-            // Cannot keep it: begin again rather than grow without bound.
-            fs::remove_file(&current)?;
-        }
+        // The rename replaces the previous log (std's rename does on both systems), so the
+        // previous log is not removed first; our handle stays open (it is opened with delete
+        // sharing on Windows) and goes with the renamed file.
+        fs::rename(&current, &previous)?;
+        self.file = None;
+        self.size = 0;
         let (file, size) = os::open_private_file(&current)?;
-        self.file = file;
+        self.file = Some(file);
         self.size = size;
         Ok(())
     }
@@ -291,11 +316,6 @@ mod os {
             return Err(denied("the log file is accessible to other users"));
         }
         Ok((file, meta.len()))
-    }
-
-    /// A handle to hold while the real one is closed for a rename.
-    pub fn placeholder() -> io::Result<File> {
-        File::open("/dev/null")
     }
 }
 
@@ -504,11 +524,6 @@ mod os {
         }
         let size = file.metadata()?.len();
         Ok((file, size))
-    }
-
-    /// A handle to hold while the real one is closed for a rename.
-    pub fn placeholder() -> io::Result<File> {
-        File::open("NUL")
     }
 }
 
