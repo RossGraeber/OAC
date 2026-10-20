@@ -2,7 +2,7 @@
 //! Native TLS/ACL security checks over loopback; no harnesses, no LAN listeners.
 use super::*;
 use crate::config::Role;
-use crate::ports::{Claimed, PortClaim, claimed};
+use crate::ports::{Claimed, claimed_rebuildable};
 use oac_core::ids::KeyId;
 use oac_core::transport::{Deadline, Destination, Payload, PayloadKind, Transport};
 use std::path::PathBuf;
@@ -32,7 +32,10 @@ fn key(n: char) -> KeyId {
 }
 /// A configuration on a rendezvous port claimed for as long as it lives (`crate::ports`).
 fn local(dir: &StateDirectory) -> Claimed<PeerConfiguration> {
-    claimed(|port| PeerConfiguration::rendezvous(port).with_local_certificate_directory(&dir.0))
+    let dir = dir.0.clone();
+    claimed_rebuildable(move |port| {
+        PeerConfiguration::rendezvous(port).with_local_certificate_directory(&dir)
+    })
 }
 fn send_and_receive(sender: &PeerTransport, receiver: &PeerTransport, device: char) {
     let (tx, rx) = mpsc::channel();
@@ -136,10 +139,11 @@ fn plain_native_router_and_different_user_tls_holder_are_refused() {
 #[test]
 fn same_user_persisted_certificate_survives_holder_replacement_and_native_reconnect() {
     let directory = StateDirectory::new();
-    let conf = local(&directory);
+    let mut conf = local(&directory);
     let first = PeerTransport::new();
     let joiner = PeerTransport::new();
-    first.start(&key('a'), conf.clone().wrap()).unwrap();
+    conf.start_first(|conf| first.start(&key('a'), conf.clone().wrap()))
+        .unwrap();
     let pin = std::fs::read(directory.0.join("identity.pem")).unwrap();
     joiner.start(&key('b'), conf.clone().wrap()).unwrap();
     send_and_receive(&joiner, &first, 'a');
@@ -202,15 +206,19 @@ fn paired_lan_configuration_tls_and_acl_allow_only_approved_common_names() {
         .unwrap()
         .install(&c_dir.0)
         .unwrap();
-    let claim = PortClaim::claim();
-    let port = claim.port();
-    let address = format!("127.0.0.1:{port}").parse().unwrap();
+    let mut holder = claimed_rebuildable(move |port| {
+        let address: std::net::SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
+        let conf = PeerConfiguration::lan(address, vec![], a.clone(), vec!["peer-b".into()]);
+        (address, conf)
+    });
     let ephemeral = "127.0.0.1:0".parse().unwrap();
-    let conf_a = PeerConfiguration::lan(address, vec![], a, vec!["peer-b".into()]);
-    let conf_b = PeerConfiguration::lan(ephemeral, vec![address], b, vec!["peer-a".into()]);
     let receiver = PeerTransport::new();
     let sender = PeerTransport::new();
-    receiver.start(&key('a'), conf_a.wrap()).unwrap();
+    holder
+        .start_first(|(_, conf)| receiver.start(&key('a'), conf.clone().wrap()))
+        .unwrap();
+    let address = holder.0;
+    let conf_b = PeerConfiguration::lan(ephemeral, vec![address], b, vec!["peer-a".into()]);
     sender.start(&key('b'), conf_b.wrap()).unwrap();
     send_and_receive(&sender, &receiver, 'a');
     let stranger_conf = PeerConfiguration::lan(ephemeral, vec![address], c, vec!["peer-a".into()]);
@@ -255,12 +263,16 @@ fn paired_certificate_wrong_ip_name_is_refused_by_native_tls() {
         .unwrap()
         .install(&b_dir.0)
         .unwrap();
-    let claim = PortClaim::claim();
-    let port = claim.port();
-    let address = format!("127.0.0.1:{port}").parse().unwrap();
-    let holder_conf = PeerConfiguration::lan(address, vec![], wrong, vec!["peer-b".into()]);
+    let mut claimed_holder = claimed_rebuildable(move |port| {
+        let address: std::net::SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
+        let conf = PeerConfiguration::lan(address, vec![], wrong.clone(), vec!["peer-b".into()]);
+        (address, conf)
+    });
     let holder = PeerTransport::new();
-    holder.start(&key('a'), holder_conf.wrap()).unwrap();
+    claimed_holder
+        .start_first(|(_, conf)| holder.start(&key('a'), conf.clone().wrap()))
+        .unwrap();
+    let address = claimed_holder.0;
     let joiner_conf = PeerConfiguration::lan(
         "127.0.0.1:0".parse().unwrap(),
         vec![address],
@@ -278,9 +290,10 @@ fn paired_certificate_wrong_ip_name_is_refused_by_native_tls() {
 #[test]
 fn native_mtls_refuses_a_joiner_without_a_client_certificate() {
     let dir = StateDirectory::new();
-    let conf = local(&dir);
+    let mut conf = local(&dir);
     let holder = PeerTransport::new();
-    holder.start(&key('a'), conf.clone().wrap()).unwrap();
+    conf.start_first(|conf| holder.start(&key('a'), conf.clone().wrap()))
+        .unwrap();
     let mut anonymous = conf.native(Role::Joiner, 0).unwrap();
     // Model a native client that does not offer a certificate, independently of
     // OAC's mandatory-client-credential configuration. The holder still requires mTLS.
@@ -301,7 +314,7 @@ fn native_mtls_refuses_a_joiner_without_a_client_certificate() {
 fn native_tls_refuses_expired_certificate_without_regenerating_state() {
     for expired in [false, true] {
         let dir = StateDirectory::new();
-        let conf = local(&dir);
+        let mut conf = local(&dir);
         conf.native(Role::First, 0).unwrap();
         let mut params = rcgen::CertificateParams::new(vec!["127.0.0.1".into()]).unwrap();
         params
@@ -320,7 +333,8 @@ fn native_tls_refuses_expired_certificate_without_regenerating_state() {
         let bundle = format!("{}{}", certificate.pem(), credential_key.serialize_pem());
         std::fs::write(dir.0.join("identity.pem"), &bundle).unwrap();
         let holder = PeerTransport::new();
-        holder.start(&key('a'), conf.clone().wrap()).unwrap();
+        conf.start_first(|conf| holder.start(&key('a'), conf.clone().wrap()))
+            .unwrap();
         let joiner = PeerTransport::new();
         let result = joiner.start(&key('b'), conf.clone().wrap());
         assert_eq!(result.is_err(), expired);
