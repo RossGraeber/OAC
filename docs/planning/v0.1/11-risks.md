@@ -998,11 +998,14 @@ list.
 
 - **Risk.** The Claude adapter counts connections that probed for the stateless revision (or
   asked for one it does not speak) and ended with no legacy `initialize` answered, and
-  reports `Degraded` from then until the daemon restarts. `oac doctor` shows FAIL "a Claude
-  session did not negotiate a legacy MCP revision". A harness that later negotiates properly
-  does not clear it, so a stale count can fail a healthy host; and a client that asks for a
+  reports `Degraded` from then until the daemon restarts. `oac doctor` shows WARN "a Claude
+  session did not negotiate a legacy MCP revision (counted since the daemon started)". Lead
+  decision L1 (2026-10-20): WARN, not FAIL, because the count is cumulative and cannot tell a
+  session that is broken now from one fixed since; this holds until a decay or per-attachment
+  rule exists. A harness that later negotiates properly does not clear it, so a stale count
+  can warn about a healthy host; and a client that asks for a
   modern revision but is answered with a legacy `initialize` ([MCPB-ERA-003]) is not counted.
-- **Early-warning signal.** A FAIL on a host whose Claude sessions all registered.
+- **Early-warning signal.** A WARN on a host whose Claude sessions all registered.
 - **Response.** Restart the daemon; if the count proves too sticky, make it decay or per
   attachment. The counter holds a number and no identity of the client.
 - **Also recorded (G10 slice 5).** `claude --version` is the one harness command doctor runs;

@@ -23,7 +23,7 @@
 //! | `ipc_permissions` | the run directory (Unix) or the pipe (Windows) is this user's alone | | it is not | Windows: no pipe to inspect |
 //! | `credential_store` | write, read back and delete worked | | the store is unavailable or failed | |
 //! | `transport` | the daemon reports it healthy | | degraded or unavailable | no daemon |
-//! | `mcp_revision` | no session failed to negotiate, and the environment leaves the revision alone | the environment sets a revision other than `legacy` | a Claude session did not negotiate a legacy revision | |
+//! | `mcp_revision` | no session failed to negotiate, and the environment leaves the revision alone | the environment sets a revision other than `legacy`, or a Claude session did not negotiate a legacy revision (counted since the daemon started) | | |
 //! | `pairing` | a trusted device or a grant exists | none of either | | no daemon |
 //! | `claude_version` | at or above the recorded minimum | below it, or not recognised, or `claude` did not answer | | `claude` is not on `PATH` |
 //! | `codex` | | | | always (#433) |
@@ -373,7 +373,7 @@ fn transport_check(report: Option<&JsonObject>) -> Check {
 }
 
 fn revision_check(probes: &Probes<'_>, report: Option<&JsonObject>) -> Check {
-    use CheckResult::{Fail, Pass, Warn};
+    use CheckResult::{Pass, Warn};
     let claude = report.and_then(|r| {
         r.get("adapters")
             .and_then(Json::as_array)?
@@ -385,10 +385,13 @@ fn revision_check(probes: &Probes<'_>, report: Option<&JsonObject>) -> Check {
         text(a, "state") != Some("healthy")
             && text(a, "detail").is_some_and(|d| d.contains(UNNEGOTIATED_DETAIL))
     }) {
+        // WARN, not FAIL (lead decision L1, 2026-10-20): the count is cumulative since the
+        // daemon started and never decays, so it cannot tell a session that is broken now
+        // from one that was fixed since. Revisit with a decay or per-attachment rule.
         return check(
             "mcp_revision",
-            Fail,
-            "a Claude session did not negotiate a legacy MCP revision",
+            Warn,
+            "a Claude session did not negotiate a legacy MCP revision (counted since the daemon started)",
         );
     }
     let non_legacy = probes

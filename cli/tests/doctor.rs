@@ -559,7 +559,7 @@ fn an_environment_that_forces_another_mcp_revision_is_a_warning_and_legacy_is_no
 }
 
 #[test]
-fn a_claude_client_that_probed_and_never_initialised_makes_the_revision_check_fail() {
+fn a_claude_client_that_probed_and_never_initialised_makes_the_revision_check_warn() {
     let rig = Rig::start("c");
     // The client plays Claude Code limited to the stateless revision: it sends the probe,
     // takes the `-32601` answer, and goes away without a legacy `initialize`.
@@ -583,7 +583,7 @@ fn a_claude_client_that_probed_and_never_initialised_makes_the_revision_check_fa
     let end = Instant::now() + WAIT;
     let checks = loop {
         let checks = rig.checks(None);
-        if named(&checks, "mcp_revision").result == doctor::CheckResult::Fail
+        if named(&checks, "mcp_revision").result == doctor::CheckResult::Warn
             || Instant::now() >= end
         {
             break checks;
@@ -591,17 +591,18 @@ fn a_claude_client_that_probed_and_never_initialised_makes_the_revision_check_fa
         std::thread::sleep(Duration::from_millis(50));
     };
     let revision = named(&checks, "mcp_revision");
-    assert_eq!(revision.result, doctor::CheckResult::Fail, "{revision:?}");
+    // WARN, not FAIL (lead decision L1): the count is cumulative since the daemon started.
+    assert_eq!(revision.result, doctor::CheckResult::Warn, "{revision:?}");
     assert_eq!(
         revision.detail,
-        "a Claude session did not negotiate a legacy MCP revision"
+        "a Claude session did not negotiate a legacy MCP revision (counted since the daemon started)"
     );
-    assert!(!doctor::all_clear(&checks));
-    // The real binary agrees, and exits 1.
+    assert!(doctor::all_clear(&checks), "a warning does not fail the run");
+    // The real binary agrees, and exits 0: nothing else fails.
     let path = empty_path();
     let real = rig.oac_doctor(&["--json"], &[], &path.0);
-    assert_eq!(result(&real.report(), "mcp_revision"), "fail");
-    assert_eq!(real.code(), Some(1));
+    assert_eq!(result(&real.report(), "mcp_revision"), "warn");
+    assert_eq!(real.code(), Some(0), "{}", real.stdout);
 }
 
 // ---- the credential store ---------------------------------------------------------------
