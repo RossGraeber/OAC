@@ -12,9 +12,10 @@
 // Scope: every git-tracked .rs file under cli/src/. Forbidden, case-insensitively, anywhere
 // in the text (comments included, so that a doc comment cannot hide a read):
 //   auth.json   .credentials.json   .sqlite   CODEX_HOME   CLAUDE_CONFIG_DIR
-//   .claude.json   .codex   .claude/   (the default locations of a harness's own files)
+//   .claude   .codex   (the default locations of a harness's own files; `.claude` also
+//   catches `.claude.json` and `.claude/`)
 // ALLOW lists the legitimate mentions, one exact trimmed line each with its reason. An entry
-// that no longer matches fails (stale). It is empty: nothing in cli/src names any of them.
+// that no longer matches fails (stale). Its one entry is a struct field access that is not a path.
 //
 // Exit codes: 0 = clean; 1 = a violation (or a failed self-test case); 2 = usage or
 // environment error. Node built-ins and git only.
@@ -28,9 +29,12 @@ import { fileURLToPath } from 'node:url';
 const scriptPath = fileURLToPath(import.meta.url);
 const repoRoot = resolve(dirname(scriptPath), '..');
 
-export const FORBIDDEN = ['auth.json', '.credentials.json', '.sqlite', 'CODEX_HOME', 'CLAUDE_CONFIG_DIR', '.claude.json', '.codex', '.claude/'];
+export const FORBIDDEN = ['auth.json', '.credentials.json', '.sqlite', 'CODEX_HOME', 'CLAUDE_CONFIG_DIR', '.claude', '.codex'];
 // { file, line (exact, trimmed), reason }
-export const ALLOW = [];
+export const ALLOW = [
+  // The `claude` field of the doctor's probes (`claude --version`), not a path.
+  { file: 'cli/src/doctor.rs', line: 'match (probes.claude)() {', reason: 'a struct field named claude, not the .claude directory' },
+];
 
 export function scan(root, allow = ALLOW) {
   const files = execFileSync('git', ['-C', root, 'ls-files', '--', 'cli/src'], { encoding: 'utf8' })

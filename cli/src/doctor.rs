@@ -20,8 +20,8 @@
 //! | check | PASS | WARN | FAIL | SKIP |
 //! |---|---|---|---|---|
 //! | `daemon` | running | the control endpoint stayed busy | no daemon; another user's endpoint; another control-protocol version; no answer | |
-//! | `ipc_permissions` | the run directory (Unix) or the pipe (Windows) is this user's alone | | it is not | Windows: no pipe to inspect |
-//! | `credential_store` | write, read back and delete worked | | the store is unavailable or failed | |
+//! | `ipc_permissions` | the run directory (Unix) or the pipe (Windows) is this user's alone | | it is not | Windows: no daemon, or the endpoint stayed busy (no pipe to inspect) |
+//! | `credential_store` | write, read back and delete worked | unavailable, and the Unix fallback key file exists (the daemon uses it) | unavailable with no fallback file; locked; the probe failed | `OAC_SCOPE` is not a valid namespace; the test-only switch inside a test namespace |
 //! | `transport` | the daemon reports it healthy | | degraded or unavailable | no daemon |
 //! | `mcp_revision` | no session failed to negotiate, and the environment leaves the revision alone | the environment sets a revision other than `legacy`, or a Claude session did not negotiate a legacy revision (counted since the daemon started) | | |
 //! | `pairing` | a trusted device or a grant exists | none of either | | no daemon |
