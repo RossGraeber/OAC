@@ -118,6 +118,9 @@ async fn the_pipes_are_owned_by_the_daemons_user_with_exactly_one_ace_for_that_u
     let lock = scope.acquire_lock().await.unwrap();
     let endpoint = scope.endpoint("claude");
     let _listener = endpoint.serve(&lock).await.unwrap();
+    // The daemon's control endpoint (G10, #71) is served the same way: the same descriptor.
+    let control = scope.endpoint("control");
+    let _control_listener = control.serve(&lock).await.unwrap();
     let me = current_user_sid_string().unwrap();
     assert!(me.starts_with("S-1-"), "{me}");
 
@@ -126,7 +129,10 @@ async fn the_pipes_are_owned_by_the_daemons_user_with_exactly_one_ace_for_that_u
     let lock_name = name
         .rsplit_once('-')
         .map(|(prefix, _)| format!("{prefix}-lock"));
-    for pipe in [Some(name), lock_name].into_iter().flatten() {
+    for pipe in [Some(name), Some(control.display_name()), lock_name]
+        .into_iter()
+        .flatten()
+    {
         let file = open(&pipe).expect("this user may open the pipe");
         let (owner, aces) = security_of(&file);
         assert_eq!(owner, me, "{pipe}: owned by the user, not a default owner");

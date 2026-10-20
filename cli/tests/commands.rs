@@ -71,6 +71,8 @@ fn the_shim_needs_its_harness_and_names_it_as_a_label() {
         &["mcp-shim", "--harness"][..],
         &["mcp-shim", "--harness", "Claude"][..],
         &["mcp-shim", "--harness", "lock"][..],
+        // The daemon's own control endpoint is not a harness (G10, #71).
+        &["mcp-shim", "--harness", "control"][..],
         &["mcp-shim", "--harness", "a/b"][..],
         &["mcp-shim", "claude"][..],
     ] {
@@ -82,6 +84,41 @@ fn the_shim_needs_its_harness_and_names_it_as_a_label() {
             "{args:?}"
         );
     }
+}
+
+#[test]
+fn stop_takes_nothing_but_json() {
+    for args in [
+        &["stop", "--bogus"][..],
+        &["stop", "--json", "x"][..],
+        &["stop", "x"][..],
+    ] {
+        let out = oac(args, None);
+        assert_eq!(out.status.code(), Some(2), "{args:?}");
+        assert!(out.stdout.is_empty());
+        assert!(
+            stderr(&out).contains("usage: oac stop [--json]"),
+            "{}",
+            stderr(&out)
+        );
+    }
+}
+
+#[test]
+fn stop_with_no_daemon_exits_zero_and_says_not_running() {
+    let out = oac(&["stop"], Some("stopnodaemon"));
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    let said = String::from_utf8_lossy(&out.stdout).into_owned();
+    assert!(said.contains("not running"), "{said}");
+    // The namespace in use is a diagnostic, on standard error.
+    assert!(stderr(&out).contains("stopnodaemon"), "{}", stderr(&out));
+
+    let out = oac(&["stop", "--json"], Some("stopnodaemon"));
+    assert_eq!(out.status.code(), Some(0));
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout).trim_end(),
+        r#"{"oac_cli":1,"ok":true,"stopped":false,"was_running":false}"#
+    );
 }
 
 #[test]

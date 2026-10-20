@@ -13,7 +13,9 @@
 //!    from the pairing store, which is empty (default deny) until the pairing verbs exist (D8);
 //! 3. builds the core `Pipelines` over the transport it was given, gives it the agreement
 //!    keys a sealing transport needs, and starts the transport;
-//! 4. adds each provider adapter, binds one IPC endpoint per harness label, and serves them.
+//! 4. adds each provider adapter, binds one IPC endpoint per harness label, and serves them;
+//!    then binds the reserved `control` endpoint (`crate::control`, G10 #71), which has no
+//!    adapter: a client asks the daemon to stop over it, and it is never given to the core.
 //!
 //! The transport, the stores, the clocks and the adapters are **given**, so a test runs the
 //! whole daemon over the in-memory transport; the `oac` binary gives it the reference transport.
@@ -28,7 +30,8 @@
 //!
 //! **Shutdown** stops the endpoints, then `Pipelines::shutdown`: every adapter closes its
 //! connections, each announced session's withdrawal is sent, and the transport shuts down
-//! (box 4). The lock is released last.
+//! (box 4). The lock is released, and only then is a client that asked for the stop over the
+//! control endpoint told it has happened.
 //!
 //! The two timers the core leaves to its owner are one task here: the native-signal window
 //! and the presence refresh. It wakes once a second and calls the core's two cheap
@@ -37,6 +40,7 @@
 //! well. It asks nobody for anything.
 
 use std::fmt;
+use std::future::Future;
 use std::io::Write;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -55,7 +59,11 @@ use tokio::runtime::Handle;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
-use crate::ipc::{Accept, Accepted, BindError, DaemonLock, Endpoint, Listener, Scope};
+use crate::control::Control;
+use crate::ipc::{
+    Accept, Accepted, BindError, CONTROL_LABEL, DaemonLock, Endpoint, Listener, Scope,
+    harness_label_is_valid,
+};
 use crate::peer::{self, ProcessTable};
 use crate::relay;
 
@@ -227,6 +235,8 @@ pub struct Daemon {
     stop: watch::Sender<bool>,
     tasks: Vec<JoinHandle<()>>,
     endpoints: Vec<String>,
+    control: Arc<Control>,
+    log: LogSink,
     lock: DaemonLock,
 }
 
@@ -252,6 +262,13 @@ impl Daemon {
             harnesses,
             log,
         } = parts;
+
+        // A harness cannot take the label of the control endpoint (or the lock's).
+        if let Some((label, _)) = harnesses.iter().find(|(l, _)| !harness_label_is_valid(l)) {
+            return Err(StartError::Io(format!(
+                "{label:?} is not a harness label (`lock` and `{CONTROL_LABEL}` are reserved)"
+            )));
+        }
 
         // 1. One daemon per user, before the key is read.
         let lock = scope.acquire_lock().await?;
@@ -311,6 +328,23 @@ impl Daemon {
                 log: log.clone(),
             })));
         }
+        // 5. The control endpoint: the same lock, the same serve and accept, no adapter.
+        let control = Control::new(log.clone());
+        let control_endpoint = scope.endpoint(CONTROL_LABEL);
+        match control_endpoint.serve(&lock).await {
+            Ok(listener) => {
+                endpoints.push(control_endpoint.display_name());
+                tasks.push(runtime.spawn(control.clone().accept_loop(listener, stopped.clone())));
+            }
+            Err(e) => {
+                let _ = stop.send(true);
+                for t in tasks {
+                    t.abort();
+                }
+                shutdown_pipelines(pipelines).await;
+                return Err(e.into());
+            }
+        }
         tasks.push(runtime.spawn(timers(pipelines.clone(), stopped, log.clone())));
         log.line(&format!("serving {}", endpoints.join(", ")));
         Ok(Daemon {
@@ -318,8 +352,17 @@ impl Daemon {
             stop,
             tasks,
             endpoints,
+            control,
+            log,
             lock,
         })
+    }
+
+    /// A future that completes when a client has asked this daemon to stop over the control
+    /// endpoint (`oac stop`). The owner selects on it beside its own signals and then calls
+    /// [`Daemon::shutdown`], which tells the requester when the stop has happened.
+    pub fn stop_requested(&self) -> impl Future<Output = ()> + Send + 'static {
+        self.control.stop_requested()
     }
 
     /// The core, for status and for tests.
@@ -327,27 +370,39 @@ impl Daemon {
         &self.pipelines
     }
 
-    /// The names of the endpoints served, for a diagnostic.
+    /// The names of the endpoints served (the harness endpoints, then `control`), for a
+    /// diagnostic.
     pub fn endpoints(&self) -> &[String] {
         &self.endpoints
     }
 
     /// Stops serving, withdraws every announced session, shuts the adapters and the
-    /// transport down, and releases the lock.
+    /// transport down, releases the lock, and then tells each client that asked for the stop
+    /// (`oac stop`) that it has happened.
     pub async fn shutdown(self) {
         let _ = self.stop.send(true);
         for task in self.tasks {
             let _ = task.await;
         }
-        shutdown_pipelines(self.pipelines).await;
+        if shutdown_pipelines(self.pipelines).await {
+            self.log
+                .line("shut down: withdrawals sent, transport shut down");
+        } else {
+            self.log
+                .line("shutdown of the core failed: its task did not complete");
+        }
         drop(self.lock);
+        self.control.finish().await;
     }
 }
 
 /// `Pipelines::shutdown` blocks (adapters close their connections, withdrawals are sent), so
 /// it runs off the runtime's thread.
-async fn shutdown_pipelines(pipelines: Arc<Pipelines>) {
-    let _ = tokio::task::spawn_blocking(move || pipelines.shutdown()).await;
+/// Whether the blocking task completed.
+async fn shutdown_pipelines(pipelines: Arc<Pipelines>) -> bool {
+    tokio::task::spawn_blocking(move || pipelines.shutdown())
+        .await
+        .is_ok()
 }
 
 /// What an accept loop serves.

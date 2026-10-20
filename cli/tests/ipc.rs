@@ -10,7 +10,10 @@
 
 use std::io::{Read, Write};
 
-use oac_cli::ipc::{Accept, Accepted, BindError, ConnectError, Endpoint, Scope, label_is_valid};
+use oac_cli::ipc::{
+    Accept, Accepted, BindError, ConnectError, Endpoint, Scope, harness_label_is_valid,
+    label_is_valid,
+};
 use oac_cli::peer::ProcessTable as _;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -231,6 +234,21 @@ fn endpoint_labels_are_lower_case_words_and_lock_is_reserved() {
         assert!(!label_is_valid(bad), "{bad:?}");
     }
     assert!(!label_is_valid(&"a".repeat(33)));
+}
+
+/// `control` is the daemon's own endpoint (G10, #71): a valid endpoint label, never a harness
+/// label, so `oac mcp-shim --harness control` is refused.
+#[test]
+fn control_is_an_endpoint_label_but_not_a_harness_label() {
+    assert!(label_is_valid("control"));
+    assert!(!harness_label_is_valid("control"));
+    assert!(!harness_label_is_valid("lock"));
+    for ok in ["claude", "codex", "controlx", "a"] {
+        assert!(harness_label_is_valid(ok), "{ok}");
+    }
+    for bad in ["", "Control", "2fast", "a-b"] {
+        assert!(!harness_label_is_valid(bad), "{bad:?}");
+    }
 }
 
 #[test]
