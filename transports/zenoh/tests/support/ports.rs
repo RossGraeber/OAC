@@ -30,7 +30,15 @@ use std::sync::atomic::{AtomicU64, Ordering};
 /// One range for every test of the crate, so no two sites can overlap: the claim namespace
 /// is the file name of [`claim_path`]. Before #393 the ranges 20000-27999 and 23000-24098
 /// overlapped, and this range is the one the contract harness already used (#387).
-pub const RENDEZVOUS_PORTS: std::ops::Range<u16> = 28_000..32_000;
+///
+/// The range is split by operating system: Windows claims from 28000-29999 and every other
+/// system from 30000-31999. The lock files live in each system's own temporary directory, so
+/// a Windows run and a WSL run do not exclude each other; under mirrored networking they
+/// share loopback, and disjoint ranges keep their claims from meeting (#432).
+#[cfg(windows)]
+pub const RENDEZVOUS_PORTS: std::ops::Range<u16> = 28_000..30_000;
+#[cfg(not(windows))]
+pub const RENDEZVOUS_PORTS: std::ops::Range<u16> = 30_000..32_000;
 
 /// The lowest port of the default ephemeral ranges of Linux, Windows and macOS.
 const LOWEST_DEFAULT_EPHEMERAL_PORT: u16 = 32_768;
@@ -72,7 +80,7 @@ fn unique() -> u64 {
 ///
 /// Residuals:
 /// - The lock files are never deleted: each is empty, at most one per port of the range
-///   (4000), and stays in the temporary directory.
+///   (2000 per system), and stays in the temporary directory.
 /// - A Linux host whose `ip_local_port_range` starts below the end of the range is not
 ///   protected; the range test fails there loudly instead.
 /// - A port the operating system excludes from binding (Windows reserved port ranges) is
@@ -149,7 +157,7 @@ impl<T> Claimed<T> {
     /// over a shared loopback, or any service) may take the port, and the transport then
     /// rightly refuses it as foreign (#432). When, and only when, `start` fails with that
     /// refusal, the port is given up, a fresh one is claimed and `start` runs again, at most
-    /// [`FOREIGN_HOLDER_ATTEMPTS`] times in all; each retry is logged to stderr. Any other
+    /// [`FOREIGN_HOLDER_ATTEMPTS`] times in all; each retry is logged to stderr (the harness shows it for a failing test; run with `--nocapture` to see it on a passing one). Any other
     /// error, and the last refusal, is returned. Only valid for a value built with
     /// [`claimed_rebuildable`], and only for the first start: a joiner that is refused has
     /// no business on another port.
@@ -171,7 +179,8 @@ impl<T> Claimed<T> {
                 .expect("start_first needs a value built with claimed_rebuildable");
             let claim = PortClaim::claim();
             eprintln!(
-                "ports: loopback port {} was taken by a foreign program before the transport                  bound it (attempt {attempt} of {FOREIGN_HOLDER_ATTEMPTS}); retrying on port {}",
+                "ports: loopback port {} was taken by a foreign program before the transport bound it \
+                 (attempt {attempt} of {FOREIGN_HOLDER_ATTEMPTS}); retrying on port {}",
                 self.claim.port, claim.port
             );
             self.value = rebuild(claim.port);
