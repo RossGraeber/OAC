@@ -143,7 +143,7 @@ fn state(c: &Arc<Mutex<Consumer>>, session: &SessionId) -> PresenceState {
 #[test]
 fn a_departing_issuer_makes_its_session_unreachable_and_a_stranger_stays_unknown() {
     // A rendezvous port claimed for the life of the test (`tests/support/ports.rs`).
-    let conf = ports::claimed(|port| {
+    let mut conf = ports::claimed_rebuildable(|port| {
         PeerConfiguration::rendezvous(port).with_partition(format!("registry-{port}"))
     });
     let (issuer, other, me) = (identity("issuer"), identity("other"), identity("consumer"));
@@ -154,7 +154,8 @@ fn a_departing_issuer_makes_its_session_unreachable_and_a_stranger_stays_unknown
         PeerTransport::new(),
     );
     let relay_id = identity("relay");
-    relay.start(relay_id.key_id(), conf.clone().wrap()).unwrap();
+    conf.start_first(|conf| relay.start(relay_id.key_id(), conf.clone().wrap()))
+        .unwrap();
     a.start(issuer.key_id(), conf.clone().wrap()).unwrap();
     c.start(other.key_id(), conf.clone().wrap()).unwrap();
     b.start(me.key_id(), conf.clone().wrap()).unwrap();

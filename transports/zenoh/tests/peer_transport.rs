@@ -30,7 +30,7 @@ mod ports;
 /// A configuration on a rendezvous port claimed for as long as it lives
 /// (`tests/support/ports.rs`).
 fn conf() -> ports::Claimed<PeerConfiguration> {
-    ports::claimed(|port| {
+    ports::claimed_rebuildable(|port| {
         PeerConfiguration::rendezvous(port).with_partition(format!("peer-transport-{port}"))
     })
 }
@@ -83,8 +83,10 @@ fn a_foreign_configuration_is_refused() {
 #[test]
 fn start_twice_device_subscriptions_and_kinds() {
     let t = PeerTransport::new();
-    let c = conf();
-    let caps = t.start(&key('a'), c.clone().wrap()).unwrap();
+    let mut c = conf();
+    let caps = c
+        .start_first(|conf| t.start(&key('a'), conf.clone().wrap()))
+        .unwrap();
     assert!(caps.contract_violations().is_empty());
     assert!(!caps.multicast_discovery);
     assert!(caps.sealing);
@@ -161,9 +163,10 @@ fn start_twice_device_subscriptions_and_kinds() {
 
 #[test]
 fn a_transport_starts_again_after_shutdown_with_nothing_kept() {
-    let c = conf();
+    let mut c = conf();
     let t = PeerTransport::new();
-    t.start(&key('a'), c.clone().wrap()).unwrap();
+    c.start_first(|conf| t.start(&key('a'), conf.clone().wrap()))
+        .unwrap();
     let got: Arc<Mutex<Vec<Inbound>>> = Arc::default();
     let g = got.clone();
     let _s = t
@@ -267,9 +270,10 @@ fn local_mode_reaches_nothing_beyond_loopback() {
         })
         .wait()
         .unwrap();
-    let c = conf();
+    let mut c = conf();
     let (a, b) = (PeerTransport::new(), PeerTransport::new());
-    a.start(&key('a'), c.clone().wrap()).unwrap();
+    c.start_first(|conf| a.start(&key('a'), conf.clone().wrap()))
+        .unwrap();
     b.start(&key('b'), c.clone().wrap()).unwrap();
     let got: Got = Arc::default();
     let _s = b
@@ -330,7 +334,7 @@ fn a_port_held_by_something_else_is_named_in_the_start_error() {
         panic!("unexpected error {e:?}");
     };
     assert!(why.contains(&port.to_string()), "{why}");
-    assert!(why.contains("not an OAC transport"), "{why}");
+    assert!(why.contains(ports::FOREIGN_HOLDER_REFUSAL), "{why}");
     assert!(!why.contains("127.0.0.1"), "{why}");
     drop(squatter);
     drop(claim);
@@ -340,13 +344,14 @@ fn a_port_held_by_something_else_is_named_in_the_start_error() {
 /// later peers still reach each other, routed through it.
 #[test]
 fn later_peers_reach_each_other_through_the_rendezvous_peer() {
-    let c = conf();
+    let mut c = conf();
     let (holder, j1, j2) = (
         PeerTransport::new(),
         PeerTransport::new(),
         PeerTransport::new(),
     );
-    holder.start(&key('a'), c.clone().wrap()).unwrap();
+    c.start_first(|conf| holder.start(&key('a'), conf.clone().wrap()))
+        .unwrap();
     j1.start(&key('b'), c.clone().wrap()).unwrap();
     j2.start(&key('c'), c.clone().wrap()).unwrap();
     let got: Got = Arc::default();
@@ -382,9 +387,10 @@ fn later_peers_reach_each_other_through_the_rendezvous_peer() {
 /// until another transport takes the port; then it reconnects and receives again.
 #[test]
 fn a_later_peer_reconnects_when_the_rendezvous_holder_is_replaced() {
-    let c = conf();
+    let mut c = conf();
     let (holder, j) = (PeerTransport::new(), PeerTransport::new());
-    holder.start(&key('a'), c.clone().wrap()).unwrap();
+    c.start_first(|conf| holder.start(&key('a'), conf.clone().wrap()))
+        .unwrap();
     j.start(&key('b'), c.clone().wrap()).unwrap();
     let got: Got = Arc::default();
     let _s = j
@@ -415,13 +421,14 @@ fn a_later_peer_reconnects_when_the_rendezvous_holder_is_replaced() {
 /// (binding document, "Timing").
 #[test]
 fn a_stalled_handler_blocks_no_publisher_and_no_other_peer() {
-    let c = conf();
+    let mut c = conf();
     let (a, b, other) = (
         PeerTransport::new(),
         PeerTransport::new(),
         PeerTransport::new(),
     );
-    a.start(&key('a'), c.clone().wrap()).unwrap();
+    c.start_first(|conf| a.start(&key('a'), conf.clone().wrap()))
+        .unwrap();
     b.start(&key('b'), c.clone().wrap()).unwrap();
     other.start(&key('c'), c.clone().wrap()).unwrap();
     let release = Arc::new(Mutex::new(()));
@@ -503,13 +510,14 @@ fn sink(g: &Got) -> Arc<dyn Fn(Inbound) + Send + Sync> {
 /// the transport never chooses a consumer from a clear-text destination or kind.
 #[test]
 fn sealed_frames_reach_every_device_stream_and_no_session_or_watch() {
-    let c = conf();
+    let mut c = conf();
     let (a, b, other) = (
         PeerTransport::new(),
         PeerTransport::new(),
         PeerTransport::new(),
     );
-    a.start(&key('a'), c.clone().wrap()).unwrap();
+    c.start_first(|conf| a.start(&key('a'), conf.clone().wrap()))
+        .unwrap();
     b.start(&key('b'), c.clone().wrap()).unwrap();
     other.start(&key('c'), c.clone().wrap()).unwrap();
     let [own, bdev, cdev, session_got]: [Got; 4] = Default::default();

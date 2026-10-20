@@ -16,12 +16,15 @@ use zenoh::qos::CongestionControl;
 
 use crate::addressing::Partition;
 use crate::config::Role;
-use crate::ports::{Claimed, claimed};
+use crate::ports::{Claimed, claimed_rebuildable};
 use crate::{MAX_PAYLOAD_OCTETS, PeerConfiguration, PeerTransport};
 
 /// A configuration on a rendezvous port claimed for as long as it lives (`crate::ports`).
 fn conf(tag: &str) -> Claimed<PeerConfiguration> {
-    claimed(|port| PeerConfiguration::rendezvous(port).with_partition(format!("unit-{tag}-{port}")))
+    let tag = tag.to_owned();
+    claimed_rebuildable(move |port| {
+        PeerConfiguration::rendezvous(port).with_partition(format!("unit-{tag}-{port}"))
+    })
 }
 fn key(c: char) -> KeyId {
     KeyId::parse(&c.to_string().repeat(64)).unwrap()
@@ -40,9 +43,10 @@ fn wait_for(cond: impl Fn() -> bool) {
 #[test]
 fn short_deadline_does_not_wait_for_a_stalled_native_subscriber() {
     for sender_role in [Role::First, Role::Joiner] {
-        let c = conf("deadline");
+        let mut c = conf("deadline");
         let relay = PeerTransport::new();
-        relay.start(&key('a'), c.clone().wrap()).unwrap();
+        c.start_first(|conf| relay.start(&key('a'), conf.clone().wrap()))
+            .unwrap();
         let joiner = PeerTransport::new();
         if sender_role == Role::Joiner {
             joiner.start(&key('c'), c.clone().wrap()).unwrap();
@@ -128,34 +132,57 @@ fn short_deadline_does_not_wait_for_a_stalled_native_subscriber() {
             MAX_PAYLOAD_OCTETS,
         )
         .unwrap();
-        sender.publish(
-            &dest,
-            Payload::new(PayloadKind::Sealed, b"stall".to_vec()),
-            Deadline::at(Instant::now() + Duration::from_secs(5)),
-        );
-        entered_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        // One burst: stall the subscriber's callback, then publish 33 frames with 20 ms
+        // deadlines and time each call. A transport that blocks on the stalled subscriber
+        // blocks a call in EVERY burst (the review's 200-291 ms regression; a mutation to
+        // 250 ms stalls one call each time). A scheduler preemption on a loaded machine
+        // delays a call in one burst (#443: 180 ms once under a parallel WSL gate). So a
+        // burst with a call of 100 ms or more is run again on a fresh stall, at most three
+        // bursts in all, and the test fails only if every burst has a slow call. No call may
+        // reach a second. This is not a universal wall-clock deadline guarantee.
         let mut timings = Vec::new();
         let mut max_call = Duration::ZERO;
         let mut taken = 0;
-        for frame in std::iter::once(small).chain(frames) {
-            let prefix = frame[..33].to_vec();
-            let start = Instant::now();
-            let deadline = start + Duration::from_millis(20);
-            let result = sender.publish(
+        let mut bursts = Vec::new();
+        for burst in 1..=3 {
+            sender.publish(
                 &dest,
-                Payload::new(PayloadKind::Sealed, frame),
-                Deadline::at(deadline),
+                Payload::new(PayloadKind::Sealed, b"stall".to_vec()),
+                Deadline::at(Instant::now() + Duration::from_secs(5)),
             );
-            let elapsed = start.elapsed();
-            max_call = max_call.max(elapsed);
-            timings.push((prefix, deadline));
-            taken += usize::from(result == PublishResult::Taken);
+            entered_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+            timings.clear();
+            max_call = Duration::ZERO;
+            taken = 0;
+            for frame in std::iter::once(small.clone()).chain(frames.iter().cloned()) {
+                let prefix = frame[..33].to_vec();
+                let start = Instant::now();
+                let deadline = start + Duration::from_millis(20);
+                let result = sender.publish(
+                    &dest,
+                    Payload::new(PayloadKind::Sealed, frame),
+                    Deadline::at(deadline),
+                );
+                max_call = max_call.max(start.elapsed());
+                timings.push((prefix, deadline));
+                taken += usize::from(result == PublishResult::Taken);
+            }
+            bursts.push(max_call);
+            assert!(
+                max_call < Duration::from_secs(1),
+                "publish blocked: burst {burst} took {max_call:?}"
+            );
+            if max_call < Duration::from_millis(100) {
+                break;
+            }
+            // Let the callback stall run out before the next burst's fresh stall.
+            thread::sleep(Duration::from_millis(650));
         }
-        // Scheduler tolerance; catches the review's 200-291 ms blocking regression.
-        // This is not a universal wall-clock deadline guarantee.
         assert!(
-            max_call < Duration::from_millis(100),
-            "publish blocked: {max_call:?}"
+            bursts
+                .last()
+                .is_some_and(|m| *m < Duration::from_millis(100)),
+            "publish blocked: every burst had a call of 100 ms or more: {bursts:?}"
         );
         // Allow the full 600 ms callback stall, then drain observations through a barrier.
         thread::sleep(Duration::from_millis(650));
@@ -203,9 +230,10 @@ fn short_deadline_does_not_wait_for_a_stalled_native_subscriber() {
 /// during and after local interest changes, using a real core-generated HPKE frame.
 #[test]
 fn native_interest_and_sealed_carriage_do_not_depend_on_subscriptions() {
-    let c = conf("043");
+    let mut c = conf("043");
     let a = PeerTransport::new();
-    a.start(&key('a'), c.clone().wrap()).unwrap();
+    c.start_first(|conf| a.start(&key('a'), conf.clone().wrap()))
+        .unwrap();
     let observer = zenoh::open(c.native(Role::Joiner, 0).unwrap())
         .wait()
         .unwrap();
@@ -316,9 +344,10 @@ fn native_interest_and_sealed_carriage_do_not_depend_on_subscriptions() {
 /// precedes native queuing; overflow retains only the newest 16 admitted frames.
 #[test]
 fn native_ring_drops_oldest_and_refuses_oversized_samples_while_handler_stalls() {
-    let c = conf("ring");
+    let mut c = conf("ring");
     let a = PeerTransport::new();
-    a.start(&key('a'), c.clone().wrap()).unwrap();
+    c.start_first(|conf| a.start(&key('a'), conf.clone().wrap()))
+        .unwrap();
     let raw = zenoh::open(c.native(Role::Joiner, 0).unwrap())
         .wait()
         .unwrap();
@@ -397,9 +426,10 @@ fn native_ring_drops_oldest_and_refuses_oversized_samples_while_handler_stalls()
 
 #[test]
 fn discovery_alone_hands_the_core_nothing() {
-    let c = conf("013");
+    let mut c = conf("013");
     let (a, b) = (PeerTransport::new(), PeerTransport::new());
-    a.start(&key('a'), c.clone().wrap()).unwrap();
+    c.start_first(|conf| a.start(&key('a'), conf.clone().wrap()))
+        .unwrap();
     // Discovery is never a presence record, and a peer arriving is never a loss. Only the
     // later departure of `b` may be reported, as a carrier loss (#63).
     let losses = Arc::new(Mutex::new(0usize));

@@ -20,13 +20,18 @@
 //! stay in the audit. Native packets/ephemeral locators are not exposed by the stable API;
 //! derivations and capture completeness remain binding-review obligations.
 
-use std::sync::Mutex;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use oac_contract_transport::{Medium, Report, SealingObservation, TransportHarness, Verdict, run};
-use oac_core::transport::{Transport, TransportConfiguration};
+use oac_core::health::HealthStatus;
+use oac_core::ids::KeyId;
+use oac_core::transport::{
+    Deadline, Destination, InboundHandler, Payload, PresenceHandler, PublishResult, Subscription,
+    Transport, TransportCapabilities, TransportConfiguration, TransportError,
+};
 use oac_transport_zenoh::{PeerConfiguration, PeerTransport};
 
 #[path = "support/ports.rs"]
@@ -45,10 +50,77 @@ fn unique() -> u64 {
 struct PeerHarness;
 
 struct PeerMedium {
-    conf: PeerConfiguration,
+    /// The medium's configuration, on a rendezvous port claimed until the medium is dropped.
+    /// It moves to a fresh port if the first start is refused as foreign (#432).
+    conf: Arc<Mutex<ports::Claimed<PeerConfiguration>>>,
+    /// Set once a transport of the medium has started: later starts join, never retry.
+    started: Arc<AtomicBool>,
     made: Mutex<Vec<PeerTransport>>,
-    /// Keeps the rendezvous port claimed until the medium is dropped.
-    _rendezvous: ports::PortClaim,
+}
+
+/// A `PeerTransport` whose first start on the medium goes through `Claimed::start_first`.
+struct MediumTransport {
+    inner: PeerTransport,
+    conf: Arc<Mutex<ports::Claimed<PeerConfiguration>>>,
+    started: Arc<AtomicBool>,
+}
+
+impl Transport for MediumTransport {
+    fn publish_bound_ms(&self) -> Option<std::num::NonZeroU64> {
+        self.inner.publish_bound_ms()
+    }
+    fn start(
+        &self,
+        local_device: &KeyId,
+        configuration: TransportConfiguration,
+    ) -> Result<TransportCapabilities, TransportError> {
+        if self.started.load(Ordering::SeqCst) {
+            return self.inner.start(local_device, configuration);
+        }
+        // The first start uses the medium's own configuration, which `configuration()`
+        // handed out; a retry rebuilds it on the new port.
+        let result = self
+            .conf
+            .lock()
+            .unwrap()
+            .start_first(|conf| self.inner.start(local_device, conf.clone().wrap()));
+        if result.is_ok() {
+            self.started.store(true, Ordering::SeqCst);
+        }
+        result
+    }
+    fn publish(
+        &self,
+        destination: &Destination,
+        payload: Payload,
+        deadline: Deadline,
+    ) -> PublishResult {
+        self.inner.publish(destination, payload, deadline)
+    }
+    fn subscribe(
+        &self,
+        destination: &Destination,
+        handler: InboundHandler,
+    ) -> Result<Subscription, TransportError> {
+        self.inner.subscribe(destination, handler)
+    }
+    fn send_presence(
+        &self,
+        destination: &Destination,
+        payload: Payload,
+        deadline: Deadline,
+    ) -> PublishResult {
+        self.inner.send_presence(destination, payload, deadline)
+    }
+    fn watch_presence(&self, handler: PresenceHandler) -> Result<(), TransportError> {
+        self.inner.watch_presence(handler)
+    }
+    fn health(&self) -> HealthStatus {
+        self.inner.health()
+    }
+    fn shutdown(&self) {
+        self.inner.shutdown();
+    }
 }
 
 impl TransportHarness for PeerHarness {
@@ -61,12 +133,14 @@ impl TransportHarness for PeerHarness {
     }
 
     fn medium(&self) -> Box<dyn Medium> {
-        let rendezvous = ports::PortClaim::claim();
+        let partition = format!("contract-{:016x}", unique());
+        let conf = ports::claimed_rebuildable(move |port| {
+            PeerConfiguration::rendezvous(port).with_partition(partition.clone())
+        });
         Box::new(PeerMedium {
-            conf: PeerConfiguration::rendezvous(rendezvous.port())
-                .with_partition(format!("contract-{:016x}", unique())),
+            conf: Arc::new(Mutex::new(conf)),
+            started: Arc::new(AtomicBool::new(false)),
             made: Mutex::new(Vec::new()),
-            _rendezvous: rendezvous,
         })
     }
 }
@@ -75,11 +149,15 @@ impl Medium for PeerMedium {
     fn transport(&self) -> Box<dyn Transport> {
         let t = PeerTransport::new();
         self.made.lock().unwrap().push(t.clone());
-        Box::new(t)
+        Box::new(MediumTransport {
+            inner: t,
+            conf: self.conf.clone(),
+            started: self.started.clone(),
+        })
     }
 
     fn configuration(&self) -> TransportConfiguration {
-        self.conf.clone().wrap()
+        self.conf.lock().unwrap().clone().wrap()
     }
 
     fn now(&self) -> Instant {
@@ -96,7 +174,7 @@ impl Medium for PeerMedium {
         use sha2::{Digest, Sha256};
         let mut hash = Sha256::new();
         hash.update(b"oac transport partition v1\0");
-        hash.update(self.conf.partition().as_bytes());
+        hash.update(self.conf.lock().unwrap().partition().as_bytes());
         let prefix: String = hash.finalize()[..8]
             .iter()
             .map(|b| format!("{b:02x}"))
