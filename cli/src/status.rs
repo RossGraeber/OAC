@@ -118,7 +118,10 @@ impl DaemonStatus {
                     .adapters
                     .iter()
                     .find(|(id, _)| *id == a.adapter)
-                    .map_or_else(|| format!("adapter{}", a.adapter.index()), |(_, l)| l.clone());
+                    .map_or_else(
+                        || format!("adapter{}", a.adapter.index()),
+                        |(_, l)| l.clone(),
+                    );
                 health_object(Some(&label), &a.health)
             })
             .collect();
@@ -170,10 +173,7 @@ impl DaemonStatus {
                 json_string(&path.display().to_string())
             ));
         }
-        let line = format!(
-            "{{\"oac_control\":1,\"status\":{{{}}}}}",
-            members.join(",")
-        );
+        let line = format!("{{\"oac_control\":1,\"status\":{{{}}}}}", members.join(","));
         let mut canonical = canonical_text(&line);
         canonical.push('\n');
         canonical
@@ -369,7 +369,12 @@ mod tests {
         let rendered = render_json(&object);
         assert_eq!(canonical_text(&rendered), rendered);
         let back = parse_object(&rendered);
-        assert_eq!(back.get("oac_cli").and_then(Json::as_number).map(|n| n.raw()), Some("1"));
+        assert_eq!(
+            back.get("oac_cli")
+                .and_then(Json::as_number)
+                .map(|n| n.raw()),
+            Some("1")
+        );
         assert_eq!(back.get("ok").and_then(Json::as_bool), Some(true));
         assert_eq!(back.get("running").and_then(Json::as_bool), Some(true));
         for name in object.names() {

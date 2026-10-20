@@ -41,7 +41,8 @@ use oac_transport_memory::{MemoryConfiguration, MemoryNetwork, MemoryTransport};
 use tokio::runtime::Handle;
 
 const ROLE: &str = "OAC_STATUS_TEST_ROLE";
-const SESSION_TEST: &str = "a_bound_session_is_listed_and_neither_its_native_id_nor_its_working_directory_is_shown";
+const SESSION_TEST: &str =
+    "a_bound_session_is_listed_and_neither_its_native_id_nor_its_working_directory_is_shown";
 const WAIT: Duration = Duration::from_secs(30);
 /// The native id and the working directory of the fake session: neither may be shown.
 const NATIVE_ID: &str = "native-xyzzy-7731";
@@ -425,14 +426,22 @@ fn a_real_oac_status_reports_a_running_daemon_in_json_and_in_words() {
         "sessions: 0",
         log_text.as_str(),
     ] {
-        assert!(human.stdout.contains(expected), "{expected:?} in\n{}", human.stdout);
+        assert!(
+            human.stdout.contains(expected),
+            "{expected:?} in\n{}",
+            human.stdout
+        );
     }
     assert!(rig.log.text().contains("serving"), "{}", rig.log.text());
 
     // A bad argument is a usage error, and asks nobody.
     let usage = rig.oac(&["status", "--bogus"]);
     assert_eq!(usage.code(), Some(2), "{}", usage.stderr);
-    assert!(usage.stderr.contains("usage: oac status [--json]"), "{}", usage.stderr);
+    assert!(
+        usage.stderr.contains("usage: oac status [--json]"),
+        "{}",
+        usage.stderr
+    );
 
     // The daemon was not hurt by any of it: a stop still stops it.
     let stop = rig.oac(&["stop"]);
@@ -451,7 +460,11 @@ fn with_no_daemon_oac_status_is_exit_3() {
             WAIT,
         );
         assert_eq!(out.code(), Some(3), "{}{}", out.stdout, out.stderr);
-        assert!(out.stderr.contains("the daemon is not running"), "{}", out.stderr);
+        assert!(
+            out.stderr.contains("the daemon is not running"),
+            "{}",
+            out.stderr
+        );
         assert!(out.stderr.contains("`oac start`"), "{}", out.stderr);
         if json {
             assert_eq!(
@@ -528,11 +541,7 @@ fn a_daemon_of_another_protocol_version_is_exit_4() {
 fn a_daemon_that_stays_busy_is_asked_again_and_then_exit_4() {
     let began = Instant::now();
     let wait = Duration::from_millis(600);
-    let (code, out, _) = status_against(
-        &["{\"error\":\"busy\",\"oac_control\":1}\n"],
-        true,
-        wait,
-    );
+    let (code, out, _) = status_against(&["{\"error\":\"busy\",\"oac_control\":1}\n"], true, wait);
     assert_eq!(code, 4);
     assert!(began.elapsed() >= wait, "it asked again until the deadline");
     assert_eq!(
@@ -567,7 +576,7 @@ fn an_answer_that_is_not_a_status_is_exit_1() {
 /// One Claude Code session: a child process named `claude`, its command pipe, and the lines
 /// it prints, read on a thread so that a wait for one is bounded.
 struct Session {
-    child: Guard,
+    _child: Guard,
     commands: ChildStdin,
     lines: mpsc::Receiver<String>,
 }
@@ -615,7 +624,7 @@ impl Session {
             }
         });
         let mut s = Session {
-            child: Guard(child),
+            _child: Guard(child),
             commands,
             lines,
         };

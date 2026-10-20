@@ -33,11 +33,11 @@ use oac_core::keys::{DeviceIdentity, DeviceKey};
 use oac_core::pairing::{MemoryPairingStore, PairedPeer};
 use oac_core::pipeline::{AdapterId, PipelineConfig, PipelineError, Pipelines};
 use oac_core::receipt::DeliveryReceipt;
-use oac_core::status::{SessionState, StatusCounts};
 use oac_core::session_binding::{
     BindingLog, BindingLogEntry, BindingResult, MemoryBindingLog, PairingKey, PeerObservation,
     RecordKind,
 };
+use oac_core::status::{SessionState, StatusCounts};
 use oac_core::transport::{
     CarrierHandle, Deadline, Destination, Inbound, InboundHandler, Payload, PayloadKind,
     PresenceEvent, PresenceHandler, PublishResult, Reach, Subscription, Transport,
@@ -3910,7 +3910,10 @@ fn status_reports_health_sessions_and_counts() {
     assert_eq!(empty.transport, HealthStatus::new(HealthState::Healthy));
     assert_eq!(empty.adapters.len(), 1);
     assert_eq!(empty.adapters[0].adapter, n.adapter_id);
-    assert_eq!(empty.adapters[0].health, HealthStatus::new(HealthState::Healthy));
+    assert_eq!(
+        empty.adapters[0].health,
+        HealthStatus::new(HealthState::Healthy)
+    );
     assert!(empty.sessions.is_empty());
     assert_eq!(empty.counts, StatusCounts::default());
 
@@ -3935,7 +3938,10 @@ fn status_reports_health_sessions_and_counts() {
     assert_eq!(s.counts.unbound_attachments, 1);
     assert_eq!(s.counts.pending_signals, 0);
     assert_eq!(s.counts.held_signals, 0);
-    assert_eq!(s.counts.trusted_devices, 0, "this device's own key is not counted");
+    assert_eq!(
+        s.counts.trusted_devices, 0,
+        "this device's own key is not counted"
+    );
     assert_eq!(s.counts.grants, 1);
     assert_eq!(s.counts.discarded_frames, 0);
 }
@@ -3969,12 +3975,8 @@ fn status_names_no_native_id_and_no_working_directory() {
     let bus = Bus::default();
     let n = node(&bus, "device-a", PipelineConfig::default());
     let a = observed_attachment(&n, "harness-1", Some("native-secret-id"));
-    n.adapter.emit(signal(
-        Some(&a),
-        "native-secret-id",
-        StartKind::Fresh,
-        None,
-    ));
+    n.adapter
+        .emit(signal(Some(&a), "native-secret-id", StartKind::Fresh, None));
     let bound = n.pipes.binding(&a).expect("bound");
     let status = n.pipes.status();
     assert_eq!(status.sessions.len(), 1);

@@ -536,9 +536,11 @@ pub enum StatusOutcome {
 /// [`StatusOutcome::Busy`].
 pub fn request_status(endpoint: &Endpoint, wait: Duration) -> StatusOutcome {
     let deadline = Instant::now() + wait;
+    let mut was_busy = false;
     loop {
-        match attempt_status(endpoint, deadline) {
+        match attempt_status(endpoint, deadline, was_busy) {
             StatusOutcome::Busy if Instant::now() < deadline => {
+                was_busy = true;
                 std::thread::sleep(Duration::from_millis(100));
             }
             other => return other,
@@ -546,7 +548,7 @@ pub fn request_status(endpoint: &Endpoint, wait: Duration) -> StatusOutcome {
     }
 }
 
-fn attempt_status(endpoint: &Endpoint, deadline: Instant) -> StatusOutcome {
+fn attempt_status(endpoint: &Endpoint, deadline: Instant, was_busy: bool) -> StatusOutcome {
     let mut stream = match endpoint.connect_blocking() {
         Ok(s) => s,
         Err(ConnectError::NotRunning) => return StatusOutcome::NotRunning,
@@ -577,6 +579,9 @@ fn attempt_status(endpoint: &Endpoint, deadline: Instant) -> StatusOutcome {
     }
     let left = deadline.saturating_duration_since(Instant::now());
     let text = match rx.recv_timeout(left) {
+        // The deadline passed while a retry waited for its first answer: the daemon was busy
+        // as far as we know.
+        Err(_) if was_busy => return StatusOutcome::Busy,
         Err(_) => {
             return StatusOutcome::Failed("the daemon did not answer in time".to_owned());
         }
