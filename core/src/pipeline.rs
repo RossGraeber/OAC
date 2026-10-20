@@ -1226,7 +1226,7 @@ impl Pipelines {
     /// [IFC-TYP-092]).
     pub fn status(&self) -> CoreStatus {
         let inner = &self.inner;
-        let (adapters, sessions, mut counts) = {
+        let (adapters, sessions, mut counts, unbound) = {
             let core = inner.lock();
             let sessions: Vec<SessionStatus> = core
                 .registry
@@ -1238,6 +1238,8 @@ impl Pipelines {
                         .capabilities()
                         .agree(&inner.config.implemented)
                         .map(|agreed| AgreedCapabilities {
+                            extension: agreed.extension.clone(),
+                            major: agreed.major,
                             active_inbound: agreed.entry.active_inbound(),
                             content_types: agreed
                                 .entry
@@ -1266,7 +1268,15 @@ impl Pipelines {
                 grants: core.engine.grants().len(),
                 discarded_frames: 0,
             };
-            (core.adapters.clone(), sessions, counts)
+            let unbound: Vec<usize> = (0..core.adapters.len())
+                .map(|i| {
+                    core.attachments
+                        .values()
+                        .filter(|a| a.open && a.session.is_none() && a.adapter == AdapterId(i))
+                        .count()
+                })
+                .collect();
+            (core.adapters.clone(), sessions, counts, unbound)
         };
         counts.discarded_frames = self.discarded_frames();
         // No lock is held from here on.
@@ -1277,6 +1287,7 @@ impl Pipelines {
             .map(|(i, adapter)| AdapterStatus {
                 adapter: AdapterId(i),
                 health: adapter.health(),
+                unbound_attachments: unbound.get(i).copied().unwrap_or(0),
             })
             .collect();
         CoreStatus {
