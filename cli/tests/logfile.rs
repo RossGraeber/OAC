@@ -593,7 +593,12 @@ fn a_rotation_that_fails_keeps_the_current_log_and_logging_goes_on() {
         .unwrap();
     let second = kept.lines().nth(1).unwrap();
     assert_eq!(
-        second.rsplit("line ").next().unwrap().parse::<usize>().unwrap(),
+        second
+            .rsplit("line ")
+            .next()
+            .unwrap()
+            .parse::<usize>()
+            .unwrap(),
         numbers[0],
         "{second}"
     );
@@ -726,7 +731,10 @@ fn a_restart_whose_open_fails_does_not_stall_the_log() {
     // The next line crosses the cap, so the file is to restart; its truncating open fails.
     block_writes(&current);
     let before = read(&current);
-    assert!(log.append(&"t".repeat(100)).is_err(), "the restart's open fails");
+    assert!(
+        log.append(&"t".repeat(100)).is_err(),
+        "the restart's open fails"
+    );
     assert_eq!(read(&current), before, "nothing was lost");
 
     // The obstacle goes (the rotation is still blocked): the very next line is logged.
