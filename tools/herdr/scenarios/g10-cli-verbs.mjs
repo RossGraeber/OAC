@@ -138,14 +138,19 @@ async function runInner(ctx, hooks) {
     const st = await step('status', ['status', '--json']);
     const stObj = last(st);
     const logPath = stObj?.log ?? null;
+    if (stObj?.device_id) ctx.redactLiteral(stObj.device_id, '<DEVICE_ID>');
     // 3. A real Claude Code session, kept alive for `hold` seconds.
     const wsB = await herdr.workspaceCreate({ cwd: ctx.dir('claude-cwd'), label: 'oac-g10-claude', env: {} });
     ctx.record('claudePane', wsB);
     await ctx.probeEnv(wsB.paneId, { timeoutMs: waitMs });
     const mark = `G10-CLAUDE-DONE-${randomBytes(4).toString('hex')}`;
+    // No double quote in the prompt: Windows PowerShell 5.1 drops an embedded `"` when it passes a
+    // single-quoted argument to a native program (quoteArg in lib/pane-shell.mjs, line 13, wraps it in
+    // single quotes only), which split the first run's prompt at `"sleep 45"` (STATUS, slice 6).
     const prompt =
-      `Call the whoami tool of the oac MCP server once. Then run the Bash command "sleep ${hold}". ` +
+      `Call the whoami tool of the oac MCP server once. Then run the Bash command sleep ${hold} (exactly that command). ` +
       'Then print the whoami result text exactly, nothing else.';
+    if (ctx.paneShell === 'powershell' && prompt.includes('"')) throw new Error('the prompt must not contain a double quote under the PowerShell pane shell');
     const claude = ctx.quoteForPane([
       'claude', '-p', prompt,
       '--allowedTools', 'mcp__oac__whoami', 'Bash(sleep *)',
@@ -180,7 +185,11 @@ async function runInner(ctx, hooks) {
       ctx.capture('pane-claude-not-done.txt', await herdr.paneRead(wsB.paneId, { source: 'recent-unwrapped', lines: 200 }));
       throw err;
     }
-    ctx.capture('pane-claude.txt', await herdr.paneRead(wsB.paneId, { source: 'recent-unwrapped', lines: 200 }));
+    const claudeText = await herdr.paneRead(wsB.paneId, { source: 'recent-unwrapped', lines: 200 });
+    ctx.capture('pane-claude.txt', claudeText);
+    // A failed hold is a finding, never a silent pass: the model reported a failed sleep.
+    const sleepFailed = /missing operand/i.test(claudeText);
+    if (sleepFailed) ctx.finding('the held Bash call failed ("missing operand" in the Claude pane): the session was not held');
     await herdr.paneProcessInfo(wsB.paneId);
     await sleep(2000);
     const after = await step('sessions-after', ['sessions', '--json']);
@@ -194,9 +203,17 @@ async function runInner(ctx, hooks) {
     // 7. The daemon's own log (no credential; its contract holds no message content or key).
     let withdrawn = false;
     let logLines = 0;
+    let holdGapMs = null;
     if (logPath && existsSync(logPath)) {
       const log = readFileSync(logPath, 'utf8');
       withdrawn = log.includes('shut down: withdrawals sent');
+      // This run's lines only: after the last `serving` line. The first `freed a connection on claude` is
+      // the hook carrier's, the last the shim's; their gap is at least the hold when the hold worked.
+      const mine = log.split(/\r?\n/).filter(Boolean);
+      const from = mine.map((l) => l.includes('oac-daemon: serving')).lastIndexOf(true);
+      const freed = mine.slice(from + 1).filter((l) => l.includes('freed a connection on claude')).map((l) => Number(/^unix_ms=(\d+) /.exec(l)?.[1]));
+      if (freed.length >= 2 && freed.every(Number.isFinite)) holdGapMs = freed.at(-1) - freed[0];
+      if (holdGapMs === null || holdGapMs < hold * 1000) ctx.finding(`the session was not held for ${hold} s: gap between the hook and the shim ending ${holdGapMs === null ? 'unknown' : `${holdGapMs} ms`}`);
       const tail = log.split(/\r?\n/).filter(Boolean).slice(-40);
       logLines = tail.length;
       ctx.capture('daemon-log-tail.txt', tail.join('\n') + '\n');
@@ -222,6 +239,9 @@ async function runInner(ctx, hooks) {
       logPathKnown: Boolean(logPath),
       logTailLines: logLines,
       withdrawalsSentLogged: withdrawn,
+      sleepFailed,
+      holdGapMs,
+      holdKept: !sleepFailed && holdGapMs !== null && holdGapMs >= hold * 1000,
     };
     ctx.record('observed', observed);
 
