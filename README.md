@@ -47,7 +47,7 @@ supported integration model.
 **Not on `main` yet, or not run:**
 
 - The pairing verbs (#437) and a verb that reads the daemon log.
-- The live check of the G10 verbs together with a real Claude Code session has not run (see the status ledger). The daemon test runs on Windows and Linux.
+- The live check of the G10 verbs with a real Claude Code session ran on Windows only (2026-10-20, print mode, one device); on WSL only `oac doctor` ran, because no device key exists there yet. See the status ledger. The daemon test runs on Windows and Linux.
 - The Codex endpoint: there is no Codex adapter until G7 and G8.
 
 ## Using the CLI
