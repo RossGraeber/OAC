@@ -506,8 +506,7 @@ fn a_detached_start_that_fails_relays_the_childs_reason_and_names_the_log() {
     assert!(said.contains(&log_path.display().to_string()), "{said}");
     assert!(!said.contains("in a terminal"), "{said}");
     // The start that lost the race did not touch the running daemon's log: not a byte, not a
-    // rotation (the file is a few bytes under its limit, so a line would have rotated it), not
-    // a permission change.
+    // permission change (the daemon's own line would have been appended to it).
     let after = (
         read(&log_path),
         std::fs::metadata(&log_path).unwrap().modified().ok(),
@@ -543,30 +542,35 @@ fn a_rotation_that_fails_keeps_the_current_log_and_logging_goes_on() {
     block_rotation(&dir);
 
     // Past the limit the rotation fails every time; the lines still go to the current file,
-    // which is never deleted, until the hard cap, and then they are dropped with an error.
-    let mut written = Vec::new();
-    let mut dropped = 0;
+    // which is never deleted, until the hard cap; then the file restarts with a marker line
+    // and the newest lines are kept.
+    let mut longest = 0;
     for i in 0..200 {
-        let line = format!("line {i:04}");
-        match log.append(&line) {
-            Ok(()) => written.push(line),
-            Err(_) => dropped += 1,
-        }
+        log.append(&format!("line {i:04}")).unwrap();
         assert!(current.exists(), "the current log was deleted at line {i}");
+        longest = longest.max(std::fs::metadata(&current).unwrap().len());
     }
-    assert!(dropped > 0, "the hard cap was never reached");
-    let size = std::fs::metadata(&current).unwrap().len();
-    assert!(size > limit, "the file grew past the limit: {size}");
-    assert!(size <= limit * logfile::HARD_CAP_FACTOR, "{size}");
+    assert!(longest > limit, "the file grew past the limit: {longest}");
+    assert!(longest <= limit * logfile::HARD_CAP_FACTOR + 200, "{longest}");
     let kept = read(&current);
-    for (n, line) in written.iter().enumerate() {
-        assert!(
-            kept.lines()
-                .nth(n)
-                .is_some_and(|l| l.ends_with(line.as_str())),
-            "line {n} {line}"
-        );
-    }
+    let first = kept.lines().next().unwrap();
+    assert!(
+        first.contains("log restarted: ") && first.contains("bytes discarded, rotation failing ("),
+        "the restarted file begins with the marker: {first}"
+    );
+    assert_eq!(kept.matches("log restarted").count(), kept.matches("log restarted: ").count());
+    assert!(kept.lines().last().unwrap().ends_with("line 0199"), "the newest line is kept");
+    assert!(!kept.contains("line 0000"), "the oldest lines were discarded");
+    // What follows the marker is contiguous and in order.
+    let numbers: Vec<usize> = kept
+        .lines()
+        .filter_map(|l| l.rsplit("line ").next().and_then(|n| n.parse().ok()))
+        .collect();
+    assert!(numbers.windows(2).all(|w| w[1] == w[0] + 1), "{numbers:?}");
+    assert!(
+        dir.join(ROTATED_FILE_NAME).join("in-the-way").exists(),
+        "the previous log's place was not touched"
+    );
 
     // The obstacle goes: the next write rotates (the old log is kept as .1) and goes on.
     unblock_rotation(&dir);
@@ -583,7 +587,7 @@ fn a_rotation_that_fails_keeps_the_current_log_and_logging_goes_on() {
 }
 
 #[test]
-fn a_sink_whose_rotation_fails_warns_once_and_keeps_using_the_file() {
+fn a_sink_whose_rotation_fails_keeps_the_newest_lines_and_keeps_using_the_file() {
     struct Stream(Arc<std::sync::Mutex<Vec<u8>>>);
     impl std::io::Write for Stream {
         fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
@@ -608,10 +612,9 @@ fn a_sink_whose_rotation_fails_warns_once_and_keeps_using_the_file() {
     sink.line("and still logging");
 
     let text = String::from_utf8_lossy(&seen.lock().unwrap()).into_owned();
-    assert_eq!(
-        text.matches("warning: writing the log file failed").count(),
-        1,
-        "one warning for the run of failures: {text}"
+    assert!(
+        !text.contains("warning: writing the log file failed"),
+        "a restart is not a failed write: {text}"
     );
     assert_eq!(
         text.matches("while blocked").count(),
@@ -623,9 +626,11 @@ fn a_sink_whose_rotation_fails_warns_once_and_keeps_using_the_file() {
         read(&dir.join(ROTATED_FILE_NAME)),
         read(&dir.join(LOG_FILE_NAME))
     );
+    assert!(all.contains("while blocked 099"), "the newest lines are kept");
+    assert!(!all.contains("while blocked 000"), "the oldest were discarded");
     assert!(
-        all.contains("while blocked 000"),
-        "the oldest line survived"
+        all.contains("log restarted: ") && all.contains("rotation failing"),
+        "the restart is marked: {all}"
     );
     assert!(
         all.contains("recovered") && all.contains("and still logging"),

@@ -37,8 +37,10 @@
 //! previous one, and a new `daemon.log` is begun: at most two files and about 2 MiB, however
 //! long the daemon runs. A line is cut at [`MAX_LINE_BYTES`]. **The current file is never
 //! deleted**: if the rename fails (a sharing violation, a scanner, a viewer holding `.1`) the
-//! file keeps growing and each line retries; past [`HARD_CAP_FACTOR`] times the limit lines are
-//! dropped, with one warning per run of failures (`LogSink`), until a rotation succeeds.
+//! file keeps growing and each line retries; past [`HARD_CAP_FACTOR`] times the limit the file
+//! is truncated and begun again with a first line `log restarted: <N> bytes discarded, rotation
+//! failing (<error kind>)`, so the newest lines are always kept and `daemon.log.1` is left
+//! alone.
 //!
 //! # Content
 //!
@@ -59,7 +61,7 @@ pub const ROTATED_FILE_NAME: &str = "daemon.log.1";
 /// The size at which the log is rotated.
 pub const MAX_LOG_BYTES: u64 = 1024 * 1024;
 /// While rotation keeps failing the log grows past its limit, to this many times the limit; past
-/// that, lines are dropped (and warned about once) until a rotation succeeds.
+/// that, the file is truncated and begun again with a marker line (the newest lines are kept).
 pub const HARD_CAP_FACTOR: u64 = 4;
 /// The longest line written, in bytes (longer is cut at a character boundary).
 pub const MAX_LINE_BYTES: usize = 4096;
@@ -140,7 +142,7 @@ impl LogFile {
     pub fn open_in(base: &Path, namespace: Option<&str>, limit: u64) -> io::Result<LogFile> {
         let directory = log_directory(base, namespace)?;
         os::make_private_directory(&directory, base.join("OAC").join("logs"))?;
-        let (file, size) = os::open_private_file(&directory.join(LOG_FILE_NAME))?;
+        let (file, size) = os::open_private_file(&directory.join(LOG_FILE_NAME), false)?;
         Ok(LogFile {
             directory,
             file: Some(file),
@@ -159,36 +161,57 @@ impl LogFile {
     ///
     /// # Errors
     ///
-    /// The operating system's error, or `Other` when the file is [`HARD_CAP_FACTOR`] times
-    /// the limit because rotation keeps failing (the line is dropped). **An error is
-    /// transient:** the file is never deleted or closed for good, and the next call tries
-    /// again (the caller, `LogSink`, warns once per run of failures).
+    /// The operating system's error. **An error is transient:** the file is never deleted or
+    /// closed for good, and the next call tries again (the caller, `LogSink`, warns once per
+    /// run of failures). While rotation keeps failing, the file grows to [`HARD_CAP_FACTOR`]
+    /// times the limit and is then truncated and begun again (same private open), its first
+    /// line `log restarted: <N> bytes discarded, rotation failing (<error kind>)`: the
+    /// newest lines are kept, `daemon.log.1` is not touched.
     pub fn append(&mut self, text: &str) -> io::Result<()> {
         let line = render(text);
         let length = line.len() as u64;
         if self.size > 0 && self.size + length > self.limit {
             // A failed rotation is not an error for this line: the line goes to the current
             // file, which keeps growing until the hard cap, and the next line tries again.
-            let rotated = self.rotate();
-            if rotated.is_err() && self.size + length > self.limit.saturating_mul(HARD_CAP_FACTOR) {
-                return Err(io::Error::other(
-                    "the log is past its hard cap because it cannot be rotated; lines are dropped until it can",
-                ));
-            }
-            if self.file.is_none() {
-                rotated?;
+            if let Err(e) = self.rotate() {
+                if self.file.is_none() {
+                    return Err(e);
+                }
+                if self.size + length > self.limit.saturating_mul(HARD_CAP_FACTOR) {
+                    self.restart(e.kind())?;
+                }
             }
         }
         if self.file.is_none() {
-            let (file, size) = os::open_private_file(&self.directory.join(LOG_FILE_NAME))?;
+            let (file, size) = os::open_private_file(&self.directory.join(LOG_FILE_NAME), false)?;
             self.file = Some(file);
             self.size = size;
         }
-        let file = self.file.as_mut().expect("opened above");
+        self.write_line(&line)
+    }
+
+    fn write_line(&mut self, line: &str) -> io::Result<()> {
+        let file = self.file.as_mut().expect("opened by the caller");
         file.write_all(line.as_bytes())?;
         file.flush()?;
-        self.size += length;
+        self.size += line.len() as u64;
         Ok(())
+    }
+
+    /// Truncates the current file and begins it again with a marker line: the log is past its
+    /// hard cap because rotation keeps failing, and the newest lines matter more than the
+    /// oldest (lead decision 2026-10-18, Q2). The previous log is not touched.
+    fn restart(&mut self, kind: io::ErrorKind) -> io::Result<()> {
+        let discarded = self.size;
+        // Our handle first; if the open fails the next call reopens the file for append.
+        self.file = None;
+        let (file, size) = os::open_private_file(&self.directory.join(LOG_FILE_NAME), true)?;
+        self.file = Some(file);
+        self.size = size;
+        let marker = render(&format!(
+            "log restarted: {discarded} bytes discarded, rotation failing ({kind:?})"
+        ));
+        self.write_line(&marker)
     }
 
     /// Keeps the current file as the one previous log and begins a new one. **The current
@@ -204,7 +227,7 @@ impl LogFile {
         fs::rename(&current, &previous)?;
         self.file = None;
         self.size = 0;
-        let (file, size) = os::open_private_file(&current)?;
+        let (file, size) = os::open_private_file(&current, false)?;
         self.file = Some(file);
         self.size = size;
         Ok(())
@@ -289,11 +312,19 @@ mod os {
         Ok(())
     }
 
-    /// Opens `path` for append, `0600`, created if missing; a link in its place is refused
-    /// (`O_NOFOLLOW`), and so is a file that is not the user's or is open to others.
-    pub fn open_private_file(path: &Path) -> io::Result<(File, u64)> {
-        let file = OpenOptions::new()
-            .append(true)
+    /// Opens `path` for append (`truncate`: emptied, for writing), `0600`, created if
+    /// missing; a link in its place is refused (`O_NOFOLLOW`), and so is a file that is not
+    /// the user's or is open to others.
+    pub fn open_private_file(path: &Path, truncate: bool) -> io::Result<(File, u64)> {
+        let mut options = OpenOptions::new();
+        if truncate {
+            // Append and truncate cannot be asked together; the one writer then writes in
+            // order from the start.
+            options.write(true).truncate(true);
+        } else {
+            options.append(true);
+        }
+        let file = options
             .create(true)
             .mode(0o600)
             .custom_flags(libc::O_NOFOLLOW)
@@ -508,16 +539,22 @@ mod os {
         Ok(())
     }
 
-    /// Opens `path` for append, created if missing, with the user-only DACL on it; a link in
-    /// its place is refused.
-    pub fn open_private_file(path: &Path) -> io::Result<(File, u64)> {
+    /// Opens `path` for append (`truncate`: emptied, for writing), created if missing, with
+    /// the user-only DACL on it; a link in its place is refused.
+    pub fn open_private_file(path: &Path, truncate: bool) -> io::Result<(File, u64)> {
         match fs::symlink_metadata(path) {
             Ok(meta) if meta.file_type().is_symlink() => {
                 return Err(denied("the log file is a link"));
             }
             Ok(_) | Err(_) => {}
         }
-        let file = OpenOptions::new().append(true).create(true).open(path)?;
+        let mut options = OpenOptions::new();
+        if truncate {
+            options.write(true).truncate(true);
+        } else {
+            options.append(true);
+        }
+        let file = options.create(true).open(path)?;
         protect(path, false)?;
         if !is_private(path)? {
             return Err(denied("the log file is not private to this user"));
