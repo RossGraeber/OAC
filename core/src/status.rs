@@ -28,6 +28,10 @@ use crate::pipeline::AdapterId;
 /// speaks.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AgreedCapabilities {
+    /// The agreed extension identifier (`spec/session-channels.md` §6.5).
+    pub extension: String,
+    /// The agreed major version of that extension.
+    pub major: u16,
     /// `active_inbound`: whether the session accepts a message as live input.
     pub active_inbound: bool,
     /// The part types it accepts besides `text`, when it declares a list.
@@ -78,6 +82,10 @@ pub struct AdapterStatus {
     pub adapter: AdapterId,
     /// Its `health` (`spec/interfaces.md` §5.7).
     pub health: HealthStatus,
+    /// Open attachments of this adapter with no session bound. Their sum over the adapters
+    /// is [`StatusCounts::unbound_attachments`]. A count only: an unbound attachment has no
+    /// session id and nothing else is reported about it.
+    pub unbound_attachments: usize,
 }
 
 /// How much of each thing the core holds.

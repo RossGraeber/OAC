@@ -653,7 +653,14 @@ async fn accept_loop(mut s: Serving) {
 #[derive(Default)]
 struct Gate {
     handed: bool,
-    ended: Option<ConnectionHandle>,
+    ended: Option<(ConnectionHandle, (LogSink, String))>,
+}
+
+/// Logs that the core has freed a connection's place and ended its binding, after
+/// `disconnect` returned: the line carries the endpoint's label only, so a test or an
+/// operator can wait on it instead of polling for the binding to go.
+fn connection_freed(log: &LogSink, label: &str) {
+    log.line(&format!("freed a connection on {label}"));
 }
 
 /// Observes the peer, relays its stream and gives the connection to the core.
@@ -683,6 +690,7 @@ async fn serve_connection(
     let ending_gate = gate.clone();
     let ending_log = log.clone();
     let ending_label = label.to_owned();
+    let freed_label = label.to_owned();
     let core_connection = relay::attach(
         &runtime,
         stream,
@@ -694,12 +702,16 @@ async fn serve_connection(
                 label: ending_label,
                 peer: process,
             });
+            let freed = (ending_log.clone(), freed_label);
             let mut state = ending_gate.lock().unwrap_or_else(|e| e.into_inner());
             if state.handed {
                 drop(state);
-                ending_runtime.spawn_blocking(move || pipelines.disconnect(&handle));
+                ending_runtime.spawn_blocking(move || {
+                    pipelines.disconnect(&handle);
+                    connection_freed(&freed.0, &freed.1);
+                });
             } else {
-                state.ended = Some(handle);
+                state.ended = Some((handle, freed));
             }
         }),
     );
@@ -712,8 +724,9 @@ async fn serve_connection(
             state.handed = true;
             state.ended.take()
         };
-        if let Some(handle) = ended {
+        if let Some((handle, freed)) = ended {
             handing.disconnect(&handle);
+            connection_freed(&freed.0, &freed.1);
         }
         result
     })

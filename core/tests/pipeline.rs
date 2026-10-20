@@ -3934,8 +3934,15 @@ fn status_reports_health_sessions_and_counts() {
     assert_eq!(mine.state, SessionState::Online);
     let caps = mine.capabilities.as_ref().expect("agreed capabilities");
     assert!(caps.active_inbound);
+    assert_eq!(caps.extension, oac_core::ids::EXTENSION_ID_V0);
+    assert_eq!(caps.major, 0);
     assert_eq!(s.counts.open_connections, 3);
     assert_eq!(s.counts.unbound_attachments, 1);
+    assert_eq!(s.adapters[0].unbound_attachments, 1);
+    assert_eq!(
+        s.adapters[0].unbound_attachments,
+        s.counts.unbound_attachments
+    );
     assert_eq!(s.counts.pending_signals, 0);
     assert_eq!(s.counts.held_signals, 0);
     assert_eq!(

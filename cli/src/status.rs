@@ -17,8 +17,8 @@
 //! | `device_id` | this device's public key id |
 //! | `endpoints` | the labels of the endpoints it serves, `control` included |
 //! | `transport` | `{state, detail?}`: the transport's `health` |
-//! | `adapters` | `[{label, state, detail?}]`: each adapter's `health` |
-//! | `sessions_total`, `sessions` | this device's own sessions (at most [`MAX_SESSIONS`] listed): `{session_id, harness?, state, active_inbound?, content_types?, max_envelope_octets?}` |
+//! | `adapters` | `[{label, state, detail?, unbound_attachments}]`: each adapter's `health` and its open attachments with no session bound |
+//! | `sessions_total`, `sessions` | this device's own sessions (at most [`MAX_SESSIONS`] listed): `{session_id, harness?, state, extension?, major?, active_inbound?, content_types?, max_envelope_octets?}` |
 //! | `counts` | `{open_connections, unbound_attachments, pending_signals, held_signals, trusted_devices, grants, discarded_frames}` |
 //! | `log` | the path of the daemon's log file (absent when it has none) |
 //!
@@ -108,7 +108,7 @@ impl DaemonStatus {
         ));
         members.push(format!(
             "\"transport\":{}",
-            health_object(None, &status.transport)
+            health_object(None, &status.transport, None)
         ));
         let adapters: Vec<String> = status
             .adapters
@@ -122,7 +122,7 @@ impl DaemonStatus {
                         || format!("adapter{}", a.adapter.index()),
                         |(_, l)| l.clone(),
                     );
-                health_object(Some(&label), &a.health)
+                health_object(Some(&label), &a.health, Some(a.unbound_attachments))
             })
             .collect();
         members.push(format!("\"adapters\":[{}]", adapters.join(",")));
@@ -141,6 +141,11 @@ impl DaemonStatus {
                 }
                 m.push(format!("\"state\":{}", json_string(s.state.as_str())));
                 if let Some(c) = &s.capabilities {
+                    m.push(format!(
+                        "\"extension\":{}",
+                        json_string(&clean(&c.extension))
+                    ));
+                    m.push(format!("\"major\":{}", c.major));
                     m.push(format!("\"active_inbound\":{}", c.active_inbound));
                     m.push(format!(
                         "\"content_types\":[{}]",
@@ -180,7 +185,7 @@ impl DaemonStatus {
     }
 }
 
-fn health_object(label: Option<&str>, health: &HealthStatus) -> String {
+fn health_object(label: Option<&str>, health: &HealthStatus, unbound: Option<usize>) -> String {
     let mut m = Vec::new();
     if let Some(label) = label {
         m.push(format!("\"label\":{}", json_string(label)));
@@ -188,6 +193,9 @@ fn health_object(label: Option<&str>, health: &HealthStatus) -> String {
     m.push(format!("\"state\":{}", json_string(health.state.as_str())));
     if let Some(detail) = &health.detail {
         m.push(format!("\"detail\":{}", json_string(&clean(detail))));
+    }
+    if let Some(n) = unbound {
+        m.push(format!("\"unbound_attachments\":{n}"));
     }
     format!("{{{}}}", m.join(","))
 }
@@ -352,6 +360,101 @@ pub fn render_human(status: &JsonObject) -> String {
     out
 }
 
+// ---- `oac sessions` -------------------------------------------------------------------------
+//
+// `oac sessions` asks for the same `status` reply as `oac status` and shows only its session
+// rows and the per-harness count of unbound attachments (G10, #71, slice 4). No separate
+// control op: the reply already holds exactly these members, the version check and the
+// retry/exit-code logic are the status client's, and a second op would be a second thing
+// to keep equal to it. Nothing that could identify a project is shown: the rows hold the
+// session id (an address, not a permission), never a working directory, native id or
+// display name.
+
+/// The session rows of `status`, as the members of `oac sessions --json`.
+const SESSION_MEMBERS: [&str; 2] = ["sessions_total", "sessions"];
+
+/// `oac sessions --json`: `oac_cli`, `ok`, `running`, then `sessions_total`, `sessions` and
+/// `unbound` (`[{harness, unbound_attachments}]`, one per adapter), as one canonical object.
+pub fn render_sessions_json(status: &JsonObject) -> String {
+    let mut out = String::from("{\"oac_cli\":1,\"ok\":true,\"running\":true");
+    for name in SESSION_MEMBERS {
+        if let Some(value) = status.get(name) {
+            let _ = write!(out, ",{}:{}", json_string(name), value.to_compact());
+        }
+    }
+    let unbound: Vec<String> = unbound_by_harness(status)
+        .into_iter()
+        .map(|(label, n)| {
+            format!(
+                "{{\"harness\":{},\"unbound_attachments\":{n}}}",
+                json_string(&label)
+            )
+        })
+        .collect();
+    let _ = write!(out, ",\"unbound\":[{}]", unbound.join(","));
+    out.push('}');
+    canonical_text(&out)
+}
+
+fn unbound_by_harness(status: &JsonObject) -> Vec<(String, u64)> {
+    status
+        .get("adapters")
+        .and_then(Json::as_array)
+        .unwrap_or_default()
+        .iter()
+        .filter_map(Json::as_object)
+        .map(|a| {
+            (
+                clean(text(a, "label").unwrap_or("?")),
+                int(a, "unbound_attachments").unwrap_or(0),
+            )
+        })
+        .collect()
+}
+
+/// The human form of `oac sessions`: one row per session, then the unbound attachments of
+/// each harness that has any.
+pub fn render_sessions_human(status: &JsonObject) -> String {
+    let mut out = String::new();
+    let sessions = status
+        .get("sessions")
+        .and_then(Json::as_array)
+        .unwrap_or_default();
+    let total = int(status, "sessions_total").unwrap_or(0);
+    if sessions.is_empty() {
+        out.push_str("no sessions\n");
+    } else {
+        out.push_str("SESSION  HARNESS  EXTENSION  ACTIVE-INBOUND  STATE\n");
+    }
+    for session in sessions.iter().filter_map(Json::as_object) {
+        let extension = match (text(session, "extension"), int(session, "major")) {
+            (Some(e), Some(v)) => format!("{}/{v}", clean(e)),
+            _ => "-".to_owned(),
+        };
+        let inbound = match session.get("active_inbound").and_then(Json::as_bool) {
+            Some(true) => "yes",
+            Some(false) => "no",
+            None => "-",
+        };
+        let _ = writeln!(
+            out,
+            "{}  {}  {extension}  {inbound}  {}",
+            clean(text(session, "session_id").unwrap_or("?")),
+            clean(text(session, "harness").unwrap_or("-")),
+            clean(text(session, "state").unwrap_or("?")),
+        );
+    }
+    if usize::try_from(total).is_ok_and(|t| t > sessions.len()) {
+        let _ = writeln!(out, "... and {} more", total - sessions.len() as u64);
+    }
+    for (label, n) in unbound_by_harness(status) {
+        if n > 0 {
+            let _ = writeln!(out, "unbound attachments ({label}): {n}");
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -361,7 +464,7 @@ mod tests {
         json::parse(text.as_bytes()).unwrap().into_object().unwrap()
     }
 
-    const SAMPLE: &str = r#"{"adapters":[{"label":"claude","state":"healthy"}],"counts":{"discarded_frames":0,"grants":1,"held_signals":0,"open_connections":2,"pending_signals":0,"trusted_devices":3,"unbound_attachments":1},"device_id":"k1","endpoints":["claude","control"],"log":"/state/daemon.log","pid":42,"sessions":[{"active_inbound":true,"harness":"claude","session_id":"s1","state":"online"}],"sessions_total":1,"transport":{"detail":"bad\u001b[2J","state":"degraded"},"uptime_ms":3723000,"version":"0.1.0"}"#;
+    const SAMPLE: &str = r#"{"adapters":[{"label":"claude","state":"healthy","unbound_attachments":2}],"counts":{"discarded_frames":0,"grants":1,"held_signals":0,"open_connections":2,"pending_signals":0,"trusted_devices":3,"unbound_attachments":1},"device_id":"k1","endpoints":["claude","control"],"log":"/state/daemon.log","pid":42,"sessions":[{"active_inbound":true,"extension":"oac.session-channels","harness":"claude","major":1,"session_id":"s1","state":"online"}],"sessions_total":1,"transport":{"detail":"bad\u001b[2J","state":"degraded"},"uptime_ms":3723000,"version":"0.1.0"}"#;
 
     #[test]
     fn durations_leave_off_leading_zero_units() {
@@ -407,5 +510,26 @@ mod tests {
         assert!(human.contains("degraded (bad?[2J)"), "{human}");
         assert!(!human.contains('\u{1b}'), "{human}");
         assert_eq!(clean("a\u{7f}b\u{9b}c\u{202e}d"), "a?b?c?d");
+    }
+
+    #[test]
+    fn the_sessions_forms_show_only_session_rows_and_unbound_counts() {
+        let object = parse_object(SAMPLE);
+        let rendered = render_sessions_json(&object);
+        assert_eq!(canonical_text(&rendered), rendered);
+        let back = parse_object(&rendered);
+        assert_eq!(back.get("sessions"), object.get("sessions"));
+        assert!(back.get("device_id").is_none() && back.get("log").is_none());
+        assert!(rendered.contains(r#""unbound":[{"harness":"claude","unbound_attachments":2}]"#));
+        let human = render_sessions_human(&object);
+        assert!(
+            human.contains("s1  claude  oac.session-channels/1  yes  online"),
+            "{human}"
+        );
+        assert!(human.contains("unbound attachments (claude): 2"), "{human}");
+        assert_eq!(
+            render_sessions_human(&parse_object(r#"{"sessions":[],"sessions_total":0}"#)),
+            "no sessions\n"
+        );
     }
 }
