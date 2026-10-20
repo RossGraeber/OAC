@@ -439,7 +439,11 @@ fn an_oac_scope_that_is_not_a_namespace_name_never_probes_the_credential_store()
     for bad in ["BAD!", "has space"] {
         let out = run_doctor(Some(bad), &["--json"], &[], &path.0);
         let report = out.report();
-        assert_eq!(result(&report, "credential_store"), "skip", "{bad}: {report:?}");
+        assert_eq!(
+            result(&report, "credential_store"),
+            "skip",
+            "{bad}: {report:?}"
+        );
         assert_eq!(result(&report, "daemon"), "fail", "{bad}");
         assert_eq!(out.code(), Some(1), "{bad}");
     }
@@ -597,7 +601,10 @@ fn a_claude_client_that_probed_and_never_initialised_makes_the_revision_check_wa
         revision.detail,
         "a Claude session did not negotiate a legacy MCP revision (counted since the daemon started)"
     );
-    assert!(doctor::all_clear(&checks), "a warning does not fail the run");
+    assert!(
+        doctor::all_clear(&checks),
+        "a warning does not fail the run"
+    );
     // The real binary agrees, and exits 0: nothing else fails.
     let path = empty_path();
     let real = rig.oac_doctor(&["--json"], &[], &path.0);

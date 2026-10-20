@@ -689,7 +689,10 @@ mod tests {
 
     #[test]
     fn the_environment_decides_the_revision_check_when_no_daemon_answers() {
-        let (cred, claude) = (|| CredentialOutcome::Probed(CredentialProbe::Works), || ClaudeVersion::NotOnPath);
+        let (cred, claude) = (
+            || CredentialOutcome::Probed(CredentialProbe::Works),
+            || ClaudeVersion::NotOnPath,
+        );
         for (value, result) in [
             (None, CheckResult::Pass),
             (Some("legacy"), CheckResult::Pass),
@@ -763,7 +766,13 @@ mod tests {
             assert_eq!(*seen.borrow(), [real]);
         }
         // Set but not a namespace name (so no scope can be made from it): never probed.
-        for bad in ["Bad!", "UPPER", "a b", "this-name-is-far-too-long-for-a-scope", "x/y"] {
+        for bad in [
+            "Bad!",
+            "UPPER",
+            "a b",
+            "this-name-is-far-too-long-for-a-scope",
+            "x/y",
+        ] {
             seen.borrow_mut().clear();
             let out = credential_outcome(Some(OsStr::new(bad)), None, &probe);
             assert!(matches!(out, CredentialOutcome::Skipped(_)), "{bad}");
@@ -783,12 +792,19 @@ mod tests {
         );
         assert!(seen.borrow().is_empty());
         let _ = credential_outcome(None, off, &probe);
-        assert_eq!(*seen.borrow(), [real], "the switch is ignored outside a namespace");
+        assert_eq!(
+            *seen.borrow(),
+            [real],
+            "the switch is ignored outside a namespace"
+        );
     }
 
     #[test]
     fn an_unusable_run_directory_fails_the_permission_check_and_the_daemon_check() {
-        let (cred, claude) = (|| CredentialOutcome::Probed(CredentialProbe::Works), || ClaudeVersion::NotOnPath);
+        let (cred, claude) = (
+            || CredentialOutcome::Probed(CredentialProbe::Works),
+            || ClaudeVersion::NotOnPath,
+        );
         let p = probes(None, &claude, &cred);
         let scope = Err(io::Error::new(
             io::ErrorKind::PermissionDenied,
