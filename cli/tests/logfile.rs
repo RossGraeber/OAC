@@ -563,7 +563,8 @@ fn a_rotation_that_fails_keeps_the_current_log_and_logging_goes_on() {
     );
     assert_eq!(
         kept.matches("log restarted").count(),
-        kept.matches("log restarted: ").count()
+        1,
+        "the marker appears exactly once: {kept}"
     );
     assert!(
         kept.lines().last().unwrap().ends_with("line 0199"),
@@ -579,6 +580,28 @@ fn a_rotation_that_fails_keeps_the_current_log_and_logging_goes_on() {
         .filter_map(|l| l.rsplit("line ").next().and_then(|n| n.parse().ok()))
         .collect();
     assert!(numbers.windows(2).all(|w| w[1] == w[0] + 1), "{numbers:?}");
+    // The line right after the marker is the one that crossed the cap: the discarded bytes plus
+    // that line are past the cap, and it is the first numbered line kept.
+    let discarded: u64 = first
+        .split("log restarted: ")
+        .nth(1)
+        .unwrap()
+        .split(' ')
+        .next()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let second = kept.lines().nth(1).unwrap();
+    assert_eq!(
+        second.rsplit("line ").next().unwrap().parse::<usize>().unwrap(),
+        numbers[0],
+        "{second}"
+    );
+    assert!(
+        discarded + second.len() as u64 + 1 > limit * logfile::HARD_CAP_FACTOR,
+        "{discarded} + {second}"
+    );
+    assert!(discarded <= limit * logfile::HARD_CAP_FACTOR);
     assert!(
         dir.join(ROTATED_FILE_NAME).join("in-the-way").exists(),
         "the previous log's place was not touched"
@@ -654,4 +677,62 @@ fn a_sink_whose_rotation_fails_keeps_the_newest_lines_and_keeps_using_the_file()
         all.contains("recovered") && all.contains("and still logging"),
         "{all}"
     );
+}
+
+/// Makes `path` impossible to open for writing (not a directory in the way: the file itself),
+/// and back.
+fn block_writes(path: &Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o400)).unwrap();
+    }
+    #[cfg(not(unix))]
+    {
+        let mut p = std::fs::metadata(path).unwrap().permissions();
+        p.set_readonly(true);
+        std::fs::set_permissions(path, p).unwrap();
+    }
+}
+
+fn allow_writes(path: &Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    }
+    #[cfg(not(unix))]
+    {
+        let mut p = std::fs::metadata(path).unwrap().permissions();
+        #[allow(clippy::permissions_set_readonly_false)]
+        p.set_readonly(false);
+        std::fs::set_permissions(path, p).unwrap();
+    }
+}
+
+#[test]
+fn a_restart_whose_open_fails_does_not_stall_the_log() {
+    let temp = Temp::new("restartfail");
+    let limit = 1000;
+    let cap = limit * logfile::HARD_CAP_FACTOR;
+    let mut log = LogFile::open_in(&temp.0, Some("rsf"), limit).unwrap();
+    let dir = log_directory(&temp.0, Some("rsf")).unwrap();
+    let current = dir.join(LOG_FILE_NAME);
+    block_rotation(&dir);
+    // Fill to just under the cap; the rotation fails each time past the limit.
+    while std::fs::metadata(&current).map_or(0, |m| m.len()) <= cap - 40 {
+        log.append("filler").unwrap();
+    }
+    // The next line crosses the cap, so the file is to restart; its truncating open fails.
+    block_writes(&current);
+    let before = read(&current);
+    assert!(log.append(&"t".repeat(100)).is_err(), "the restart's open fails");
+    assert_eq!(read(&current), before, "nothing was lost");
+
+    // The obstacle goes (the rotation is still blocked): the very next line is logged.
+    allow_writes(&current);
+    log.append("the next line").unwrap();
+    assert!(read(&current).ends_with("the next line\n"));
+    log.append("and another").unwrap();
+    assert!(read(&current).ends_with("and another\n"));
 }

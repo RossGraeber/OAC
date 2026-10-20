@@ -203,8 +203,11 @@ impl LogFile {
     /// oldest (lead decision 2026-10-18, Q2). The previous log is not touched.
     fn restart(&mut self, kind: io::ErrorKind) -> io::Result<()> {
         let discarded = self.size;
-        // Our handle first; if the open fails the next call reopens the file for append.
+        // Our handle first. If the truncating open fails, `file` is `None` and `size` is 0, so
+        // the next call skips the rotation attempt, reopens the file for append and takes its
+        // real size from the file; logging does not stall until the obstacle goes.
         self.file = None;
+        self.size = 0;
         let (file, size) = os::open_private_file(&self.directory.join(LOG_FILE_NAME), true)?;
         self.file = Some(file);
         self.size = size;
