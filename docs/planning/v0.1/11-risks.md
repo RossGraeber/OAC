@@ -994,6 +994,27 @@ list.
 
 ## R5 — Low-impact / non-dependency risks
 
+### RISK-SESSION-ID-DISCLOSURE — `oac sessions` shows session ids across projects
+
+- **Risk.** `oac sessions` lists the full session id of every one of this device's own
+  sessions, whatever project it works in, to any process that can reach the control endpoint as
+  the same user. A model in project A that can run `oac sessions` learns the session ids of the
+  sessions of project B. Lead decision Q4 (2026-10-18): accepted, because a session id is an
+  address, not a permission (`oac-security-work` doctrine: authentication is not authorization).
+- **What it invalidates.** Nothing in the threat table's "cross-project leakage" row, which is
+  about discovery by a peer that is not authorized: a session id lets a sender address a
+  session, and delivery to it still needs a grant. It does narrow the privacy of one user's
+  own projects from each other.
+- **What is not shown.** No working directory, harness-native id or display name, so the id
+  does not say which project a session is ([IFC-TYP-020], [IFC-TYP-092]). Own sessions only
+  (lead decision Q3); remote sessions come later, gated by grants.
+- **Early-warning signal.** A model that sends to a session id it was never given, or a grant
+  that names a session by id alone.
+- **Response.** None for v0.1. If it matters, the control endpoint can answer a filtered list
+  (the sessions of the caller's own project), which needs a caller-to-project mapping the
+  daemon does not have today.
+- **Status: open, accepted** (2026-10-20, #71).
+
 ### RISK-ACP — ACP schema v2 alpha status unconfirmed
 
 - **Risk.** ACP schema v2's "alpha" status is carried from

@@ -395,35 +395,106 @@ pub fn status_with(
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
 ) -> i32 {
+    ask_status(
+        "status",
+        scope,
+        json,
+        wait,
+        &status::render_json,
+        &status::render_human,
+        stdout,
+        stderr,
+    )
+}
+
+/// `oac sessions [--json]`: lists this device's own sessions, from the daemon's `status`
+/// reply (the same client as `oac status`: same bounds, retry and exit codes).
+///
+/// Exit status (`verbs`): 0 the daemon answered, an empty list included; 1 it answered
+/// something else, or not in time; 2 usage; 3 the daemon is not running; 4 the endpoint is
+/// another user's, busy (after retries) or another control-protocol version.
+pub fn sessions(args: &[String]) -> i32 {
+    let mut stdout = io::stdout();
+    let mut stderr = io::stderr();
+    let json = match args {
+        [] => false,
+        [flag] if flag == "--json" => true,
+        _ => {
+            let _ = writeln!(stderr, "usage: oac sessions [--json]");
+            return EXIT_USAGE;
+        }
+    };
+    let scope = match user_scope("sessions", &mut stderr) {
+        Ok(s) => s,
+        Err(e) => {
+            let _ = writeln!(stderr, "oac sessions: {e}");
+            return EXIT_FAILED;
+        }
+    };
+    sessions_with(&scope, json, STATUS_WAIT, &mut stdout, &mut stderr)
+}
+
+/// [`sessions`] for a given scope and wait, writing to the given streams.
+pub fn sessions_with(
+    scope: &Scope,
+    json: bool,
+    wait: Duration,
+    stdout: &mut dyn Write,
+    stderr: &mut dyn Write,
+) -> i32 {
+    ask_status(
+        "sessions",
+        scope,
+        json,
+        wait,
+        &status::render_sessions_json,
+        &status::render_sessions_human,
+        stdout,
+        stderr,
+    )
+}
+
+type Render = dyn Fn(&oac_core::json::JsonObject) -> String;
+
+#[allow(clippy::too_many_arguments)]
+fn ask_status(
+    verb: &str,
+    scope: &Scope,
+    json: bool,
+    wait: Duration,
+    render_json: &Render,
+    render_human: &Render,
+    stdout: &mut dyn Write,
+    stderr: &mut dyn Write,
+) -> i32 {
     let outcome = control::request_status(&scope.endpoint(CONTROL_LABEL), wait);
     let (code, human, object) = match &outcome {
         StatusOutcome::Running(report) => {
             if json {
-                let _ = writeln!(stdout, "{}", status::render_json(report));
+                let _ = writeln!(stdout, "{}", render_json(report));
             } else {
-                let _ = stdout.write_all(status::render_human(report).as_bytes());
+                let _ = stdout.write_all(render_human(report).as_bytes());
             }
             return EXIT_OK;
         }
         StatusOutcome::NotRunning => (
             EXIT_NOT_RUNNING,
-            "oac status: the daemon is not running; start it with `oac start`".to_owned(),
+            format!("oac {verb}: the daemon is not running; start it with `oac start`"),
             "{\"oac_cli\":1,\"ok\":false,\"running\":false,\"error\":\"not_running\"}".to_owned(),
         ),
         StatusOutcome::Version => (
             EXIT_UNREACHABLE,
-            "oac status: the daemon speaks another version of the control protocol; use the `oac` that started it"
-                .to_owned(),
+            format!("oac {verb}: the daemon speaks another version of the control protocol; use the `oac` that started it"),
             "{\"oac_cli\":1,\"ok\":false,\"running\":true,\"error\":\"version\"}".to_owned(),
         ),
         StatusOutcome::Busy => (
             EXIT_UNREACHABLE,
-            "oac status: the daemon's control endpoint stayed busy; try again".to_owned(),
+            format!("oac {verb}: the daemon's control endpoint stayed busy; try again"),
             "{\"oac_cli\":1,\"ok\":false,\"running\":true,\"error\":\"busy\"}".to_owned(),
         ),
         StatusOutcome::Unreachable(why) => (
             EXIT_UNREACHABLE,
-            format!("oac status: the daemon could not be reached: {why}"),
+            format!("oac {verb}: the daemon could not be reached: {why}"),
             format!(
                 "{{\"oac_cli\":1,\"ok\":false,\"error\":\"unreachable\",\"detail\":{}}}",
                 control::json_string(why)
@@ -431,7 +502,7 @@ pub fn status_with(
         ),
         StatusOutcome::Failed(why) => (
             EXIT_FAILED,
-            format!("oac status: {why}"),
+            format!("oac {verb}: {why}"),
             format!(
                 "{{\"oac_cli\":1,\"ok\":false,\"error\":\"failed\",\"detail\":{}}}",
                 control::json_string(why)
