@@ -29,9 +29,13 @@
 //! line, `{"oac_control":1,"status":{...}}` (members: `crate::status`), and the connection is
 //! closed. The snapshot is the core's ([`oac_core::pipeline::Pipelines::status`]) plus what
 //! the daemon knows of itself; it holds no harness-native id and no working directory. It is
-//! computed off the runtime's thread, at most one at a time (a further request is answered
-//! `busy` and retried by the client), and within [`STATUS_DEADLINE`]: an adapter or a
-//! transport whose `health` hangs is answered `timeout`, not waited for.
+//! computed on a detached thread of its own (not the runtime's blocking pool, whose tasks a
+//! runtime waits for when it is dropped, so a `health` that never returns could keep the
+//! process alive after `oac stop`), at most one at a time, and within [`STATUS_DEADLINE`]: an
+//! adapter or a transport whose `health` hangs is answered `timeout`, not waited for. While a
+//! snapshot is still within its deadline a further request is answered `busy` (and retried by
+//! the client); once the one in flight is past its deadline every request is answered
+//! `timeout` at once, so there is never more than one stuck thread.
 //!
 //! A same-user process can already end the daemon by killing it, so this adds no authority
 //! the user's processes did not have; it only makes the stop clean (`RISK-LOCAL-IPC`).
@@ -207,14 +211,16 @@ pub struct Control {
     stop: watch::Sender<bool>,
     waiters: Mutex<Waiters>,
     /// One status snapshot is computed at a time.
-    status_gate: Arc<Semaphore>,
+    /// When the snapshot in flight began; `None` when none is.
+    status_inflight: Arc<Mutex<Option<Instant>>>,
+    status_deadline: Duration,
     status: Arc<DaemonStatus>,
     log: LogSink,
 }
 
 impl Control {
     /// A control endpoint's state.
-    pub fn new(log: LogSink, status: Arc<DaemonStatus>) -> Arc<Control> {
+    pub fn new(log: LogSink, status: Arc<DaemonStatus>, status_deadline: Duration) -> Arc<Control> {
         Arc::new(Control {
             permits: Arc::new(Semaphore::new(MAX_CONNECTIONS)),
             stop: watch::channel(false).0,
@@ -222,7 +228,8 @@ impl Control {
                 closed: false,
                 streams: Vec::new(),
             }),
-            status_gate: Arc::new(Semaphore::new(1)),
+            status_inflight: Arc::new(Mutex::new(None)),
+            status_deadline,
             status,
             log,
         })
@@ -309,26 +316,55 @@ impl Control {
         mut stream: Box<dyn AsyncStream>,
         _permit: OwnedSemaphorePermit,
     ) {
-        let Ok(gate) = self.status_gate.clone().try_acquire_owned() else {
-            write_line(&mut *stream, BUSY_REPLY).await;
-            return;
-        };
-        let status = self.status.clone();
-        // The gate is held by the blocking task itself, so a snapshot that outlives its
-        // deadline still counts as the one in flight until it really ends.
-        let computing = tokio::task::spawn_blocking(move || {
-            let reply = status.reply();
-            drop(gate);
-            reply
-        });
-        let reply = match tokio::time::timeout(STATUS_DEADLINE, computing).await {
-            Ok(Ok(text)) => text,
-            _ => {
-                self.log.line(
-                    "a status request was not answered in time (the transport or an adapter did not report its health)",
-                );
-                TIMEOUT_REPLY.to_owned()
+        let (done, result) = tokio::sync::oneshot::channel::<String>();
+        let refusal = {
+            let mut inflight = self
+                .status_inflight
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            match *inflight {
+                Some(began) if began.elapsed() >= self.status_deadline => Some(TIMEOUT_REPLY),
+                Some(_) => Some(BUSY_REPLY),
+                None => {
+                    *inflight = Some(Instant::now());
+                    None
+                }
             }
+        };
+        if let Some(reply) = refusal {
+            write_line(&mut *stream, reply).await;
+            return;
+        }
+        let (status, inflight) = (self.status.clone(), self.status_inflight.clone());
+        // A detached thread: if `health` never returns it is left behind, and the process can
+        // still end. It marks itself done only when it really ends.
+        let spawned = std::thread::Builder::new()
+            .name("oac-status".into())
+            .spawn(move || {
+                let reply = status.reply();
+                *inflight.lock().unwrap_or_else(|e| e.into_inner()) = None;
+                let _ = done.send(reply);
+            });
+        if spawned.is_err() {
+            *self
+                .status_inflight
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()) = None;
+        }
+        let reply = match spawned {
+            Ok(_) => match tokio::time::timeout(self.status_deadline, result).await {
+                Ok(Ok(text)) => text,
+                _ => String::new(),
+            },
+            Err(_) => String::new(),
+        };
+        let reply = if reply.is_empty() {
+            self.log.line(
+                "a status request was not answered in time (the transport or an adapter did not report its health)",
+            );
+            TIMEOUT_REPLY.to_owned()
+        } else {
+            reply
         };
         write_line(&mut *stream, &reply).await;
     }
@@ -622,6 +658,12 @@ pub fn canonical_text(text: &str) -> String {
         .unwrap_or_else(|| text.to_owned())
 }
 
+/// A character that could drive a terminal or reorder text shown to an operator: DEL, the C1
+/// controls and the bidirectional overrides and isolates.
+pub fn is_hostile(c: char) -> bool {
+    matches!(c as u32, 0x7f..=0x9f | 0x61c | 0x200e | 0x200f | 0x202a..=0x202e | 0x2066..=0x2069)
+}
+
 /// `text` as a JSON string literal.
 pub fn json_string(text: &str) -> String {
     let mut out = String::with_capacity(text.len() + 2);
@@ -630,7 +672,9 @@ pub fn json_string(text: &str) -> String {
         match c {
             '"' => out.push_str("\\\""),
             '\\' => out.push_str("\\\\"),
-            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c if (c as u32) < 0x20 || is_hostile(c) => {
+                out.push_str(&format!("\\u{:04x}", c as u32))
+            }
             c => out.push(c),
         }
     }
@@ -709,5 +753,9 @@ mod tests {
     #[test]
     fn json_strings_are_escaped() {
         assert_eq!(json_string("a\"b\\c\n"), "\"a\\\"b\\\\c\\u000a\"");
+        assert_eq!(
+            json_string("\u{7f}\u{85}\u{202e}\u{2066}x"),
+            "\"\\u007f\\u0085\\u202e\\u2066x\""
+        );
     }
 }

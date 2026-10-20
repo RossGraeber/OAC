@@ -334,6 +334,22 @@ pub struct Parts {
     pub log: LogSink,
 }
 
+/// Knobs of a daemon that a test turns; `oac start` uses the defaults.
+#[derive(Clone, Copy, Debug)]
+pub struct Options {
+    /// How long a `status` request waits for the transport's and the adapters' `health`
+    /// before it is answered `timeout`.
+    pub status_deadline: Duration,
+}
+
+impl Default for Options {
+    fn default() -> Options {
+        Options {
+            status_deadline: crate::control::STATUS_DEADLINE,
+        }
+    }
+}
+
 /// Why a daemon did not start.
 #[derive(Debug)]
 pub enum StartError {
@@ -394,6 +410,15 @@ impl Daemon {
     ///
     /// See [`StartError`]. Nothing keeps running after an error.
     pub async fn start(parts: Parts) -> Result<Daemon, StartError> {
+        Daemon::start_with(parts, Options::default()).await
+    }
+
+    /// [`Daemon::start`] with `options`.
+    ///
+    /// # Errors
+    ///
+    /// See [`StartError`].
+    pub async fn start_with(parts: Parts, options: Options) -> Result<Daemon, StartError> {
         let Parts {
             scope,
             key_store,
@@ -491,7 +516,7 @@ impl Daemon {
             started,
             log.clone(),
         ));
-        let control = Control::new(log.clone(), status);
+        let control = Control::new(log.clone(), status, options.status_deadline);
         let control_endpoint = scope.endpoint(CONTROL_LABEL);
         match control_endpoint.serve(&lock).await {
             Ok(listener) => {

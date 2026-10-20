@@ -39,7 +39,7 @@ use oac_core::health::HealthStatus;
 use oac_core::json::{Json, JsonObject};
 use oac_core::pipeline::{AdapterId, Pipelines};
 
-use crate::control::{canonical_text, json_string};
+use crate::control::{canonical_text, is_hostile, json_string};
 use crate::daemon::LogSink;
 
 /// The version of the `oac` that built this daemon.
@@ -187,7 +187,7 @@ fn health_object(label: Option<&str>, health: &HealthStatus) -> String {
     }
     m.push(format!("\"state\":{}", json_string(health.state.as_str())));
     if let Some(detail) = &health.detail {
-        m.push(format!("\"detail\":{}", json_string(detail)));
+        m.push(format!("\"detail\":{}", json_string(&clean(detail))));
     }
     format!("{{{}}}", m.join(","))
 }
@@ -216,10 +216,18 @@ fn int(object: &JsonObject, name: &str) -> Option<u64> {
         .and_then(|n| n.plain_integer_in(0, u64::MAX))
 }
 
-/// `text` with every control character replaced by `?`.
+/// `text` with every control character (C0, DEL, C1) and bidirectional override replaced by
+/// `?`. The canonical form writes such characters raw, so free text is cleaned at the source
+/// as well as when it is shown.
 fn clean(text: &str) -> String {
     text.chars()
-        .map(|c| if c.is_control() { '?' } else { c })
+        .map(|c| {
+            if c.is_control() || is_hostile(c) {
+                '?'
+            } else {
+                c
+            }
+        })
         .collect()
 }
 
@@ -398,5 +406,6 @@ mod tests {
         }
         assert!(human.contains("degraded (bad?[2J)"), "{human}");
         assert!(!human.contains('\u{1b}'), "{human}");
+        assert_eq!(clean("a\u{7f}b\u{9b}c\u{202e}d"), "a?b?c?d");
     }
 }

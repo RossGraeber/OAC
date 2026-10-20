@@ -25,13 +25,20 @@ use std::sync::{Arc, Mutex, mpsc};
 use std::time::{Duration, Instant};
 
 use oac_adapter_claude::ClaudeAdapter;
-use oac_cli::daemon::{Daemon, LogSink, Parts};
+use oac_cli::daemon::{Daemon, LogSink, Options, Parts};
 use oac_cli::ipc::Scope;
 use oac_cli::logfile::{LogFile, MAX_LOG_BYTES, log_directory};
+use oac_core::adapter::{
+    AdapterCapabilities, AdapterEventHandler, Attachment, Connection, HandOff, HandOffOutcome,
+    LocalEventHandler, ProviderAdapter, RequestSink,
+};
 use oac_core::clock::{Clock, SystemClock};
+use oac_core::health::HealthStatus;
+use oac_core::ids::SessionId;
 use oac_core::ids::Token;
 use oac_core::json::{self, Json, JsonObject};
 use oac_core::keys::MemoryKeyStore;
+use oac_core::local_call::{CallAdmission, CallContext, LocalResult};
 use oac_core::pairing::MemoryPairingStore;
 use oac_core::pipeline::PipelineConfig;
 use oac_core::sealing::MemoryAgreementKeyStore;
@@ -186,6 +193,10 @@ struct Rig {
 
 impl Rig {
     fn start(tag: &str) -> Rig {
+        Rig::start_with(tag, Arc::new(ClaudeAdapter::new()), Options::default())
+    }
+
+    fn start_with(tag: &str, adapter: Arc<dyn ProviderAdapter>, options: Options) -> Rig {
         let namespace = format!("st{}{tag}", std::process::id());
         let scope = Scope::for_user_in(Some(&namespace)).unwrap();
         let dir = NamespaceDir::of(&scope);
@@ -214,12 +225,12 @@ impl Rig {
             clock,
             monotonic: Arc::new(move || net.now()),
             config: PipelineConfig::default(),
-            harnesses: vec![("claude".to_owned(), Arc::new(ClaudeAdapter::new()) as _)],
+            harnesses: vec![("claude".to_owned(), adapter)],
             log: sink,
         };
         let rt = Rt::new();
         let daemon = rt
-            .run(Daemon::start(parts))
+            .run(Daemon::start_with(parts, options))
             .unwrap_or_else(|e| panic!("the daemon starts: {e}"));
         let requested = daemon.stop_requested();
         rt.handle.spawn(async move {
@@ -788,4 +799,146 @@ fn session() {
             Some(other) => panic!("unknown command {other}"),
         }
     }
+}
+
+// ---- a `health` that never returns -----------------------------------------------------------
+
+/// The Claude adapter, except that `health` blocks until `release` is set.
+struct Hung {
+    inner: ClaudeAdapter,
+    release: Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl ProviderAdapter for Hung {
+    fn local_calls(&self) -> bool {
+        self.inner.local_calls()
+    }
+    fn connection_limit(&self) -> usize {
+        self.inner.connection_limit()
+    }
+    fn event_callback_bound_ms(&self) -> u64 {
+        self.inner.event_callback_bound_ms()
+    }
+    fn stop_callback_bound_ms(&self) -> u64 {
+        self.inner.stop_callback_bound_ms()
+    }
+    fn configure_local_calls(&self, admission: CallAdmission, ordinary_ms: u64, stop_ms: u64) {
+        self.inner
+            .configure_local_calls(admission, ordinary_ms, stop_ms);
+    }
+    fn watch_local_attachments(&self, handler: LocalEventHandler) {
+        self.inner.watch_local_attachments(handler);
+    }
+    fn set_binding_local(
+        &self,
+        call: &mut CallContext,
+        attachment: &Attachment,
+        session: Option<SessionId>,
+    ) -> LocalResult<()> {
+        self.inner.set_binding_local(call, attachment, session)
+    }
+    fn capabilities_local(
+        &self,
+        call: &mut CallContext,
+        attachment: &Attachment,
+    ) -> LocalResult<AdapterCapabilities> {
+        self.inner.capabilities_local(call, attachment)
+    }
+    fn deliver_local(
+        &self,
+        call: &mut CallContext,
+        hand_off: HandOff,
+    ) -> LocalResult<HandOffOutcome> {
+        self.inner.deliver_local(call, hand_off)
+    }
+    fn shutdown_bound_ms(&self) -> u64 {
+        self.inner.shutdown_bound_ms()
+    }
+    fn take_connection(&self, connection: Connection) {
+        self.inner.take_connection(connection);
+    }
+    fn watch_attachments(&self, handler: AdapterEventHandler) {
+        self.inner.watch_attachments(handler);
+    }
+    fn set_binding(&self, attachment: &Attachment, session: Option<SessionId>) {
+        self.inner.set_binding(attachment, session);
+    }
+    fn capabilities(&self, attachment: &Attachment) -> AdapterCapabilities {
+        self.inner.capabilities(attachment)
+    }
+    fn deliver(&self, hand_off: HandOff) -> HandOffOutcome {
+        self.inner.deliver(hand_off)
+    }
+    fn accept_requests(&self, sink: Arc<dyn RequestSink>) {
+        self.inner.accept_requests(sink);
+    }
+    fn health(&self) -> HealthStatus {
+        while !self.release.load(std::sync::atomic::Ordering::SeqCst) {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        self.inner.health()
+    }
+    fn shutdown(&self) {
+        self.inner.shutdown();
+    }
+}
+
+#[test]
+fn a_health_that_never_returns_is_a_timeout_every_time_and_does_not_keep_the_daemon_alive() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let release = Arc::new(AtomicBool::new(false));
+    let adapter = Arc::new(Hung {
+        inner: ClaudeAdapter::new(),
+        release: release.clone(),
+    });
+    let rig = Rig::start_with(
+        "h",
+        adapter,
+        Options {
+            status_deadline: Duration::from_millis(500),
+        },
+    );
+    // The first request is answered `timeout` once the deadline passes: exit 1, not a hang.
+    let began = Instant::now();
+    let first = rig.oac(&["status"]);
+    assert_eq!(first.code(), Some(1), "{}{}", first.stdout, first.stderr);
+    assert!(
+        first
+            .stderr
+            .contains("could not collect its status in time"),
+        "{}",
+        first.stderr
+    );
+    assert!(began.elapsed() < Duration::from_secs(20));
+    // The stuck snapshot is still in flight; later requests are answered `timeout` at once,
+    // not `busy` (exit 4), and start no further thread.
+    for _ in 0..2 {
+        let began = Instant::now();
+        let again = rig.oac(&["status", "--json"]);
+        assert_eq!(again.code(), Some(1), "{}{}", again.stdout, again.stderr);
+        assert_eq!(
+            again.stdout.trim_end(),
+            r#"{"detail":"the daemon could not collect its status in time","error":"failed","oac_cli":1,"ok":false}"#
+        );
+        assert!(began.elapsed() < Duration::from_secs(10));
+    }
+    assert!(
+        rig.log.text().contains("not answered in time"),
+        "{}",
+        rig.log.text()
+    );
+    // `oac stop` still stops the daemon, and ending its runtime does not wait for the stuck
+    // thread (it would, were the snapshot a blocking task of the runtime).
+    let stop = rig.oac(&["stop"]);
+    assert_eq!(stop.code(), Some(0), "{}", stop.stderr);
+    let (tx, ended) = mpsc::channel();
+    std::thread::spawn(move || {
+        drop(rig);
+        let _ = tx.send(());
+    });
+    assert!(
+        ended.recv_timeout(Duration::from_secs(20)).is_ok(),
+        "the daemon's runtime did not end while a health call was stuck"
+    );
+    release.store(true, Ordering::SeqCst);
 }
