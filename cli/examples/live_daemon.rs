@@ -21,7 +21,8 @@
 //! cargo run -p oac-cli --example live_daemon -- --namespace g9a --events <file>
 //! ```
 //!
-//! It stops on Ctrl-C or when a line `stop` is read on its standard input, and writes a
+//! It stops on Ctrl-C, when a line `stop` is read on its standard input, or when `oac stop`
+//! asks over the control endpoint (G10, #71; a `stop_requested` event), and writes a
 //! `stopped` event after the clean shutdown. The end of its standard input (a closed or empty
 //! input) does not stop it: a run that gives it no input stops it with Ctrl-C or by ending
 //! the process. It is built from `cli/examples/`, which only
@@ -295,9 +296,14 @@ fn main() {
                         std::process::id()
                     ),
                 );
+                let requested = daemon.stop_requested();
                 tokio::select! {
                     _ = tokio::signal::ctrl_c() => {}
                     _ = stop_rx => {}
+                    () = requested => {
+                        // `oac stop` over the control endpoint, as for `oac start`.
+                        events.emit("stop_requested", "");
+                    }
                 }
                 daemon.shutdown().await;
                 events.emit("stopped", "");

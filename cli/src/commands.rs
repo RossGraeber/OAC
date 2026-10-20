@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! The `oac` verbs that start a process or talk to the daemon (G9, #70;
-//! `docs/planning/decisions/C2-process-model.md` §6): `start`, `mcp-shim`, and the connector
-//! `oac hook` uses. The binary wires them; the daemon itself is [`crate::daemon`], which is
+//! The `oac` verbs that start a process or talk to the daemon (G9, #70, G10, #71;
+//! `docs/planning/decisions/C2-process-model.md` §6): `start`, `mcp-shim`, `stop`, and the
+//! connector `oac hook` uses. The binary wires them; the daemon itself is [`crate::daemon`], which is
 //! given everything it needs, and this module is where the real things are given to it: the
 //! reference transport's peer, the operating system's key store, the system clocks, the
 //! Claude adapter.
@@ -24,10 +24,12 @@ use oac_core::pipeline::{MonotonicClock, PipelineConfig};
 use oac_core::sealing::MemoryAgreementKeyStore;
 use oac_transport_zenoh::{PeerConfiguration, PeerTransport};
 
+use crate::control::{self, StopOutcome};
 use crate::daemon::{Daemon, LogSink, Parts, StartError};
-use crate::ipc::{ConnectError, Scope, label_is_valid};
+use crate::ipc::{CONTROL_LABEL, ConnectError, Scope, harness_label_is_valid};
 use crate::keystore::{FallbackKeyStore, OsKeyStore};
 use crate::shim;
+use crate::verbs::{EXIT_FAILED, EXIT_OK, EXIT_UNREACHABLE};
 
 /// Exit status for a usage error.
 pub const EXIT_USAGE: i32 = 2;
@@ -49,7 +51,7 @@ fn user_scope(who: &str, diagnostics: &mut dyn Write) -> io::Result<Scope> {
 pub fn mcp_shim(args: &[String]) -> i32 {
     let mut stderr = io::stderr();
     let label = match args {
-        [flag, label] if flag == "--harness" && label_is_valid(label) => label.clone(),
+        [flag, label] if flag == "--harness" && harness_label_is_valid(label) => label.clone(),
         _ => {
             let _ = writeln!(stderr, "usage: oac mcp-shim --harness <claude|codex>");
             return EXIT_USAGE;
@@ -216,6 +218,114 @@ pub fn start(args: &[String]) -> i32 {
     serve_in_foreground(scope, &mut stderr)
 }
 
+/// How long `oac stop` waits for the daemon to say it has stopped.
+pub const STOP_WAIT: Duration = Duration::from_secs(15);
+
+/// `oac stop [--json]`: asks the running daemon to stop cleanly and waits for it to say so.
+///
+/// Exit status (`verbs`): 0 stopped, or there was no daemon to stop; 1 the daemon did not
+/// confirm in [`STOP_WAIT`] (its pid is printed; nothing is killed) or failed; 2 usage;
+/// 4 the endpoint is another user's, busy, or the daemon speaks another version.
+pub fn stop(args: &[String]) -> i32 {
+    let mut stdout = io::stdout();
+    let mut stderr = io::stderr();
+    let json = match args {
+        [] => false,
+        [flag] if flag == "--json" => true,
+        _ => {
+            let _ = writeln!(stderr, "usage: oac stop [--json]");
+            return EXIT_USAGE;
+        }
+    };
+    let scope = match user_scope("stop", &mut stderr) {
+        Ok(s) => s,
+        Err(e) => {
+            let _ = writeln!(stderr, "oac stop: {e}");
+            return EXIT_FAILED;
+        }
+    };
+    stop_with(&scope, json, STOP_WAIT, &mut stdout, &mut stderr)
+}
+
+/// [`stop`] for a given scope and wait, writing to the given streams. Standard output holds
+/// the result (one canonical JSON object with `"oac_cli":1` under `--json`); standard error
+/// holds the diagnostics.
+pub fn stop_with(
+    scope: &Scope,
+    json: bool,
+    wait: Duration,
+    stdout: &mut dyn Write,
+    stderr: &mut dyn Write,
+) -> i32 {
+    let outcome = control::request_stop(&scope.endpoint(CONTROL_LABEL), wait);
+    let pid_member = |pid: Option<u32>| pid.map_or(String::new(), |p| format!(",\"pid\":{p}"));
+    let (status, human, object) = match &outcome {
+        StopOutcome::NotRunning => (
+            EXIT_OK,
+            "oac stop: the daemon is not running".to_owned(),
+            "{\"oac_cli\":1,\"ok\":true,\"stopped\":false,\"was_running\":false}".to_owned(),
+        ),
+        StopOutcome::Stopped { pid } => (
+            EXIT_OK,
+            "oac stop: the daemon stopped".to_owned(),
+            format!(
+                "{{\"oac_cli\":1,\"ok\":true,\"stopped\":true,\"was_running\":true{}}}",
+                pid_member(*pid)
+            ),
+        ),
+        StopOutcome::TimedOut { pid } => (
+            EXIT_FAILED,
+            format!(
+                "oac stop: the daemon{} did not confirm that it stopped within {} s; nothing was killed",
+                pid.map_or(String::new(), |p| format!(" (pid {p})")),
+                wait.as_secs()
+            ),
+            format!(
+                "{{\"oac_cli\":1,\"ok\":false,\"error\":\"timeout\",\"was_running\":true{}}}",
+                pid_member(*pid)
+            ),
+        ),
+        StopOutcome::Version => (
+            EXIT_UNREACHABLE,
+            "oac stop: the daemon speaks another version of the control protocol; stop it with the `oac` that started it"
+                .to_owned(),
+            "{\"oac_cli\":1,\"ok\":false,\"error\":\"version\",\"was_running\":true}".to_owned(),
+        ),
+        StopOutcome::Busy => (
+            EXIT_UNREACHABLE,
+            "oac stop: the daemon's control endpoint stayed busy; try again".to_owned(),
+            "{\"oac_cli\":1,\"ok\":false,\"error\":\"busy\",\"was_running\":true}".to_owned(),
+        ),
+        StopOutcome::Unreachable(why) => (
+            EXIT_UNREACHABLE,
+            format!("oac stop: the daemon could not be reached: {why}"),
+            format!(
+                "{{\"oac_cli\":1,\"ok\":false,\"error\":\"unreachable\",\"detail\":{}}}",
+                control::json_string(why)
+            ),
+        ),
+        StopOutcome::Failed(why) => (
+            EXIT_FAILED,
+            format!("oac stop: {why}"),
+            format!(
+                "{{\"oac_cli\":1,\"ok\":false,\"error\":\"failed\",\"detail\":{}}}",
+                control::json_string(why)
+            ),
+        ),
+    };
+    if json {
+        let _ = writeln!(stdout, "{}", control::canonical_text(&object));
+        if status != EXIT_OK {
+            let _ = writeln!(stderr, "{human}");
+        }
+    } else if status == EXIT_OK {
+        let _ = writeln!(stdout, "{human}");
+    } else {
+        let _ = writeln!(stderr, "{human}");
+    }
+    status
+}
+
 /// The device key store: the operating system's credential store and, on a Unix host with no
 /// credential service, the encrypted file (C4 §10-§11).
 ///
@@ -291,8 +401,12 @@ fn serve_in_foreground(scope: Scope, stderr: &mut dyn Write) -> i32 {
                     "oac start: the daemon is running ({})",
                     daemon.endpoints().join(", ")
                 );
-                wait_for_stop().await;
-                let _ = writeln!(io::stderr(), "oac start: stopping");
+                let requested = daemon.stop_requested();
+                let why = tokio::select! {
+                    () = wait_for_stop() => "stopping",
+                    () = requested => "stopping (requested over the local IPC)",
+                };
+                let _ = writeln!(io::stderr(), "oac start: {why}");
                 daemon.shutdown().await;
                 0
             }
@@ -333,13 +447,13 @@ const DETACH_WAIT: Duration = Duration::from_secs(20);
 /// in a job object that ends its members with the session; the child asks to leave the job,
 /// and where the system refuses, it runs in the job and ends with it.
 ///
-/// **Residuals (G10).** The detached daemon has no console, so its log (standard error) goes
-/// nowhere, and it can be stopped only by ending the process: on Windows a detached process
-/// gets no console event, so there is no clean shutdown and no presence withdrawal (the
-/// peers see it leave when their liveness lapses). A stop command is G10's.
+/// The detached daemon has no console, so its log (standard error) goes nowhere. It is
+/// stopped cleanly with `oac stop` (G10, #71), over the control endpoint: a detached process
+/// on Windows gets no console event, so that is the only clean shutdown there.
 fn start_detached(scope: &Scope, stderr: &mut dyn Write) -> i32 {
     // Already running: nothing to start.
-    if scope.endpoint("claude").connect_blocking().is_ok() {
+    // The probe is the control endpoint, which has no adapter: it takes no harness's slot.
+    if scope.endpoint(CONTROL_LABEL).connect_blocking().is_ok() {
         let _ = writeln!(stderr, "oac start: the daemon is already running");
         return 0;
     }
@@ -359,7 +473,7 @@ fn start_detached(scope: &Scope, stderr: &mut dyn Write) -> i32 {
     match spawn_detached(&mut command) {
         Ok(child) => wait_until_serving(
             child,
-            || scope.endpoint("claude").connect_blocking().is_ok(),
+            || scope.endpoint(CONTROL_LABEL).connect_blocking().is_ok(),
             DETACH_WAIT,
             stderr,
         ),
@@ -370,8 +484,11 @@ fn start_detached(scope: &Scope, stderr: &mut dyn Write) -> i32 {
     }
 }
 
+/// Starts `command` as `--detach` starts the daemon: no console, its own process group (a
+/// session on Unix), and on Windows outside the caller's job where the system allows it.
+/// Public so that a test starts a stand-in daemon exactly as `oac start --detach` does.
 #[cfg(windows)]
-fn spawn_detached(command: &mut std::process::Command) -> io::Result<std::process::Child> {
+pub fn spawn_detached(command: &mut std::process::Command) -> io::Result<std::process::Child> {
     use std::os::windows::process::CommandExt;
     const DETACHED_PROCESS: u32 = 0x0000_0008;
     const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
@@ -386,8 +503,11 @@ fn spawn_detached(command: &mut std::process::Command) -> io::Result<std::proces
     })
 }
 
+/// Starts `command` as `--detach` starts the daemon: no console, its own process group (a
+/// session on Unix), and on Windows outside the caller's job where the system allows it.
+/// Public so that a test starts a stand-in daemon exactly as `oac start --detach` does.
 #[cfg(unix)]
-fn spawn_detached(command: &mut std::process::Command) -> io::Result<std::process::Child> {
+pub fn spawn_detached(command: &mut std::process::Command) -> io::Result<std::process::Child> {
     use std::os::unix::process::CommandExt;
     // SAFETY: setsid is async-signal-safe and touches no memory of ours.
     unsafe {

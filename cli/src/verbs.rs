@@ -12,8 +12,19 @@ use std::io::{self, Read, Write};
 
 use crate::hook;
 
+/// The exit codes of the `oac` verbs (G10, #71; `docs/planning/v0.1/08-cli-and-deployment.md`
+/// §5): 0 ok, 1 failed or timed out, 2 usage, 3 the daemon is not running (the verbs that
+/// need one; `stop` uses 0, as there is nothing to stop), 4 the daemon is unreachable or
+/// incompatible (a foreign endpoint, busy, a version mismatch).
+pub const EXIT_OK: i32 = 0;
+/// A verb failed, or timed out.
+pub const EXIT_FAILED: i32 = 1;
 /// Exit status for a verb that is missing or unknown (a usage error).
 pub const EXIT_USAGE: i32 = 2;
+/// The daemon is not running (for a verb that needs one).
+pub const EXIT_NOT_RUNNING: i32 = 3;
+/// The daemon is unreachable or incompatible: foreign, busy, or another version.
+pub const EXIT_UNREACHABLE: i32 = 4;
 
 /// The streams of one `oac` invocation.
 pub struct Streams<'a> {
