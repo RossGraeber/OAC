@@ -56,17 +56,21 @@ pub fn probe_credential_store(service: &str) -> CredentialProbe {
         Ok(e) => e,
         Err(e) => return probe_failure(e),
     };
-    if let Err(e) = entry.set_secret(VALUE) {
-        return probe_failure(e);
-    }
-    let read_back = match entry.get_secret() {
-        Ok(v) => Zeroizing::new(v).as_slice() == VALUE,
-        Err(_) => false,
-    };
+    // The delete is attempted even when the write failed: a write that errored after the
+    // store took it must not leave the probe entry behind.
+    let written = entry.set_secret(VALUE);
+    let read_back = written.is_ok()
+        && match entry.get_secret() {
+            Ok(v) => Zeroizing::new(v).as_slice() == VALUE,
+            Err(_) => false,
+        };
     let deleted = match entry.delete_credential() {
         Ok(()) | Err(keyring::Error::NoEntry) => true,
         Err(_) => false,
     };
+    if let Err(e) = written {
+        return probe_failure(e);
+    }
     if read_back && deleted {
         CredentialProbe::Works
     } else {

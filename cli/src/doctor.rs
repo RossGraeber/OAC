@@ -42,7 +42,7 @@ use oac_adapter_claude::UNNEGOTIATED_DETAIL;
 use oac_core::json::{Json, JsonObject};
 
 use crate::control::{self, StatusOutcome, canonical_text, json_string};
-use crate::ipc::{CONTROL_LABEL, Scope};
+use crate::ipc::{CONTROL_LABEL, Scope, scope_name_is_valid};
 use crate::keystore::CredentialProbe;
 use crate::status::clean;
 
@@ -58,6 +58,21 @@ pub const CLAUDE_OUTPUT_LIMIT: u64 = 4096;
 
 /// The environment variable that forces a stdio MCP server to a revision.
 pub const NEGOTIATION_VARIABLE: &str = "MCP_PROTOCOL_NEGOTIATION";
+
+/// The test-only switch that turns the credential probe off. It is honoured only when
+/// `OAC_SCOPE` names a valid test namespace, so it cannot hide a failure on a user's own
+/// host; the tests that run the binary set it so the default tier never touches the host's
+/// real credential store.
+pub const NO_CREDENTIAL_PROBE_VARIABLE: &str = "OAC_DOCTOR_NO_CREDENTIAL_PROBE";
+
+/// What the credential-store step came to: a probe, or the reason none was made.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CredentialOutcome {
+    /// The store was probed.
+    Probed(CredentialProbe),
+    /// It was not probed, for this reason.
+    Skipped(&'static str),
+}
 
 /// The outcome of one check.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -130,7 +145,7 @@ pub struct Probes<'a> {
     /// The value of [`NEGOTIATION_VARIABLE`] in this process's environment.
     pub negotiation: Option<OsString>,
     /// The credential-store probe.
-    pub credential: &'a dyn Fn() -> CredentialProbe,
+    pub credential: &'a dyn Fn() -> CredentialOutcome,
     /// Whether the encrypted-file fallback's key file exists (Unix only; existence only).
     pub fallback_file: Option<bool>,
     /// `claude --version`.
@@ -143,6 +158,28 @@ pub fn credential_service(namespace: Option<&str>) -> String {
     match namespace {
         Some(n) => format!("{}.test.{n}", crate::keystore::SERVICE),
         None => crate::keystore::SERVICE.to_owned(),
+    }
+}
+
+/// Decides, from the raw `OAC_SCOPE`, which credential service to probe, and probes it with
+/// `probe`. **It never probes OAC's real service unless no namespace was asked for**: a
+/// value that is set and is not a valid namespace name (so that no scope was made from it)
+/// is skipped, not treated as "no namespace". A valid namespace probes its own test service
+/// and, when `disable` is set and not empty, is skipped (the test-only switch).
+pub fn credential_outcome(
+    requested: Option<&OsStr>,
+    disable: Option<&OsStr>,
+    probe: &dyn Fn(&str) -> CredentialProbe,
+) -> CredentialOutcome {
+    match requested.filter(|v| !v.is_empty()) {
+        None => CredentialOutcome::Probed(probe(&credential_service(None))),
+        Some(value) => match value.to_str().filter(|n| scope_name_is_valid(n)) {
+            None => CredentialOutcome::Skipped("OAC_SCOPE is not a valid namespace; not probed"),
+            Some(_) if disable.is_some_and(|d| !d.is_empty()) => {
+                CredentialOutcome::Skipped("probe disabled for this test")
+            }
+            Some(name) => CredentialOutcome::Probed(probe(&credential_service(Some(name)))),
+        },
     }
 }
 
@@ -241,52 +278,73 @@ fn ipc_check(scope: &io::Result<Scope>, outcome: Option<&StatusOutcome>) -> Chec
     if cfg!(unix) {
         // `Scope::for_user` refuses a run directory that is not a real directory owned by
         // this user and closed to everyone else, so having a scope is the check.
-        check(
+        return check(
             "ipc_permissions",
             Pass,
             "the run directory is owned by this user and closed to others",
-        )
-    } else if matches!(outcome, Some(StatusOutcome::Running(_))) {
-        // The client reads the pipe's owner and access list from its handle before it sends
-        // a byte, and refuses a pipe that is not this user's alone (`crate::ipc`).
-        check(
-            "ipc_permissions",
-            Pass,
-            "the pipe's owner and access list were verified when connecting",
-        )
-    } else {
-        check(
+        );
+    }
+    // Windows: the client reads the pipe's owner and access list from its handle before it
+    // sends a byte and refuses a pipe that is not this user's alone (`crate::ipc`). An
+    // outcome that came after the connect (an answer, another version, a failed exchange)
+    // means that check passed.
+    match outcome {
+        Some(StatusOutcome::Running(_) | StatusOutcome::Version | StatusOutcome::Failed(_)) => {
+            check(
+                "ipc_permissions",
+                Pass,
+                "the pipe's owner and access list were verified when connecting",
+            )
+        }
+        Some(StatusOutcome::Busy) => check(
             "ipc_permissions",
             Skip,
-            "no pipe to inspect; its owner and access list are verified when connecting",
-        )
+            "the endpoint stayed busy, so no connection was made to verify the pipe",
+        ),
+        _ => check(
+            "ipc_permissions",
+            Skip,
+            "no connection was made, so no pipe was verified; its owner and access list are checked when connecting",
+        ),
     }
 }
 
 fn credential_check(probes: &Probes<'_>) -> Check {
-    use CheckResult::{Fail, Pass};
+    use CheckResult::{Fail, Pass, Skip, Warn};
     let fallback = match probes.fallback_file {
         Some(true) => "; encrypted-file fallback: a key file exists",
         Some(false) => "; encrypted-file fallback: no key file",
         None => "",
     };
     match (probes.credential)() {
-        CredentialProbe::Works => check(
+        CredentialOutcome::Skipped(why) => check("credential_store", Skip, why),
+        CredentialOutcome::Probed(CredentialProbe::Works) => check(
             "credential_store",
             Pass,
             format!("the credential store accepted, returned and deleted a probe value{fallback}"),
         ),
-        CredentialProbe::Unavailable => check(
+        // The daemon falls back to the encrypted file only while the store reports itself
+        // unavailable, and only when the file exists is there a device key to use.
+        CredentialOutcome::Probed(CredentialProbe::Unavailable)
+            if probes.fallback_file == Some(true) =>
+        {
+            check(
+                "credential_store",
+                Warn,
+                "credential store unavailable; the daemon uses the encrypted-file fallback",
+            )
+        }
+        CredentialOutcome::Probed(CredentialProbe::Unavailable) => check(
             "credential_store",
             Fail,
             format!("credential store unavailable{fallback}"),
         ),
-        CredentialProbe::Locked => check(
+        CredentialOutcome::Probed(CredentialProbe::Locked) => check(
             "credential_store",
             Fail,
             format!("credential store unavailable (locked){fallback}"),
         ),
-        CredentialProbe::Failed => check(
+        CredentialOutcome::Probed(CredentialProbe::Failed) => check(
             "credential_store",
             Fail,
             format!("credential store unavailable (the probe failed){fallback}"),
@@ -584,7 +642,7 @@ mod tests {
     fn probes<'a>(
         negotiation: Option<&str>,
         claude: &'a dyn Fn() -> ClaudeVersion,
-        credential: &'a dyn Fn() -> CredentialProbe,
+        credential: &'a dyn Fn() -> CredentialOutcome,
     ) -> Probes<'a> {
         Probes {
             status_wait: Duration::from_millis(200),
@@ -611,7 +669,7 @@ mod tests {
 
     #[test]
     fn the_claude_check_warns_on_a_version_and_skips_when_absent() {
-        let cred = || CredentialProbe::Works;
+        let cred = || CredentialOutcome::Probed(CredentialProbe::Works);
         for (claude, result) in [
             (ClaudeVersion::NotOnPath, CheckResult::Skip),
             (ClaudeVersion::Output("2.1.285".into()), CheckResult::Pass),
@@ -628,7 +686,7 @@ mod tests {
 
     #[test]
     fn the_environment_decides_the_revision_check_when_no_daemon_answers() {
-        let (cred, claude) = (|| CredentialProbe::Works, || ClaudeVersion::NotOnPath);
+        let (cred, claude) = (|| CredentialOutcome::Probed(CredentialProbe::Works), || ClaudeVersion::NotOnPath);
         for (value, result) in [
             (None, CheckResult::Pass),
             (Some("legacy"), CheckResult::Pass),
@@ -649,7 +707,7 @@ mod tests {
             (CredentialProbe::Locked, CheckResult::Fail),
             (CredentialProbe::Failed, CheckResult::Fail),
         ] {
-            let cred = move || probe;
+            let cred = move || CredentialOutcome::Probed(probe);
             let mut p = probes(None, &claude, &cred);
             p.fallback_file = Some(false);
             let c = credential_check(&p);
@@ -662,8 +720,72 @@ mod tests {
     }
 
     #[test]
+    fn an_unavailable_store_with_a_fallback_key_file_is_a_warning_and_locked_is_not() {
+        let claude = || ClaudeVersion::NotOnPath;
+        for (probe, file, result) in [
+            (CredentialProbe::Unavailable, Some(true), CheckResult::Warn),
+            (CredentialProbe::Unavailable, Some(false), CheckResult::Fail),
+            (CredentialProbe::Unavailable, None, CheckResult::Fail),
+            (CredentialProbe::Locked, Some(true), CheckResult::Fail),
+            (CredentialProbe::Failed, Some(true), CheckResult::Fail),
+        ] {
+            let cred = move || CredentialOutcome::Probed(probe);
+            let mut p = probes(None, &claude, &cred);
+            p.fallback_file = file;
+            assert_eq!(credential_check(&p).result, result, "{probe:?} {file:?}");
+        }
+        let skipped = || CredentialOutcome::Skipped("probe disabled for this test");
+        let p = probes(None, &claude, &skipped);
+        let c = credential_check(&p);
+        assert_eq!(c.result, CheckResult::Skip);
+        assert_eq!(c.detail, "probe disabled for this test");
+    }
+
+    #[test]
+    fn a_namespace_that_was_asked_for_never_reaches_the_real_service() {
+        use std::cell::RefCell;
+        let seen = RefCell::new(Vec::<String>::new());
+        let probe = |service: &str| {
+            seen.borrow_mut().push(service.to_owned());
+            CredentialProbe::Works
+        };
+        let real = crate::keystore::SERVICE;
+        // Unset or empty: no namespace was asked for, so the real service is probed.
+        for value in [None, Some(OsStr::new(""))] {
+            seen.borrow_mut().clear();
+            assert!(matches!(
+                credential_outcome(value, None, &probe),
+                CredentialOutcome::Probed(CredentialProbe::Works)
+            ));
+            assert_eq!(*seen.borrow(), [real]);
+        }
+        // Set but not a namespace name (so no scope can be made from it): never probed.
+        for bad in ["Bad!", "UPPER", "a b", "this-name-is-far-too-long-for-a-scope", "x/y"] {
+            seen.borrow_mut().clear();
+            let out = credential_outcome(Some(OsStr::new(bad)), None, &probe);
+            assert!(matches!(out, CredentialOutcome::Skipped(_)), "{bad}");
+            assert!(seen.borrow().is_empty(), "{bad}: {:?}", seen.borrow());
+        }
+        // A valid namespace probes its own test service, never the real one.
+        seen.borrow_mut().clear();
+        let _ = credential_outcome(Some(OsStr::new("abc1")), None, &probe);
+        assert_eq!(seen.borrow().len(), 1);
+        assert_ne!(seen.borrow()[0], real);
+        // The test switch skips a valid namespace, and does nothing without one.
+        seen.borrow_mut().clear();
+        let off = Some(OsStr::new("1"));
+        assert_eq!(
+            credential_outcome(Some(OsStr::new("abc1")), off, &probe),
+            CredentialOutcome::Skipped("probe disabled for this test")
+        );
+        assert!(seen.borrow().is_empty());
+        let _ = credential_outcome(None, off, &probe);
+        assert_eq!(*seen.borrow(), [real], "the switch is ignored outside a namespace");
+    }
+
+    #[test]
     fn an_unusable_run_directory_fails_the_permission_check_and_the_daemon_check() {
-        let (cred, claude) = (|| CredentialProbe::Works, || ClaudeVersion::NotOnPath);
+        let (cred, claude) = (|| CredentialOutcome::Probed(CredentialProbe::Works), || ClaudeVersion::NotOnPath);
         let p = probes(None, &claude, &cred);
         let scope = Err(io::Error::new(
             io::ErrorKind::PermissionDenied,

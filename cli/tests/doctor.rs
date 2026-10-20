@@ -4,12 +4,13 @@
 //!
 //! The daemon runs in this process over the in-memory transport, in a test namespace, as in
 //! `tests/status.rs`; `oac start` itself is never run (it would make the user's device key).
-//! The `oac doctor` that checks it is a separate process (`oac` built by cargo). The doctor
-//! probes the credential store under a service of its own for a test namespace
-//! (`doctor::credential_service`), never OAC's real one, and a host with no credential
-//! service makes that one check FAIL, so the tests that run the binary do not assert it; the
-//! opt-in test at the end asserts it. Every read from a child is on a thread with a bound,
-//! and every child is killed when its guard is dropped (a known Linux hang, #435).
+//! The `oac doctor` that checks it is a separate process (`oac` built by cargo). The default
+//! tier never touches the host's real credential store: every run of the binary sets the
+//! test-only switch `OAC_DOCTOR_NO_CREDENTIAL_PROBE` (honoured only inside a test namespace),
+//! which makes `credential_store` SKIP "probe disabled for this test". The opt-in test at the
+//! end probes a test service for real. Every read from a child is on a thread with a bound,
+//! and every child is killed when its guard is dropped, a panic included (a known Linux
+//! hang, #435).
 //!
 //! Proven here: no daemon is `daemon` FAIL, `transport` SKIP and exit 1; a running daemon
 //! passes the checks that can pass, and zero trusted devices and grants is a `pairing`
@@ -26,7 +27,7 @@ use std::time::{Duration, Instant};
 
 use oac_adapter_claude::ClaudeAdapter;
 use oac_cli::daemon::{Daemon, LogSink, Options, Parts};
-use oac_cli::doctor::{self, ClaudeVersion, Probes};
+use oac_cli::doctor::{self, ClaudeVersion, CredentialOutcome, Probes};
 use oac_cli::ipc::Scope;
 use oac_cli::keystore::CredentialProbe;
 use oac_core::clock::{Clock, SystemClock};
@@ -210,7 +211,7 @@ impl Rig {
 }
 
 fn checks_in(scope: &std::io::Result<Scope>, negotiation: Option<&str>) -> Vec<doctor::Check> {
-    let credential = || CredentialProbe::Works;
+    let credential = || CredentialOutcome::Probed(CredentialProbe::Works);
     let claude = || ClaudeVersion::Output("2.1.285 (Claude Code)".to_owned());
     let probes = Probes {
         status_wait: Duration::from_secs(10),
@@ -290,6 +291,7 @@ fn run_doctor(
         .arg("doctor")
         .args(args)
         .env_remove(doctor::NEGOTIATION_VARIABLE)
+        .env(doctor::NO_CREDENTIAL_PROBE_VARIABLE, "1")
         .env("PATH", path)
         .stdin(Stdio::null());
     match namespace {
@@ -302,21 +304,29 @@ fn run_doctor(
     run_bounded(&mut command, WAIT)
 }
 
-fn run_bounded(command: &mut Command, wait: Duration) -> Finished {
-    let mut child = command
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("the command starts");
-    let (out, err) = (
-        output_reader(&mut child, true),
-        output_reader(&mut child, false),
-    );
-    let status = wait_for_exit(&mut child, wait);
-    if status.is_none() {
-        let _ = child.kill();
-        let _ = child.wait();
+/// A child killed and reaped when the guard drops, however the test ends (a panic included).
+struct Guard(Child);
+
+impl Drop for Guard {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
     }
+}
+
+fn run_bounded(command: &mut Command, wait: Duration) -> Finished {
+    let mut child = Guard(
+        command
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("the command starts"),
+    );
+    let (out, err) = (
+        output_reader(&mut child.0, true),
+        output_reader(&mut child.0, false),
+    );
+    let status = wait_for_exit(&mut child.0, wait);
     Finished {
         status,
         stdout: out.recv_timeout(Duration::from_secs(5)).unwrap_or_default(),
@@ -395,11 +405,14 @@ fn with_no_daemon_the_daemon_check_fails_the_transport_is_skipped_and_the_exit_i
     // No `claude` on PATH, and the negotiation variable is not set.
     assert_eq!(result(&report, "claude_version"), "skip");
     assert_eq!(result(&report, "mcp_revision"), "pass");
-    // The credential check ran against a test service; this host may have no store.
-    assert!(matches!(
-        result(&report, "credential_store"),
-        "pass" | "fail"
-    ));
+    // The default tier never probes the host's real credential store.
+    assert_eq!(result(&report, "credential_store"), "skip");
+    assert!(
+        report
+            .iter()
+            .any(|(n, _, d)| n == "credential_store" && d == "probe disabled for this test"),
+        "{report:?}"
+    );
     // The human form: one line per check and a count.
     let human = run_doctor(Some(&namespace), &[], &[], &path.0);
     assert_eq!(human.code(), Some(1));
@@ -416,6 +429,20 @@ fn with_no_daemon_the_daemon_check_fails_the_transport_is_skipped_and_the_exit_i
         human.stdout
     );
     assert!(human.stderr.contains(&namespace), "{}", human.stderr);
+}
+
+#[test]
+fn an_oac_scope_that_is_not_a_namespace_name_never_probes_the_credential_store() {
+    // No scope can be made from the value, and the real credential service must not be used
+    // in its place: the check is skipped, the run directory check fails, and the exit is 1.
+    let path = empty_path();
+    for bad in ["BAD!", "has space"] {
+        let out = run_doctor(Some(bad), &["--json"], &[], &path.0);
+        let report = out.report();
+        assert_eq!(result(&report, "credential_store"), "skip", "{bad}: {report:?}");
+        assert_eq!(result(&report, "daemon"), "fail", "{bad}");
+        assert_eq!(out.code(), Some(1), "{bad}");
+    }
 }
 
 #[test]
@@ -472,7 +499,7 @@ fn a_running_daemon_passes_the_checks_that_can_pass_and_pairing_warns_with_no_ke
     assert!(doctor::all_clear(&checks), "warnings are not failures");
 
     // The same through the verb's own writer: exit 0 (a WARN does not fail).
-    let credential = || CredentialProbe::Works;
+    let credential = || CredentialOutcome::Probed(CredentialProbe::Works);
     let claude = || ClaudeVersion::NotOnPath;
     let probes = Probes {
         status_wait: Duration::from_secs(10),
@@ -486,7 +513,7 @@ fn a_running_daemon_passes_the_checks_that_can_pass_and_pairing_warns_with_no_ke
     assert_eq!(code, 0, "{}", String::from_utf8_lossy(&out));
 
     // And the real binary, in the same namespace: the daemon and transport checks agree.
-    // The credential store of this host is not asserted here (see the module comment).
+    // The credential store is not probed here (see the module comment).
     let path = empty_path();
     let real = rig.oac_doctor(&["--json"], &[], &path.0);
     let report = real.report();
@@ -495,12 +522,8 @@ fn a_running_daemon_passes_the_checks_that_can_pass_and_pairing_warns_with_no_ke
     assert_eq!(result(&report, "pairing"), "warn");
     assert_eq!(result(&report, "mcp_revision"), "pass");
     assert_eq!(result(&report, "codex"), "skip");
-    let expected = if result(&report, "credential_store") == "pass" {
-        0
-    } else {
-        1
-    };
-    assert_eq!(real.code(), Some(expected), "{}", real.stdout);
+    assert_eq!(result(&report, "credential_store"), "skip");
+    assert_eq!(real.code(), Some(0), "{}", real.stdout);
 }
 
 #[test]
@@ -593,10 +616,12 @@ fn the_probe_entry_is_not_the_device_keys() {
 }
 
 /// Opt-in (`oac-testing` §2): the real operating-system credential store, under a service of
-/// a test namespace. Writes, reads back and deletes the probe entry, and leaves nothing.
+/// a test namespace. Writes, reads back and deletes the probe entry, and leaves nothing. The
+/// name contains `real_credential_store_round_trip`, so the keystore tier's existing filter
+/// (`local-ci.mjs` steps `keystore-os-store` and `keystore-secret-service`) runs it.
 #[test]
 #[ignore = "opt-in: touches the real credential store; set OAC_TEST_REAL_KEYRING=1 and pass --ignored"]
-fn the_credential_probe_round_trips_against_a_test_service() {
+fn doctor_probe_real_credential_store_round_trip() {
     assert_eq!(
         std::env::var("OAC_TEST_REAL_KEYRING").as_deref(),
         Ok("1"),

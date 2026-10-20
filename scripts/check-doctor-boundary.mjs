@@ -12,6 +12,7 @@
 // Scope: every git-tracked .rs file under cli/src/. Forbidden, case-insensitively, anywhere
 // in the text (comments included, so that a doc comment cannot hide a read):
 //   auth.json   .credentials.json   .sqlite   CODEX_HOME   CLAUDE_CONFIG_DIR
+//   .claude.json   .codex   .claude/   (the default locations of a harness's own files)
 // ALLOW lists the legitimate mentions, one exact trimmed line each with its reason. An entry
 // that no longer matches fails (stale). It is empty: nothing in cli/src names any of them.
 //
@@ -27,7 +28,7 @@ import { fileURLToPath } from 'node:url';
 const scriptPath = fileURLToPath(import.meta.url);
 const repoRoot = resolve(dirname(scriptPath), '..');
 
-export const FORBIDDEN = ['auth.json', '.credentials.json', '.sqlite', 'CODEX_HOME', 'CLAUDE_CONFIG_DIR'];
+export const FORBIDDEN = ['auth.json', '.credentials.json', '.sqlite', 'CODEX_HOME', 'CLAUDE_CONFIG_DIR', '.claude.json', '.codex', '.claude/'];
 // { file, line (exact, trimmed), reason }
 export const ALLOW = [];
 
@@ -68,6 +69,10 @@ function selfTest() {
       expect(`${word} in a comment fails`, scan(dir, []).length === 1);
       put(`let p = home.join("${word.toUpperCase()}");\n`);
       expect(`${word} in code (any case) fails`, scan(dir, []).length === 1);
+    }
+    for (const word of ['codex_home', 'claude_config_dir', 'Codex_Home']) {
+      put(`std::env::var_os("${word}");\n`);
+      expect(`${word} (other case) fails`, scan(dir, []).length === 1);
     }
     put('let a = "auth.json";\n');
     expect('an allowed exact line passes', scan(dir, [{ file: 'cli/src/x.rs', line: 'let a = "auth.json";', reason: 't' }]).length === 0);

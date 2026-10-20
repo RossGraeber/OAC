@@ -211,8 +211,9 @@ unless a check fails.
 
 **Never read.** Doctor never reads a harness's credential file (`auth.json`,
 `.credentials.json`), a `*.sqlite` file, or the contents of `CODEX_HOME` or
-`CLAUDE_CONFIG_DIR`, and never scrapes a UI (ADR-001 Boundary). `scripts/local-ci.mjs` step
-`doctor-boundary` fails if a file in `cli/src` names any of those words.
+`CLAUDE_CONFIG_DIR` or their default locations (`~/.codex`, `~/.claude/`, `~/.claude.json`), and
+never scrapes a UI (ADR-001 Boundary). `scripts/local-ci.mjs` step `doctor-boundary` fails if a
+file in `cli/src` names any of those words.
 
 **Report shape.** Each check reports on its own, whatever the others found. `oac doctor`
 exits `0` unless a check fails.

@@ -856,7 +856,7 @@ impl ProviderAdapter for ClaudeAdapter {
                 0 => HealthStatus::new(HealthState::Healthy),
                 n => HealthStatus::with_detail(
                     HealthState::Degraded,
-                    format!("{n} connection(s) did not complete a legacy MCP revision negotiation"),
+                    format!("{n} connection(s) {UNNEGOTIATED_DETAIL}"),
                 ),
             }
         }

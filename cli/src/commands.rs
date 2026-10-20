@@ -473,16 +473,24 @@ pub fn doctor(args: &[String]) -> i32 {
     // A scope that cannot be made (a run directory that is not private) is a finding, not a
     // reason to stop: the report says so.
     let scope = Scope::for_user();
-    let namespace = scope
-        .as_ref()
-        .ok()
-        .and_then(|s| s.namespace().map(str::to_owned));
-    if let Some(namespace) = &namespace {
+    let requested = std::env::var_os("OAC_SCOPE");
+    if let Ok(s) = &scope
+        && let Some(namespace) = s.namespace()
+    {
         let _ = writeln!(stderr, "oac doctor: using the test namespace {namespace:?}");
     }
-    let service = doctor::credential_service(namespace.as_deref());
+    // The credential service is decided from the raw `OAC_SCOPE`, not from whether the scope
+    // could be made: a namespace that was asked for and failed must never reach the real
+    // service (`doctor::credential_outcome`).
+    let disable = std::env::var_os(doctor::NO_CREDENTIAL_PROBE_VARIABLE);
+    let credential = move || {
+        doctor::credential_outcome(
+            requested.as_deref(),
+            disable.as_deref(),
+            &keystore::probe_credential_store,
+        )
+    };
     let path = std::env::var_os("PATH");
-    let credential = move || keystore::probe_credential_store(&service);
     let claude = move || doctor::probe_claude(path.as_deref(), doctor::CLAUDE_WAIT);
     let probes = doctor::Probes {
         status_wait: STATUS_WAIT,
@@ -503,11 +511,9 @@ pub fn doctor_with(
 ) -> i32 {
     let checks = doctor::run(scope, probes);
     let report = if json {
-        format!(
-            "{}
-",
-            doctor::render_json(&checks)
-        )
+        let mut line = doctor::render_json(&checks);
+        line.push('\n');
+        line
     } else {
         doctor::render_human(&checks)
     };
