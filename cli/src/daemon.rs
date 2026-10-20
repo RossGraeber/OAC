@@ -43,7 +43,7 @@ use std::fmt;
 use std::future::Future;
 use std::io::Write;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use oac_core::adapter::{ConnectionHandle, ProviderAdapter};
 use oac_core::authorization::{AuthorizationEngine, DecisionLog, LogEntry, RestoreError};
@@ -67,6 +67,7 @@ use crate::ipc::{
 use crate::logfile::LogFile;
 use crate::peer::{self, ProcessTable};
 use crate::relay;
+use crate::status::DaemonStatus;
 
 /// The longest the timer task sleeps.
 const TICK: Duration = Duration::from_secs(1);
@@ -166,6 +167,14 @@ impl LogSink {
     pub fn with_default_file_after_lock(self, namespace: Option<&str>) -> LogSink {
         let namespace = namespace.map(str::to_owned);
         self.with_file_opener(move || LogFile::open(namespace.as_deref()))
+    }
+
+    /// The path of the log file, once it is open; `None` for a sink with no file, one whose
+    /// file is not open yet, and one whose file could not be opened.
+    pub fn file_path(&self) -> Option<std::path::PathBuf> {
+        let file = self.file.as_ref()?;
+        let log = file.lock().unwrap_or_else(|e| e.into_inner());
+        log.file.as_ref().map(LogFile::path)
     }
 
     /// Opens the log file, if the sink was given an opener. Called by `Daemon::start` right
@@ -408,6 +417,7 @@ impl Daemon {
         }
 
         // 1. One daemon per user, before the key is read.
+        let started = Instant::now();
         let lock = scope.acquire_lock().await?;
         // The log file is opened only now: a start that lost the race to a running daemon
         // must not rotate, repair or otherwise touch that daemon's file.
@@ -443,8 +453,10 @@ impl Daemon {
         let (stop, stopped) = watch::channel(false);
         let mut tasks: Vec<JoinHandle<()>> = Vec::new();
         let mut endpoints = Vec::new();
+        let mut labelled: Vec<(AdapterId, String)> = Vec::new();
         for (label, adapter) in harnesses {
             let id = pipelines.add_adapter(adapter);
+            labelled.push((id, label.clone()));
             let endpoint = scope.endpoint(&label);
             let listener = match endpoint.serve(&lock).await {
                 Ok(l) => l,
@@ -469,7 +481,17 @@ impl Daemon {
             })));
         }
         // 5. The control endpoint: the same lock, the same serve and accept, no adapter.
-        let control = Control::new(log.clone());
+        let mut served: Vec<String> = labelled.iter().map(|(_, l)| l.clone()).collect();
+        served.push(CONTROL_LABEL.to_owned());
+        let status = Arc::new(DaemonStatus::new(
+            pipelines.clone(),
+            labelled,
+            served,
+            scope.namespace().map(str::to_owned),
+            started,
+            log.clone(),
+        ));
+        let control = Control::new(log.clone(), status);
         let control_endpoint = scope.endpoint(CONTROL_LABEL);
         match control_endpoint.serve(&lock).await {
             Ok(listener) => {

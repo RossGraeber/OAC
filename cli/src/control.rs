@@ -25,6 +25,14 @@
 //! streams are held here, not in the daemon's task list, which shutdown awaits: a waiter held
 //! there would deadlock the shutdown it waits for.
 //!
+//! **Status** (G10, #71, slice 3). `{"oac_control":1,"op":"status"}` is answered with one JSON
+//! line, `{"oac_control":1,"status":{...}}` (members: `crate::status`), and the connection is
+//! closed. The snapshot is the core's ([`oac_core::pipeline::Pipelines::status`]) plus what
+//! the daemon knows of itself; it holds no harness-native id and no working directory. It is
+//! computed off the runtime's thread, at most one at a time (a further request is answered
+//! `busy` and retried by the client), and within [`STATUS_DEADLINE`]: an adapter or a
+//! transport whose `health` hangs is answered `timeout`, not waited for.
+//!
 //! A same-user process can already end the daemon by killing it, so this adds no authority
 //! the user's processes did not have; it only makes the stop clean (`RISK-LOCAL-IPC`).
 
@@ -40,6 +48,7 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore, watch};
 
 use crate::daemon::LogSink;
 use crate::ipc::{Accept, AsyncStream, ConnectError, Endpoint, Listener};
+use crate::status::DaemonStatus;
 
 /// The version of this protocol.
 pub const VERSION: u64 = 1;
@@ -52,6 +61,13 @@ const WRITE_DEADLINE: Duration = Duration::from_secs(2);
 /// The most control connections served at once.
 pub const MAX_CONNECTIONS: usize = 4;
 
+/// How long the daemon computes a status snapshot before it answers `timeout`.
+pub const STATUS_DEADLINE: Duration = Duration::from_secs(5);
+/// The longest status reply the client reads, in bytes.
+const MAX_STATUS_REPLY: u64 = 1 << 20;
+
+/// The request `oac status` sends.
+pub const STATUS_REQUEST: &str = "{\"oac_control\":1,\"op\":\"status\"}\n";
 /// The request `oac stop` sends.
 pub const STOP_REQUEST: &str = "{\"oac_control\":1,\"op\":\"stop\"}\n";
 /// The reply that confirms the daemon has finished stopping.
@@ -60,6 +76,7 @@ const BUSY_REPLY: &str = "{\"error\":\"busy\",\"oac_control\":1}\n";
 const TOO_LARGE_REPLY: &str = "{\"error\":\"too_large\",\"oac_control\":1}\n";
 const MALFORMED_REPLY: &str = "{\"error\":\"malformed\",\"oac_control\":1}\n";
 const UNKNOWN_OP_REPLY: &str = "{\"error\":\"unknown_op\",\"oac_control\":1}\n";
+const TIMEOUT_REPLY: &str = "{\"error\":\"timeout\",\"oac_control\":1}\n";
 const VERSION_REPLY: &str = "{\"error\":\"version\",\"oac_control\":1,\"supported\":1}\n";
 
 /// A request the daemon understands.
@@ -67,6 +84,8 @@ const VERSION_REPLY: &str = "{\"error\":\"version\",\"oac_control\":1,\"supporte
 pub enum Request {
     /// Stop the daemon cleanly.
     Stop,
+    /// Answer with a status snapshot.
+    Status,
 }
 
 /// Why a request is refused.
@@ -114,6 +133,7 @@ pub fn parse_request(line: &[u8]) -> Result<Request, Refusal> {
     }
     match object.get("op").and_then(Json::as_str) {
         Some("stop") => Ok(Request::Stop),
+        Some("status") => Ok(Request::Status),
         Some(_) => Err(Refusal::UnknownOp),
         None => Err(Refusal::Malformed),
     }
@@ -186,12 +206,15 @@ pub struct Control {
     permits: Arc<Semaphore>,
     stop: watch::Sender<bool>,
     waiters: Mutex<Waiters>,
+    /// One status snapshot is computed at a time.
+    status_gate: Arc<Semaphore>,
+    status: Arc<DaemonStatus>,
     log: LogSink,
 }
 
 impl Control {
     /// A control endpoint's state.
-    pub fn new(log: LogSink) -> Arc<Control> {
+    pub fn new(log: LogSink, status: Arc<DaemonStatus>) -> Arc<Control> {
         Arc::new(Control {
             permits: Arc::new(Semaphore::new(MAX_CONNECTIONS)),
             stop: watch::channel(false).0,
@@ -199,6 +222,8 @@ impl Control {
                 closed: false,
                 streams: Vec::new(),
             }),
+            status_gate: Arc::new(Semaphore::new(1)),
+            status,
             log,
         })
     }
@@ -263,6 +288,7 @@ impl Control {
         let refusal = match read_request(&mut *stream).await {
             Ok(line) => match parse_request(&line) {
                 Ok(Request::Stop) => return self.stop_requested_by(stream, permit).await,
+                Ok(Request::Status) => return self.status_requested_by(stream, permit).await,
                 Err(refusal) => refusal,
             },
             Err(ReadEnd::Silent) => return,
@@ -276,6 +302,35 @@ impl Control {
         self.log
             .line(&format!("refused a control request: {refusal:?}"));
         write_line(&mut *stream, refusal.reply()).await;
+    }
+
+    async fn status_requested_by(
+        &self,
+        mut stream: Box<dyn AsyncStream>,
+        _permit: OwnedSemaphorePermit,
+    ) {
+        let Ok(gate) = self.status_gate.clone().try_acquire_owned() else {
+            write_line(&mut *stream, BUSY_REPLY).await;
+            return;
+        };
+        let status = self.status.clone();
+        // The gate is held by the blocking task itself, so a snapshot that outlives its
+        // deadline still counts as the one in flight until it really ends.
+        let computing = tokio::task::spawn_blocking(move || {
+            let reply = status.reply();
+            drop(gate);
+            reply
+        });
+        let reply = match tokio::time::timeout(STATUS_DEADLINE, computing).await {
+            Ok(Ok(text)) => text,
+            _ => {
+                self.log.line(
+                    "a status request was not answered in time (the transport or an adapter did not report its health)",
+                );
+                TIMEOUT_REPLY.to_owned()
+            }
+        };
+        write_line(&mut *stream, &reply).await;
     }
 
     async fn stop_requested_by(
@@ -456,6 +511,104 @@ fn attempt(endpoint: &Endpoint, deadline: Instant) -> StopOutcome {
     }
 }
 
+/// How `oac status` ended.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum StatusOutcome {
+    /// No daemon serves the control endpoint.
+    NotRunning,
+    /// The daemon answered: the members of its `status` object.
+    Running(json::JsonObject),
+    /// The daemon speaks another protocol version.
+    Version,
+    /// Every control place of the daemon stayed in use until the deadline.
+    Busy,
+    /// The endpoint is served by another user's process, or the operating system refused:
+    /// nothing was sent.
+    Unreachable(String),
+    /// The daemon answered, and not with a status.
+    Failed(String),
+}
+
+/// Asks the daemon at `endpoint` for its status and waits at most `wait` for the answer.
+///
+/// A daemon that answers `busy` (four control connections are in use, or a snapshot is
+/// being computed) is asked again until the deadline; only a daemon still busy then is
+/// [`StatusOutcome::Busy`].
+pub fn request_status(endpoint: &Endpoint, wait: Duration) -> StatusOutcome {
+    let deadline = Instant::now() + wait;
+    loop {
+        match attempt_status(endpoint, deadline) {
+            StatusOutcome::Busy if Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            other => return other,
+        }
+    }
+}
+
+fn attempt_status(endpoint: &Endpoint, deadline: Instant) -> StatusOutcome {
+    let mut stream = match endpoint.connect_blocking() {
+        Ok(s) => s,
+        Err(ConnectError::NotRunning) => return StatusOutcome::NotRunning,
+        Err(ConnectError::Busy) => return StatusOutcome::Busy,
+        Err(e) => return StatusOutcome::Unreachable(e.to_string()),
+    };
+    if let Err(e) = stream
+        .write_all(STATUS_REQUEST.as_bytes())
+        .and_then(|()| stream.flush())
+    {
+        return StatusOutcome::Failed(format!("the request could not be sent: {e}"));
+    }
+    // As in `attempt`: a synchronous Windows pipe handle has no read timeout, so the read is
+    // on a thread, the wait is on the channel, and the read is capped.
+    let (tx, rx) = std::sync::mpsc::channel::<Option<String>>();
+    let spawned = std::thread::Builder::new()
+        .name("oac-status-read".into())
+        .spawn(move || {
+            let mut reader = io::BufReader::new(stream.take(MAX_STATUS_REPLY));
+            let mut line = String::new();
+            let _ = match reader.read_line(&mut line) {
+                Ok(0) | Err(_) => tx.send(None),
+                Ok(_) => tx.send(Some(line)),
+            };
+        });
+    if let Err(e) = spawned {
+        return StatusOutcome::Failed(format!("the reply could not be read: {e}"));
+    }
+    let left = deadline.saturating_duration_since(Instant::now());
+    let text = match rx.recv_timeout(left) {
+        Err(_) => {
+            return StatusOutcome::Failed("the daemon did not answer in time".to_owned());
+        }
+        Ok(None) => {
+            return StatusOutcome::Failed(
+                "the daemon closed the connection without an answer".to_owned(),
+            );
+        }
+        Ok(Some(text)) => text,
+    };
+    let Some(value) = json::parse(text.trim_end().as_bytes())
+        .ok()
+        .and_then(Json::into_object)
+    else {
+        return StatusOutcome::Failed("the daemon's answer was not understood".to_owned());
+    };
+    if let Some(error) = value.get("error").and_then(Json::as_str) {
+        return match error {
+            "version" => StatusOutcome::Version,
+            "busy" => StatusOutcome::Busy,
+            "timeout" => {
+                StatusOutcome::Failed("the daemon could not collect its status in time".to_owned())
+            }
+            other => StatusOutcome::Failed(format!("the daemon refused: {other}")),
+        };
+    }
+    match value.get("status").and_then(Json::as_object) {
+        Some(status) => StatusOutcome::Running(status.clone()),
+        None => StatusOutcome::Failed("the daemon's answer was not a status".to_owned()),
+    }
+}
+
 /// Canonical (RFC 8785) text of the JSON object `text`; `text` itself when it is not one.
 pub fn canonical_text(text: &str) -> String {
     json::parse(text.as_bytes())
@@ -488,6 +641,8 @@ mod tests {
     fn the_constant_lines_are_canonical_json() {
         for line in [
             STOP_REQUEST,
+            STATUS_REQUEST,
+            TIMEOUT_REPLY,
             STOPPED_REPLY,
             BUSY_REPLY,
             TOO_LARGE_REPLY,
@@ -508,6 +663,10 @@ mod tests {
             parse_request(STOP_REQUEST.trim_end().as_bytes()),
             Ok(Request::Stop)
         );
+        assert_eq!(
+            parse_request(STATUS_REQUEST.trim_end().as_bytes()),
+            Ok(Request::Status)
+        );
         // Members this version does not know are ignored.
         assert_eq!(
             parse_request(br#"{"oac_control":1,"op":"stop","x":[1]}"#),
@@ -526,7 +685,7 @@ mod tests {
                 Refusal::Malformed,
             ),
             (br#"{"oac_control":2,"op":"stop"}"#, Refusal::Version),
-            (br#"{"oac_control":1,"op":"status"}"#, Refusal::UnknownOp),
+            (br#"{"oac_control":1,"op":"restart"}"#, Refusal::UnknownOp),
         ];
         for (line, why) in cases {
             assert_eq!(

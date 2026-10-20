@@ -388,6 +388,12 @@ impl PresenceRegistry {
         self.own.contains_key(session)
     }
 
+    /// Every own session's descriptor and whether it is withheld ([SC-ID-154]), ordered by
+    /// session id.
+    pub fn own_sessions(&self) -> impl Iterator<Item = (&SessionDescriptor, bool)> {
+        self.own.values().map(|o| (&o.descriptor, o.withheld))
+    }
+
     /// The descriptor an own session currently announces.
     pub fn own_descriptor(&self, session: &SessionId) -> Option<&SessionDescriptor> {
         self.own.get(session).map(|o| &o.descriptor)

@@ -33,6 +33,7 @@ use oac_core::keys::{DeviceIdentity, DeviceKey};
 use oac_core::pairing::{MemoryPairingStore, PairedPeer};
 use oac_core::pipeline::{AdapterId, PipelineConfig, PipelineError, Pipelines};
 use oac_core::receipt::DeliveryReceipt;
+use oac_core::status::{SessionState, StatusCounts};
 use oac_core::session_binding::{
     BindingLog, BindingLogEntry, BindingResult, MemoryBindingLog, PairingKey, PeerObservation,
     RecordKind,
@@ -311,6 +312,10 @@ struct TestAdapter {
     carrier_next: Mutex<bool>,
     /// The cross-check value reported with the next `attachment-opened`.
     cross_check_next: Mutex<Option<String>>,
+    /// What `health` answers.
+    health: Mutex<HealthStatus>,
+    /// Run at every `health` call, before it answers.
+    on_health: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
 }
 
 impl TestAdapter {
@@ -334,6 +339,8 @@ impl TestAdapter {
             on_unset_binding: Mutex::default(),
             carrier_next: Mutex::default(),
             cross_check_next: Mutex::default(),
+            health: Mutex::new(HealthStatus::new(HealthState::Healthy)),
+            on_health: Mutex::default(),
         })
     }
 
@@ -443,7 +450,11 @@ impl ProviderAdapter for TestAdapter {
     }
 
     fn health(&self) -> HealthStatus {
-        HealthStatus::new(HealthState::Healthy)
+        let hook = self.on_health.lock().unwrap().clone();
+        if let Some(hook) = hook {
+            hook();
+        }
+        self.health.lock().unwrap().clone()
     }
 
     fn shutdown(&self) {
@@ -3885,4 +3896,121 @@ fn local_native_signals_are_decided_in_the_order_they_were_reported() {
         assert!(n.pipes.binding(&a).is_some(), "round {round}");
         n.pipes.shutdown();
     }
+}
+
+// ---- the status snapshot (G10, #71) ---------------------------------------------------------
+
+/// The snapshot reports the transport's and each adapter's health as each answered, this
+/// device's own sessions with their agreed capabilities, and what the core holds.
+#[test]
+fn status_reports_health_sessions_and_counts() {
+    let bus = Bus::default();
+    let n = node(&bus, "device-a", PipelineConfig::default());
+    let empty = n.pipes.status();
+    assert_eq!(empty.transport, HealthStatus::new(HealthState::Healthy));
+    assert_eq!(empty.adapters.len(), 1);
+    assert_eq!(empty.adapters[0].adapter, n.adapter_id);
+    assert_eq!(empty.adapters[0].health, HealthStatus::new(HealthState::Healthy));
+    assert!(empty.sessions.is_empty());
+    assert_eq!(empty.counts, StatusCounts::default());
+
+    *n.adapter.health.lock().unwrap() = HealthStatus::with_detail(HealthState::Degraded, "slow");
+    let degraded = n.pipes.status();
+    assert_eq!(degraded.adapters[0].health.state, HealthState::Degraded);
+    assert_eq!(degraded.adapters[0].health.detail.as_deref(), Some("slow"));
+
+    let (_a, sid) = session(&n, 7);
+    let (_b, other) = session(&n, 8);
+    let conn = Connection::accept(Default::default(), Default::default());
+    n.pipes.connect(n.adapter_id, conn).unwrap();
+    local_grant(&n, &sid, &other);
+    let s = n.pipes.status();
+    assert_eq!(s.sessions.len(), 2);
+    let mine = s.sessions.iter().find(|x| x.session_id == sid).unwrap();
+    assert_eq!(mine.harness_label, Token::parse("test-harness"));
+    assert_eq!(mine.state, SessionState::Online);
+    let caps = mine.capabilities.as_ref().expect("agreed capabilities");
+    assert!(caps.active_inbound);
+    assert_eq!(s.counts.open_connections, 3);
+    assert_eq!(s.counts.unbound_attachments, 1);
+    assert_eq!(s.counts.pending_signals, 0);
+    assert_eq!(s.counts.held_signals, 0);
+    assert_eq!(s.counts.trusted_devices, 0, "this device's own key is not counted");
+    assert_eq!(s.counts.grants, 1);
+    assert_eq!(s.counts.discarded_frames, 0);
+}
+
+/// A session ending leaves the list, and a held native signal is counted.
+#[test]
+fn status_counts_held_signals_and_forgets_ended_sessions() {
+    let bus = Bus::default();
+    let n = node(&bus, "device-a", PipelineConfig::default());
+    let (a, _sid) = session(&n, 3);
+    assert_eq!(n.pipes.status().sessions.len(), 1);
+    n.pipes.unbind(&a);
+    assert!(n.pipes.status().sessions.is_empty());
+    // A signal from a carrier, before its attachment opens, is held for the window.
+    let c = carrier(&n, "harness-1");
+    n.adapter
+        .emit(signal(Some(&c), "native-x", StartKind::Fresh, None));
+    let held = n.pipes.status();
+    assert_eq!(held.counts.held_signals, 1);
+    // Its attachment opens: the signal pairs and binds, and nothing is held.
+    let _ = observed_attachment(&n, "harness-1", Some("native-x"));
+    let paired = n.pipes.status();
+    assert_eq!(paired.counts.held_signals, 0);
+    assert_eq!(paired.sessions.len(), 1);
+}
+
+/// [IFC-TYP-020], [IFC-TYP-092]: the snapshot of a device with a bound session names
+/// neither the harness-native id nor the working directory it was bound with.
+#[test]
+fn status_names_no_native_id_and_no_working_directory() {
+    let bus = Bus::default();
+    let n = node(&bus, "device-a", PipelineConfig::default());
+    let a = observed_attachment(&n, "harness-1", Some("native-secret-id"));
+    n.adapter.emit(signal(
+        Some(&a),
+        "native-secret-id",
+        StartKind::Fresh,
+        None,
+    ));
+    let bound = n.pipes.binding(&a).expect("bound");
+    let status = n.pipes.status();
+    assert_eq!(status.sessions.len(), 1);
+    assert_eq!(status.sessions[0].session_id, bound);
+    let text = format!("{status:?}");
+    for forbidden in ["native-secret-id", "/work"] {
+        assert!(!text.contains(forbidden), "{forbidden:?} in {text}");
+    }
+}
+
+/// The core asks the transport and the adapters with no lock held: a `health` that calls
+/// back into the core is answered. (A held lock would block it for ever; the call runs on a
+/// thread and is waited for with a bound.)
+#[test]
+fn status_asks_the_adapters_with_no_core_lock_held() {
+    let bus = Bus::default();
+    let n = node(&bus, "device-a", PipelineConfig::default());
+    let (att, sid) = session(&n, 5);
+    let inside = n.pipes.clone();
+    let sid_inside = sid.clone();
+    let asked = Arc::new(AtomicUsize::new(0));
+    let counted = asked.clone();
+    *n.adapter.on_health.lock().unwrap() = Some(Arc::new(move || {
+        // Both take the core's lock.
+        assert_eq!(inside.binding(&att), Some(sid_inside.clone()));
+        inside.with_engine(|e| e.grants().len());
+        counted.fetch_add(1, Ordering::SeqCst);
+    }));
+    let pipes = n.pipes.clone();
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(pipes.status());
+    });
+    let status = rx
+        .recv_timeout(WAIT)
+        .expect("status returned: no lock was held across the adapter's health");
+    assert_eq!(asked.load(Ordering::SeqCst), 1);
+    assert_eq!(status.sessions[0].session_id, sid);
 }

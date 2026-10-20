@@ -196,6 +196,9 @@ use crate::session_binding::{
     BindingResult, MemoryBindingLog, NativeBinding, Pairing, PairingKey, PeerObservation,
     RecordKind, decide, fresh_session_id,
 };
+use crate::status::{
+    AdapterStatus, AgreedCapabilities, CoreStatus, SessionState, SessionStatus, StatusCounts,
+};
 use crate::transport::{
     Deadline, Destination, Inbound, Payload, PayloadKind, PresenceEvent, PublishResult, Reach,
     Subscription, Transport, TransportCapabilities, TransportConfiguration, TransportError,
@@ -282,6 +285,14 @@ impl Default for PipelineConfig {
 /// Which adapter of a [`Pipelines`]: the value [`Pipelines::add_adapter`] returned.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct AdapterId(usize);
+
+impl AdapterId {
+    /// The adapter's place in the order the adapters were added: 0 for the first. For an
+    /// owner that keeps its own labels for them (G10, #71).
+    pub fn index(self) -> usize {
+        self.0
+    }
+}
 
 /// Why a [`Pipelines`] operation was refused.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1203,6 +1214,77 @@ impl Pipelines {
             .attachments
             .get(attachment)
             .and_then(|e| e.session.clone())
+    }
+
+    /// A snapshot of the core for an operator's `status` verb (G10, #71): the transport's and
+    /// each adapter's `health`, this device's own sessions, and what the core holds.
+    ///
+    /// The core's own state is read under its lock and the lock is released **before** the
+    /// transport and the adapters are asked for their `health`, so no lock is held across a
+    /// call into either (`spec/interfaces.md` Tables 5.2 and 6.4: the core is the caller).
+    /// The snapshot has no harness-native id and no working directory ([IFC-TYP-020],
+    /// [IFC-TYP-092]).
+    pub fn status(&self) -> CoreStatus {
+        let inner = &self.inner;
+        let (adapters, sessions, mut counts) = {
+            let core = inner.lock();
+            let sessions: Vec<SessionStatus> = core
+                .registry
+                .own_sessions()
+                .map(|(descriptor, withheld)| SessionStatus {
+                    session_id: descriptor.session_id().clone(),
+                    harness_label: descriptor.harness_label(),
+                    capabilities: descriptor
+                        .capabilities()
+                        .agree(&inner.config.implemented)
+                        .map(|agreed| AgreedCapabilities {
+                            active_inbound: agreed.entry.active_inbound(),
+                            content_types: agreed
+                                .entry
+                                .content_types()
+                                .map(<[String]>::to_vec)
+                                .unwrap_or_default(),
+                            max_envelope_octets: agreed.entry.max_envelope_octets(),
+                        }),
+                    state: if withheld {
+                        SessionState::Withheld
+                    } else {
+                        SessionState::Online
+                    },
+                })
+                .collect();
+            let counts = StatusCounts {
+                open_connections: core.connections.len(),
+                unbound_attachments: core
+                    .attachments
+                    .values()
+                    .filter(|a| a.open && a.session.is_none())
+                    .count(),
+                pending_signals: core.signals.len(),
+                held_signals: core.held.len(),
+                trusted_devices: core.engine.trusted_keys().len().saturating_sub(1),
+                grants: core.engine.grants().len(),
+                discarded_frames: 0,
+            };
+            (core.adapters.clone(), sessions, counts)
+        };
+        counts.discarded_frames = self.discarded_frames();
+        // No lock is held from here on.
+        let transport = inner.transport.health();
+        let adapters = adapters
+            .iter()
+            .enumerate()
+            .map(|(i, adapter)| AdapterStatus {
+                adapter: AdapterId(i),
+                health: adapter.health(),
+            })
+            .collect();
+        CoreStatus {
+            transport,
+            adapters,
+            sessions,
+            counts,
+        }
     }
 
     /// The combined state of an envelope this device sent and still tracks

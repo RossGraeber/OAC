@@ -25,13 +25,14 @@ use oac_core::pipeline::{MonotonicClock, PipelineConfig};
 use oac_core::sealing::MemoryAgreementKeyStore;
 use oac_transport_zenoh::{PeerConfiguration, PeerTransport};
 
-use crate::control::{self, StopOutcome};
+use crate::control::{self, StatusOutcome, StopOutcome};
 use crate::daemon::{Daemon, LogSink, Parts, StartError};
 use crate::ipc::{CONTROL_LABEL, ConnectError, Scope, harness_label_is_valid};
 use crate::keystore::{FallbackKeyStore, OsKeyStore};
 use crate::logfile;
 use crate::shim;
-use crate::verbs::{EXIT_FAILED, EXIT_OK, EXIT_UNREACHABLE};
+use crate::status;
+use crate::verbs::{EXIT_FAILED, EXIT_NOT_RUNNING, EXIT_OK, EXIT_UNREACHABLE};
 
 /// Exit status for a usage error.
 pub const EXIT_USAGE: i32 = 2;
@@ -352,6 +353,96 @@ pub fn stop_with(
         let _ = writeln!(stderr, "{human}");
     }
     status
+}
+
+/// How long `oac status` waits for the daemon's answer.
+pub const STATUS_WAIT: Duration = Duration::from_secs(10);
+
+/// `oac status [--json]`: asks the running daemon for its status.
+///
+/// Exit status (`verbs`): 0 the daemon answered; 1 it answered something else, or not in time;
+/// 2 usage; 3 the daemon is not running; 4 the endpoint is another user's, busy after retries,
+/// or the daemon speaks another version of the control protocol.
+pub fn status(args: &[String]) -> i32 {
+    let mut stdout = io::stdout();
+    let mut stderr = io::stderr();
+    let json = match args {
+        [] => false,
+        [flag] if flag == "--json" => true,
+        _ => {
+            let _ = writeln!(stderr, "usage: oac status [--json]");
+            return EXIT_USAGE;
+        }
+    };
+    let scope = match user_scope("status", &mut stderr) {
+        Ok(s) => s,
+        Err(e) => {
+            let _ = writeln!(stderr, "oac status: {e}");
+            return EXIT_FAILED;
+        }
+    };
+    status_with(&scope, json, STATUS_WAIT, &mut stdout, &mut stderr)
+}
+
+/// [`status`] for a given scope and wait, writing to the given streams. Standard output holds
+/// the result (the human form, or under `--json` one canonical object with `"oac_cli":1`);
+/// standard error holds the diagnostics, and, for a daemon that is not running or not
+/// reachable, the human message.
+pub fn status_with(
+    scope: &Scope,
+    json: bool,
+    wait: Duration,
+    stdout: &mut dyn Write,
+    stderr: &mut dyn Write,
+) -> i32 {
+    let outcome = control::request_status(&scope.endpoint(CONTROL_LABEL), wait);
+    let (code, human, object) = match &outcome {
+        StatusOutcome::Running(report) => {
+            if json {
+                let _ = writeln!(stdout, "{}", status::render_json(report));
+            } else {
+                let _ = stdout.write_all(status::render_human(report).as_bytes());
+            }
+            return EXIT_OK;
+        }
+        StatusOutcome::NotRunning => (
+            EXIT_NOT_RUNNING,
+            "oac status: the daemon is not running; start it with `oac start`".to_owned(),
+            "{\"oac_cli\":1,\"ok\":false,\"running\":false,\"error\":\"not_running\"}".to_owned(),
+        ),
+        StatusOutcome::Version => (
+            EXIT_UNREACHABLE,
+            "oac status: the daemon speaks another version of the control protocol; use the `oac` that started it"
+                .to_owned(),
+            "{\"oac_cli\":1,\"ok\":false,\"running\":true,\"error\":\"version\"}".to_owned(),
+        ),
+        StatusOutcome::Busy => (
+            EXIT_UNREACHABLE,
+            "oac status: the daemon's control endpoint stayed busy; try again".to_owned(),
+            "{\"oac_cli\":1,\"ok\":false,\"running\":true,\"error\":\"busy\"}".to_owned(),
+        ),
+        StatusOutcome::Unreachable(why) => (
+            EXIT_UNREACHABLE,
+            format!("oac status: the daemon could not be reached: {why}"),
+            format!(
+                "{{\"oac_cli\":1,\"ok\":false,\"error\":\"unreachable\",\"detail\":{}}}",
+                control::json_string(why)
+            ),
+        ),
+        StatusOutcome::Failed(why) => (
+            EXIT_FAILED,
+            format!("oac status: {why}"),
+            format!(
+                "{{\"oac_cli\":1,\"ok\":false,\"error\":\"failed\",\"detail\":{}}}",
+                control::json_string(why)
+            ),
+        ),
+    };
+    if json {
+        let _ = writeln!(stdout, "{}", control::canonical_text(&object));
+    }
+    let _ = writeln!(stderr, "{human}");
+    code
 }
 
 /// The device key store: the operating system's credential store and, on a Unix host with no
