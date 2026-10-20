@@ -484,7 +484,9 @@ fn ask_status(
         ),
         StatusOutcome::Version => (
             EXIT_UNREACHABLE,
-            format!("oac {verb}: the daemon speaks another version of the control protocol; use the `oac` that started it"),
+            format!(
+                "oac {verb}: the daemon speaks another version of the control protocol; use the `oac` that started it"
+            ),
             "{\"oac_cli\":1,\"ok\":false,\"running\":true,\"error\":\"version\"}".to_owned(),
         ),
         StatusOutcome::Busy => (

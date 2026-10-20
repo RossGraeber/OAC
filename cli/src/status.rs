@@ -141,7 +141,10 @@ impl DaemonStatus {
                 }
                 m.push(format!("\"state\":{}", json_string(s.state.as_str())));
                 if let Some(c) = &s.capabilities {
-                    m.push(format!("\"extension\":{}", json_string(&clean(&c.extension))));
+                    m.push(format!(
+                        "\"extension\":{}",
+                        json_string(&clean(&c.extension))
+                    ));
                     m.push(format!("\"major\":{}", c.major));
                     m.push(format!("\"active_inbound\":{}", c.active_inbound));
                     m.push(format!(
@@ -419,11 +422,15 @@ pub fn render_sessions_human(status: &JsonObject) -> String {
         .unwrap_or_default();
     let total = int(status, "sessions_total").unwrap_or(0);
     if sessions.is_empty() {
-        out.push_str("no sessions
-");
+        out.push_str(
+            "no sessions
+",
+        );
     } else {
-        out.push_str("SESSION  HARNESS  EXTENSION  ACTIVE-INBOUND  STATE
-");
+        out.push_str(
+            "SESSION  HARNESS  EXTENSION  ACTIVE-INBOUND  STATE
+",
+        );
     }
     for session in sessions.iter().filter_map(Json::as_object) {
         let extension = match (text(session, "extension"), int(session, "major")) {

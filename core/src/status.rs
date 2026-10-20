@@ -28,7 +28,7 @@ use crate::pipeline::AdapterId;
 /// speaks.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AgreedCapabilities {
-    /// The agreed extension identifier (`spec/session-channels.md` ง6.5).
+    /// The agreed extension identifier (`spec/session-channels.md` ยง6.5).
     pub extension: String,
     /// The agreed major version of that extension.
     pub major: u16,
