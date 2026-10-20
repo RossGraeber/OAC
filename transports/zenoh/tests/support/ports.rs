@@ -77,6 +77,10 @@ fn unique() -> u64 {
 ///   protected; the range test fails there loudly instead.
 /// - A port the operating system excludes from binding (Windows reserved port ranges) is
 ///   skipped by the bind probe.
+/// - The lock files live in the operating system's temporary directory, so two runs that
+///   share loopback but not that directory (Windows and WSL under mirrored networking, or
+///   containers) do not exclude each other. The window between the claim and the transport's
+///   own bind is closed by retrying the first start (`Claimed::start_first`, #432).
 /// - The claim holds against code that claims. A program that binds a port of the range
 ///   without claiming it is the foreign program the probe looks for, and is not excluded
 ///   for the life of the claim.
@@ -116,17 +120,64 @@ impl PortClaim {
     }
 }
 
+/// The refusal the transport answers a rendezvous port with when something that is not an
+/// OAC transport accepts connections on it (`PeerTransport::start`, `InvalidConfiguration`).
+/// The product keeps this refusal (a test of it is in `tests/peer_transport.rs`); a test
+/// that only needs a free port may retry on exactly this text, never on another error.
+pub const FOREIGN_HOLDER_REFUSAL: &str = "is held by a program that is not an OAC transport";
+
+/// How many ports a test tries before it gives up on the refusal above.
+pub const FOREIGN_HOLDER_ATTEMPTS: u32 = 5;
+
 /// Something built around a claimed port that keeps the claim for as long as it lives, and
 /// reads as the thing itself (`Deref`), so a test's `conf()` returns a configuration that
 /// owns its port.
 pub struct Claimed<T> {
     value: T,
     claim: PortClaim,
+    rebuild: Option<Box<dyn Fn(u16) -> T + Send + Sync>>,
 }
 
 impl<T> Claimed<T> {
     pub fn port(&self) -> u16 {
         self.claim.port
+    }
+
+    /// Runs `start`, the first start of a transport on this port. A claim cannot be handed to
+    /// the transport (the rendezvous is a fixed port the transport binds itself), so between
+    /// the claim and that bind a program outside the claim protocol (another host's test run
+    /// over a shared loopback, or any service) may take the port, and the transport then
+    /// rightly refuses it as foreign (#432). When, and only when, `start` fails with that
+    /// refusal, the port is given up, a fresh one is claimed and `start` runs again, at most
+    /// [`FOREIGN_HOLDER_ATTEMPTS`] times in all; each retry is logged to stderr. Any other
+    /// error, and the last refusal, is returned. Only valid for a value built with
+    /// [`claimed_rebuildable`], and only for the first start: a joiner that is refused has
+    /// no business on another port.
+    pub fn start_first<R, E: std::fmt::Debug>(
+        &mut self,
+        mut start: impl FnMut(&T) -> Result<R, E>,
+    ) -> Result<R, E> {
+        let mut attempt = 1;
+        loop {
+            let outcome = start(&self.value);
+            let refused =
+                matches!(&outcome, Err(e) if format!("{e:?}").contains(FOREIGN_HOLDER_REFUSAL));
+            if !refused || attempt >= FOREIGN_HOLDER_ATTEMPTS {
+                return outcome;
+            }
+            let rebuild = self
+                .rebuild
+                .as_ref()
+                .expect("start_first needs a value built with claimed_rebuildable");
+            let claim = PortClaim::claim();
+            eprintln!(
+                "ports: loopback port {} was taken by a foreign program before the transport                  bound it (attempt {attempt} of {FOREIGN_HOLDER_ATTEMPTS}); retrying on port {}",
+                self.claim.port, claim.port
+            );
+            self.value = rebuild(claim.port);
+            self.claim = claim;
+            attempt += 1;
+        }
     }
 }
 
@@ -143,5 +194,16 @@ pub fn claimed<T>(build: impl FnOnce(u16) -> T) -> Claimed<T> {
     Claimed {
         value: build(claim.port),
         claim,
+        rebuild: None,
+    }
+}
+
+/// As [`claimed`], and the value can be rebuilt on another port (`Claimed::start_first`).
+pub fn claimed_rebuildable<T>(build: impl Fn(u16) -> T + Send + Sync + 'static) -> Claimed<T> {
+    let claim = PortClaim::claim();
+    Claimed {
+        value: build(claim.port),
+        claim,
+        rebuild: Some(Box::new(build)),
     }
 }

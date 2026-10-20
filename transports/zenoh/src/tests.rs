@@ -16,12 +16,15 @@ use zenoh::qos::CongestionControl;
 
 use crate::addressing::Partition;
 use crate::config::Role;
-use crate::ports::{Claimed, claimed};
+use crate::ports::{Claimed, claimed_rebuildable};
 use crate::{MAX_PAYLOAD_OCTETS, PeerConfiguration, PeerTransport};
 
 /// A configuration on a rendezvous port claimed for as long as it lives (`crate::ports`).
 fn conf(tag: &str) -> Claimed<PeerConfiguration> {
-    claimed(|port| PeerConfiguration::rendezvous(port).with_partition(format!("unit-{tag}-{port}")))
+    let tag = tag.to_owned();
+    claimed_rebuildable(move |port| {
+        PeerConfiguration::rendezvous(port).with_partition(format!("unit-{tag}-{port}"))
+    })
 }
 fn key(c: char) -> KeyId {
     KeyId::parse(&c.to_string().repeat(64)).unwrap()
@@ -40,9 +43,10 @@ fn wait_for(cond: impl Fn() -> bool) {
 #[test]
 fn short_deadline_does_not_wait_for_a_stalled_native_subscriber() {
     for sender_role in [Role::First, Role::Joiner] {
-        let c = conf("deadline");
+        let mut c = conf("deadline");
         let relay = PeerTransport::new();
-        relay.start(&key('a'), c.clone().wrap()).unwrap();
+        c.start_first(|conf| relay.start(&key('a'), conf.clone().wrap()))
+            .unwrap();
         let joiner = PeerTransport::new();
         if sender_role == Role::Joiner {
             joiner.start(&key('c'), c.clone().wrap()).unwrap();
@@ -203,9 +207,10 @@ fn short_deadline_does_not_wait_for_a_stalled_native_subscriber() {
 /// during and after local interest changes, using a real core-generated HPKE frame.
 #[test]
 fn native_interest_and_sealed_carriage_do_not_depend_on_subscriptions() {
-    let c = conf("043");
+    let mut c = conf("043");
     let a = PeerTransport::new();
-    a.start(&key('a'), c.clone().wrap()).unwrap();
+    c.start_first(|conf| a.start(&key('a'), conf.clone().wrap()))
+        .unwrap();
     let observer = zenoh::open(c.native(Role::Joiner, 0).unwrap())
         .wait()
         .unwrap();
@@ -316,9 +321,10 @@ fn native_interest_and_sealed_carriage_do_not_depend_on_subscriptions() {
 /// precedes native queuing; overflow retains only the newest 16 admitted frames.
 #[test]
 fn native_ring_drops_oldest_and_refuses_oversized_samples_while_handler_stalls() {
-    let c = conf("ring");
+    let mut c = conf("ring");
     let a = PeerTransport::new();
-    a.start(&key('a'), c.clone().wrap()).unwrap();
+    c.start_first(|conf| a.start(&key('a'), conf.clone().wrap()))
+        .unwrap();
     let raw = zenoh::open(c.native(Role::Joiner, 0).unwrap())
         .wait()
         .unwrap();
@@ -397,9 +403,10 @@ fn native_ring_drops_oldest_and_refuses_oversized_samples_while_handler_stalls()
 
 #[test]
 fn discovery_alone_hands_the_core_nothing() {
-    let c = conf("013");
+    let mut c = conf("013");
     let (a, b) = (PeerTransport::new(), PeerTransport::new());
-    a.start(&key('a'), c.clone().wrap()).unwrap();
+    c.start_first(|conf| a.start(&key('a'), conf.clone().wrap()))
+        .unwrap();
     // Discovery is never a presence record, and a peer arriving is never a loss. Only the
     // later departure of `b` may be reported, as a carrier loss (#63).
     let losses = Arc::new(Mutex::new(0usize));
