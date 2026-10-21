@@ -438,6 +438,14 @@ fn a_json_shim_carries_the_daemons_reply_to_standard_output_and_nothing_else() {
         "{reply}"
     );
     assert!(answer.contains("result"), "{reply}");
+    assert_eq!(
+        answer
+            .get("id")
+            .and_then(|v| v.as_number())
+            .and_then(|n| n.plain_integer_in(0, 9)),
+        Some(1),
+        "{reply}"
+    );
     assert!(
         !answer.contains("oac_cli"),
         "no OAC diagnostic in the MCP stream: {reply}"

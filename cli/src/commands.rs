@@ -918,9 +918,9 @@ const DETACH_WAIT: Duration = Duration::from_secs(20);
 /// event, so that is the only clean shutdown there.
 ///
 /// With `json`, standard output gets the one object of `oac start --json` (see [`start`]):
-/// `pid` is the child's when this command started the daemon, and the running daemon's own
-/// (asked of its control endpoint) when one was already up; `already_running` is true in the
-/// second case and when another start won the race for the lock.
+/// `pid` is the one the daemon's control endpoint names, and the child's only when the
+/// endpoint does not say and the child is the daemon; `already_running` is true when a daemon
+/// was already up and when another start won the race for the lock.
 fn start_detached(
     scope: &Scope,
     json: bool,
