@@ -35,7 +35,7 @@ pub const MAX_WINDOWS: u32 = 3;
 /// already paired value is recognised as such. The oldest goes past it; a value no longer
 /// recognised is unknown, and an unknown value pairs nothing.
 ///
-/// Residual (`docs/planning/v0.1/11-risks.md`, `RISK-LOCAL-IPC`): after 16 records an evicted
+/// Residual (`docs/planning/v0.1/11-risks.md`, `RISK-ISSUED-PAIRING`): after 16 records an evicted
 /// paired value that is revealed for a second thread is `Unknown`, not `Conflict`, so
 /// [MCPB-ATT-011] is lost for a very old value. The reveal still pairs nothing.
 const MAX_RECORDS: usize = 16;
@@ -190,8 +190,9 @@ impl<A: Clone + Eq + Hash> PairingWindows<A> {
         }
         // The value is used up here, at the reveal's arrival, so that two reveals of one
         // value are told apart in arrival order. A reveal the core's cap then turns away has
-        // used it up without pairing; that fails closed (the thread is refused again and
-        // gets a new window). The count of windows is not reset here, but by
+        // used it up without pairing; that fails closed (the thread is refused again, with
+        // a new window only while fewer than 3 have opened, else finally, [MCPB-ATT-023];
+        // availability only, `RISK-ISSUED-PAIRING`). The count of windows is not reset here, but by
         // [`PairingWindows::paired`] when a reveal does pair ([MCPB-ATT-023]).
         r.state = State::Paired(native_id.to_owned());
         RevealOutcome::Fresh(attachment)

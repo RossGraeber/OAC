@@ -4629,3 +4629,42 @@ fn a_conflicting_reveal_at_the_cap_still_ends_the_binding() {
         .unwrap();
     assert_eq!(finding.record.kind, RecordKind::Finding);
 }
+
+/// [MCPB-ATT-023]: the count of windows restarts only when a reveal pairs. A reveal of a
+/// live value that the pending-signal cap turns away has used its value up, but it paired
+/// nothing, so the connection stays at its third window and gets no fourth.
+#[test]
+fn a_reveal_turned_away_at_the_cap_does_not_reset_the_window_count() {
+    let bus = Bus::default();
+    let t = Stepped::new();
+    let config = PipelineConfig {
+        pairing_window: Duration::from_secs(10),
+        max_pending_signals: 1,
+        ..PipelineConfig::default()
+    };
+    let n = node_mono(&bus, "device-a", config, Arc::new(SystemClock), t.clock());
+    let c = designated_carrier(&n, "codex-1");
+    let a = observed_attachment(&n, "codex-1", None);
+    pairing_refusal(&n, &a).unwrap();
+    t.advance(Duration::from_secs(10));
+    pairing_refusal(&n, &a).unwrap();
+    t.advance(Duration::from_secs(10));
+    let third = pairing_refusal(&n, &a).unwrap();
+    // The one slot is taken by a held signal of another key.
+    let other = carrier(&n, "other-key");
+    n.adapter
+        .emit(signal(Some(&other), "X", StartKind::Fresh, None));
+    assert!(
+        n.pipes.next_native_signal_expiry().is_some(),
+        "the slot is held"
+    );
+    // The live value is revealed and turned away at the cap: nothing is bound.
+    n.adapter.emit(reveal(&c, "T1", &third));
+    assert_eq!(n.pipes.binding(&a), None);
+    t.advance(Duration::from_secs(1));
+    assert_eq!(
+        pairing_refusal(&n, &a),
+        None,
+        "three windows have opened and none paired"
+    );
+}
