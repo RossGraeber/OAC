@@ -667,6 +667,21 @@ pub fn canonical_text(text: &str) -> String {
         .unwrap_or_else(|| text.to_owned())
 }
 
+/// One canonical (RFC 8785) CLI object: `"oac_cli":1` and `members`, each a name and its value
+/// as JSON text (G10, #71, slice 7). The `--json` diagnostics and results of the verbs added
+/// in that slice are built by this, so the marker and the canonical form are in one place.
+pub fn cli_object(members: &[(&str, String)]) -> String {
+    let mut text = String::from("{\"oac_cli\":1");
+    for (name, value) in members {
+        text.push(',');
+        text.push_str(&json_string(name));
+        text.push(':');
+        text.push_str(value);
+    }
+    text.push('}');
+    canonical_text(&text)
+}
+
 /// A character that could drive a terminal or reorder text shown to an operator: DEL, the C1
 /// controls and the bidirectional overrides and isolates.
 pub fn is_hostile(c: char) -> bool {

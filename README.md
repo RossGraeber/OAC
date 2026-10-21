@@ -36,7 +36,7 @@ supported integration model.
 **What works on `main` today** (checked against the code and the merged pull requests):
 
 - `oac start` (`cli/src/commands.rs`, PR #413) runs the daemon in the foreground, or with `--detach` as a detached process, on the real Zenoh peer transport. Since PR #425 it serves on a multi-thread Tokio runtime (`commands::daemon_runtime()`); the reference transport refuses a current-thread one. Its log lines are also appended to a file that survives a crash, and `oac start --help` prints the path (G10 slice 2, PR #442).
-- `oac stop` (PR #440), `oac status` (PR #444), `oac sessions` (PR #446) and `oac doctor` (PR #447) are G10's verbs, each with `--json`. `oac stop` asks a detached daemon to stop cleanly, which a detached daemon on Windows could not do before.
+- `oac stop` (PR #440), `oac status` (PR #444), `oac sessions` (PR #446) and `oac doctor` (PR #447) are G10's verbs. Since G10 slice 7 (lead decision 2026-10-20) every verb takes `--json`: `oac start` prints one object once the daemon serves, `oac mcp-shim` and `oac hook` send only their diagnostics to standard error as JSON lines. `oac stop` asks a detached daemon to stop cleanly, which a detached daemon on Windows could not do before.
 - `oac mcp-shim --harness <claude|codex>` (PR #413) is the stdio server a harness starts: a byte relay to that harness's endpoint on the daemon. With no daemon running, it says to run `oac start` and does not start one.
 - `oac hook` (`cli/src/hook.rs`, PR #405, connected to the daemon by PR #413) carries a Claude Code `SessionStart` input to the daemon as one line, as `spec/bindings/mcp.md` section 8.1 requires. Its connection stays open for at most 3 seconds, so the daemon can look up the peer. If the daemon is not running, the input is dropped with a diagnostic and the session stays unbound (fail closed).
 - A device key store (`cli/src/keystore.rs`, PRs #315 and #407) that uses the operating system's credential store, or an encrypted file where none exists.
@@ -56,7 +56,7 @@ The `oac` binary (build it with `cargo build -p oac-cli`; nothing is released or
 config file. The verbs (full detail: [CLI and deployment](docs/planning/v0.1/08-cli-and-deployment.md) section 5):
 
 ```sh
-oac start [--detach]   # run the per-device daemon; --detach leaves it in the background
+oac start [--detach] [--json]   # run the per-device daemon; --detach leaves it in the background
 oac status [--json]    # is it running: pid, version, uptime, device id, transport and adapter health
 oac sessions [--json]  # this device's own sessions (session id, harness, online or withheld)
 oac doctor [--json]    # preflight checks: PASS, WARN, FAIL or SKIP, one line each
@@ -64,9 +64,9 @@ oac stop [--json]      # ask the daemon to stop cleanly (never kills; waits abou
 ```
 
 - `oac start` is idempotent: with a daemon already up it succeeds and does nothing. Its log lines go to standard error and to a log file that survives a crash; `oac start --help` prints the path.
-- `--json` prints one object with `"oac_cli":1` on standard output; diagnostics go to standard error.
+- `--json` prints one object with `"oac_cli":1` on standard output; diagnostics go to standard error. `oac start --json` prints its one object once the daemon serves (`ok`, `already_running`, `detached`, `pid`, `log`), or an error object if the start fails.
 - Exit codes: `0` ok (`oac stop` also when no daemon was running), `1` failed or timed out, `2` usage, `3` the daemon is not running (`status`, `sessions`), `4` the daemon is unreachable or incompatible. `oac doctor` exits `1` only when a check fails.
-- `oac mcp-shim` and `oac hook` are started by a harness, not typed.
+- `oac mcp-shim [--json]` and `oac hook [--json]` are started by a harness, not typed. Their standard output is the harness's (the MCP stream; the hook's context), so `--json` changes only the form of their diagnostics on standard error: one JSON object per line. The hook still writes nothing to standard output and exits `0`.
 - The first `oac start` creates the device key in the operating system's credential store, or in an encrypted file where none exists.
 
 **Build and test.** `rust-toolchain.toml` pins Rust 1.98.1.

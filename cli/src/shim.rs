@@ -71,6 +71,33 @@ pub fn unreachable_message(e: &ConnectError) -> String {
     }
 }
 
+/// The `--json` form of one diagnostic of the shim (G10, #71, slice 7): one canonical object
+/// with `"oac_cli":1`, `"ok":false`, `error` (`not_running`, `unreachable`, `failed` or
+/// `daemon_closed`), `detail` and, in a test namespace, `namespace`. It is written to
+/// **standard error only**, one object per line: the shim's standard output is the harness's
+/// MCP stream and carries nothing but the daemon's bytes.
+pub fn diagnostic_json(error: &str, detail: &str, namespace: Option<&str>) -> String {
+    use crate::control::{cli_object, json_string};
+    let mut members = vec![
+        ("ok", "false".to_owned()),
+        ("error", json_string(error)),
+        ("detail", json_string(detail)),
+    ];
+    if let Some(namespace) = namespace {
+        members.push(("namespace", json_string(namespace)));
+    }
+    cli_object(&members)
+}
+
+/// [`diagnostic_json`] for a daemon that cannot be reached.
+pub fn unreachable_json(e: &ConnectError, namespace: Option<&str>) -> String {
+    let kind = match e {
+        ConnectError::NotRunning => "not_running",
+        _ => "unreachable",
+    };
+    diagnostic_json(kind, &unreachable_message(e), namespace)
+}
+
 /// Connects to `endpoint`.
 ///
 /// # Errors
@@ -300,6 +327,23 @@ mod tests {
                 None
             );
         }
+    }
+
+    #[test]
+    fn the_json_diagnostics_are_one_canonical_line_each_and_hold_no_newline() {
+        let line = unreachable_json(&ConnectError::NotRunning, Some("ns"));
+        assert_eq!(
+            line,
+            "{\"detail\":\"oac mcp-shim: the daemon is not running; start it with `oac start`\",\"error\":\"not_running\",\"namespace\":\"ns\",\"oac_cli\":1,\"ok\":false}"
+        );
+        let foreign = unreachable_json(&ConnectError::Foreign, None);
+        assert!(foreign.contains("\"error\":\"unreachable\""), "{foreign}");
+        assert!(!foreign.contains("namespace"), "{foreign}");
+        let busy = unreachable_json(&ConnectError::Busy, None);
+        assert!(busy.contains("\"error\":\"unreachable\""), "{busy}");
+        let closed = diagnostic_json("daemon_closed", "a\nb", None);
+        assert!(!closed.contains('\n'), "{closed:?}");
+        assert!(closed.starts_with("{\"detail\":"), "{closed}");
     }
 
     #[test]
