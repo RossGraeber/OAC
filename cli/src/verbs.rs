@@ -48,13 +48,33 @@ pub fn dispatch(args: &[String], streams: Streams<'_>, connect: Connector<'_>) -
     } = streams;
     match args.first().map(String::as_str) {
         Some("hook") => {
-            // The handler is configured by OAC's own launch script and takes no argument;
-            // one that appears is noted and ignored, so a hook is never failed for it.
-            if args.len() > 1 {
-                let _ = writeln!(stderr, "oac hook: arguments are ignored");
+            // The handler is configured by OAC's own launch script and takes no argument but
+            // `--json`; any other that appears is noted and ignored, so a hook is never
+            // failed for it.
+            //
+            // `--json` (G10, #71, slice 7) changes the form of the diagnostics and nothing
+            // else: with it, standard error holds one canonical JSON object per line instead
+            // of a sentence. Standard output stays empty and the exit status stays 0, as it
+            // must (see `hook`): this function has no handle to standard output.
+            let json = args[1..].iter().any(|a| a == "--json");
+            if args[1..].iter().any(|a| a != "--json") {
+                if json {
+                    let _ = writeln!(
+                        stderr,
+                        "{}",
+                        crate::control::cli_object(&[(
+                            "notice",
+                            crate::control::json_string("arguments_ignored")
+                        )])
+                    );
+                } else {
+                    let _ = writeln!(stderr, "oac hook: arguments are ignored");
+                }
             }
             let outcome = hook::run(stdin, connect);
-            if let Some(line) = outcome.diagnostic() {
+            if json {
+                let _ = writeln!(stderr, "{}", outcome.diagnostic_json());
+            } else if let Some(line) = outcome.diagnostic() {
                 let _ = writeln!(stderr, "{line}");
             }
             // Always 0 (see `hook`): a non-zero exit would only add a hook-error notice, and a

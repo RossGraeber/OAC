@@ -51,23 +51,59 @@ fn user_scope(who: &str, diagnostics: &mut dyn Write) -> io::Result<Scope> {
     Ok(scope)
 }
 
-/// `oac mcp-shim --harness <label>`: the stdio MCP server a harness starts.
+/// The arguments of `oac mcp-shim`: `--harness <label>` and, optionally, `--json` (before or
+/// after it). `None` for anything else.
+fn parse_shim_args(args: &[String]) -> Option<(String, bool)> {
+    let (label, json) = match args {
+        [flag, label] if flag == "--harness" => (label, false),
+        [flag, label, json] if flag == "--harness" && json == "--json" => (label, true),
+        [json, flag, label] if json == "--json" && flag == "--harness" => (label, true),
+        _ => return None,
+    };
+    harness_label_is_valid(label).then(|| (label.clone(), json))
+}
+
+/// `oac mcp-shim --harness <label> [--json]`: the stdio MCP server a harness starts.
+///
+/// **Standard output is the harness's MCP stream**: the relay writes the daemon's bytes to
+/// it and nothing else does. Every message of this function goes to standard error, in words
+/// or, under `--json`, as one canonical object per line (`shim::diagnostic_json`). `--json`
+/// changes nothing but the form of those diagnostics (G10, #71, slice 7); the exit status is
+/// the same.
 pub fn mcp_shim(args: &[String]) -> i32 {
     let mut stderr = io::stderr();
-    let label = match args {
-        [flag, label] if flag == "--harness" && harness_label_is_valid(label) => label.clone(),
-        _ => {
-            let _ = writeln!(stderr, "usage: oac mcp-shim --harness <claude|codex>");
-            return EXIT_USAGE;
+    let Some((label, json)) = parse_shim_args(args) else {
+        let _ = writeln!(
+            stderr,
+            "usage: oac mcp-shim --harness <claude|codex> [--json]"
+        );
+        return EXIT_USAGE;
+    };
+    // The one place the shim says something: standard error, never standard output.
+    let say = |namespace: Option<&str>, kind: &str, human: String| {
+        let mut stderr = io::stderr();
+        if json {
+            let _ = writeln!(stderr, "{}", shim::diagnostic_json(kind, &human, namespace));
+        } else {
+            let _ = writeln!(stderr, "{human}");
         }
     };
-    let scope = match user_scope("mcp-shim", &mut stderr) {
+    let scope = match Scope::for_user() {
         Ok(s) => s,
         Err(e) => {
-            let _ = writeln!(stderr, "oac mcp-shim: {e}");
+            say(None, "failed", format!("oac mcp-shim: {e}"));
             return shim::EXIT_FAILED;
         }
     };
+    let namespace = scope.namespace().map(str::to_owned);
+    if !json && let Some(namespace) = &namespace {
+        // The words name the namespace on a line of their own; the JSON form carries it as a
+        // member of each diagnostic.
+        let _ = writeln!(
+            stderr,
+            "oac mcp-shim: using the test namespace {namespace:?}"
+        );
+    }
     let endpoint = scope.endpoint(&label);
     let runtime = match tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -75,7 +111,7 @@ pub fn mcp_shim(args: &[String]) -> i32 {
     {
         Ok(r) => r,
         Err(e) => {
-            let _ = writeln!(stderr, "oac mcp-shim: {e}");
+            say(namespace.as_deref(), "failed", format!("oac mcp-shim: {e}"));
             return shim::EXIT_FAILED;
         }
     };
@@ -89,15 +125,24 @@ pub fn mcp_shim(args: &[String]) -> i32 {
                 );
                 let ended = shim::relay(stream, hello, io::stdin(), io::stdout()).await;
                 if ended == shim::Ended::DaemonClosed {
-                    let _ = writeln!(
-                        io::stderr(),
-                        "oac mcp-shim: the daemon ended the connection"
+                    say(
+                        namespace.as_deref(),
+                        "daemon_closed",
+                        "oac mcp-shim: the daemon ended the connection".to_owned(),
                     );
                 }
                 shim::exit_status(ended)
             }
             Err(e) => {
-                let _ = writeln!(io::stderr(), "{}", shim::unreachable_message(&e));
+                if json {
+                    let _ = writeln!(
+                        io::stderr(),
+                        "{}",
+                        shim::unreachable_json(&e, namespace.as_deref())
+                    );
+                } else {
+                    let _ = writeln!(io::stderr(), "{}", shim::unreachable_message(&e));
+                }
                 shim::EXIT_FAILED
             }
         }
@@ -165,8 +210,18 @@ impl Drop for Lingering {
 /// So the handler can outlive 8 s only on a daemon that is stuck; Claude Code's own hook
 /// timeout is the backstop that ends the handler (the session start is not held past it).
 pub fn hook_connector(harness: &str) -> io::Result<Box<dyn Write>> {
-    let mut stderr = io::stderr();
-    let scope = user_scope("hook", &mut stderr)?;
+    hook_connect(harness, false)
+}
+
+/// [`hook_connector`], and, with `json`, without the one human line it writes for a test
+/// namespace: under `oac hook --json` every line of standard error is a JSON object, and the
+/// namespace (a test-only value) is left out of it.
+pub fn hook_connect(harness: &str, json: bool) -> io::Result<Box<dyn Write>> {
+    let scope = if json {
+        Scope::for_user()?
+    } else {
+        user_scope("hook", &mut io::stderr())?
+    };
     match scope.endpoint(harness).connect_blocking() {
         Ok(stream) => Ok(Box::new(Lingering(Some(stream)))),
         Err(ConnectError::NotRunning) => Err(io::Error::new(
@@ -187,43 +242,120 @@ fn names_a_namespace(value: Option<&std::ffi::OsStr>) -> bool {
     value.is_some_and(|v| !v.is_empty())
 }
 
-/// `oac start [--detach]`.
-pub fn start(args: &[String]) -> i32 {
-    let mut stderr = io::stderr();
-    let detach = match args {
-        [] => false,
-        [flag] if flag == "--detach" => true,
-        [flag] if flag == "--help" || flag == "-h" => {
-            let _ = io::stdout().write_all(start_help().as_bytes());
-            return EXIT_OK;
+/// The arguments of `oac start`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct StartArgs {
+    detach: bool,
+    json: bool,
+    help: bool,
+}
+
+/// `--detach` and `--json`, each at most once, in either order; or `--help` / `-h` alone.
+fn parse_start_args(args: &[String]) -> Option<StartArgs> {
+    let mut parsed = StartArgs::default();
+    for arg in args {
+        match arg.as_str() {
+            "--detach" if !parsed.detach => parsed.detach = true,
+            "--json" if !parsed.json => parsed.json = true,
+            "--help" | "-h" if args.len() == 1 => parsed.help = true,
+            _ => return None,
         }
-        _ => {
-            let _ = writeln!(stderr, "usage: oac start [--detach]");
+    }
+    Some(parsed)
+}
+
+/// The error object of `oac start --json` (the shape of the other verbs': `ok` false, `error`
+/// one of `failed` or `timeout`, a `detail`).
+pub fn start_error_json(error: &str, detail: &str) -> String {
+    control::cli_object(&[
+        ("ok", "false".to_owned()),
+        ("error", control::json_string(error)),
+        ("detail", control::json_string(detail)),
+    ])
+}
+
+/// The result object of `oac start --json` once a daemon serves: `ok` true;
+/// `already_running` (true when this command did not start the daemon that serves);
+/// `detached` (whether this command ran with `--detach`); `pid` when known; `log`, the path of
+/// the daemon's log file, when the state directory is known.
+pub fn start_report_json(
+    already_running: bool,
+    detached: bool,
+    pid: Option<u32>,
+    log: Option<&Path>,
+) -> String {
+    let mut members = vec![
+        ("ok", "true".to_owned()),
+        ("already_running", already_running.to_string()),
+        ("detached", detached.to_string()),
+    ];
+    if let Some(pid) = pid {
+        members.push(("pid", pid.to_string()));
+    }
+    if let Some(log) = log {
+        members.push(("log", control::json_string(&log.display().to_string())));
+    }
+    control::cli_object(&members)
+}
+
+/// Prints one `--json` object of `oac start` on `stdout` and flushes it: a reader waiting for
+/// the line (the foreground daemon prints it and then blocks) must see it at once.
+fn print_json(stdout: &mut dyn Write, object: &str) {
+    let _ = writeln!(stdout, "{object}");
+    let _ = stdout.flush();
+}
+
+/// `oac start [--detach] [--json]`.
+///
+/// **`--json`** (G10, #71, slice 7) prints **exactly one** canonical object on standard
+/// output, with `"oac_cli":1`, and nothing else there; the diagnostics (the daemon's log
+/// lines, the words) stay on standard error. In the foreground the object is printed **once
+/// the daemon is serving**, before the command blocks until it is stopped; it has no second
+/// object at the end (a clean stop is exit 0 and silence). A start that fails prints the error
+/// object instead, and the exit status is the one without `--json`.
+pub fn start(args: &[String]) -> i32 {
+    let mut stdout = io::stdout();
+    let mut stderr = io::stderr();
+    let StartArgs { detach, json, help } = match parse_start_args(args) {
+        Some(parsed) => parsed,
+        None => {
+            let _ = writeln!(stderr, "usage: oac start [--detach] [--json]");
             return EXIT_USAGE;
         }
+    };
+    if help {
+        let _ = stdout.write_all(start_help().as_bytes());
+        return EXIT_OK;
+    }
+    // A failure the command line cannot recover from: standard error holds the words, and
+    // under `--json` standard output the error object.
+    let fail = |stdout: &mut dyn Write, stderr: &mut dyn Write, error: &str, detail: &str| {
+        let _ = writeln!(stderr, "oac start: {detail}");
+        if json {
+            print_json(stdout, &start_error_json(error, detail));
+        }
+        1
     };
     // The test namespace is for the in-process daemon of a test (`Scope::for_user_in`), never
     // for the binary: the device key is the user's one in every namespace, so a second daemon
     // in another namespace beside the real one would be a second peer with the same
     // identity. Refused before anything reads the key store.
     if namespace_requested() {
-        let _ = writeln!(
-            stderr,
-            "oac start: OAC_SCOPE is set; the daemon does not run in a test namespace (it would share the device key with the real daemon). Unset OAC_SCOPE"
+        return fail(
+            &mut stdout,
+            &mut stderr,
+            "failed",
+            "OAC_SCOPE is set; the daemon does not run in a test namespace (it would share the device key with the real daemon). Unset OAC_SCOPE",
         );
-        return 1;
     }
     let scope = match user_scope("start", &mut stderr) {
         Ok(s) => s,
-        Err(e) => {
-            let _ = writeln!(stderr, "oac start: {e}");
-            return 1;
-        }
+        Err(e) => return fail(&mut stdout, &mut stderr, "failed", &e.to_string()),
     };
     if detach {
-        return start_detached(&scope, &mut stderr);
+        return start_detached(&scope, json, &mut stdout, &mut stderr);
     }
-    serve_in_foreground(scope, &mut stderr)
+    serve_in_foreground(scope, json, &mut stdout, &mut stderr)
 }
 
 /// `oac start --help`: what the verb does and where its log is.
@@ -233,10 +365,14 @@ fn start_help() -> String {
         |p| p.display().to_string(),
     );
     format!(
-        "usage: oac start [--detach]
+        "usage: oac start [--detach] [--json]
 
          Runs the per-device daemon: in the foreground, or with --detach as a background process
          that this command leaves once it serves (stop it with `oac stop`).
+
+         With --json, standard output holds one JSON object (\"oac_cli\":1): once the daemon
+         serves (ok, already_running, detached, pid and log), or, when the start fails, an
+         error object. Diagnostics stay on standard error.
 
          The daemon's log lines go to standard error and also to a file that survives a crash:
            {log}
@@ -640,16 +776,38 @@ pub fn daemon_runtime() -> io::Result<tokio::runtime::Runtime> {
         .build()
 }
 
-fn serve_in_foreground(scope: Scope, stderr: &mut dyn Write) -> i32 {
+/// The pid of the daemon that serves `scope`, asked of its control endpoint (best effort and
+/// bounded: `None` when it does not say).
+fn running_pid(scope: &Scope) -> Option<u32> {
+    match control::request_status(&scope.endpoint(CONTROL_LABEL), Duration::from_secs(3)) {
+        StatusOutcome::Running(report) => report
+            .get("pid")?
+            .as_number()?
+            .plain_integer_in(1, u64::from(u32::MAX))
+            .and_then(|pid| u32::try_from(pid).ok()),
+        _ => None,
+    }
+}
+
+fn serve_in_foreground(
+    scope: Scope,
+    json: bool,
+    stdout: &mut dyn Write,
+    stderr: &mut dyn Write,
+) -> i32 {
     // Before any thread starts (the passphrase variable is overwritten and removed).
     let key_store = key_store();
     let runtime = match daemon_runtime() {
         Ok(r) => r,
         Err(e) => {
             let _ = writeln!(stderr, "oac start: {e}");
+            if json {
+                print_json(stdout, &start_error_json("failed", &e.to_string()));
+            }
             return 1;
         }
     };
+    let probe_scope = scope.clone();
     let clock: Arc<dyn Clock> = Arc::new(SystemClock);
     let monotonic: MonotonicClock = Arc::new(Instant::now);
     let claude: Arc<dyn ProviderAdapter> = Arc::new(ClaudeAdapter::new());
@@ -680,8 +838,22 @@ fn serve_in_foreground(scope: Scope, stderr: &mut dyn Write) -> i32 {
                 log.plain(&format!(
                     "oac start: the daemon is running ({}){}",
                     daemon.endpoints().join(", "),
-                    log_path.map_or_else(String::new, |p| format!("; log: {}", p.display()))
+                    log_path
+                        .as_deref()
+                        .map_or_else(String::new, |p| format!("; log: {}", p.display()))
                 ));
+                // Serving: the one object of `--json`, before this command blocks.
+                if json {
+                    print_json(
+                        stdout,
+                        &start_report_json(
+                            false,
+                            false,
+                            Some(std::process::id()),
+                            log_path.as_deref(),
+                        ),
+                    );
+                }
                 let requested = daemon.stop_requested();
                 let why = tokio::select! {
                     () = wait_for_stop() => "stopping",
@@ -693,10 +865,21 @@ fn serve_in_foreground(scope: Scope, stderr: &mut dyn Write) -> i32 {
             }
             Err(StartError::AlreadyRunning) => {
                 log.plain("oac start: the daemon is already running");
+                if json {
+                    // The probe is a blocking client: off the runtime's worker.
+                    let pid = tokio::task::block_in_place(|| running_pid(&probe_scope));
+                    print_json(
+                        stdout,
+                        &start_report_json(true, false, pid, log_path.as_deref()),
+                    );
+                }
                 0
             }
             Err(e) => {
                 log.plain(&format!("oac start: {e}"));
+                if json {
+                    print_json(stdout, &start_error_json("failed", &e.to_string()));
+                }
                 1
             }
         }
@@ -733,17 +916,35 @@ const DETACH_WAIT: Duration = Duration::from_secs(20);
 /// the daemon's log file (`crate::logfile`) is named. It is stopped cleanly with `oac stop`
 /// (G10, #71), over the control endpoint: a detached process on Windows gets no console
 /// event, so that is the only clean shutdown there.
-fn start_detached(scope: &Scope, stderr: &mut dyn Write) -> i32 {
+///
+/// With `json`, standard output gets the one object of `oac start --json` (see [`start`]):
+/// `pid` is the child's when this command started the daemon, and the running daemon's own
+/// (asked of its control endpoint) when one was already up; `already_running` is true in the
+/// second case and when another start won the race for the lock.
+fn start_detached(
+    scope: &Scope,
+    json: bool,
+    stdout: &mut dyn Write,
+    stderr: &mut dyn Write,
+) -> i32 {
+    let log = logfile::default_log_path(scope.namespace());
     // Already running: nothing to start.
     // The probe is the control endpoint, which has no adapter: it takes no harness's slot.
     if scope.endpoint(CONTROL_LABEL).connect_blocking().is_ok() {
         let _ = writeln!(stderr, "oac start: the daemon is already running");
+        if json {
+            let pid = running_pid(scope);
+            print_json(stdout, &start_report_json(true, true, pid, log.as_deref()));
+        }
         return 0;
     }
     let exe = match std::env::current_exe() {
         Ok(e) => e,
         Err(e) => {
             let _ = writeln!(stderr, "oac start: {e}");
+            if json {
+                print_json(stdout, &start_error_json("failed", &e.to_string()));
+            }
             return 1;
         }
     };
@@ -752,8 +953,15 @@ fn start_detached(scope: &Scope, stderr: &mut dyn Write) -> i32 {
         .arg("start")
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null());
-    let log = logfile::default_log_path(scope.namespace());
-    start_detached_command(&mut command, scope, DETACH_WAIT, log.as_deref(), stderr)
+    start_detached_command_to(
+        &mut command,
+        scope,
+        DETACH_WAIT,
+        log.as_deref(),
+        json,
+        stdout,
+        stderr,
+    )
 }
 
 /// Starts `command` as `--detach` starts the daemon (see [`spawn_detached`]) with its
@@ -770,20 +978,81 @@ pub fn start_detached_command(
     log: Option<&Path>,
     stderr: &mut dyn Write,
 ) -> i32 {
+    start_detached_command_to(command, scope, wait, log, false, &mut io::sink(), stderr)
+}
+
+/// [`start_detached_command`] with the `--json` result: with `json`, `stdout` gets exactly
+/// one canonical object (the report of `start_report_json`, with `detached` true, or
+/// `start_error_json`); without, nothing. The exit status is the same either way.
+#[doc(hidden)]
+pub fn start_detached_command_to(
+    command: &mut std::process::Command,
+    scope: &Scope,
+    wait: Duration,
+    log: Option<&Path>,
+    json: bool,
+    stdout: &mut dyn Write,
+    stderr: &mut dyn Write,
+) -> i32 {
     command.stderr(std::process::Stdio::piped());
     match spawn_detached(command) {
-        Ok(child) => wait_until_serving(
-            child,
-            || scope.endpoint(CONTROL_LABEL).connect_blocking().is_ok(),
-            wait,
-            log,
-            stderr,
-        ),
+        Ok(child) => {
+            let pid = child.id();
+            let outcome = wait_for_start(
+                child,
+                || scope.endpoint(CONTROL_LABEL).connect_blocking().is_ok(),
+                wait,
+                log,
+                stderr,
+            );
+            match outcome {
+                DetachOutcome::Serving { started_here } => {
+                    if json {
+                        // Which daemon serves is the daemon's own word (its control endpoint):
+                        // when the child was not yet seen to end, it may be a start that lost
+                        // the race for the lock, with the daemon of an earlier one serving.
+                        let daemon = running_pid(scope);
+                        let started_here = daemon.map_or(started_here, |d| d == pid);
+                        let pid = daemon.or_else(|| started_here.then_some(pid));
+                        print_json(stdout, &start_report_json(!started_here, true, pid, log));
+                    }
+                    0
+                }
+                DetachOutcome::Failed(detail) => {
+                    if json {
+                        print_json(stdout, &start_error_json("failed", &detail));
+                    }
+                    1
+                }
+                DetachOutcome::TimedOut(detail) => {
+                    if json {
+                        print_json(stdout, &start_error_json("timeout", &detail));
+                    }
+                    1
+                }
+            }
+        }
         Err(e) => {
-            let _ = writeln!(stderr, "oac start: the daemon could not be started: {e}");
+            let detail = format!("the daemon could not be started: {e}");
+            let _ = writeln!(stderr, "oac start: {detail}");
+            if json {
+                print_json(stdout, &start_error_json("failed", &detail));
+            }
             1
         }
     }
+}
+
+/// How a detached start ended.
+enum DetachOutcome {
+    /// A daemon serves. `started_here` is false when the child ended cleanly because another
+    /// start was first.
+    Serving { started_here: bool },
+    /// The child ended at start-up with a failure; the detail is what is said on standard
+    /// error, less the `oac start: ` prefix.
+    Failed(String),
+    /// Nothing served within the wait.
+    TimedOut(String),
 }
 
 /// The most the start relays of a child's standard error.
@@ -883,6 +1152,21 @@ pub fn spawn_detached(command: &mut std::process::Command) -> io::Result<std::pr
     command.spawn()
 }
 
+/// [`wait_for_start`] as an exit status (0 serving, 1 not): what the unit tests assert.
+#[cfg(test)]
+fn wait_until_serving(
+    child: std::process::Child,
+    serving: impl FnMut() -> bool,
+    wait: Duration,
+    log: Option<&Path>,
+    stderr: &mut dyn Write,
+) -> i32 {
+    match wait_for_start(child, serving, wait, log, stderr) {
+        DetachOutcome::Serving { .. } => 0,
+        DetachOutcome::Failed(_) | DetachOutcome::TimedOut(_) => 1,
+    }
+}
+
 /// Waits for the daemon just started to serve (`serving`), or for the process to fail.
 /// This waits for a start-up to finish, once; it is not polling for anything the daemon holds.
 ///
@@ -895,13 +1179,13 @@ pub fn spawn_detached(command: &mut std::process::Command) -> io::Result<std::pr
 ///
 /// **The child's standard error is relayed** to `stderr` while it runs, and a failure says
 /// where its log is (`log`), so the reason is the child's own and not a guess.
-fn wait_until_serving(
+fn wait_for_start(
     mut child: std::process::Child,
     mut serving: impl FnMut() -> bool,
     wait: Duration,
     log: Option<&Path>,
     stderr: &mut dyn Write,
-) -> i32 {
+) -> DetachOutcome {
     let output = read_in_background(&mut child);
     let mut budget = RELAY_LIMIT;
     let mut show = |stderr: &mut dyn Write, wait: Duration| -> bool {
@@ -925,7 +1209,9 @@ fn wait_until_serving(
                 ),
                 None => writeln!(stderr, "oac start: the daemon is running"),
             };
-            return 0;
+            return DetachOutcome::Serving {
+                started_here: ended.is_none(),
+            };
         }
         if let Some(status) = ended
             && !status.success()
@@ -934,25 +1220,24 @@ fn wait_until_serving(
             // do not wait for a grandchild that kept the stream open.
             let drain_end = Instant::now() + Duration::from_secs(2);
             while Instant::now() < drain_end && !show(stderr, Duration::from_millis(100)) {}
-            let _ = writeln!(
-                stderr,
-                "oac start: the daemon ended at start-up ({status}){log_hint}"
-            );
-            return 1;
+            let detail = format!("the daemon ended at start-up ({status}){log_hint}");
+            let _ = writeln!(stderr, "oac start: {detail}");
+            return DetachOutcome::Failed(detail);
         }
         std::thread::sleep(Duration::from_millis(100));
     }
     show(stderr, Duration::ZERO);
-    let _ = writeln!(
-        stderr,
-        "oac start: the daemon did not start in time (it may still be starting){log_hint}"
-    );
-    1
+    let detail = format!("the daemon did not start in time (it may still be starting){log_hint}");
+    let _ = writeln!(stderr, "oac start: {detail}");
+    DetachOutcome::TimedOut(detail)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{names_a_namespace, wait_until_serving};
+    use super::{
+        DetachOutcome, StartArgs, names_a_namespace, parse_shim_args, parse_start_args,
+        start_error_json, start_report_json, wait_for_start, wait_until_serving,
+    };
     use std::ffi::OsStr;
     use std::path::Path;
     use std::process::{Child, Command};
@@ -1055,6 +1340,119 @@ mod tests {
     fn a_failed_start_with_a_daemon_answering_is_the_daemon_running() {
         let (status, _) = waited(exits_with(3), || true, Duration::from_secs(5));
         assert_eq!(status, 0);
+    }
+
+    fn words(args: &[&str]) -> Vec<String> {
+        args.iter().map(|a| (*a).to_owned()).collect()
+    }
+
+    #[test]
+    fn start_takes_detach_and_json_once_each_in_either_order_and_help_alone() {
+        let flags = |detach, json| StartArgs {
+            detach,
+            json,
+            help: false,
+        };
+        assert_eq!(parse_start_args(&words(&[])), Some(flags(false, false)));
+        assert_eq!(
+            parse_start_args(&words(&["--detach"])),
+            Some(flags(true, false))
+        );
+        assert_eq!(
+            parse_start_args(&words(&["--json"])),
+            Some(flags(false, true))
+        );
+        for order in [["--detach", "--json"], ["--json", "--detach"]] {
+            assert_eq!(parse_start_args(&words(&order)), Some(flags(true, true)));
+        }
+        assert!(parse_start_args(&words(&["--help"])).unwrap().help);
+        assert!(parse_start_args(&words(&["-h"])).unwrap().help);
+        for bad in [
+            &["--help", "--json"][..],
+            &["--json", "--json"][..],
+            &["--detach", "--detach"][..],
+            &["--detach", "x"][..],
+            &["--bogus"][..],
+            &["--JSON"][..],
+        ] {
+            assert_eq!(parse_start_args(&words(bad)), None, "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn the_shim_takes_its_harness_and_json_before_or_after_it() {
+        let ok = |json| Some(("claude".to_owned(), json));
+        assert_eq!(parse_shim_args(&words(&["--harness", "claude"])), ok(false));
+        assert_eq!(
+            parse_shim_args(&words(&["--harness", "claude", "--json"])),
+            ok(true)
+        );
+        assert_eq!(
+            parse_shim_args(&words(&["--json", "--harness", "claude"])),
+            ok(true)
+        );
+        for bad in [
+            &[][..],
+            &["--json"][..],
+            &["--harness"][..],
+            &["--harness", "control"][..],
+            &["--harness", "Claude", "--json"][..],
+            &["--json", "--json", "--harness", "claude"][..],
+            &["--harness", "claude", "--json", "x"][..],
+            &["claude"][..],
+        ] {
+            assert_eq!(parse_shim_args(&words(bad)), None, "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn the_start_report_is_one_canonical_object() {
+        let log = Path::new("some").join("daemon.log");
+        let escaped = log.display().to_string().replace('\\', "\\\\");
+        assert_eq!(
+            start_report_json(false, true, Some(4242), Some(&log)),
+            format!(
+                "{{\"already_running\":false,\"detached\":true,\"log\":\"{escaped}\",\"oac_cli\":1,\"ok\":true,\"pid\":4242}}"
+            )
+        );
+        // The keys are sorted (RFC 8785), the optional members are absent when unknown.
+        assert_eq!(
+            start_report_json(true, false, None, None),
+            "{\"already_running\":true,\"detached\":false,\"oac_cli\":1,\"ok\":true}"
+        );
+    }
+
+    #[test]
+    fn the_start_error_has_the_shape_of_the_other_verbs_errors() {
+        assert_eq!(
+            start_error_json("timeout", "did not start \"in time\""),
+            "{\"detail\":\"did not start \\\"in time\\\"\",\"error\":\"timeout\",\"oac_cli\":1,\"ok\":false}"
+        );
+    }
+
+    fn started(child: Child, serving: bool, wait: Duration) -> DetachOutcome {
+        wait_for_start(child, move || serving, wait, None, &mut Vec::new())
+    }
+
+    #[test]
+    fn a_detached_start_ends_as_serving_failed_or_timed_out() {
+        match started(exits_with(3), false, Duration::from_secs(20)) {
+            DetachOutcome::Failed(detail) => assert!(detail.contains("ended at start-up")),
+            _ => panic!("a child that failed at start-up is a failure"),
+        }
+        match started(exits_with(0), false, Duration::from_millis(500)) {
+            DetachOutcome::TimedOut(detail) => assert!(detail.contains("did not start in time")),
+            _ => panic!("nothing answered: timed out"),
+        }
+        // A child that ended cleanly while a daemon serves: another start was first.
+        let mut child = exits_with(0);
+        child.wait().unwrap();
+        assert!(matches!(
+            started(child, true, Duration::from_secs(5)),
+            DetachOutcome::Serving {
+                started_here: false
+            }
+        ));
     }
 
     #[test]

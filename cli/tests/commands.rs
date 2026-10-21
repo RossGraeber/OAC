@@ -192,3 +192,46 @@ fn start_refuses_a_test_namespace_before_it_reads_any_key() {
         assert!(!e.contains("is running"), "{args:?}: {e}");
     }
 }
+
+#[test]
+fn start_with_json_still_refuses_a_test_namespace_and_says_so_as_the_error_object() {
+    // `--json` changes what standard output holds, never the refusal or the exit status.
+    for args in [
+        &["start", "--json"][..],
+        &["start", "--detach", "--json"][..],
+        &["start", "--json", "--detach"][..],
+    ] {
+        let out = oac(args, Some("refusedns"));
+        assert_eq!(out.status.code(), Some(1), "{args:?}");
+        let said = String::from_utf8_lossy(&out.stdout).into_owned();
+        assert_eq!(said.lines().count(), 1, "{args:?}: {said:?}");
+        assert!(
+            said.starts_with("{\"detail\":\"OAC_SCOPE is set;"),
+            "{args:?}: {said}"
+        );
+        assert!(said.contains("\"error\":\"failed\""), "{said}");
+        assert!(said.contains("\"oac_cli\":1,\"ok\":false"), "{said}");
+        // The words stay on standard error.
+        assert!(stderr(&out).contains("OAC_SCOPE is set"), "{args:?}");
+    }
+}
+
+#[test]
+fn start_usage_names_json_and_help_prints_to_standard_output() {
+    let out = oac(&["start", "--json", "--json"], None);
+    assert_eq!(out.status.code(), Some(2));
+    assert!(out.stdout.is_empty());
+    assert!(
+        stderr(&out).contains("usage: oac start [--detach] [--json]"),
+        "{}",
+        stderr(&out)
+    );
+    let out = oac(&["start", "--help"], None);
+    assert_eq!(out.status.code(), Some(0));
+    let help = String::from_utf8_lossy(&out.stdout).into_owned();
+    assert!(
+        help.contains("usage: oac start [--detach] [--json]"),
+        "{help}"
+    );
+    assert!(help.contains("--json"), "{help}");
+}

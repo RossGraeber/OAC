@@ -70,6 +70,19 @@ pub enum Skip {
     NotASignal,
 }
 
+impl Skip {
+    /// The stable name of the reason, for `oac hook --json`.
+    pub fn code(self) -> &'static str {
+        match self {
+            Skip::Unreadable => "unreadable",
+            Skip::TooLarge => "too_large",
+            Skip::NotAnObject => "not_an_object",
+            Skip::NotAHookInput => "not_a_hook_input",
+            Skip::NotASignal => "not_a_signal",
+        }
+    }
+}
+
 impl fmt::Display for Skip {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
@@ -102,6 +115,40 @@ impl Outcome {
             Outcome::Skipped(why) => Some(format!("oac hook: nothing sent: {why}")),
             // The error text is the operating system's (a path or an errno), not the input's.
             Outcome::NotSent(e) => Some(format!("oac hook: the daemon was not reached: {e}")),
+        }
+    }
+}
+
+impl Outcome {
+    /// The `--json` form of [`Outcome::diagnostic`] (G10, #71, slice 7): one canonical object
+    /// with `"oac_cli":1`, for **standard error only**, and one for every outcome. It holds
+    /// nothing from the input, only the reason's fixed name or the operating system's error.
+    ///
+    /// - sent: `{"ok":true,"sent":true}`
+    /// - nothing sent, by design: `{"ok":true,"sent":false,"reason":"<Skip::code>"}`
+    /// - the daemon was not reached: `{"ok":false,"sent":false,"error":"not_running"|"unreachable","detail":"..."}`
+    pub fn diagnostic_json(&self) -> String {
+        use crate::control::{cli_object, json_string};
+        match self {
+            Outcome::Sent => cli_object(&[("ok", "true".to_owned()), ("sent", "true".to_owned())]),
+            Outcome::Skipped(why) => cli_object(&[
+                ("ok", "true".to_owned()),
+                ("sent", "false".to_owned()),
+                ("reason", json_string(why.code())),
+            ]),
+            Outcome::NotSent(e) => cli_object(&[
+                ("ok", "false".to_owned()),
+                ("sent", "false".to_owned()),
+                (
+                    "error",
+                    json_string(if e.kind() == io::ErrorKind::NotFound {
+                        "not_running"
+                    } else {
+                        "unreachable"
+                    }),
+                ),
+                ("detail", json_string(&e.to_string())),
+            ]),
         }
     }
 }
