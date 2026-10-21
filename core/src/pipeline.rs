@@ -494,6 +494,12 @@ enum PairAttempt {
     NotYet(PairingKey),
     /// Unpairable; the bound attachments it can be attributed to, for [SC-ID-154].
     Unpairable(Vec<Attachment>),
+    /// A reveal that pairs nothing and is attributed to no attachment, for this requirement:
+    /// dropped with a diagnostic, withholding nothing.
+    Rejected(&'static str),
+    /// A reveal of an already paired value naming another thread: the binding of this
+    /// attachment ends, with a finding ([MCPB-ATT-011], [MCPB-ATT-012]).
+    Conflict(Attachment),
 }
 
 struct TrackerEntry {
@@ -2883,6 +2889,12 @@ impl Inner {
         core.next_signal_seq = seq
             .checked_add(1)
             .expect("fewer than 2^64 native signals in one process");
+        if let Reveal::Rejected(requirement) = reveal {
+            // Never queued, so that it counts against no holder's share of the cap and a
+            // reveal nobody may make evicts nothing: dropped now, with its diagnostic, and
+            // it withholds nothing.
+            return Some((signal, PairAttempt::Rejected(requirement), seq));
+        }
         let queued = QueuedSignal {
             adapter,
             signal,
@@ -2902,7 +2914,7 @@ impl Inner {
             dropped
         } else {
             // This holder has none to give up: this one goes.
-            let attempt = Inner::pair(core, adapter, queued.key.as_ref(), queued.reveal.narrow());
+            let attempt = Inner::attempt(core, adapter, queued.key.as_ref(), &queued.reveal);
             Some((queued.signal, attempt, seq))
         }
     }
@@ -3047,7 +3059,7 @@ impl Inner {
         }
         let i = core.signals.iter().position(|q| q.seq == seq)?;
         let q = core.signals.remove(i)?;
-        let attempt = Inner::pair(core, q.adapter, q.key.as_ref(), q.reveal.narrow());
+        let attempt = Inner::attempt(core, q.adapter, q.key.as_ref(), &q.reveal);
         Some((q.signal, attempt, seq))
     }
 
@@ -3055,16 +3067,58 @@ impl Inner {
     /// [SC-ID-128]). The attachments its observed key attributes it to are withheld
     /// ([SC-ID-154]; PR #333 review, B2) until a signal that arrived after it pairs.
     fn drop_signal(&self, signal: &NativeSignal, attempt: PairAttempt, seq: u64) {
+        match attempt {
+            PairAttempt::Rejected(requirement) => {
+                // A reveal nobody may make: a diagnostic, and nothing is withheld.
+                self.log(BindingLogEntry {
+                    record: BindingRecord {
+                        kind: RecordKind::Diagnostic,
+                        requirement,
+                    },
+                    result: BindingResult::Dropped,
+                    attachment: None,
+                    session: None,
+                });
+                return;
+            }
+            PairAttempt::Conflict(attachment) => {
+                self.end_conflicted(&attachment);
+                return;
+            }
+            _ => {}
+        }
         let d = decide::<Attachment>(&[], signal, &Pairing::WindowExpired);
         self.log_decision(&d, None, None);
         let attributed = match attempt {
             PairAttempt::Paired(a) => vec![a],
             PairAttempt::Unpairable(bound) => bound,
-            PairAttempt::NotYet(_) => Vec::new(),
+            PairAttempt::NotYet(_) | PairAttempt::Rejected(_) | PairAttempt::Conflict(_) => {
+                Vec::new()
+            }
         };
         for a in attributed {
             self.withhold(&a, seq);
         }
+    }
+
+    /// [MCPB-ATT-011], [MCPB-ATT-012]: one value revealed for two threads. The connection
+    /// ends unbound, and the operator is told.
+    fn end_conflicted(&self, attachment: &Attachment) {
+        let session = self
+            .lock()
+            .attachments
+            .get(attachment)
+            .and_then(|e| e.session.clone());
+        self.unbind(attachment);
+        self.log(BindingLogEntry {
+            record: BindingRecord {
+                kind: RecordKind::Finding,
+                requirement: "MCPB-ATT-012",
+            },
+            result: BindingResult::FailedClosed,
+            attachment: Some(attachment.clone()),
+            session,
+        });
     }
 
     /// Forgets the connection `connection`: an attachment's binding ends first
@@ -3177,44 +3231,16 @@ impl Inner {
             else {
                 return;
             };
-            match &reveal {
-                Reveal::Rejected(requirement) => {
-                    // Dropped with a diagnostic; it withholds nothing, so that a reveal
-                    // nobody may make cannot stop an attachment.
-                    self.log(BindingLogEntry {
-                        record: BindingRecord {
-                            kind: RecordKind::Diagnostic,
-                            requirement,
-                        },
-                        result: BindingResult::Dropped,
-                        attachment: None,
-                        session: None,
-                    });
-                    continue;
-                }
-                Reveal::Conflict(attachment) => {
-                    // [MCPB-ATT-011], [MCPB-ATT-012]: one value for two threads. The
-                    // connection ends unbound, and the operator is told.
-                    let session = self
-                        .lock()
-                        .attachments
-                        .get(attachment)
-                        .and_then(|e| e.session.clone());
-                    self.unbind(attachment);
-                    self.log(BindingLogEntry {
-                        record: BindingRecord {
-                            kind: RecordKind::Finding,
-                            requirement: "MCPB-ATT-012",
-                        },
-                        result: BindingResult::FailedClosed,
-                        attachment: Some(attachment.clone()),
-                        session,
-                    });
-                    continue;
-                }
-                Reveal::None | Reveal::Issued(_) => {}
+            let attempt = Inner::attempt(&self.lock(), adapter, key.as_ref(), &reveal);
+            if matches!(attempt, PairAttempt::Rejected(_) | PairAttempt::Conflict(_)) {
+                self.drop_signal(&signal, attempt, seq);
+                continue;
             }
-            let attempt = Inner::pair(&self.lock(), adapter, key.as_ref(), reveal.narrow());
+            if let (Reveal::Issued(_), PairAttempt::Paired(a)) = (&reveal, &attempt) {
+                // The reveal pairs: only now does the attachment's count of windows start
+                // again ([MCPB-ATT-023]). A reveal the cap turned away did not pair.
+                self.lock().pairing.paired(a);
+            }
             match attempt {
                 PairAttempt::NotYet(key) => self.lock().held.push_back(HeldSignal {
                     adapter,
@@ -3240,6 +3266,19 @@ impl Inner {
     /// A reveal of an issued value narrows the candidates to the attachment the value was
     /// issued on (`narrow`, [SC-ID-125]); one that has no such candidate any more is
     /// unpairable, not held, since nothing will open one.
+    fn attempt(
+        core: &Core,
+        adapter: AdapterId,
+        key: Option<&PairingKey>,
+        reveal: &Reveal,
+    ) -> PairAttempt {
+        match reveal {
+            Reveal::Rejected(requirement) => PairAttempt::Rejected(requirement),
+            Reveal::Conflict(a) => PairAttempt::Conflict(a.clone()),
+            reveal => Inner::pair(core, adapter, key, reveal.narrow()),
+        }
+    }
+
     fn pair(
         core: &Core,
         adapter: AdapterId,
@@ -3399,7 +3438,7 @@ impl Inner {
         let (pairing, attributed) = match attempt {
             PairAttempt::Paired(a) => (Pairing::Paired(a), Vec::new()),
             PairAttempt::Unpairable(bound) => (Pairing::Unpairable, bound),
-            PairAttempt::NotYet(_) => return,
+            PairAttempt::NotYet(_) | PairAttempt::Rejected(_) | PairAttempt::Conflict(_) => return,
         };
         // #338: a held signal is decided when a candidate opens, so a newer signal of the
         // same key can pair while an older one is still held, not yet pairable (its

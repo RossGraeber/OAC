@@ -4561,3 +4561,71 @@ fn an_unconfirmed_event_for_an_unknown_attachment_changes_nothing() {
     assert_eq!(n.pipes.binding(&a), Some(sid));
     assert!(log.entries().is_empty());
 }
+
+/// A node whose pending-signal cap is one, with `a` bound through a real reveal on the
+/// carrier `c`, and the one slot taken by a held signal of another key.
+fn full_queue_after_a_reveal() -> (Node, Attachment, Attachment, String, MemoryBindingLog) {
+    let bus = Bus::default();
+    let t = Stepped::new();
+    let config = PipelineConfig {
+        pairing_window: Duration::from_secs(10),
+        max_pending_signals: 1,
+        ..PipelineConfig::default()
+    };
+    let n = node_mono(&bus, "device-a", config, Arc::new(SystemClock), t.clock());
+    let c = designated_carrier(&n, "codex-1");
+    let log = binding_log(&n);
+    let a = observed_attachment(&n, "codex-1", None);
+    let v = pairing_refusal(&n, &a).unwrap();
+    n.adapter.emit(reveal(&c, "T1", &v));
+    assert!(n.pipes.binding(&a).is_some());
+    let other = carrier(&n, "other-key");
+    n.adapter
+        .emit(signal(Some(&other), "X", StartKind::Fresh, None));
+    assert!(
+        n.pipes.next_native_signal_expiry().is_some(),
+        "the slot is held"
+    );
+    (n, c, a, v, log)
+}
+
+/// A reveal nobody may make, turned away at the cap, is dropped with its diagnostic and
+/// withholds nothing: one forged reveal cannot stall the connections of the carrier's key.
+#[test]
+fn a_rejected_reveal_at_the_cap_withholds_nothing() {
+    let (n, c, a, _v, log) = full_queue_after_a_reveal();
+    let sid = n.pipes.binding(&a).unwrap();
+    n.adapter.emit(reveal(
+        &c,
+        "T9",
+        "oac-pair-00000000000000000000000000000000",
+    ));
+    assert_eq!(n.pipes.binding(&a), Some(sid.clone()));
+    assert_eq!(told(&n, &a), Some(sid));
+    assert!(
+        issued_log(&log).contains(&"MCPB-ATT-007"),
+        "{:?}",
+        requirements(&log)
+    );
+    assert!(!requirements(&log).contains(&"SC-ID-154"));
+}
+
+/// A conflict turned away at the cap still ends the binding and records the finding.
+#[test]
+fn a_conflicting_reveal_at_the_cap_still_ends_the_binding() {
+    let (n, c, a, v, log) = full_queue_after_a_reveal();
+    n.adapter.emit(reveal(&c, "T2", &v));
+    assert_eq!(n.pipes.binding(&a), None);
+    assert_eq!(told(&n, &a), None);
+    assert!(
+        issued_log(&log).contains(&"MCPB-ATT-012"),
+        "{:?}",
+        requirements(&log)
+    );
+    let finding = log
+        .entries()
+        .into_iter()
+        .find(|e| e.record.requirement == "MCPB-ATT-012")
+        .unwrap();
+    assert_eq!(finding.record.kind, RecordKind::Finding);
+}

@@ -34,6 +34,10 @@ pub const MAX_WINDOWS: u32 = 3;
 /// The records kept per attachment, ended and paired windows included, so that an ended or
 /// already paired value is recognised as such. The oldest goes past it; a value no longer
 /// recognised is unknown, and an unknown value pairs nothing.
+///
+/// Residual (`docs/planning/v0.1/11-risks.md`, `RISK-LOCAL-IPC`): after 16 records an evicted
+/// paired value that is revealed for a second thread is `Unknown`, not `Conflict`, so
+/// [MCPB-ATT-011] is lost for a very old value. The reveal still pairs nothing.
 const MAX_RECORDS: usize = 16;
 
 /// What a reveal of a pairing value means.
@@ -184,9 +188,21 @@ impl<A: Clone + Eq + Hash> PairingWindows<A> {
         if !acceptable(&attachment) {
             return RevealOutcome::Refused(attachment);
         }
+        // The value is used up here, at the reveal's arrival, so that two reveals of one
+        // value are told apart in arrival order. A reveal the core's cap then turns away has
+        // used it up without pairing; that fails closed (the thread is refused again and
+        // gets a new window). The count of windows is not reset here, but by
+        // [`PairingWindows::paired`] when a reveal does pair ([MCPB-ATT-023]).
         r.state = State::Paired(native_id.to_owned());
-        w.since_paired = 0;
         RevealOutcome::Fresh(attachment)
+    }
+
+    /// A reveal paired with `attachment`: the count of windows opened since the last paired
+    /// reveal starts again ([MCPB-ATT-023]).
+    pub fn paired(&mut self, attachment: &A) {
+        if let Some(w) = self.by_attachment.get_mut(attachment) {
+            w.since_paired = 0;
+        }
     }
 
     /// Forgets everything issued on `attachment`: it ended.
@@ -309,6 +325,7 @@ mod tests {
         t += S * 11;
         let v = p.issue(&1, t).unwrap();
         assert_eq!(p.reveal(&v, "T", t + S, yes), RevealOutcome::Fresh(1));
+        p.paired(&1);
         t += S * 2;
         let again = p.issue(&1, t).unwrap();
         assert_ne!(again, v, "a paired window is over");
@@ -382,6 +399,7 @@ mod tests {
                 p.issue(&1, t).unwrap()
             });
             let _ = p.reveal(&v, "T", t, yes);
+            p.paired(&1);
             t += Duration::from_millis(2);
         }
         assert_eq!(p.reveal(&first, "T", t, yes), RevealOutcome::Unknown);

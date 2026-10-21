@@ -698,6 +698,16 @@ list.
   alternative already scoped (`docs/planning/decisions/C2-process-model.md`
   §10-§11).
 
+  (Dated note, 2026-10-21, #69, PR #451: the core's part of the Codex issued-value
+  pairing (`spec/bindings/mcp.md` §4.5) now exists in `core/src/issued_pairing.rs`.
+  **Residual: old paired values.** The core keeps 16 records per attachment. After that,
+  a paired value that was evicted and is then revealed for a second thread is unknown,
+  not a conflict, so [MCPB-ATT-011] and its finding ([MCPB-ATT-012]) are lost for a very
+  old value. The reveal still pairs nothing, and a value is used once, so this costs the
+  finding, never authority. **Residual: a reveal turned away at the pending-signal cap**
+  has used its value up without pairing; the thread is refused again and gets a new
+  window, so it costs availability only.)
+
 ### RISK-CRYPTO-BUILD — Signing-crate Windows build and MSRV policy unverified
 
 - **Risk.** `ed25519-dalek` `3.0.0` may not build cleanly on
