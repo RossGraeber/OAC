@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 //! The core's pairing windows for issued values (`spec/interfaces.md` §5.6;
 //! `spec/bindings/mcp.md` §4.5).
 //!
