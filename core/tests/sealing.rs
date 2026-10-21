@@ -803,7 +803,8 @@ fn unsealed_payloads_from_a_sealing_transport_are_discarded() {
     assert!(matches!(
         t.x.adapter.send(request(&t.xa, &s5, "too early")),
         SendRequestResult::Refused {
-            error: ErrorCode::UnknownDestination
+            error: ErrorCode::UnknownDestination,
+            pairing_value: None,
         }
     ));
     // Sealed: taken.

@@ -173,6 +173,7 @@ use crate::clock::Clock;
 use crate::delivery::{DeliveryState, ErrorCode};
 use crate::envelope::{ChannelMessage, Envelope, EnvelopeLimits, receive_envelope};
 use crate::ids::{EXTENSION_ID_V0, IMPLEMENTED_VERSION, KeyId, SessionId, Token};
+use crate::issued_pairing::{PairingWindows, RevealOutcome};
 use crate::json::{self, Json};
 use crate::keys::DeviceIdentity;
 use crate::pairing::PairingStore;
@@ -258,6 +259,9 @@ pub struct PipelineConfig {
     /// signal that goes is dropped with a diagnostic ([SC-ID-123], [SC-ID-128]),
     /// withholding any bound attachment its observed key attributes it to ([SC-ID-154]).
     pub max_pending_signals: usize,
+    /// How long a pairing window for an issued value lasts (`spec/bindings/mcp.md` §4.5);
+    /// cut to 60 seconds ([MCPB-ATT-019]).
+    pub pairing_window: Duration,
 }
 
 impl Default for PipelineConfig {
@@ -278,6 +282,7 @@ impl Default for PipelineConfig {
             control_ttl: Duration::from_secs(60),
             native_signal_window: Duration::from_secs(10),
             max_pending_signals: 64,
+            pairing_window: Duration::from_secs(30),
         }
     }
 }
@@ -381,6 +386,17 @@ enum LocalWork {
     Event(AdapterEvent),
     /// The native signal was already queued at report time; the cap may have turned one away.
     Signal(Option<(NativeSignal, PairAttempt, u64)>),
+    /// The attachment was already stopped at report time ([IFC-ADP-092]); what is left is
+    /// telling the adapter and recording the finding.
+    Unconfirmed(Attachment, Option<Unconfirmed>),
+}
+
+/// What is left to do for an `attachment-unconfirmed` event once the attachment has been
+/// stopped under the core lock.
+struct Unconfirmed {
+    adapter: Arc<dyn ProviderAdapter>,
+    /// The session the attachment was bound to, when it was.
+    session: Option<SessionId>,
 }
 
 /// A native signal waiting for its decision, with the pairing key observed for its
@@ -392,6 +408,34 @@ struct QueuedSignal {
     /// Its place in arrival order, among every native signal reported: the order they were
     /// reported in, taken with the signal's place in the queue under one hold of the core lock.
     seq: u64,
+    /// What its `revealed` value meant when it arrived.
+    reveal: Reveal,
+}
+
+/// What the `revealed` value of a native signal meant when the signal was reported, decided
+/// under the core lock in arrival order, so that a value is used once and its window is judged
+/// at the instant of arrival (`spec/bindings/mcp.md` [MCPB-ATT-009], [MCPB-ATT-010]).
+#[derive(Clone, Debug)]
+enum Reveal {
+    /// The signal reveals nothing; it pairs by the key alone.
+    None,
+    /// A value issued on this attachment, used up now: the candidates narrow to it.
+    Issued(Attachment),
+    /// A second reveal of an already paired value naming another thread: the binding of this
+    /// attachment ends, with a finding ([MCPB-ATT-011], [MCPB-ATT-012]).
+    Conflict(Attachment),
+    /// No pairing: not on a carrier, unknown, late, replayed or for an attachment that cannot
+    /// pair now. Dropped with a diagnostic naming the requirement, withholding nothing.
+    Rejected(&'static str),
+}
+
+impl Reveal {
+    fn narrow(&self) -> Option<&Attachment> {
+        match self {
+            Reveal::Issued(a) => Some(a),
+            _ => None,
+        }
+    }
 }
 
 impl QueuedSignal {
@@ -514,6 +558,10 @@ struct Core {
     held: VecDeque<HeldSignal>,
     /// The `seq` the next native signal reported takes.
     next_signal_seq: u64,
+    /// The connections the daemon registered as carriers ([`Pipelines::connect_carrier`]).
+    carriers: HashMap<ConnectionHandle, AdapterId>,
+    /// The pairing windows of issued values (`spec/bindings/mcp.md` §4.5).
+    pairing: PairingWindows<Attachment>,
 }
 
 // Final closure is authoritative independently of a lock held by ordinary core work.
@@ -663,6 +711,8 @@ impl Pipelines {
             signals: VecDeque::new(),
             held: VecDeque::new(),
             next_signal_seq: 0,
+            carriers: HashMap::new(),
+            pairing: PairingWindows::new(config.pairing_window),
         };
         Pipelines {
             inner: Arc::new(Inner {
@@ -858,6 +908,7 @@ impl Pipelines {
                     match &event {
                         AdapterEvent::AttachmentOpened { attachment, .. }
                         | AdapterEvent::AttachmentClosed { attachment }
+                        | AdapterEvent::AttachmentUnconfirmed { attachment }
                         | AdapterEvent::CapabilitiesChanged { attachment } => {
                             call.associate_with(&event_admission, attachment.clone())
                         }
@@ -910,6 +961,46 @@ impl Pipelines {
         connection: Connection,
         observation: PeerObservation,
     ) -> Result<(), PipelineError> {
+        self.connect_designated(adapter, connection, observation, false)
+    }
+
+    /// [`Pipelines::connect_observed`] for the adapter's *carrier*: the connection on which
+    /// the harness reports to the adapter (for one v0.1 harness, its app-server;
+    /// `spec/bindings/mcp.md` §4.5.3). The daemon designates it here, in Rust, after it
+    /// accepted and authenticated the connection; no message, signal or tool call can
+    /// designate one ([MCPB-ATT-006]). The observation's pairing key is the one of the
+    /// harness process at the other end.
+    ///
+    /// The core then
+    ///
+    /// - accepts a native signal's `revealed` value only on a carrier of the adapter that
+    ///   reported it;
+    /// - issues a pairing value for an attachment only when the attachment's pairing key is
+    ///   the key of an open carrier of its adapter ([MCPB-ATT-022]): a process that does not
+    ///   descend from the carrier's harness process, or whose key is not observed, gets a
+    ///   plain refusal.
+    ///
+    /// A carrier with no pairing key in its observation matches no attachment.
+    ///
+    /// # Errors
+    ///
+    /// As [`Pipelines::connect`].
+    pub fn connect_carrier(
+        &self,
+        adapter: AdapterId,
+        connection: Connection,
+        observation: PeerObservation,
+    ) -> Result<(), PipelineError> {
+        self.connect_designated(adapter, connection, observation, true)
+    }
+
+    fn connect_designated(
+        &self,
+        adapter: AdapterId,
+        connection: Connection,
+        observation: PeerObservation,
+        carrier: bool,
+    ) -> Result<(), PipelineError> {
         let a = {
             let mut core = self.inner.lock();
             let a = core
@@ -950,6 +1041,9 @@ impl Pipelines {
                 .unwrap_or_else(PoisonError::into_inner)
                 .connections
                 .insert(handle.clone(), adapter);
+            if carrier {
+                core.carriers.insert(handle.clone(), adapter);
+            }
             core.connections.insert(handle, adapter);
             a
         };
@@ -1530,6 +1624,8 @@ impl RequestSink for Sink {
             Ok(v) => v,
             Err(v) => return v.map(|()| unreachable!()),
         };
+        let mut core = core;
+        let now = (inner.monotonic)();
         call.commit(
             || match Inner::requester(&core, self.adapter, &request.attachment) {
                 Some(session_id) => IdentityRequestResult::LocalIdentity(LocalIdentity {
@@ -1538,6 +1634,12 @@ impl RequestSink for Sink {
                 }),
                 None => IdentityRequestResult::Refused {
                     error: ErrorCode::Unauthorized,
+                    pairing_value: Inner::pairing_value_for(
+                        &mut core,
+                        self.adapter,
+                        &request.attachment,
+                        now,
+                    ),
                 },
             },
         )
@@ -1550,9 +1652,10 @@ impl RequestSink for Sink {
         let Some(inner) = self.inner.upgrade() else {
             return IdentityRequestResult::Refused {
                 error: ErrorCode::Unauthorized,
+                pairing_value: None,
             };
         };
-        let core = inner.lock();
+        let mut core = inner.lock();
         match Inner::requester(&core, self.adapter, &request.attachment) {
             Some(session_id) => IdentityRequestResult::LocalIdentity(LocalIdentity {
                 session_id,
@@ -1560,6 +1663,12 @@ impl RequestSink for Sink {
             }),
             None => IdentityRequestResult::Refused {
                 error: ErrorCode::Unauthorized,
+                pairing_value: Inner::pairing_value_for(
+                    &mut core,
+                    self.adapter,
+                    &request.attachment,
+                    (inner.monotonic)(),
+                ),
             },
         }
     }
@@ -1569,6 +1678,7 @@ impl RequestSink for Sink {
             Some(inner) => inner.send(self.adapter, request),
             None => SendRequestResult::Refused {
                 error: ErrorCode::InternalError,
+                pairing_value: None,
             },
         }
     }
@@ -1578,6 +1688,7 @@ impl RequestSink for Sink {
             Some(inner) => inner.discover(self.adapter, request),
             None => DiscoveryRequestResult::Refused {
                 error: ErrorCode::InternalError,
+                pairing_value: None,
             },
         }
     }
@@ -1708,6 +1819,8 @@ impl Inner {
         }
         let session = core.attachments.remove(attachment).and_then(|e| e.session);
         core.connections.remove(attachment);
+        core.carriers.remove(attachment);
+        core.pairing.forget(attachment);
         core.observed.remove(attachment);
         let session = session?;
         core.sessions.remove(&session);
@@ -1824,6 +1937,7 @@ impl Inner {
             crate::local_call::LocalResult::Completed(v) => v,
             _ => SendRequestResult::Refused {
                 error: ErrorCode::InternalError,
+                pairing_value: None,
             },
         }
     }
@@ -1880,7 +1994,16 @@ impl Inner {
         };
         let prepared = match prepared {
             Ok(p) => p,
-            Err(error) => return LocalResult::Completed(SendRequestResult::Refused { error }),
+            Err(error) => {
+                return LocalResult::Completed(SendRequestResult::Refused {
+                    error,
+                    pairing_value: if requester.is_none() && error == ErrorCode::Unauthorized {
+                        Inner::pairing_value_for(core, adapter, &request.attachment, mono)
+                    } else {
+                        None
+                    },
+                });
+            }
         };
         struct CommittedSend<'a>(&'a Mutex<HashMap<AdapterId, usize>>, AdapterId);
         impl Drop for CommittedSend<'_> {
@@ -2177,7 +2300,14 @@ impl Inner {
         );
         match result {
             Ok(list) => DiscoveryRequestResult::DiscoveryResult(list),
-            Err(error) => DiscoveryRequestResult::Refused { error },
+            Err(error) => DiscoveryRequestResult::Refused {
+                error,
+                pairing_value: if requester.is_none() && error == ErrorCode::Unauthorized {
+                    Inner::pairing_value_for(core, adapter, &request.attachment, mono)
+                } else {
+                    None
+                },
+            },
         }
     }
 
@@ -2691,13 +2821,20 @@ impl Inner {
                 // newer one and pair after it (SC-ID-123). What is left for the worker is
                 // what calls the adapter or may take long: dropping a signal the cap turned
                 // away, and the binding pass.
-                let work =
-                    match event {
-                        AdapterEvent::NativeSignal(signal) => LocalWork::Signal(
-                            Inner::queue_signal(&self.config, &mut core, adapter, signal),
-                        ),
-                        event => LocalWork::Event(event),
-                    };
+                let work = match event {
+                    AdapterEvent::AttachmentUnconfirmed { attachment } => {
+                        let stopped = Inner::stop_unconfirmed(&mut core, adapter, &attachment);
+                        LocalWork::Unconfirmed(attachment, stopped)
+                    }
+                    AdapterEvent::NativeSignal(signal) => LocalWork::Signal(Inner::queue_signal(
+                        &self.config,
+                        &mut core,
+                        adapter,
+                        signal,
+                        (self.monotonic)(),
+                    )),
+                    event => LocalWork::Event(event),
+                };
                 let inner = self.clone();
                 std::thread::spawn(move || {
                     struct Worker(Arc<Inner>);
@@ -2710,6 +2847,9 @@ impl Inner {
                     match work {
                         LocalWork::Event(event) => inner.on_adapter_event(adapter, event),
                         LocalWork::Signal(dropped) => inner.after_queued_signal(dropped),
+                        LocalWork::Unconfirmed(attachment, stopped) => {
+                            inner.finish_unconfirmed(&attachment, stopped)
+                        }
                     }
                 });
             })
@@ -2733,8 +2873,10 @@ impl Inner {
         core: &mut Core,
         adapter: AdapterId,
         signal: NativeSignal,
+        now: Instant,
     ) -> Option<(NativeSignal, PairAttempt, u64)> {
         let key = Inner::observed_key(core, adapter, &signal);
+        let reveal = Inner::classify_reveal(core, adapter, &signal, key.as_ref(), now);
         let seq = core.next_signal_seq;
         // One total arrival order; 2^64 signals never arrive, but say so rather than wrap
         // silently in a release build.
@@ -2746,6 +2888,7 @@ impl Inner {
             signal,
             key,
             seq,
+            reveal,
         };
         let full = core.signals.len() + core.held.len() >= config.max_pending_signals.max(1);
         if !full {
@@ -2759,7 +2902,7 @@ impl Inner {
             dropped
         } else {
             // This holder has none to give up: this one goes.
-            let attempt = Inner::pair(core, adapter, queued.key.as_ref());
+            let attempt = Inner::pair(core, adapter, queued.key.as_ref(), queued.reveal.narrow());
             Some((queued.signal, attempt, seq))
         }
     }
@@ -2816,12 +2959,70 @@ impl Inner {
             AdapterEvent::CapabilitiesChanged { attachment } => {
                 self.capabilities_changed(adapter, &attachment);
             }
+            AdapterEvent::AttachmentUnconfirmed { attachment } => {
+                let stopped = Inner::stop_unconfirmed(&mut self.lock(), adapter, &attachment);
+                self.finish_unconfirmed(&attachment, stopped);
+            }
             AdapterEvent::NativeSignal(signal) => {
                 // A path that reports on the caller's thread queues it the same way.
-                let dropped = Inner::queue_signal(&self.config, &mut self.lock(), adapter, signal);
+                let now = (self.monotonic)();
+                let dropped =
+                    Inner::queue_signal(&self.config, &mut self.lock(), adapter, signal, now);
                 self.after_queued_signal(dropped);
             }
         }
+    }
+
+    /// [IFC-ADP-092], under the core lock and before the event call returns, so that a request
+    /// the adapter passes after reporting the event ([IFC-ADP-091]) finds the attachment
+    /// stopped: nothing is accepted from it and nothing handed off to it until a signal that
+    /// arrives after this event is paired with it (the stop of [SC-ID-154]). An attachment
+    /// that is not bound has nothing to stop yet, but the event is kept (`withheld_by`), so
+    /// that a binding decided for an earlier signal starts stopped too.
+    ///
+    /// `None` when the attachment is not one of `adapter`'s.
+    fn stop_unconfirmed(
+        core: &mut Core,
+        adapter: AdapterId,
+        attachment: &Attachment,
+    ) -> Option<Unconfirmed> {
+        let seq = core.next_signal_seq;
+        let e = core
+            .attachments
+            .get_mut(attachment)
+            .filter(|e| e.adapter == adapter)?;
+        core.next_signal_seq = seq
+            .checked_add(1)
+            .expect("fewer than 2^64 native signals in one process");
+        e.withheld_by = Some(withheld_until_after(e.withheld_by, seq));
+        let session = e.session.clone();
+        if session.is_some() {
+            e.withheld = true;
+        }
+        Some(Unconfirmed {
+            adapter: core.adapters[adapter.0].clone(),
+            session,
+        })
+    }
+
+    /// [IFC-ADP-092] and [IFC-ADP-093], outside the core lock: the adapter is told the
+    /// binding names no session, and the finding is recorded.
+    fn finish_unconfirmed(&self, attachment: &Attachment, stopped: Option<Unconfirmed>) {
+        let Some(Unconfirmed { adapter, session }) = stopped else {
+            return;
+        };
+        if session.is_some() {
+            adapter.set_binding(attachment, None);
+        }
+        self.log(BindingLogEntry {
+            record: BindingRecord {
+                kind: RecordKind::Finding,
+                requirement: "IFC-ADP-093",
+            },
+            result: BindingResult::FailedClosed,
+            attachment: Some(attachment.clone()),
+            session,
+        });
     }
 
     /// The `seq` of the pending signal that makes room for a new one from `holder` at
@@ -2841,12 +3042,12 @@ impl Inner {
     fn take_pending(core: &mut Core, seq: u64) -> Option<(NativeSignal, PairAttempt, u64)> {
         if let Some(i) = core.held.iter().position(|h| h.seq == seq) {
             let h = core.held.remove(i)?;
-            let attempt = Inner::pair_by_key(core, h.adapter, &h.key);
+            let attempt = Inner::pair_by_key(core, h.adapter, &h.key, None);
             return Some((h.signal, attempt, seq));
         }
         let i = core.signals.iter().position(|q| q.seq == seq)?;
         let q = core.signals.remove(i)?;
-        let attempt = Inner::pair(core, q.adapter, q.key.as_ref());
+        let attempt = Inner::pair(core, q.adapter, q.key.as_ref(), q.reveal.narrow());
         Some((q.signal, attempt, seq))
     }
 
@@ -2883,6 +3084,8 @@ impl Inner {
         let mut core = self.lock();
         core.attachments.remove(connection);
         core.connections.remove(connection);
+        core.carriers.remove(connection);
+        core.pairing.forget(connection);
         core.observed.remove(connection);
         self.closures
             .lock()
@@ -2932,7 +3135,7 @@ impl Inner {
             let expired: Vec<(HeldSignal, PairAttempt)> = gone
                 .into_iter()
                 .map(|h| {
-                    let attempt = Inner::pair_by_key(&core, h.adapter, &h.key);
+                    let attempt = Inner::pair_by_key(&core, h.adapter, &h.key, None);
                     (h, attempt)
                 })
                 .collect();
@@ -2952,7 +3155,8 @@ impl Inner {
                 let Some(i) = core.held.iter().position(|h| h.seq == seq) else {
                     continue;
                 };
-                let attempt = Inner::pair_by_key(&core, core.held[i].adapter, &core.held[i].key);
+                let attempt =
+                    Inner::pair_by_key(&core, core.held[i].adapter, &core.held[i].key, None);
                 match attempt {
                     PairAttempt::NotYet(_) => None,
                     attempt => core.held.remove(i).map(|h| (h, attempt)),
@@ -2968,11 +3172,49 @@ impl Inner {
                 signal,
                 key,
                 seq,
+                reveal,
             }) = self.lock().signals.pop_front()
             else {
                 return;
             };
-            let attempt = Inner::pair(&self.lock(), adapter, key.as_ref());
+            match &reveal {
+                Reveal::Rejected(requirement) => {
+                    // Dropped with a diagnostic; it withholds nothing, so that a reveal
+                    // nobody may make cannot stop an attachment.
+                    self.log(BindingLogEntry {
+                        record: BindingRecord {
+                            kind: RecordKind::Diagnostic,
+                            requirement,
+                        },
+                        result: BindingResult::Dropped,
+                        attachment: None,
+                        session: None,
+                    });
+                    continue;
+                }
+                Reveal::Conflict(attachment) => {
+                    // [MCPB-ATT-011], [MCPB-ATT-012]: one value for two threads. The
+                    // connection ends unbound, and the operator is told.
+                    let session = self
+                        .lock()
+                        .attachments
+                        .get(attachment)
+                        .and_then(|e| e.session.clone());
+                    self.unbind(attachment);
+                    self.log(BindingLogEntry {
+                        record: BindingRecord {
+                            kind: RecordKind::Finding,
+                            requirement: "MCPB-ATT-012",
+                        },
+                        result: BindingResult::FailedClosed,
+                        attachment: Some(attachment.clone()),
+                        session,
+                    });
+                    continue;
+                }
+                Reveal::None | Reveal::Issued(_) => {}
+            }
+            let attempt = Inner::pair(&self.lock(), adapter, key.as_ref(), reveal.narrow());
             match attempt {
                 PairAttempt::NotYet(key) => self.lock().held.push_back(HeldSignal {
                     adapter,
@@ -2994,11 +3236,91 @@ impl Inner {
     /// The key is taken once, when the signal is reported ([`Inner::observed_key`]), and
     /// kept with it, so a connection that ends before the signal's turn (a hook that sends
     /// and exits) does not change how it pairs (PR #333 re-review, B3).
-    fn pair(core: &Core, adapter: AdapterId, key: Option<&PairingKey>) -> PairAttempt {
-        match key {
-            Some(key) => Inner::pair_by_key(core, adapter, key),
-            None => PairAttempt::Unpairable(Vec::new()),
+    ///
+    /// A reveal of an issued value narrows the candidates to the attachment the value was
+    /// issued on (`narrow`, [SC-ID-125]); one that has no such candidate any more is
+    /// unpairable, not held, since nothing will open one.
+    fn pair(
+        core: &Core,
+        adapter: AdapterId,
+        key: Option<&PairingKey>,
+        narrow: Option<&Attachment>,
+    ) -> PairAttempt {
+        let Some(key) = key else {
+            return PairAttempt::Unpairable(Vec::new());
+        };
+        match Inner::pair_by_key(core, adapter, key, narrow) {
+            PairAttempt::NotYet(_) if narrow.is_some() => PairAttempt::Unpairable(Vec::new()),
+            attempt => attempt,
         }
+    }
+
+    /// What the `revealed` value of `signal` means at `now`, decided once, under the core
+    /// lock, in the order signals arrive: a value is used up by the first reveal that pairs
+    /// ([MCPB-ATT-010]) and its window is judged at arrival ([MCPB-ATT-009]).
+    ///
+    /// A reveal counts only on a connection the daemon registered as a carrier of `adapter`
+    /// ([`Pipelines::connect_carrier`]) and for an attachment whose key is that carrier's
+    /// ([MCPB-ATT-022]); a signal that arrived anywhere else is dropped, so a value that
+    /// leaked to a process that is not the carrier pairs nothing.
+    fn classify_reveal(
+        core: &mut Core,
+        adapter: AdapterId,
+        signal: &NativeSignal,
+        key: Option<&PairingKey>,
+        now: Instant,
+    ) -> Reveal {
+        let Some(value) = signal.revealed.as_deref() else {
+            return Reveal::None;
+        };
+        let on_carrier = signal
+            .connection
+            .as_ref()
+            .is_some_and(|c| core.carriers.get(c) == Some(&adapter));
+        let (true, Some(key)) = (on_carrier, key) else {
+            return Reveal::Rejected("MCPB-ATT-006");
+        };
+        let outcome = core.pairing.reveal(value, &signal.native_id, now, |a| {
+            core.attachments
+                .get(a)
+                .is_some_and(|e| e.adapter == adapter && e.open)
+                && core.observed.get(a).and_then(|o| o.pairing_key.as_ref()) == Some(key)
+        });
+        match outcome {
+            RevealOutcome::Fresh(a) => Reveal::Issued(a),
+            RevealOutcome::Conflict(a) => Reveal::Conflict(a),
+            RevealOutcome::Ended(_) => Reveal::Rejected("MCPB-ATT-009"),
+            RevealOutcome::Replayed(_) => Reveal::Rejected("MCPB-ATT-010"),
+            RevealOutcome::Refused(_) => Reveal::Rejected("MCPB-ATT-022"),
+            RevealOutcome::Unknown => Reveal::Rejected("MCPB-ATT-007"),
+        }
+    }
+
+    /// The pairing value for a refusal of a request from `attachment`, which the core refuses
+    /// as one from an attachment it does not serve; `None` when it cannot be paired
+    /// ([MCPB-ATT-022]: its key is not the key of an open carrier of its adapter, so a
+    /// process that does not descend from the carrier's harness process, or whose key is not
+    /// observed, gets none) or when its windows are used up ([MCPB-ATT-023]).
+    fn pairing_value_for(
+        core: &mut Core,
+        adapter: AdapterId,
+        attachment: &Attachment,
+        now: Instant,
+    ) -> Option<String> {
+        let e = core.attachments.get(attachment)?;
+        if e.adapter != adapter || !e.open || attachment.is_closed() {
+            return None;
+        }
+        let key = core.observed.get(attachment)?.pairing_key.as_ref()?;
+        let carried = core.carriers.iter().any(|(c, a)| {
+            *a == adapter
+                && core.connections.get(c) == Some(&adapter)
+                && core.observed.get(c).and_then(|o| o.pairing_key.as_ref()) == Some(key)
+        });
+        if !carried {
+            return None;
+        }
+        core.pairing.issue(attachment, now)
     }
 
     /// The key observed for the connection `signal` arrived on, when that connection was
@@ -3014,12 +3336,18 @@ impl Inner {
 
     /// The candidates for `key`: the open attachments of `adapter` whose observed key is
     /// equal. None is not yet pairable; more than one is unpairable ([SC-ID-125]).
-    fn pair_by_key(core: &Core, adapter: AdapterId, key: &PairingKey) -> PairAttempt {
+    fn pair_by_key(
+        core: &Core,
+        adapter: AdapterId,
+        key: &PairingKey,
+        narrow: Option<&Attachment>,
+    ) -> PairAttempt {
         let candidates: Vec<&Attachment> = core
             .attachments
             .iter()
             .filter(|(a, e)| {
-                e.adapter == adapter
+                narrow.is_none_or(|n| n == *a)
+                    && e.adapter == adapter
                     && e.open
                     && core.observed.get(*a).and_then(|o| o.pairing_key.as_ref()) == Some(key)
             })

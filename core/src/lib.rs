@@ -93,6 +93,7 @@ pub mod delivery;
 pub mod envelope;
 pub mod health;
 pub mod ids;
+pub mod issued_pairing;
 pub mod json;
 pub mod keys;
 pub mod local_call;

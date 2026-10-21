@@ -77,6 +77,7 @@ fn hook(on: &Attachment, n: &str, s: StartKind) -> AdapterEvent {
         start_kind: Some(s),
         cross_check: None,
         connection: Some(on.clone()),
+        revealed: None,
     })
 }
 
@@ -141,7 +142,8 @@ fn row24_a_newcomer_never_displaces_a_bound_hook_id() {
     assert!(matches!(
         r,
         SendRequestResult::Refused {
-            error: ErrorCode::Unauthorized
+            error: ErrorCode::Unauthorized,
+            pairing_value: None,
         }
     ));
 }
@@ -165,7 +167,8 @@ fn row24_an_unpairable_payload_fails_closed() {
     assert!(matches!(
         r,
         SendRequestResult::Refused {
-            error: ErrorCode::Unauthorized
+            error: ErrorCode::Unauthorized,
+            pairing_value: None,
         }
     ));
 }

@@ -40,6 +40,8 @@ pub struct StubAdapter {
     deliver_calls: AtomicUsize,
     /// The cross-check value reported with the next `attachment-opened`.
     cross_check_next: Mutex<Option<String>>,
+    /// The next connection taken is the adapter's carrier: it is no attachment.
+    carrier_next: Mutex<bool>,
 }
 
 impl StubAdapter {
@@ -82,6 +84,9 @@ impl StubAdapter {
 impl ProviderAdapter for StubAdapter {
     fn take_connection(&self, connection: Connection) {
         let (a, _, _) = connection.into_parts();
+        if std::mem::take(&mut *self.carrier_next.lock().unwrap()) {
+            return;
+        }
         self.bound.lock().unwrap().insert(a.clone(), None);
         let cross_check = self.cross_check_next.lock().unwrap().take();
         let h = self.events.lock().unwrap().clone();
@@ -207,6 +212,19 @@ impl PipelineDevice {
             .connect_observed(self.adapter_id, conn, observation)
             .expect("connected");
         a
+    }
+
+    /// The adapter's carrier, which the daemon designates through
+    /// [`Pipelines::connect_carrier`]: a connection the stub adapter does not report as an
+    /// attachment, observed with `observation` (the harness process at its other end).
+    pub fn carrier(&self, observation: PeerObservation) -> Attachment {
+        *self.adapter.carrier_next.lock().unwrap() = true;
+        let conn = Connection::accept(Default::default(), Default::default());
+        let c = conn.handle().clone();
+        self.pipes
+            .connect_carrier(self.adapter_id, conn, observation)
+            .expect("connected");
+        c
     }
 
     /// The operator pairs `peer` by comparing its key id.

@@ -165,6 +165,7 @@ impl RequestSink for Sink {
             Some(identity) => IdentityRequestResult::LocalIdentity(identity),
             None => IdentityRequestResult::Refused {
                 error: ErrorCode::Unauthorized,
+                pairing_value: None,
             },
         }
     }
@@ -1498,6 +1499,7 @@ fn tool_results_never_assert_delivery() {
 
     *core.send_result.lock().unwrap() = Some(SendRequestResult::Refused {
         error: ErrorCode::UnknownDestination,
+        pairing_value: None,
     });
     let r = tool_call(&mut w, 5, "send", &send);
     assert!(result_text(&r).starts_with("unknown-destination"), "{r:?}");
