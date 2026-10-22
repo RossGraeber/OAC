@@ -637,17 +637,10 @@ mod tests {
                 panic!("a reply");
             };
             assert_eq!(in_reply_to, None);
-            let to = to.unwrap();
-            let req = reply_request(
-                oac_core::adapter::Connection::accept(Default::default(), Default::default())
-                    .handle()
-                    .clone(),
-                to,
-                content,
-                in_reply_to,
-            );
-            assert_eq!(req.requested_target.as_deref(), Some(""));
-            assert!(req.conversation_id.is_none() && req.correlation_id.is_none());
+            assert_eq!(to.unwrap().as_str(), "0123456789abcdefghjkmnpqrs");
+            assert_eq!(content.len(), 1);
+            // `reply_request` turns it into a request with an empty target (checked, with an
+            // attachment, by the adapters' tests: this crate's source builds no connection).
         }
         // Neither: refused as invalid, with no request.
         let mut none = args("answer");

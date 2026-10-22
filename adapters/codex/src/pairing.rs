@@ -178,6 +178,12 @@ pub trait CallPort<K>: Send + Sync + 'static {
 
     /// The connection ended.
     fn ended(&self, _key: &K) {}
+
+    /// The carrier closed: the app-server went away, or its stream ended. Nothing more
+    /// arrives on it, so no connection can be confirmed or paired from now on. Called once,
+    /// on the carrier's reader thread, with no lock of this module held; not called for a
+    /// client that its owner shut down.
+    fn carrier_closed(&self) {}
 }
 
 /// Counts of what the pairing did or refused. Counts only: nothing here names a thread, a
@@ -578,6 +584,7 @@ impl<K: Clone + Eq + Hash + Send + Sync + 'static> Inner<K> {
             CodexEvent::TurnCompleted { thread, turn, .. } => {
                 self.confirmations.turn_completed(thread, &turn);
             }
+            CodexEvent::Closed => self.port.carrier_closed(),
             CodexEvent::ItemCompleted {
                 thread,
                 item:

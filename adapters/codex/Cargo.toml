@@ -29,3 +29,11 @@ oac-mcp-tools.workspace = true
 # VETTED_DEPENDENCIES).
 rmcp = { version = "=3.4.0", default-features = false, features = ["server", "transport-async-rw"] }
 tokio = { version = "=1.53.2", features = ["rt", "sync", "io-util", "time"] }
+
+# The adapter contract suite runs from tests/contract.rs only (#59; G-7). An adapter takes no
+# other dev-dependency (ADAPTER_DEV_DEPENDENCIES in harness_location.rs); the suite's types
+# name the fake Claude endpoint, so it is listed with them.
+[dev-dependencies]
+oac-contract-adapter = { path = "../../tests/protocol/contract/adapter" }
+oac-core.workspace = true
+oac-fake-claude = { path = "../../tests/fakes/claude" }
