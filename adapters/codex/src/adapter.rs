@@ -167,7 +167,7 @@ impl Att {
     /// the reveals since the last call named. Two or more make the core's decision ambiguous
     /// (the second reveal could be a forged one for another thread, [MCPB-ATT-011]), so no
     /// thread is committed. With no reveal since, the committed thread stands.
-    fn bind(&mut self, session: SessionId) {
+    fn commit_binding(&mut self, session: SessionId) {
         // A different session id is a new session: what the earlier one was handed carries
         // nothing forward ([SC-ID-151]).
         if self.bound.as_ref().is_some_and(|b| *b != session) {
@@ -184,7 +184,7 @@ impl Att {
     }
 
     /// The core's binding ended: a binding that ended needs a new reveal.
-    fn unbind(&mut self) {
+    fn end_binding(&mut self) {
         self.bound = None;
         self.thread = None;
         self.pending.clear();
@@ -825,8 +825,8 @@ impl ProviderAdapter for CodexAdapter {
             };
             let bound = session.is_some();
             match session {
-                Some(session) => att.bind(session),
-                None => att.unbind(),
+                Some(session) => att.commit_binding(session),
+                None => att.end_binding(),
             }
             (pairing, bound)
         };
@@ -1036,23 +1036,23 @@ mod tests {
         let mut a = Att::new();
         a.revealed("t1");
         a.revealed("t1");
-        a.bind(session(1));
+        a.commit_binding(session(1));
         assert_eq!(a.thread.as_deref(), Some("t1"));
         // Re-bound with no new reveal: unchanged.
-        a.bind(session(1));
+        a.commit_binding(session(1));
         assert_eq!(a.thread.as_deref(), Some("t1"));
         // Two threads before one decision: nothing is committed, not even the earlier one.
         a.revealed("t2");
         a.revealed("t3");
-        a.bind(session(1));
+        a.commit_binding(session(1));
         assert_eq!(a.thread, None);
         assert!(a.pending.is_empty());
         // Ended: a binding that ended needs a new reveal.
         a.revealed("t4");
-        a.bind(session(2));
+        a.commit_binding(session(2));
         assert_eq!(a.thread.as_deref(), Some("t4"));
-        a.unbind();
-        a.bind(session(2));
+        a.end_binding();
+        a.commit_binding(session(2));
         assert_eq!(a.thread, None);
         // Bounded.
         for i in 0..20 {
