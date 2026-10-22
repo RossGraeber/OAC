@@ -621,7 +621,10 @@ impl RequestSink for Sink {
                 correlation: None,
                 receipts: ReceiptStream(std::sync::mpsc::channel().1),
             },
-            Scripted::Refuse(error) => SendRequestResult::Refused { error },
+            Scripted::Refuse(error) => SendRequestResult::Refused {
+                error,
+                pairing_value: None,
+            },
             Scripted::NotPass(error) => SendRequestResult::NotPassed { id, error },
         };
         lock(&me.requests).push(RecordedRequest {
@@ -1630,6 +1633,7 @@ fn scenarios(ctx: &mut Ctx<'_>) -> Result<(), String> {
             .flat_map(|e| match e {
                 AdapterEvent::AttachmentOpened { attachment, .. }
                 | AdapterEvent::CapabilitiesChanged { attachment }
+                | AdapterEvent::AttachmentUnconfirmed { attachment }
                 | AdapterEvent::AttachmentClosed { attachment } => vec![attachment.clone()],
                 AdapterEvent::NativeSignal(s) => s.connection.clone().into_iter().collect(),
             })

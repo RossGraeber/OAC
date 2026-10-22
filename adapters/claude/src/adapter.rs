@@ -303,6 +303,7 @@ impl Inner {
                     start_kind: signal.start_kind,
                     cross_check: None,
                     connection: Some(a.clone()),
+                    revealed: None,
                 }),
             );
         }

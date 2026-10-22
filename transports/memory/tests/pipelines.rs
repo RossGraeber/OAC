@@ -227,7 +227,7 @@ impl ChannelAdapter {
                         SendRequestResult::Sent { id: m, .. } => {
                             tool_result(id, false, &format!("{} accepted-by-adapter", m.as_str()))
                         }
-                        SendRequestResult::Refused { error } => {
+                        SendRequestResult::Refused { error, .. } => {
                             tool_result(id, true, error.as_str())
                         }
                         SendRequestResult::NotPassed { id: m, error } => {
@@ -481,7 +481,7 @@ fn codex_inputs(fake: &CodexFake, thread: &str) -> Vec<String> {
 
 fn check_result_tables(r: &SendRequestResult) {
     match r {
-        SendRequestResult::Refused { error } => {
+        SendRequestResult::Refused { error, .. } => {
             assert!(error.scope().contains(&Scope::Request), "{error}");
             assert_eq!(r.state(), None);
         }
@@ -694,7 +694,8 @@ fn run(release: MidTurnRelease) {
         matches!(
             r,
             SendRequestResult::Refused {
-                error: ErrorCode::UnknownDestination
+                error: ErrorCode::UnknownDestination,
+                pairing_value: None,
             }
         ),
         "{r:?}"

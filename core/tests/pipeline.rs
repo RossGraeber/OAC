@@ -482,17 +482,20 @@ fn node(bus: &Bus, principal: &str, config: PipelineConfig) -> Node {
 }
 
 fn node_on(bus: &Bus, principal: &str, config: PipelineConfig, clock: Arc<dyn Clock>) -> Node {
+    node_mono(bus, principal, config, clock, Arc::new(Instant::now))
+}
+
+fn node_mono(
+    bus: &Bus,
+    principal: &str,
+    config: PipelineConfig,
+    clock: Arc<dyn Clock>,
+    monotonic: oac_core::pipeline::MonotonicClock,
+) -> Node {
     let identity = DeviceIdentity::new(DeviceKey::generate(), Token::parse(principal).unwrap());
     let engine =
         AuthorizationEngine::new(&identity, clock.clone(), Box::new(MemoryDecisionLog::new()));
-    let pipes = Pipelines::new(
-        identity,
-        engine,
-        clock,
-        Arc::new(Instant::now),
-        bus.endpoint(),
-        config,
-    );
+    let pipes = Pipelines::new(identity, engine, clock, monotonic, bus.endpoint(), config);
     pipes.start(TransportConfiguration::new(())).expect("start");
     let adapter = TestAdapter::new();
     let adapter_id = pipes.add_adapter(adapter.clone());
@@ -1068,7 +1071,7 @@ fn all_local_request_methods_time_out_on_a_blocked_core_lock_without_late_work()
 /// no state; `not-passed` is `failed` with a sender code; `sent` is `accepted-by-adapter`.
 fn check_result_tables(r: &SendRequestResult) {
     match r {
-        SendRequestResult::Refused { error } => {
+        SendRequestResult::Refused { error, .. } => {
             assert!(error.scope().contains(&Scope::Request), "{error}");
             assert_eq!(r.state(), None);
         }
@@ -1115,7 +1118,7 @@ fn sent(r: SendRequestResult) -> (Token, Option<Correlation>, oac_core::adapter:
 fn refused(r: SendRequestResult) -> ErrorCode {
     check_result_tables(&r);
     match r {
-        SendRequestResult::Refused { error } => error,
+        SendRequestResult::Refused { error, .. } => error,
         other => panic!("not refused: {other:?}"),
     }
 }
@@ -1998,6 +2001,7 @@ fn signal(on: Option<&Attachment>, native: &str, s: StartKind, e: Option<&str>) 
         start_kind: Some(s),
         cross_check: e.map(str::to_owned),
         connection: on.cloned(),
+        revealed: None,
     })
 }
 
@@ -3565,7 +3569,8 @@ fn identity_returns_only_the_current_attachment_binding_and_public_digest() {
     assert_eq!(
         get(&a),
         IdentityRequestResult::Refused {
-            error: ErrorCode::Unauthorized
+            error: ErrorCode::Unauthorized,
+            pairing_value: None,
         }
     );
     n.adapter.emit(AdapterEvent::AttachmentClosed {
@@ -3574,14 +3579,16 @@ fn identity_returns_only_the_current_attachment_binding_and_public_digest() {
     assert_eq!(
         get(&b),
         IdentityRequestResult::Refused {
-            error: ErrorCode::Unauthorized
+            error: ErrorCode::Unauthorized,
+            pairing_value: None,
         }
     );
     let unknown = Connection::accept(Default::default(), Default::default());
     assert_eq!(
         get(unknown.handle()),
         IdentityRequestResult::Refused {
-            error: ErrorCode::Unauthorized
+            error: ErrorCode::Unauthorized,
+            pairing_value: None,
         }
     );
 }
@@ -3600,7 +3607,8 @@ fn identity_cannot_select_another_adapters_attachment() {
     assert_eq!(
         other.sink().identity(IdentityRequest { attachment: a }),
         IdentityRequestResult::Refused {
-            error: ErrorCode::Unauthorized
+            error: ErrorCode::Unauthorized,
+            pairing_value: None,
         }
     );
 }
@@ -3630,7 +3638,7 @@ fn identity_racing_unbind_has_no_stale_fallback() {
                     assert_eq!(session_id, sa);
                     assert_eq!(device_fingerprint, fingerprint);
                 }
-                IdentityRequestResult::Refused { error } => {
+                IdentityRequestResult::Refused { error, .. } => {
                     assert_eq!(error, ErrorCode::Unauthorized)
                 }
             }
@@ -3641,7 +3649,8 @@ fn identity_racing_unbind_has_no_stale_fallback() {
     assert_eq!(
         sink.identity(IdentityRequest { attachment: a }),
         IdentityRequestResult::Refused {
-            error: ErrorCode::Unauthorized
+            error: ErrorCode::Unauthorized,
+            pairing_value: None,
         }
     );
 }
@@ -3696,7 +3705,8 @@ fn identity_refuses_a_withheld_or_closed_attachment_and_uses_a_new_binding() {
     assert_eq!(
         get(),
         IdentityRequestResult::Refused {
-            error: ErrorCode::Unauthorized
+            error: ErrorCode::Unauthorized,
+            pairing_value: None,
         }
     );
     n.adapter
@@ -3711,7 +3721,8 @@ fn identity_refuses_a_withheld_or_closed_attachment_and_uses_a_new_binding() {
     assert_eq!(
         get(),
         IdentityRequestResult::Refused {
-            error: ErrorCode::Unauthorized
+            error: ErrorCode::Unauthorized,
+            pairing_value: None,
         }
     );
 }
@@ -3730,7 +3741,8 @@ fn identity_refuses_when_the_core_no_longer_serves_the_attachment() {
     assert_eq!(
         sink.identity(IdentityRequest { attachment: a }),
         IdentityRequestResult::Refused {
-            error: ErrorCode::Unauthorized
+            error: ErrorCode::Unauthorized,
+            pairing_value: None,
         }
     );
 }
@@ -4022,4 +4034,637 @@ fn status_asks_the_adapters_with_no_core_lock_held() {
         .expect("status returned: no lock was held across the adapter's health");
     assert_eq!(asked.load(Ordering::SeqCst), 1);
     assert_eq!(status.sessions[0].session_id, sid);
+}
+
+// ---- issued-value pairing (G8 slice S2; `spec/bindings/mcp.md` section 4.5) ------------------
+
+/// A monotonic clock a test moves by hand.
+#[derive(Clone)]
+struct Stepped(Arc<Mutex<Instant>>);
+
+impl Stepped {
+    fn new() -> Stepped {
+        Stepped(Arc::new(Mutex::new(Instant::now())))
+    }
+
+    fn clock(&self) -> oac_core::pipeline::MonotonicClock {
+        let t = self.0.clone();
+        Arc::new(move || *t.lock().unwrap())
+    }
+
+    fn advance(&self, by: Duration) {
+        *self.0.lock().unwrap() += by;
+    }
+}
+
+/// A node whose monotonic clock `Stepped` moves, with windows of 10 seconds.
+fn pairing_node(bus: &Bus) -> (Node, Stepped) {
+    let t = Stepped::new();
+    let config = PipelineConfig {
+        pairing_window: Duration::from_secs(10),
+        ..PipelineConfig::default()
+    };
+    let n = node_mono(bus, "device-a", config, Arc::new(SystemClock), t.clock());
+    (n, t)
+}
+
+/// A connection the daemon designates as the adapter's carrier, observed with `key`.
+fn designated_carrier(n: &Node, key: &str) -> Attachment {
+    *n.adapter.carrier_next.lock().unwrap() = true;
+    let conn = Connection::accept(Default::default(), Default::default());
+    let c = conn.handle().clone();
+    n.pipes
+        .connect_carrier(n.adapter_id, conn, observed(key))
+        .unwrap();
+    c
+}
+
+fn reveal(on: &Attachment, thread: &str, value: &str) -> AdapterEvent {
+    AdapterEvent::NativeSignal(NativeSignal {
+        native_id: thread.into(),
+        start_kind: Some(StartKind::Fresh),
+        cross_check: None,
+        connection: Some(on.clone()),
+        revealed: Some(value.into()),
+    })
+}
+
+fn stranger() -> SessionId {
+    SessionId::from_random_octets([0x77; 16])
+}
+
+/// The pairing value of the refusal of a send from `a`; the refusal is `unauthorized`.
+fn pairing_refusal(n: &Node, a: &Attachment) -> Option<String> {
+    let r = n.adapter.sink().send(request(a, &stranger(), "x"));
+    assert_eq!(r.error(), Some(ErrorCode::Unauthorized), "{r:?}");
+    assert_eq!(r.outcome(), "refused");
+    r.pairing_value().map(str::to_owned)
+}
+
+fn issued_log(log: &MemoryBindingLog) -> Vec<&'static str> {
+    requirements(log)
+        .into_iter()
+        .filter(|r| r.starts_with("MCPB-") || r.starts_with("IFC-"))
+        .collect()
+}
+
+fn identity_of(n: &Node, a: &Attachment) -> oac_core::adapter::IdentityRequestResult {
+    n.adapter
+        .sink()
+        .identity(oac_core::adapter::IdentityRequest {
+            attachment: a.clone(),
+        })
+}
+
+fn discovery_of(n: &Node, a: &Attachment) -> DiscoveryRequestResult {
+    n.adapter.sink().discover(DiscoveryRequest {
+        attachment: a.clone(),
+    })
+}
+
+/// [MCPB-ATT-005], [IFC-ADP-090], [MCPB-ATT-025]: an unserved attachment of a carrier's
+/// process gets one value, of the specified form, in every refusal of the window (send,
+/// discovery and identity alike), whatever the call asked for; another attachment gets its
+/// own.
+#[test]
+fn a_pairable_attachment_is_refused_with_one_value_per_window() {
+    let bus = Bus::default();
+    let (n, _t) = pairing_node(&bus);
+    designated_carrier(&n, "codex-1");
+    let a = observed_attachment(&n, "codex-1", None);
+    let b = observed_attachment(&n, "codex-1", None);
+    let v = pairing_refusal(&n, &a).expect("a value");
+    let digits = v.strip_prefix("oac-pair-").expect("prefix");
+    assert_eq!(digits.len(), 32, "{v}");
+    assert!(
+        digits
+            .bytes()
+            .all(|c| matches!(c, b'0'..=b'9' | b'a'..=b'f')),
+        "{v}"
+    );
+    // The same value however the call differs (MCPB-TOOL-017).
+    let other = n
+        .adapter
+        .sink()
+        .send(request(&a, &SessionId::from_random_octets([1; 16]), "y"));
+    assert_eq!(other.pairing_value(), Some(v.as_str()));
+    assert_eq!(discovery_of(&n, &a).pairing_value(), Some(v.as_str()));
+    assert_eq!(identity_of(&n, &a).pairing_value(), Some(v.as_str()));
+    let vb = pairing_refusal(&n, &b).expect("a value");
+    assert_ne!(vb, v);
+}
+
+/// [MCPB-ATT-022]: no value where the connection cannot be paired: no carrier, no observed
+/// key, a key that is no carrier's, or a carrier that has gone. The refusal is the plain one.
+#[test]
+fn no_value_is_issued_where_pairing_is_impossible() {
+    let bus = Bus::default();
+    let (n, _t) = pairing_node(&bus);
+    let a = observed_attachment(&n, "codex-1", None);
+    assert_eq!(pairing_refusal(&n, &a), None, "no carrier registered");
+    // A connection observed with the same key but never designated is no carrier.
+    let _undesignated = carrier(&n, "codex-1");
+    assert_eq!(
+        pairing_refusal(&n, &a),
+        None,
+        "an undesignated connection is no carrier"
+    );
+    let c = designated_carrier(&n, "codex-1");
+    assert!(pairing_refusal(&n, &a).is_some());
+    let other_key = observed_attachment(&n, "codex-2", None);
+    assert_eq!(
+        pairing_refusal(&n, &other_key),
+        None,
+        "another process than the carrier's"
+    );
+    let conn = Connection::accept(Default::default(), Default::default());
+    let no_key = conn.handle().clone();
+    n.pipes.connect(n.adapter_id, conn).unwrap();
+    assert_eq!(
+        pairing_refusal(&n, &no_key),
+        None,
+        "no operating-system key"
+    );
+    // The same facts for discovery and identity.
+    assert_eq!(discovery_of(&n, &other_key).pairing_value(), None);
+    assert_eq!(identity_of(&n, &other_key).pairing_value(), None);
+    assert_eq!(identity_of(&n, &no_key).pairing_value(), None);
+    n.pipes.disconnect(&c);
+    assert_eq!(pairing_refusal(&n, &a), None, "the carrier is gone");
+}
+
+/// A carrier whose observation has no key matches nothing, even an attachment with no key.
+#[test]
+fn a_carrier_without_a_key_pairs_nothing() {
+    let bus = Bus::default();
+    let (n, _t) = pairing_node(&bus);
+    *n.adapter.carrier_next.lock().unwrap() = true;
+    let conn = Connection::accept(Default::default(), Default::default());
+    n.pipes
+        .connect_carrier(n.adapter_id, conn, PeerObservation::none())
+        .unwrap();
+    let conn = Connection::accept(Default::default(), Default::default());
+    let a = conn.handle().clone();
+    n.pipes.connect(n.adapter_id, conn).unwrap();
+    assert_eq!(pairing_refusal(&n, &a), None);
+}
+
+/// [MCPB-ATT-019], [MCPB-ATT-026], [MCPB-ATT-023]: a window ends within the bound and its
+/// value is never repeated; at most three windows open until a reveal pairs, then none.
+#[test]
+fn windows_end_values_are_not_reused_and_three_is_the_most() {
+    let bus = Bus::default();
+    let (n, t) = pairing_node(&bus);
+    designated_carrier(&n, "codex-1");
+    let a = observed_attachment(&n, "codex-1", None);
+    let v1 = pairing_refusal(&n, &a).unwrap();
+    t.advance(Duration::from_secs(9));
+    assert_eq!(pairing_refusal(&n, &a).as_deref(), Some(v1.as_str()));
+    t.advance(Duration::from_secs(1));
+    let v2 = pairing_refusal(&n, &a).unwrap();
+    assert_ne!(v1, v2);
+    t.advance(Duration::from_secs(10));
+    let v3 = pairing_refusal(&n, &a).unwrap();
+    assert!(v3 != v1 && v3 != v2);
+    t.advance(Duration::from_secs(10));
+    assert_eq!(pairing_refusal(&n, &a), None, "a fourth window");
+    t.advance(Duration::from_secs(1000));
+    assert_eq!(
+        pairing_refusal(&n, &a),
+        None,
+        "for as long as the connection lasts"
+    );
+    // A new connection starts again.
+    let b = observed_attachment(&n, "codex-1", None);
+    assert!(pairing_refusal(&n, &b).is_some());
+}
+
+/// The configured window is cut to 60 seconds ([MCPB-ATT-019]).
+#[test]
+fn a_configured_window_longer_than_sixty_seconds_is_cut() {
+    let bus = Bus::default();
+    let t = Stepped::new();
+    let config = PipelineConfig {
+        pairing_window: Duration::from_secs(3600),
+        ..PipelineConfig::default()
+    };
+    let n = node_mono(&bus, "device-a", config, Arc::new(SystemClock), t.clock());
+    let c = designated_carrier(&n, "codex-1");
+    let log = binding_log(&n);
+    let a = observed_attachment(&n, "codex-1", None);
+    let v = pairing_refusal(&n, &a).unwrap();
+    t.advance(Duration::from_secs(61));
+    n.adapter.emit(reveal(&c, "T1", &v));
+    assert_eq!(n.pipes.binding(&a), None);
+    assert_eq!(issued_log(&log), ["MCPB-ATT-009"]);
+}
+
+/// [SC-ID-125], [MCPB-ATT-007]: the attachments of one Codex process share its key, so the
+/// key alone leaves several candidates. A reveal narrows them to the attachment its value was
+/// issued on, and each thread binds the attachment of its own value, whatever the order.
+#[test]
+fn a_reveal_pairs_one_of_several_attachments_that_share_a_key() {
+    let bus = Bus::default();
+    let (n, _t) = pairing_node(&bus);
+    let c = designated_carrier(&n, "codex-1");
+    let log = binding_log(&n);
+    let a1 = observed_attachment(&n, "codex-1", None);
+    let a2 = observed_attachment(&n, "codex-1", None);
+    let a3 = observed_attachment(&n, "codex-1", None);
+    let (v1, v2, v3) = (
+        pairing_refusal(&n, &a1).unwrap(),
+        pairing_refusal(&n, &a2).unwrap(),
+        pairing_refusal(&n, &a3).unwrap(),
+    );
+    // Without `revealed` the same signal is ambiguous: three candidates, nothing bound.
+    n.adapter
+        .emit(signal(Some(&c), "T0", StartKind::Fresh, None));
+    assert!([&a1, &a2, &a3].iter().all(|a| n.pipes.binding(a).is_none()));
+    n.adapter.emit(reveal(&c, "T2", &v2));
+    assert_eq!(n.pipes.binding(&a1), None);
+    assert!(n.pipes.binding(&a2).is_some());
+    assert_eq!(n.pipes.binding(&a3), None);
+    n.adapter.emit(reveal(&c, "T3", &v3));
+    n.adapter.emit(reveal(&c, "T1", &v1));
+    let sids: Vec<_> = [&a1, &a2, &a3]
+        .iter()
+        .map(|a| n.pipes.binding(a).expect("bound"))
+        .collect();
+    assert!(sids[0] != sids[1] && sids[1] != sids[2] && sids[0] != sids[2]);
+    for (a, sid) in [&a1, &a2, &a3].iter().zip(&sids) {
+        assert_eq!(told(&n, a).as_ref(), Some(sid));
+    }
+    // A bound attachment is served again: its request is no longer refused as unbound.
+    let r = n.adapter.sink().send(request(&a2, &sids[0], "hello"));
+    assert_ne!(r.error(), Some(ErrorCode::Unauthorized), "{r:?}");
+    // The ambiguous signal left its own records; the reveals left none.
+    assert!(issued_log(&log).is_empty(), "{:?}", requirements(&log));
+}
+
+/// [MCPB-ATT-006] with the carrier rule: a reveal counts only from a registered carrier.
+/// From an attachment, from a connection observed with the same key but never designated, and
+/// from a signal on no connection, it pairs nothing, withholds nothing, and leaves the value
+/// for the real carrier.
+#[test]
+fn a_reveal_from_a_non_carrier_is_refused() {
+    let bus = Bus::default();
+    let (n, _t) = pairing_node(&bus);
+    let c = designated_carrier(&n, "codex-1");
+    let log = binding_log(&n);
+    let a = observed_attachment(&n, "codex-1", None);
+    let other = observed_attachment(&n, "codex-1", None);
+    let v = pairing_refusal(&n, &a).unwrap();
+    let undesignated = carrier(&n, "codex-1");
+    n.adapter.emit(reveal(&a, "T1", &v));
+    n.adapter.emit(reveal(&other, "T1", &v));
+    n.adapter.emit(reveal(&undesignated, "T1", &v));
+    n.adapter.emit(AdapterEvent::NativeSignal(NativeSignal {
+        native_id: "T1".into(),
+        start_kind: Some(StartKind::Fresh),
+        cross_check: None,
+        connection: None,
+        revealed: Some(v.clone()),
+    }));
+    assert_eq!(n.pipes.binding(&a), None);
+    assert_eq!(n.pipes.binding(&other), None);
+    assert_eq!(issued_log(&log), ["MCPB-ATT-006"; 4]);
+    assert!(
+        log.entries()
+            .iter()
+            .all(|e| e.record.kind == RecordKind::Diagnostic)
+    );
+    // Nothing was used up: the carrier's reveal still pairs.
+    n.adapter.emit(reveal(&c, "T1", &v));
+    assert!(n.pipes.binding(&a).is_some());
+}
+
+/// [MCPB-ATT-022] at the reveal: a carrier of another process cannot pair an attachment of
+/// this one, and an unknown value pairs nothing.
+#[test]
+fn a_reveal_pairs_only_the_attachments_of_its_carriers_process() {
+    let bus = Bus::default();
+    let (n, _t) = pairing_node(&bus);
+    let c1 = designated_carrier(&n, "codex-1");
+    let c2 = designated_carrier(&n, "codex-2");
+    let log = binding_log(&n);
+    let a = observed_attachment(&n, "codex-1", None);
+    let v = pairing_refusal(&n, &a).unwrap();
+    n.adapter.emit(reveal(&c2, "T1", &v));
+    assert_eq!(n.pipes.binding(&a), None);
+    assert_eq!(issued_log(&log), ["MCPB-ATT-022"]);
+    n.adapter.emit(reveal(
+        &c1,
+        "T1",
+        "oac-pair-00000000000000000000000000000000",
+    ));
+    assert_eq!(issued_log(&log), ["MCPB-ATT-022", "MCPB-ATT-007"]);
+    n.adapter.emit(reveal(&c1, "T1", &v));
+    assert!(n.pipes.binding(&a).is_some(), "the value was not used up");
+}
+
+/// [MCPB-ATT-009]: a reveal after the window ends binds nothing, however soon after.
+#[test]
+fn a_reveal_after_its_window_binds_nothing() {
+    let bus = Bus::default();
+    let (n, t) = pairing_node(&bus);
+    let c = designated_carrier(&n, "codex-1");
+    let log = binding_log(&n);
+    let a = observed_attachment(&n, "codex-1", None);
+    let v = pairing_refusal(&n, &a).unwrap();
+    t.advance(Duration::from_secs(10));
+    n.adapter.emit(reveal(&c, "T1", &v));
+    assert_eq!(n.pipes.binding(&a), None);
+    assert_eq!(issued_log(&log), ["MCPB-ATT-009"]);
+    // Nor does the next window's value count for the old one.
+    let v2 = pairing_refusal(&n, &a).unwrap();
+    n.adapter.emit(reveal(&c, "T1", &v));
+    assert_eq!(n.pipes.binding(&a), None);
+    n.adapter.emit(reveal(&c, "T1", &v2));
+    assert!(n.pipes.binding(&a).is_some());
+}
+
+/// [MCPB-ATT-010]: a paired value pairs once; a replay of it changes nothing. [MCPB-ATT-011],
+/// [MCPB-ATT-012]: the same value revealed for another thread ends the binding, with a finding.
+#[test]
+fn a_replayed_value_changes_nothing_and_a_second_thread_ends_the_binding() {
+    let bus = Bus::default();
+    let (n, _t) = pairing_node(&bus);
+    let c = designated_carrier(&n, "codex-1");
+    let log = binding_log(&n);
+    let a = observed_attachment(&n, "codex-1", None);
+    let v = pairing_refusal(&n, &a).unwrap();
+    n.adapter.emit(reveal(&c, "T1", &v));
+    let sid = n.pipes.binding(&a).expect("bound");
+    n.adapter.emit(reveal(&c, "T1", &v));
+    assert_eq!(n.pipes.binding(&a), Some(sid.clone()), "no second binding");
+    assert_eq!(told(&n, &a), Some(sid));
+    assert_eq!(issued_log(&log), ["MCPB-ATT-010"]);
+    n.adapter.emit(reveal(&c, "T2", &v));
+    assert_eq!(n.pipes.binding(&a), None, "the connection ends unbound");
+    assert_eq!(told(&n, &a), None);
+    assert_eq!(issued_log(&log), ["MCPB-ATT-010", "MCPB-ATT-012"]);
+    let finding = log.entries().last().cloned().unwrap();
+    assert_eq!(finding.record.kind, RecordKind::Finding);
+    assert_eq!(finding.attachment, Some(a.clone()));
+    // Unbound, it stays unbound: the value cannot bind it again.
+    n.adapter.emit(reveal(&c, "T2", &v));
+    assert_eq!(n.pipes.binding(&a), None);
+}
+
+/// A value is scoped to the attachment it was issued on: revealing a's value binds a only.
+#[test]
+fn a_value_is_scoped_to_the_attachment_it_was_issued_on() {
+    let bus = Bus::default();
+    let (n, _t) = pairing_node(&bus);
+    let c = designated_carrier(&n, "codex-1");
+    let a = observed_attachment(&n, "codex-1", None);
+    let b = observed_attachment(&n, "codex-1", None);
+    let va = pairing_refusal(&n, &a).unwrap();
+    let _vb = pairing_refusal(&n, &b).unwrap();
+    n.adapter.emit(reveal(&c, "T1", &va));
+    assert!(n.pipes.binding(&a).is_some());
+    assert_eq!(n.pipes.binding(&b), None, "b's value was not revealed");
+}
+
+/// The windows of a connection that ended go with it: its value pairs nothing, and a new
+/// connection of the same key gets a value of its own.
+#[test]
+fn an_ended_connection_takes_its_values_with_it() {
+    let bus = Bus::default();
+    let (n, _t) = pairing_node(&bus);
+    let c = designated_carrier(&n, "codex-1");
+    let log = binding_log(&n);
+    let a = observed_attachment(&n, "codex-1", None);
+    let v = pairing_refusal(&n, &a).unwrap();
+    n.pipes.disconnect(&a);
+    n.adapter.emit(reveal(&c, "T1", &v));
+    assert_eq!(issued_log(&log), ["MCPB-ATT-007"]);
+    let b = observed_attachment(&n, "codex-1", None);
+    let vb = pairing_refusal(&n, &b).unwrap();
+    assert_ne!(vb, v);
+}
+
+/// [IFC-ADP-092], [IFC-ADP-093], [IFC-ADP-091]: on `attachment-unconfirmed` the core stops
+/// accepting requests from the attachment and handing off to it, and records a finding. The
+/// stop is in force when the event call returns, so a request the adapter passes next is
+/// refused. A later native signal paired with the attachment lifts it.
+#[test]
+fn an_unconfirmed_attachment_is_stopped_until_a_later_signal_pairs() {
+    let bus = Bus::default();
+    let (n, _t) = pairing_node(&bus);
+    let log = binding_log(&n);
+    let a = observed_attachment(&n, "harness-1", Some("native-x"));
+    n.adapter
+        .emit(signal(Some(&a), "native-x", StartKind::Fresh, None));
+    let sid = n.pipes.binding(&a).expect("bound");
+    let (b, sb) = session(&n, 9);
+    local_grant(&n, &sb, &sid);
+    local_grant(&n, &sid, &sb);
+    assert_eq!(
+        n.adapter.sink().send(request(&a, &sb, "before")).outcome(),
+        "sent"
+    );
+    n.adapter.emit(AdapterEvent::AttachmentUnconfirmed {
+        attachment: a.clone(),
+    });
+    // Nothing accepted from it.
+    let r = n.adapter.sink().send(request(&a, &sb, "after"));
+    assert_eq!(r.error(), Some(ErrorCode::Unauthorized), "{r:?}");
+    assert!(matches!(
+        discovery_of(&n, &a),
+        DiscoveryRequestResult::Refused {
+            error: ErrorCode::Unauthorized,
+            ..
+        }
+    ));
+    assert_eq!(
+        told(&n, &a),
+        None,
+        "the adapter is told it names no session"
+    );
+    // Nothing handed off to it (the adapter asserts a hand-off goes to a bound attachment).
+    let delivered = n.adapter.deliver_calls.load(Ordering::SeqCst);
+    let _ = n.adapter.sink().send(request(&b, &sid, "to a"));
+    std::thread::sleep(Duration::from_millis(100));
+    assert_eq!(
+        n.adapter.deliver_calls.load(Ordering::SeqCst),
+        delivered,
+        "no hand-off to the stopped attachment"
+    );
+    // One finding for the event ([IFC-ADP-093]).
+    assert_eq!(issued_log(&log), ["IFC-ADP-093"]);
+    let finding = log.entries().last().cloned().unwrap();
+    assert_eq!(finding.record.kind, RecordKind::Finding);
+    assert_eq!(finding.attachment, Some(a.clone()));
+    // A later paired signal lifts the stop.
+    n.adapter
+        .emit(signal(Some(&a), "native-x", StartKind::Fresh, None));
+    assert_eq!(
+        told(&n, &a),
+        Some(sid.clone()),
+        "a later paired signal lifts the stop"
+    );
+    assert_ne!(
+        n.adapter.sink().send(request(&a, &sb, "again")).error(),
+        Some(ErrorCode::Unauthorized)
+    );
+    assert_eq!(n.pipes.binding(&a), Some(sid));
+}
+
+/// [IFC-ADP-092] for an issued-value connection: after the event the attachment is refused
+/// with a fresh pairing value, and only a reveal of that value (a later signal) serves it
+/// again; a replay of the old reveal does not.
+#[test]
+fn an_unconfirmed_issued_value_attachment_is_served_again_by_a_new_reveal() {
+    let bus = Bus::default();
+    let (n, _t) = pairing_node(&bus);
+    let c = designated_carrier(&n, "codex-1");
+    let log = binding_log(&n);
+    let a = observed_attachment(&n, "codex-1", None);
+    let other = observed_attachment(&n, "codex-1", None);
+    let v1 = pairing_refusal(&n, &a).unwrap();
+    n.adapter.emit(reveal(&c, "T1", &v1));
+    let sid = n.pipes.binding(&a).expect("bound");
+    n.adapter.emit(AdapterEvent::AttachmentUnconfirmed {
+        attachment: a.clone(),
+    });
+    assert_eq!(told(&n, &a), None);
+    // The refusal that re-pairs it: a fresh window and value (the earlier one is used).
+    let v2 = pairing_refusal(&n, &a).expect("a value to pair again");
+    assert_ne!(v1, v2);
+    // A replay of the old reveal does not lift the stop.
+    n.adapter.emit(reveal(&c, "T1", &v1));
+    assert_eq!(told(&n, &a), None);
+    n.adapter.emit(reveal(&c, "T1", &v2));
+    assert_eq!(
+        n.pipes.binding(&a),
+        Some(sid.clone()),
+        "the same thread keeps its session"
+    );
+    assert_eq!(told(&n, &a), Some(sid));
+    assert_eq!(n.pipes.binding(&other), None);
+    assert!(issued_log(&log).contains(&"IFC-ADP-093"));
+}
+
+/// An event for an attachment the adapter does not own, or one unknown, stops nothing.
+#[test]
+fn an_unconfirmed_event_for_an_unknown_attachment_changes_nothing() {
+    let bus = Bus::default();
+    let (n, _t) = pairing_node(&bus);
+    let log = binding_log(&n);
+    let (a, sid) = session(&n, 1);
+    let ghost = Connection::accept(Default::default(), Default::default())
+        .handle()
+        .clone();
+    n.adapter
+        .emit(AdapterEvent::AttachmentUnconfirmed { attachment: ghost });
+    assert_eq!(n.pipes.binding(&a), Some(sid));
+    assert!(log.entries().is_empty());
+}
+
+/// A node whose pending-signal cap is one, with `a` bound through a real reveal on the
+/// carrier `c`, and the one slot taken by a held signal of another key.
+fn full_queue_after_a_reveal() -> (Node, Attachment, Attachment, String, MemoryBindingLog) {
+    let bus = Bus::default();
+    let t = Stepped::new();
+    let config = PipelineConfig {
+        pairing_window: Duration::from_secs(10),
+        max_pending_signals: 1,
+        ..PipelineConfig::default()
+    };
+    let n = node_mono(&bus, "device-a", config, Arc::new(SystemClock), t.clock());
+    let c = designated_carrier(&n, "codex-1");
+    let log = binding_log(&n);
+    let a = observed_attachment(&n, "codex-1", None);
+    let v = pairing_refusal(&n, &a).unwrap();
+    n.adapter.emit(reveal(&c, "T1", &v));
+    assert!(n.pipes.binding(&a).is_some());
+    let other = carrier(&n, "other-key");
+    n.adapter
+        .emit(signal(Some(&other), "X", StartKind::Fresh, None));
+    assert!(
+        n.pipes.next_native_signal_expiry().is_some(),
+        "the slot is held"
+    );
+    (n, c, a, v, log)
+}
+
+/// A reveal nobody may make, turned away at the cap, is dropped with its diagnostic and
+/// withholds nothing: one forged reveal cannot stall the connections of the carrier's key.
+#[test]
+fn a_rejected_reveal_at_the_cap_withholds_nothing() {
+    let (n, c, a, _v, log) = full_queue_after_a_reveal();
+    let sid = n.pipes.binding(&a).unwrap();
+    n.adapter.emit(reveal(
+        &c,
+        "T9",
+        "oac-pair-00000000000000000000000000000000",
+    ));
+    assert_eq!(n.pipes.binding(&a), Some(sid.clone()));
+    assert_eq!(told(&n, &a), Some(sid));
+    assert!(
+        issued_log(&log).contains(&"MCPB-ATT-007"),
+        "{:?}",
+        requirements(&log)
+    );
+    assert!(!requirements(&log).contains(&"SC-ID-154"));
+}
+
+/// A conflict turned away at the cap still ends the binding and records the finding.
+#[test]
+fn a_conflicting_reveal_at_the_cap_still_ends_the_binding() {
+    let (n, c, a, v, log) = full_queue_after_a_reveal();
+    n.adapter.emit(reveal(&c, "T2", &v));
+    assert_eq!(n.pipes.binding(&a), None);
+    assert_eq!(told(&n, &a), None);
+    assert!(
+        issued_log(&log).contains(&"MCPB-ATT-012"),
+        "{:?}",
+        requirements(&log)
+    );
+    let finding = log
+        .entries()
+        .into_iter()
+        .find(|e| e.record.requirement == "MCPB-ATT-012")
+        .unwrap();
+    assert_eq!(finding.record.kind, RecordKind::Finding);
+}
+
+/// [MCPB-ATT-023]: the count of windows restarts only when a reveal pairs. A reveal of a
+/// live value that the pending-signal cap turns away has used its value up, but it paired
+/// nothing, so the connection stays at its third window and gets no fourth.
+#[test]
+fn a_reveal_turned_away_at_the_cap_does_not_reset_the_window_count() {
+    let bus = Bus::default();
+    let t = Stepped::new();
+    let config = PipelineConfig {
+        pairing_window: Duration::from_secs(10),
+        max_pending_signals: 1,
+        ..PipelineConfig::default()
+    };
+    let n = node_mono(&bus, "device-a", config, Arc::new(SystemClock), t.clock());
+    let c = designated_carrier(&n, "codex-1");
+    let a = observed_attachment(&n, "codex-1", None);
+    pairing_refusal(&n, &a).unwrap();
+    t.advance(Duration::from_secs(10));
+    pairing_refusal(&n, &a).unwrap();
+    t.advance(Duration::from_secs(10));
+    let third = pairing_refusal(&n, &a).unwrap();
+    // The one slot is taken by a held signal of another key.
+    let other = carrier(&n, "other-key");
+    n.adapter
+        .emit(signal(Some(&other), "X", StartKind::Fresh, None));
+    assert!(
+        n.pipes.next_native_signal_expiry().is_some(),
+        "the slot is held"
+    );
+    // The live value is revealed and turned away at the cap: nothing is bound.
+    n.adapter.emit(reveal(&c, "T1", &third));
+    assert_eq!(n.pipes.binding(&a), None);
+    t.advance(Duration::from_secs(1));
+    assert_eq!(
+        pairing_refusal(&n, &a),
+        None,
+        "three windows have opened and none paired"
+    );
 }

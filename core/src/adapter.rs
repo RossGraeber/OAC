@@ -219,6 +219,13 @@ pub struct NativeSignal {
     /// `connection`, the connection the signal arrived on; `None` when no local connection
     /// carried it.
     pub connection: Option<ConnectionHandle>,
+    /// `revealed`, a pairing value ([`crate::issued_pairing`]) the adapter found in the
+    /// harness's own report; present only when the adapter binding document makes the signal
+    /// a reveal (`spec/bindings/mcp.md` §4.5). The core accepts it only on a connection
+    /// registered as a carrier ([`crate::pipeline::Pipelines::connect_carrier`]), and it
+    /// narrows the candidates the operating-system key leaves to the attachment the value was
+    /// issued on ([SC-ID-125]); it never replaces that key.
+    pub revealed: Option<String>,
 }
 
 /// An adapter event on the `watch_attachments` stream (`spec/interfaces.md` §5.4).
@@ -242,6 +249,15 @@ pub enum AdapterEvent {
     },
     /// `attachment-closed`: the attachment ended ([IFC-ADP-022], [IFC-ADP-071]).
     AttachmentClosed {
+        /// The attachment.
+        attachment: Attachment,
+    },
+    /// `attachment-unconfirmed`: the adapter could not confirm a request from the
+    /// attachment, and reports it before it passes that request ([IFC-ADP-091]). The core
+    /// stops accepting requests from, and handing off to, the attachment until a later
+    /// native signal is paired with it, and records a finding ([IFC-ADP-092],
+    /// [IFC-ADP-093]).
+    AttachmentUnconfirmed {
         /// The attachment.
         attachment: Attachment,
     },
@@ -315,6 +331,8 @@ pub enum IdentityRequestResult {
     Refused {
         /// Request-scope error code.
         error: ErrorCode,
+        /// A pairing value the core issued ([IFC-ADP-090]); only with `unauthorized`.
+        pairing_value: Option<String>,
     },
 }
 
@@ -351,6 +369,8 @@ pub enum SendRequestResult {
     Refused {
         /// The refusal's code.
         error: ErrorCode,
+        /// A pairing value the core issued ([IFC-ADP-090]); only with `unauthorized`.
+        pairing_value: Option<String>,
     },
     /// `not-passed`: an envelope was created but not passed to a transport; its state is
     /// `failed`, its code `transport-failure` or `internal-error`.
@@ -384,10 +404,17 @@ impl SendRequestResult {
     /// The error code, for `refused` and `not-passed`.
     pub fn error(&self) -> Option<ErrorCode> {
         match self {
-            SendRequestResult::Refused { error } | SendRequestResult::NotPassed { error, .. } => {
-                Some(*error)
-            }
+            SendRequestResult::Refused { error, .. }
+            | SendRequestResult::NotPassed { error, .. } => Some(*error),
             SendRequestResult::Sent { .. } => None,
+        }
+    }
+
+    /// The pairing value of a `refused` result that carries one ([IFC-ADP-090]).
+    pub fn pairing_value(&self) -> Option<&str> {
+        match self {
+            SendRequestResult::Refused { pairing_value, .. } => pairing_value.as_deref(),
+            _ => None,
         }
     }
 
@@ -422,7 +449,29 @@ pub enum DiscoveryRequestResult {
     Refused {
         /// The refusal's code.
         error: ErrorCode,
+        /// A pairing value the core issued ([IFC-ADP-090]); only with `unauthorized`.
+        pairing_value: Option<String>,
     },
+}
+
+impl DiscoveryRequestResult {
+    /// The pairing value of a `refused` result that carries one ([IFC-ADP-090]).
+    pub fn pairing_value(&self) -> Option<&str> {
+        match self {
+            DiscoveryRequestResult::Refused { pairing_value, .. } => pairing_value.as_deref(),
+            DiscoveryRequestResult::DiscoveryResult(_) => None,
+        }
+    }
+}
+
+impl IdentityRequestResult {
+    /// The pairing value of a `refused` result that carries one ([IFC-ADP-090]).
+    pub fn pairing_value(&self) -> Option<&str> {
+        match self {
+            IdentityRequestResult::Refused { pairing_value, .. } => pairing_value.as_deref(),
+            IdentityRequestResult::LocalIdentity(_) => None,
+        }
+    }
 }
 
 /// The request sink of `accept_requests` (Table 5.2): "an operation that takes a
@@ -467,6 +516,7 @@ pub trait RequestSink: Send + Sync {
     fn identity(&self, _request: IdentityRequest) -> IdentityRequestResult {
         IdentityRequestResult::Refused {
             error: ErrorCode::Unauthorized,
+            pairing_value: None,
         }
     }
 }
@@ -798,6 +848,7 @@ mod tests {
         let id = Token::parse("m1").unwrap();
         let r = SendRequestResult::Refused {
             error: ErrorCode::Unauthorized,
+            pairing_value: None,
         };
         assert_eq!(
             (r.outcome(), r.error(), r.state(), r.id()),
@@ -823,7 +874,8 @@ mod tests {
         assert_ne!(
             DiscoveryRequestResult::DiscoveryResult(vec![]),
             DiscoveryRequestResult::Refused {
-                error: ErrorCode::Unauthorized
+                error: ErrorCode::Unauthorized,
+                pairing_value: None,
             }
         );
         assert_eq!(StartKind::Transition.as_str(), "transition");

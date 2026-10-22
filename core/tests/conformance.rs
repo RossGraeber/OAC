@@ -412,6 +412,7 @@ fn run_binding(fx: &Fixture) -> Result<(), String> {
         start_kind,
         cross_check: str_of(s, "cross_check").map(str::to_owned),
         connection: None,
+        revealed: None,
     };
     let pairing = match str_of(s, "pairing") {
         Some("paired") => Pairing::Paired(

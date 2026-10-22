@@ -239,7 +239,8 @@ fn s13_an_unsealed_payload_from_a_sealing_transport_is_not_taken() {
         matches!(
             r,
             SendRequestResult::Refused {
-                error: ErrorCode::UnknownDestination
+                error: ErrorCode::UnknownDestination,
+                pairing_value: None,
             }
         ),
         "{r:?}"
