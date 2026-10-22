@@ -3,9 +3,9 @@
 // tools/herdr/scenarios/g8-codex-tools.mjs. It is not OAC product code and nothing in
 // adapters/, core/, cli/ or transports/ may use it.
 //
-// What it is for: Codex starts it as a stdio MCP server (the operator registers it with
-// registering it by name with the Codex CLI: its command is `node <this file> --log <abs path>`), a model calls its one tool, and
-// the scenario compares the server's own timestamps with the app-server's `mcpToolCall`
+// What it is for: Codex starts it as a stdio MCP server (the operator registers it by name
+// with the Codex CLI; its command is `node <this file> --log <abs path>`), a model calls its
+// one tool, and the scenario compares the server's own timestamps with the app-server's `mcpToolCall`
 // item frames. It imitates the shape of spec/bindings/mcp.md §4.5 (the issued-value pairing)
 // and nothing more: it binds nothing, sends no envelope and calls no model API.
 //

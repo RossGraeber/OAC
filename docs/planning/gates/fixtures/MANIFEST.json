@@ -7289,8 +7289,8 @@
         "upstream": null,
         "local_generation": null,
         "sha256": null,
-        "note": "Schema not recorded as a tree at Codex 0.163.0. `codex app-server generate-json-schema --experimental` was run at 0.163.0 by the recording agent and the mcpToolCall member of ThreadItem, McpToolCallStatus and McpToolCallResult in v2/ItemStartedNotification.json compared with the vendored rust-v0.161.0 copy (docs/planning/vendor/codex-app-server-protocol/rust-v0.161.0/json/v2/ItemStartedNotification.json): identical. Nothing else was compared.",
-        "validated_against": "mcpToolCall item members only, against the 0.163.0 experimental-tier generation; not a full-tree validation"
+        "note": "Schema not recorded as a tree at Codex 0.163.0. The mcpToolCall member of ThreadItem, McpToolCallStatus, McpToolCallResult and McpToolCallError in v2/ItemStartedNotification.json and v2/ItemCompletedNotification.json at tag rust-v0.163.0 (commit 83086188ae0614bd882818ff1aa23f3194962012, fetched from openai/codex on 2026-10-22 through the GitHub contents API) were compared, as parsed JSON, with the vendored rust-v0.161.0 copies (docs/planning/vendor/codex-app-server-protocol/rust-v0.161.0/json/v2/): identical. A local `codex app-server generate-json-schema --experimental` at 0.163.0 gave the same for the started file. Nothing else was compared.",
+        "validated_against": "mcpToolCall item members only, against the rust-v0.163.0 tag files; not a full-tree validation"
       }
     },
     {
