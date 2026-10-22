@@ -253,17 +253,16 @@ impl RequestSink for CoreSink {
     fn discover(&self, request: DiscoveryRequest) -> DiscoveryRequestResult {
         let core = &self.0;
         core.push(Entry::Discovery);
-        if !lock(&core.st).bound.contains_key(&request.attachment) {
-            if let SendRequestResult::Refused {
+        if !lock(&core.st).bound.contains_key(&request.attachment)
+            && let SendRequestResult::Refused {
                 error,
                 pairing_value,
             } = core.refusal(&request.attachment)
-            {
-                return DiscoveryRequestResult::Refused {
-                    error,
-                    pairing_value,
-                };
-            }
+        {
+            return DiscoveryRequestResult::Refused {
+                error,
+                pairing_value,
+            };
         }
         DiscoveryRequestResult::DiscoveryResult(Vec::new())
     }
@@ -693,12 +692,7 @@ fn a_paired_session_is_opened_revealed_bound_and_handed_off_with_the_frame() {
     assert_eq!(adds.len(), 1);
     let params = get(&adds[0], "params").unwrap();
     // [MCPB-CDX-005]: only the three members of the add, and nothing that sets a setting.
-    let mut members: Vec<&str> = params
-        .as_object()
-        .unwrap()
-        .iter()
-        .map(|(k, _)| k.as_ref())
-        .collect();
+    let mut members: Vec<&str> = params.as_object().unwrap().iter().map(|(k, _)| k).collect();
     members.sort_unstable();
     assert_eq!(members, ["clientUserMessageId", "input", "threadId"]);
     assert_eq!(get_str(params, "threadId"), Some(sess.thread.as_str()));
@@ -933,7 +927,7 @@ fn unconfirmed_is_reported_before_the_request_is_passed_on() {
         .iter()
         .filter(|(_, e)| matches!(e, Entry::Discovery))
         .map(|(n, _)| *n)
-        .last()
+        .next_back()
         .unwrap();
     assert!(
         unconfirmed_at < request_at,
@@ -1199,9 +1193,9 @@ fn shutdown_closes_everything_and_hands_off_nothing_after() {
 /// The adapter holds the frames it writes to the app-server to the allowlist: across a whole
 /// pairing and delivery it sent only `initialize`, `thread/loaded/list`, `thread/resume`,
 /// `thread/unsubscribe` and `thread/queue/add` (never a steering method, never a thread
-/// listing with previews), and left every server request unanswered.
+/// listing with previews). (Server requests are never answered: `server_requests_are_counted_and_never_answered`.)
 #[test]
-fn the_adapter_sends_only_allowlisted_methods_and_answers_no_server_request() {
+fn the_adapter_sends_only_allowlisted_methods() {
     let s = Scene::new();
     let mut sess = s.session();
     s.pair(&mut sess);

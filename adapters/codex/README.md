@@ -1,14 +1,12 @@
-# Codex app-server client (G6, Refs #67) and the pairing internals (G8 S3, Refs #69, #403)
+# Codex app-server client (G6, Refs #67), the pairing internals (G8 S3) and the adapter (G8 S4, Refs #69, #403, #68)
 
-This crate implements the client half and, from G8 slice S3, the internals of the Codex
-issued-value pairing. It uses the documented app-server protocol over a stream opened by
+This crate implements the client half, the internals of the Codex issued-value pairing (G8
+slice S3) and, from slice S4, `CodexAdapter`, its `ProviderAdapter`. It uses the documented app-server protocol over a stream opened by
 `cli/`, with hand-written RFC 6455 framing, `oac-core` and `oac-mcp-tools` as its OAC
 dependencies, and `rmcp` and `tokio` as the vetted MCP server side (the same lines as
 `adapters/claude`). The experimental compatibility boundary is
-`oac-codex-experimental@codex-0.161.0` in `src/shim.rs`. It does not implement
-`ProviderAdapter`: hand-off belongs to G7 and the adapter itself to G8's next slice (S4),
-which implements `pairing::CallPort`, the one seam between this crate's internals and the
-core.
+`oac-codex-experimental@codex-0.161.0` in `src/shim.rs`. `adapter::CodexAdapter`
+implements `pairing::CallPort`, the one seam between the pairing internals and the core.
 
 ## Pairing internals (`spec/bindings/mcp.md` §4.5)
 
@@ -44,23 +42,58 @@ the way; the wait for a confirmation is bounded by 5 s from the call, not from t
 so a call is served only if its approval was answered before the call reached the server,
 which is when Codex makes it.
 
-## For S4 (G8's adapter slice)
+## The adapter (G8 slice S4; G7's hand-off)
 
-- **UNVERIFIED, mid-turn subscription.** Whether a `thread/resume` issued while the thread's
-  MCP call is in flight still gets that item's `item/completed` is not shown by any capture
-  (S1 subscribed before the call). The reveal arrives that way, so the S4 live leg must cover
-  it; if it fails, pairing costs availability only.
-- **Subscription ownership.** `Serving` unsubscribes the threads it subscribed tentatively
-  when the window ends. A thread G7 subscribes to later through `CodexClient::subscribe`
-  while it is still tentative would be unsubscribed under it (`open_window` skips only
-  threads the client already served). S4 and G7 must coordinate subscriptions, for example by
-  subscribing through one owner.
-- `CodexPairing::set_bound` is the hook for `set_binding`; a call is confirmed as soon as a
-  reveal named a thread for its connection, even before `set_bound(true)` arrives.
+| Module | What it does |
+|---|---|
+| `adapter` | `CodexAdapter`: `take_connection`, events, `set_binding`, `capabilities`, `deliver`, `accept_requests`, `health`, `shutdown`; the `CallPort` the pairing talks to |
+| `frame` | The C6 §5.0 frame a hand-off is written as: provenance header, then a delimited, line-quoted, untrusted body |
 
-Tests: unit tests in each module, and `tests/pairing.rs` against the real node fake
-app-server process with its `oacFake/mcp/*` frames and a stand-in core built on
-`PairingWindows`.
+- **Two kinds of connection.** The carrier is only the handle the daemon designates with
+  `CodexAdapter::designate_carrier(handle)`, before it gives the connection over
+  (`Pipelines::connect_carrier`); never in-band ([MCPB-ATT-006]). Every other connection is a
+  shim connection: one attachment, `attachment-opened` after the first `tools/list` answer.
+  With no carrier up, a shim connection is closed; while the carrier connects, shim
+  connections wait. One carrier serves an adapter's life.
+- **Pairing.** A reveal is reported as a `native-signal` on the carrier (`native_id` the
+  notification's `threadId`, `revealed` the value, start kind `fresh`). The thread is kept per
+  attachment, uncommitted. `set_binding(Some)` commits it and calls
+  `CodexPairing::set_bound(true)`; `set_binding(None)` clears the thread and the reveal. A
+  request the pairing cannot confirm is reported as `attachment-unconfirmed` first
+  ([IFC-ADP-091]). The core records a finding for every such event, also for an attachment it
+  has not bound ([IFC-ADP-093] is unconditional; `core/tests/pipeline.rs`
+  `an_unconfirmed_event_for_an_unbound_attachment_is_a_finding_without_a_binding_to_end`
+  pins that this binds, ends and withholds nothing).
+- **Delivery.** One `thread/queue/add` per hand-off for the committed thread, `clientUserMessageId`
+  from the client, nothing else; never `turn/start` or `turn/steer`; no server request is
+  answered. `completed` for a result with `queuedSubmission`; `failed` for a JSON-RPC error
+  (every known refusal is `handoff-failed`, §8.2.1) and for a call not sent; `indeterminate` for
+  no answer, an answer lost with the carrier (`ClientError::LostAnswer`) or a stream error;
+  `refused` for a provenance value that is not a whole token; never `not-now`.
+- **An unprompted `thread/archived`** (and the `notLoaded` status before it, S3 capture
+  L1024-L1029; the fake's `oacFake/thread/setArchived` now sends both) changes nothing: no
+  event, no capability change, no binding change. The attachment is the MCP connection, whose
+  end is the stream's end. The next delivery makes its one add, gets the recorded archived
+  refusal and is `handoff-failed`; unarchived, the next completes.
+  `tests/adapter.rs` pins this.
+- **Subscription ownership.** Delivery never subscribes. The thread of a delivery is the thread
+  the attachment's reveal named, which `Serving` holds for that attachment from the reveal
+  until it is unbound or ends; a window's end unsubscribes only unheld tentative threads.
+  A delivery whose thread is no longer served is `failed` without a call.
+- **Carrier lost.** `capabilities` reports `active_inbound: false` and `capabilities-changed` is
+  reported for each open attachment; deliveries fail; `health` is no longer healthy.
+- **Not done.** Interfaces 0.6's cooperative local-call surface is not implemented (the
+  legacy surface, which the pipeline accepts, is). **UNVERIFIED, mid-turn subscription:**
+  whether a `thread/resume` issued while the thread's MCP call is in flight still gets that
+  item's `item/completed` is shown by no capture (S1 subscribed before the call). The reveal
+  arrives that way, so a live leg must cover it; if it fails, pairing costs availability only.
+  The same live leg owes the real-Codex runs of the harness's sequence (the fake replays the S1
+  frames; it does not run Codex).
+
+Tests: unit tests in each module; `tests/pairing.rs` against the real node fake app-server
+process with its `oacFake/mcp/*` frames and a stand-in core built on `PairingWindows`;
+`tests/adapter.rs` for `CodexAdapter` against the same fake and a stand-in core that binds on a
+reveal; and `tests/contract.rs`, the shared adapter contract suite run unchanged.
 
 `Options::call_timeout` bounds the HTTP Upgrade and each JSON-RPC response wait. The
 Upgrade accepts at most 16 KiB of headers. On any connect error, the stream owner must

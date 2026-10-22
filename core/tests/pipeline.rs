@@ -4546,6 +4546,52 @@ fn an_unconfirmed_issued_value_attachment_is_served_again_by_a_new_reveal() {
     assert!(issued_log(&log).contains(&"IFC-ADP-093"));
 }
 
+/// S4 (#69) review question: `attachment-unconfirmed` for an attachment the core has NOT
+/// bound is harmless. [IFC-ADP-093] makes the finding unconditional, so it is recorded, but it
+/// names no session, withdraws no binding (the adapter is told nothing, since there is no
+/// session to withdraw), withholds nothing of any other attachment, and does not stop the
+/// attachment from being paired by a signal that arrives after the event: the value issued
+/// to it before the event still binds it on its reveal. Nothing was handed off to it, and
+/// nothing was bound.
+#[test]
+fn an_unconfirmed_event_for_an_unbound_attachment_is_a_finding_without_a_binding_to_end() {
+    let bus = Bus::default();
+    let (n, _t) = pairing_node(&bus);
+    let c = designated_carrier(&n, "codex-1");
+    let log = binding_log(&n);
+    let a = observed_attachment(&n, "codex-1", None);
+    let other = observed_attachment(&n, "codex-1", None);
+    let v = pairing_refusal(&n, &a).expect("a value to pair with");
+    assert_eq!(n.pipes.binding(&a), None);
+    let told_before = n.adapter.bound.lock().unwrap().get(&a).cloned();
+    n.adapter.emit(AdapterEvent::AttachmentUnconfirmed {
+        attachment: a.clone(),
+    });
+    // The finding [IFC-ADP-093] requires, with no session: there was no binding to fail.
+    assert_eq!(issued_log(&log), ["IFC-ADP-093"]);
+    let finding = log.entries().last().cloned().unwrap();
+    assert_eq!(finding.record.kind, RecordKind::Finding);
+    assert_eq!(
+        (finding.attachment, finding.session),
+        (Some(a.clone()), None)
+    );
+    // No binding was made or ended: the adapter was not told anything about `a`.
+    assert_eq!(n.pipes.binding(&a), None);
+    assert_eq!(told(&n, &a), None);
+    assert_eq!(
+        n.adapter.bound.lock().unwrap().get(&a).cloned(),
+        told_before,
+        "the event changed what the adapter was told of an attachment that was never bound"
+    );
+    // Another attachment is not touched: it is still refused with a value, not stopped.
+    assert_ne!(pairing_refusal(&n, &other), None);
+    // A signal after the event pairs it, with the value issued before the event.
+    n.adapter.emit(reveal(&c, "T1", &v));
+    let sid = n.pipes.binding(&a).expect("bound by the later reveal");
+    assert_eq!(told(&n, &a), Some(sid));
+    assert_eq!(n.pipes.binding(&other), None);
+}
+
 /// An event for an attachment the adapter does not own, or one unknown, stops nothing.
 #[test]
 fn an_unconfirmed_event_for_an_unknown_attachment_changes_nothing() {
