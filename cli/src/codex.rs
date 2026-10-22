@@ -593,9 +593,10 @@ mod platform {
     use windows_sys::Win32::Networking::WinSock::{
         AF_UNIX, SD_BOTH, SIO_AF_UNIX_GETPEERPID, SOCK_STREAM, SOCKADDR, SOCKADDR_UN, SOCKET,
         WSA_FLAG_NO_HANDLE_INHERIT, WSA_FLAG_OVERLAPPED, WSA_INFINITE, WSA_IO_PENDING,
-        WSA_WAIT_EVENT_0, WSABUF, WSACloseEvent, WSACreateEvent, WSADATA, WSAGetLastError,
-        WSAGetOverlappedResult, WSAIoctl, WSARecv, WSASetEvent, WSASocketW, WSAStartup,
-        WSAWaitForMultipleEvents, closesocket, connect as winsock_connect, send, shutdown,
+        WSA_WAIT_EVENT_0, WSA_WAIT_FAILED, WSABUF, WSACloseEvent, WSACreateEvent, WSADATA,
+        WSAGetLastError, WSAGetOverlappedResult, WSAIoctl, WSARecv, WSASetEvent, WSASocketW,
+        WSAStartup, WSAWaitForMultipleEvents, closesocket, connect as winsock_connect, send,
+        shutdown,
     };
     use windows_sys::Win32::System::IO::OVERLAPPED;
 
@@ -641,7 +642,7 @@ mod platform {
     impl Drop for Owned {
         fn drop(&mut self) {
             // SAFETY: the socket is ours and is closed once; this cancels the pending receive.
-            unsafe { closesocket(self.socket) };
+            let closed = unsafe { closesocket(self.socket) } == 0;
             if let Some(p) = self
                 .pending
                 .get_mut()
@@ -651,7 +652,13 @@ mod platform {
                 // Wait on the receive's own event, not on the closed descriptor.
                 let event = p.event as HANDLE;
                 // SAFETY: one live event handle, owned by `p`.
-                let r = unsafe { WSAWaitForMultipleEvents(1, &event, 1, WSA_INFINITE, 0) };
+                // Only a socket that closed has cancelled its receive: otherwise the operation
+                // may never complete, and is not waited for.
+                let r = if closed {
+                    unsafe { WSAWaitForMultipleEvents(1, &event, 1, WSA_INFINITE, 0) }
+                } else {
+                    WSA_WAIT_FAILED
+                };
                 if r == WSA_WAIT_EVENT_0 as u32 {
                     drop(p);
                 } else {
@@ -688,6 +695,20 @@ mod platform {
         fn receive(&mut self) -> io::Result<bool> {
             if self.wake.set.load(Ordering::SeqCst) {
                 return Ok(false);
+            }
+            // A receive left pending by an earlier wake or failed wait is still in flight: a
+            // second would be a second operation on the socket, and parking it would drop the
+            // first. The slot is never overwritten.
+            if self
+                .socket
+                .pending
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .is_some()
+            {
+                return Err(io::Error::other(
+                    "a receive is still pending on this socket",
+                ));
             }
             // SAFETY: plain event creation.
             let event = unsafe { WSACreateEvent() };
