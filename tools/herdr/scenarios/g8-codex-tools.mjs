@@ -293,7 +293,12 @@ export default {
     const operatorPrompt = params.operatorPrompt || DEFAULT_MARKER;
     const abortSignal = ctx.herdr.abortSignal;
     const serverLog = params.serverLog;
-    if (existsSync(serverLog)) throw new DriverError('the stub server log file already exists; use a fresh path so one run holds one registration\'s calls');
+    // Codex starts every registered MCP server when a TUI session starts (initialize and
+    // tools/list before any prompt), so the log may already exist. It must hold no tool call yet:
+    // one run holds one registration's calls.
+    if (existsSync(serverLog) && /"method":"tools\/call"/.test(readFileSync(serverLog, 'utf8'))) {
+      throw new DriverError('the stub server log already holds a tools/call; use a fresh path so one run holds one registration\'s calls');
+    }
 
     const g8 = {
       nonVerdictBearing: G8_NON_VERDICT,
