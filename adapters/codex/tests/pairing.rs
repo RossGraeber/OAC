@@ -582,7 +582,29 @@ fn a_refused_call_is_revealed_by_codexs_report_and_pairs_the_connection() {
     // Nothing the server sent was a notification ([MCPB-CDX-001]).
     mcp.call("whoami", None, "x");
     assert!(mcp.unsolicited.is_empty());
+    // The connection ends: it holds the thread no longer, and the thread is unsubscribed.
     mcp.stop();
+    let end = Instant::now() + BOUND;
+    while s.pairing.serving_counts() != (0, 1) {
+        assert!(Instant::now() < end, "{:?}", s.pairing.serving_counts());
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert_eq!(s.fake.client_calls_of("thread/unsubscribe").len(), 1);
+}
+
+#[test]
+fn the_specs_bounds_are_not_settings() {
+    // [MCPB-ATT-019], [MCPB-ATT-020], [MCPB-ATT-021]: a longer setting is cut to the bound.
+    let s = Scene::with(|mut c| {
+        c.window = Duration::from_secs(3600);
+        c.confirm_wait = Duration::from_secs(3600);
+        c.confirm_life = Duration::from_secs(3600);
+        c
+    });
+    let cfg = s.pairing.config();
+    assert_eq!(cfg.window, Duration::from_secs(60));
+    assert_eq!(cfg.confirm_wait, Duration::from_secs(10));
+    assert_eq!(cfg.confirm_life, Duration::from_secs(600));
 }
 
 #[test]

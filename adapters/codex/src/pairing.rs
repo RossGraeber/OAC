@@ -57,6 +57,14 @@ use crate::threads::{NativeRef, ThreadKey};
 /// [MCPB-ATT-019] allows up to 60 s). Set the core's and this one from one value.
 pub const WINDOW: Duration = Duration::from_secs(30);
 
+/// The longest a call may wait for its confirmation ([MCPB-ATT-020]); a longer
+/// [`Config::confirm_wait`] is cut to it.
+pub const MAX_CONFIRM_WAIT: Duration = Duration::from_secs(10);
+
+/// The longest a pairing window may last ([MCPB-ATT-019]); a longer [`Config::window`] is cut
+/// to it.
+pub const MAX_WINDOW: Duration = Duration::from_secs(60);
+
 /// The most claimed confirmations kept for the content check after the call was served.
 pub const MAX_CLAIMS: usize = 1024;
 
@@ -263,10 +271,14 @@ impl<K: Clone + Eq + Hash + Send + Sync + 'static> CodexPairing<K> {
     ///
     /// `connect`'s error.
     pub fn start(
-        cfg: Config,
+        mut cfg: Config,
         port: Arc<dyn CallPort<K>>,
         connect: impl FnOnce(EventHandler) -> Result<CodexClient, ClientError>,
     ) -> Result<CodexPairing<K>, ClientError> {
+        // The bounds of the spec are not settings: a longer value is cut to them.
+        cfg.window = cfg.window.clamp(Duration::from_millis(1), MAX_WINDOW);
+        cfg.confirm_wait = cfg.confirm_wait.min(MAX_CONFIRM_WAIT);
+        cfg.confirm_life = cfg.confirm_life.min(CONFIRM_LIFE);
         let inner = Arc::new(Inner {
             confirmations: Confirmations::new(cfg.confirm_life),
             refusals: Mutex::new(Refusals::new(cfg.window)),
@@ -294,6 +306,11 @@ impl<K: Clone + Eq + Hash + Send + Sync + 'static> CodexPairing<K> {
         let _ = inner.client.set(client);
         let _ = inner.serving.set(serving);
         Ok(CodexPairing { inner })
+    }
+
+    /// The settings in force, after the bounds of the spec were applied.
+    pub fn config(&self) -> &Config {
+        &self.inner.cfg
     }
 
     /// The carrier's client.
