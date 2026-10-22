@@ -333,7 +333,8 @@ fn row02_unauthorized_send_through_the_composed_pipeline() {
             matches!(
                 r,
                 SendRequestResult::Refused {
-                    error: ErrorCode::UnknownDestination
+                    error: ErrorCode::UnknownDestination,
+                    pairing_value: None,
                 }
             ),
             "{to}: {r:?}"

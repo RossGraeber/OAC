@@ -374,7 +374,7 @@ pub fn refusal(code: ErrorCode) -> CallToolResult {
 /// ([SC-RCP-055]). `refused` and `not-passed` are tool execution errors carrying the code.
 pub fn send_result(r: &SendRequestResult) -> CallToolResult {
     match r {
-        SendRequestResult::Refused { error } => refusal(*error),
+        SendRequestResult::Refused { error, .. } => refusal(*error),
         SendRequestResult::NotPassed { id, error } => {
             let mut out = CallToolResult::error(vec![ContentBlock::text(format!(
                 "{}: message {} was created but not passed to a transport.",
@@ -416,7 +416,7 @@ pub fn send_result(r: &SendRequestResult) -> CallToolResult {
 /// content ([MCPB-TOOL-014], [MCPB-TOOL-015]), or the refusal.
 pub fn discovery_result(r: &DiscoveryRequestResult) -> CallToolResult {
     match r {
-        DiscoveryRequestResult::Refused { error } => refusal(*error),
+        DiscoveryRequestResult::Refused { error, .. } => refusal(*error),
         DiscoveryRequestResult::DiscoveryResult(sessions) => {
             let list: Vec<Value> = sessions
                 .iter()
@@ -437,7 +437,7 @@ pub fn discovery_result(r: &DiscoveryRequestResult) -> CallToolResult {
 /// [IFC-ADP-098]).
 pub fn whoami_result(r: &IdentityRequestResult) -> CallToolResult {
     match r {
-        IdentityRequestResult::Refused { error } => refusal(*error),
+        IdentityRequestResult::Refused { error, .. } => refusal(*error),
         IdentityRequestResult::LocalIdentity(identity) => result(
             Value::from(object(vec![
                 ("session_id", Value::from(identity.session_id.as_str())),
@@ -604,7 +604,8 @@ mod tests {
         );
         assert_eq!(
             whoami_result(&IdentityRequestResult::Refused {
-                error: ErrorCode::Unauthorized
+                error: ErrorCode::Unauthorized,
+                pairing_value: None,
             }),
             refusal(ErrorCode::Unauthorized)
         );

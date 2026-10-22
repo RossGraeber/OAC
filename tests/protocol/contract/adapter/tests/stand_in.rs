@@ -330,7 +330,7 @@ impl ChannelStandIn {
                                     false,
                                     &format!("{} accepted-by-adapter", mid.as_str()),
                                 ),
-                                (SendRequestResult::Refused { error }, _) => {
+                                (SendRequestResult::Refused { error, .. }, _) => {
                                     tool_result(true, error.as_str())
                                 }
                                 (SendRequestResult::NotPassed { id: mid, error }, _) => {
@@ -347,7 +347,7 @@ impl ChannelStandIn {
                             DiscoveryRequestResult::DiscoveryResult(d) => {
                                 tool_result(false, &format!("{} sessions", d.len()))
                             }
-                            DiscoveryRequestResult::Refused { error } => {
+                            DiscoveryRequestResult::Refused { error, .. } => {
                                 tool_result(true, error.as_str())
                             }
                         }

@@ -467,6 +467,7 @@ mod tests {
             start_kind: s,
             cross_check: e.map(str::to_owned),
             connection: None,
+            revealed: None,
         }
     }
 

@@ -698,6 +698,30 @@ list.
   alternative already scoped (`docs/planning/decisions/C2-process-model.md`
   §10-§11).
 
+### RISK-ISSUED-PAIRING — Codex issued-value pairing: two residuals in the core's window bookkeeping
+
+- **Risk.** (Dated note, 2026-10-20, #69, PR #451.) The core's part of the Codex
+  issued-value pairing (`spec/bindings/mcp.md` §4.5) is `core/src/issued_pairing.rs`. It
+  has two residuals.
+  - **Old paired values.** The core keeps 16 records per attachment. After that, a paired
+    value that was evicted and is then revealed for a second thread is unknown, not a
+    conflict, so [MCPB-ATT-011] and its finding ([MCPB-ATT-012]) are lost for a very old
+    value. The reveal still pairs nothing, and a value is used once.
+  - **A reveal turned away at the pending-signal cap.** Such a reveal has used its value
+    up without pairing. The connection is not reset: if fewer than 3 windows have opened
+    since its last paired reveal, its next refusal opens a new window; otherwise it gets
+    the final refusal for the rest of its lifetime ([MCPB-ATT-023]).
+- **What it invalidates.** Nothing of authority: neither residual lets a reveal pair that
+  should not. It costs the `MCPB-ATT-012` finding for old values, and availability of
+  one connection when the cap drops its reveal.
+- **Early-warning signal.** Findings for `MCPB-ATT-012` that stop appearing on a
+  long-lived attachment that pairs often; a Codex connection that gets the final refusal
+  while the daemon logs `max_pending_signals` drops.
+- **Response.** For the first, raise the per-attachment record bound if a long-lived
+  attachment pairs more than 16 times. For the second, raise
+  `PipelineConfig::max_pending_signals`, or a new connection starts the count again.
+  Neither needs a spec change.
+
 ### RISK-CRYPTO-BUILD — Signing-crate Windows build and MSRV policy unverified
 
 - **Risk.** `ed25519-dalek` `3.0.0` may not build cleanly on
