@@ -130,6 +130,7 @@ fn parts(scope: Scope, network: &MemoryNetwork, log: LogSink) -> Parts {
         config: PipelineConfig::default(),
         harnesses: vec![("claude".to_owned(), Arc::new(ClaudeAdapter::new()) as _)],
         log,
+        codex: None,
     }
 }
 

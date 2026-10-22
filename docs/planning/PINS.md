@@ -849,6 +849,24 @@ semver, and are recorded verbatim — never reformatted.
   2026-10-08. Already in the workspace `Cargo.lock` at this version.
 - Use: `GetNamedPipeClientProcessId` (`src/Windows/Win32/System/Pipes/mod.rs` L14 at
   0.61.2) for local IPC peer auth in `cli/` (G-7 §8.1; G9 #70 confirms).
+- Added 2026-10-22 (G8 slice S5, #433; lead approval 2026-10-21, G8 plan approval 1): feature
+  `Win32_Networking_WinSock` (which enables `Win32_Networking`; no new package, `Cargo.lock`
+  unchanged), for the Codex app-server control socket, an `AF_UNIX` stream socket that neither
+  std nor `tokio` opens on Windows (G-7 §8.3). Use in `cli/src/codex.rs`: `socket`, `connect`,
+  `recv`, `send`, `shutdown`, `setsockopt`, and `WSAIoctl` with `SIO_AF_UNIX_GETPEERPID`
+  (`src/Windows/Win32/Networking/WinSock/mod.rs`, constant `1476395264` at 0.61.2) for the
+  server's process id, which gives the same-user check and the pairing key.
+  **UNVERIFIED in first-party documentation, checked 2026-10-22:** the Microsoft Learn pages
+  `WSAIoctl` (https://learn.microsoft.com/en-us/windows/win32/api/winsock2/nf-winsock2-wsaioctl)
+  and `Winsock IOCTLs` (https://learn.microsoft.com/en-us/windows/win32/winsock/winsock-ioctls)
+  do not mention `SIO_AF_UNIX_GETPEERPID`, and the 2018 announcement
+  (https://devblogs.microsoft.com/commandline/af_unix-comes-to-windows/) says the Windows
+  implementation has no ancillary data and names no peer-credential call. The constant is in
+  the Windows SDK and in the `windows-sys` bindings generated from Microsoft's metadata, and
+  `cli/tests/codex_socket.rs` shows the call returning the server's process id on Windows 11
+  (build 26300). A failure to read the id fails closed (no carrier). A reported count of 0
+  bytes is a known quirk on some builds (microsoft/WSL#4676), so the id is trusted and the
+  count is not.
 - **Gates affected: none directly** — implementation dependency.
 
 ### `libc` (Unix socket peer credentials)

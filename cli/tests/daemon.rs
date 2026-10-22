@@ -152,6 +152,7 @@ fn parts(scope: Scope, network: &MemoryNetwork, log: &Captured, state: &Path) ->
             let state = state.to_path_buf();
             move || LogFile::open_in(&state, scope_namespace.as_deref(), MAX_LOG_BYTES)
         }),
+        codex: None,
     }
 }
 
