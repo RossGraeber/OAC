@@ -116,6 +116,16 @@ fn content_schema() -> Value {
 }
 
 fn schema(properties: Vec<(&str, Value)>, required: &[&str]) -> Arc<JsonObject> {
+    schema_any_of(properties, required, &[])
+}
+
+/// [`schema`] with `anyOf` alternatives, each requiring one named property: the call must
+/// name at least one of them (`reply`: `in_reply_to` or `to`).
+fn schema_any_of(
+    properties: Vec<(&str, Value)>,
+    required: &[&str],
+    any_of: &[&str],
+) -> Arc<JsonObject> {
     let mut members = vec![
         ("type", Value::from("object")),
         ("properties", Value::from(object(properties))),
@@ -124,6 +134,22 @@ fn schema(properties: Vec<(&str, Value)>, required: &[&str]) -> Arc<JsonObject> 
         members.push((
             "required",
             Value::from(required.iter().map(|r| Value::from(*r)).collect::<Vec<_>>()),
+        ));
+    }
+    if !any_of.is_empty() {
+        members.push((
+            "anyOf",
+            Value::from(
+                any_of
+                    .iter()
+                    .map(|name| {
+                        Value::from(object(vec![(
+                            "required",
+                            Value::from(vec![Value::from(*name)]),
+                        )]))
+                    })
+                    .collect::<Vec<_>>(),
+            ),
         ));
     }
     Arc::new(object(members))
@@ -159,7 +185,7 @@ pub fn tools() -> Vec<Tool> {
         Tool::new(
             REPLY,
             "Reply to an OAC message you received. Name it by its oac_message_id in in_reply_to. Without in_reply_to, name the session in to: the reply is then sent uncorrelated, not linked to any message.",
-            schema(
+            schema_any_of(
                 vec![
                     (
                         "in_reply_to",
@@ -176,6 +202,7 @@ pub fn tools() -> Vec<Tool> {
                     ),
                 ],
                 &["content"],
+                &["in_reply_to", "to"],
             ),
         ),
         Tool::new(
@@ -620,6 +647,23 @@ mod tests {
             .filter_map(|v| v.as_str())
             .collect();
         assert_eq!(required, ["content"]);
+        // The schema says what `parse` enforces: `in_reply_to` or `to`.
+        let any_of: Vec<Vec<&str>> = reply
+            .input_schema
+            .get("anyOf")
+            .and_then(|r| r.as_array())
+            .unwrap()
+            .iter()
+            .map(|alt| {
+                alt.get("required")
+                    .and_then(|r| r.as_array())
+                    .unwrap()
+                    .iter()
+                    .filter_map(|v| v.as_str())
+                    .collect()
+            })
+            .collect();
+        assert_eq!(any_of, [vec!["in_reply_to"], vec!["to"]]);
         let props = reply.input_schema.get("properties").unwrap();
         assert!(props.get("in_reply_to").is_some() && props.get("to").is_some());
         // `to` alone is enough; an empty `in_reply_to` is none.

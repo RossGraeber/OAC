@@ -143,7 +143,7 @@ struct Att {
     pending: Vec<String>,
     /// The session the core's latest `set_binding` named.
     bound: Option<SessionId>,
-    /// The thread of a delivery: `learned`, committed by the `set_binding` that named a
+    /// The thread of a delivery: the one thread `pending` held, committed by the `set_binding` that named a
     /// session. Native; it never leaves this module.
     thread: Option<String>,
     /// Hand-off attempts for a reply's `to`: message id, sender, recipient, and whether the
