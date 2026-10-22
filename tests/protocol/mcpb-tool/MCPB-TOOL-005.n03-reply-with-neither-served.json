@@ -4,8 +4,8 @@
   "spec": "spec/bindings/mcp.md",
   "spec_revision": "0.5",
   "kind": "negative",
-  "failure_mode": "schema failure served",
-  "description": "The server accepts a reply that names neither in_reply_to nor to instead of returning a tool execution error.",
+  "failure_mode": "argument rule failure served",
+  "description": "The server accepts a reply that names neither in_reply_to nor to instead of returning a tool execution error; a reply fails the reply tool's argument rule, enforced by the server.",
   "stage": "mcp-binding",
   "context": {
     "era": "legacy",
