@@ -1,10 +1,52 @@
-# Codex app-server client (G6, Refs #67)
+# Codex app-server client (G6, Refs #67) and the pairing internals (G8 S3, Refs #69, #403)
 
-This crate implements the client half only. It uses the documented app-server protocol
-over a stream opened by `cli/`, with hand-written RFC 6455 framing and `oac-core` as its
-only dependency. The experimental compatibility boundary is
+This crate implements the client half and, from G8 slice S3, the internals of the Codex
+issued-value pairing. It uses the documented app-server protocol over a stream opened by
+`cli/`, with hand-written RFC 6455 framing, `oac-core` and `oac-mcp-tools` as its OAC
+dependencies, and `rmcp` and `tokio` as the vetted MCP server side (the same lines as
+`adapters/claude`). The experimental compatibility boundary is
 `oac-codex-experimental@codex-0.161.0` in `src/shim.rs`. It does not implement
-`ProviderAdapter`; delivery and attachment pairing belong to G7 and G8.
+`ProviderAdapter`: hand-off belongs to G7 and the adapter itself to G8's next slice (S4),
+which implements `pairing::CallPort`, the one seam between this crate's internals and the
+core.
+
+## Pairing internals (`spec/bindings/mcp.md` §4.5)
+
+| Module | What it does |
+|---|---|
+| `mcp` | The OAC MCP server for one Codex stdio connection, on `rmcp`: legacy era only, the four tools of `oac_mcp_tools::tools()` (so Codex's `tools/list` is Claude's, [MCPB-TOOL-003]), no channel capability and no notification of any kind ([MCPB-CDX-001]). The `tools/call` `_meta` is not read. |
+| `pairing` | `CodexPairing`: for each call, either the unpaired route (serve threads, ask the core, keep a record of a refusal that carries a pairing value) or the paired route (wait for a confirmation, then ask the core). `CallPort` is the seam to the provider adapter: pass the call to the core's sink, report `attachment-unconfirmed` before the request it concerns ([IFC-ADP-091]), report a reveal as a native signal. |
+| `reveal` | The refused-call records and the reveal match: a completed `mcpToolCall` of the registered server whose tool and arguments match a record and whose `result.content` is the refusal's content. The thread is the notification's `threadId` only ([MCPB-ATT-008]). |
+| `confirm` | The confirmation engine: live `item/started` entries keyed by thread and item id, a bounded wait (5 s) in either order, single use ([MCPB-ATT-014]), end on `item/completed`, `turn/completed` or 600 s ([MCPB-ATT-021]); argument matching. |
+| `serving` | `thread/loaded/list` (ids only; `thread/list` is never called) and `thread/resume` for each new loaded thread before a pairing refusal goes out; unsubscribes the unpaired ones when the window ends. |
+
+The core issues the values, ends the windows, uses each value once and caps the windows at
+three ([IFC-ADP-090] to [IFC-ADP-093], `oac_core::issued_pairing`). This crate does what only
+the adapter can: it sees Codex's own reports on the carrier.
+
+Matching, as the spec states it and as the S1 capture (`docs/planning/gates/fixtures/
+g8-codex-tools/`) bears out: equal JSON values, `null` and absent the same, `{}` only `{}`.
+Codex 0.163.0 sent `{}` and reported `{}` for a call the model made with no arguments, so
+that case is an ordinary match. A call sent with no `arguments` member and reported as `{}`
+(or the reverse) does not match: it is refused and not paired (availability only), and
+`tests/pairing.rs` pins it as the spec's strictness. If a Codex version does report that,
+the spec's matching rule needs a change request.
+
+`_meta.itemId` (Codex 0.163.0) is a `ctc_...` id that no notification carries; the item's own
+id is `exec-<uuid>` and equals `_meta.callId`, a value the caller wrote. Neither is read, so
+neither strengthens the match (see the module documentation of `confirm`).
+
+The approval step of a call (`thread/status/changed` `waitingOnApproval`,
+`mcpServer/elicitation/request`, `serverRequest/resolved`) lies between `item/started` and
+the call (S1 C5). The pairing reads only `item/started`, `item/completed` and
+`turn/completed`, and the client leaves every server request unanswered, so none of it is in
+the way; the wait for a confirmation is bounded by 5 s from the call, not from the approval,
+so a call is served only if its approval was answered before the call reached the server,
+which is when Codex makes it.
+
+Tests: unit tests in each module, and `tests/pairing.rs` against the real node fake
+app-server process with its `oacFake/mcp/*` frames and a stand-in core built on
+`PairingWindows`.
 
 `Options::call_timeout` bounds the HTTP Upgrade and each JSON-RPC response wait. The
 Upgrade accepts at most 16 KiB of headers. On any connect error, the stream owner must

@@ -23,6 +23,9 @@
 #       neutral-vocabulary-check.md: if a command changes there, change it here too.
 #       rg exit 1 = zero hits (pass); exit 0 = hits (fail); exit 2 = error (fail).
 #       --no-ignore: a committed .ignore/.rgignore/.gitignore must not switch a check off.
+#   boundary-check-14
+#       A check of this runner's own, with no counterpart in a deleted workflow (#69): no
+#       product path passes an `mcp-server` argument (the deleted `codex mcp-server` surface).
 #   g3-macos
 #       The steps of the deleted .github/workflows/g3-macos-hosted.yml (issue #219), with
 #       $RUNNER_TEMP replaced by $G3_WORK (set by local-ci.mjs) and the artifact upload
@@ -114,6 +117,31 @@ boundary-check-11)
   status=$?
   [ "$pstatus" -eq 1 ] && [ "$status" -eq 1 ] && { echo "check 11 clean (${#files[@]} tracked files)"; exit 0; }
   echo "check 11 failed (rg exit $pstatus/$status): stop and cite the boundary (oac-boundaries)"
+  exit 1
+  ;;
+
+boundary-check-14)
+  # Check 14 - no product path passes an `mcp-server` argument: nothing depends on the deleted
+  # `codex mcp-server` surface (deprecated 2026-08-20, deleted 2026-09-05; #69 box 4,
+  # `oac-codex-appserver`). A runner's own check, with no counterpart in a deleted workflow.
+  # Scans git-tracked files under adapters/ core/ cli/ transports/ other than Markdown (prose
+  # may say the surface is gone), for the word `mcp-server` (not `mcp-server-approval` or any
+  # longer name): a string literal, an argument or a command line all contain it. Hits in a
+  # tracked path name or in file content fail; no tracked file in scope prints PENDING and
+  # exits 0 -- pending is not a pass.
+  set +e
+  pattern='(^|[^A-Za-z0-9_-])mcp-server($|[^A-Za-z0-9_-])'
+  mapfile -d '' files < <(git ls-files -z -- adapters core cli transports ':(exclude)*.md')
+  if [ "${#files[@]}" -eq 0 ]; then
+    echo "check 14 PENDING: no tracked non-Markdown files under adapters/ core/ cli/ transports/"
+    exit 0
+  fi
+  printf '%s\n' "${files[@]}" | rg -n -i -e "$pattern"
+  pstatus=$?
+  rg -H -n -i -e "$pattern" -- "${files[@]}"
+  status=$?
+  [ "$pstatus" -eq 1 ] && [ "$status" -eq 1 ] && { echo "check 14 clean (${#files[@]} tracked files)"; exit 0; }
+  echo "check 14 failed (rg exit $pstatus/$status): stop and cite the boundary (oac-boundaries, oac-codex-appserver \"Removed surface\")"
   exit 1
   ;;
 

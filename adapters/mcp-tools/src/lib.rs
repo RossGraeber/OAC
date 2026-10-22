@@ -14,10 +14,13 @@
 //! argument parsing with `invalid-request` for a schema failure ([`parse`],
 //! [MCPB-TOOL-005]), and the result shapes ([`send_result`], [`discovery_result`],
 //! [`refusal`]; [MCPB-TOOL-006] to [MCPB-TOOL-011], [MCPB-TOOL-015]) and, from G5 (#66),
-//! `whoami`'s result ([`whoami_result`], [MCPB-TOOL-006], [MCPB-TOOL-009]). What is not:
-//! session registration and reply correlation through hand-off records, which each adapter
-//! does inside its own module, and the Codex pairing of `spec/bindings/mcp.md` §4.5, which
-//! G8 (#69) owns.
+//! `whoami`'s result ([`whoami_result`], [MCPB-TOOL-006], [MCPB-TOOL-009]). From G8 (#69),
+//! the rendering of the Codex pairing refusal of `spec/bindings/mcp.md` §4.5: a refused
+//! result that carries a pairing value renders it in a `text` content block
+//! ([`pairing_refusal`], [MCPB-ATT-004]); one that carries none renders as it always did.
+//! What is not: session registration and reply correlation through hand-off records, which
+//! each adapter does inside its own module, and the pairing itself, which the Codex adapter
+//! does inside its own module.
 
 use std::sync::Arc;
 
@@ -28,6 +31,7 @@ use oac_core::adapter::{
 use oac_core::delivery::{DeliveryState, ErrorCode};
 use oac_core::envelope::{ContentPart, TextPart};
 use oac_core::ids::SessionId;
+use oac_core::issued_pairing::PAIRING_VALUE_PREFIX;
 use oac_core::json::Json;
 use rmcp::ErrorData;
 use rmcp::model::{CallToolResult, ContentBlock, JsonObject, Tool};
@@ -368,13 +372,78 @@ pub fn refusal(code: ErrorCode) -> CallToolResult {
     r
 }
 
+/// True for a pairing value of the form of [MCPB-ATT-005]: `oac-pair-` and 32 lower-case
+/// hexadecimal digits. The core issues them ([IFC-ADP-090]); this check keeps any other
+/// string, whatever put it in a result, out of a refusal.
+pub fn is_pairing_value(s: &str) -> bool {
+    s.strip_prefix(PAIRING_VALUE_PREFIX).is_some_and(|hex| {
+        hex.len() == 32 && hex.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+    })
+}
+
+/// The text of a pairing refusal: the reference text of `spec/bindings/mcp.md` §4.5.4
+/// (reference implementation note) with `value` in it. It depends on the value and nothing
+/// else ([MCPB-ATT-025]).
+pub fn pairing_refusal_text(value: &str) -> String {
+    format!(
+        "unauthorized: this connection is not yet paired with a session; pairing value {value}. You can call the tool once more."
+    )
+}
+
+/// A pairing refusal ([MCPB-ATT-004]): `unauthorized`, with the pairing value in one `text`
+/// content block. The structured content is that of every other refusal, `{"error":
+/// "unauthorized"}`: the value is in the text block only, because a Codex reveal carries
+/// `result.content` and is compared with it (`spec/bindings/mcp.md` §4.5.1, C4).
+pub fn pairing_refusal(value: &str) -> CallToolResult {
+    let mut r = CallToolResult::error(vec![ContentBlock::text(pairing_refusal_text(value))]);
+    r.structured_content = Some(Value::from(object(vec![(
+        "error",
+        Value::from(ErrorCode::Unauthorized.as_str()),
+    )])));
+    r
+}
+
+/// The refusal for `code`, as a pairing refusal when the core issued a pairing value for it
+/// and it is `unauthorized` ([IFC-ADP-090]); otherwise [`refusal`], unchanged. A string that
+/// is not of the form of [MCPB-ATT-005] is never rendered.
+pub fn refusal_with(code: ErrorCode, pairing_value: Option<&str>) -> CallToolResult {
+    match pairing_value {
+        Some(v) if code == ErrorCode::Unauthorized && is_pairing_value(v) => pairing_refusal(v),
+        _ => refusal(code),
+    }
+}
+
+/// The text of a result that is exactly one `text` content block, else `None`: what the
+/// Codex adapter compares with the `result.content` Codex reports for the call
+/// (`spec/bindings/mcp.md` [MCPB-ATT-007], [MCPB-ATT-017]). Every result of this crate is
+/// such a result.
+pub fn single_text(r: &CallToolResult) -> Option<&str> {
+    match r.content.as_slice() {
+        [ContentBlock::Text(t)] => Some(t.text.as_str()),
+        _ => None,
+    }
+}
+
+/// A call's `arguments` as the core's JSON, for comparing with what Codex reports for the
+/// call: `Some(Json::Null)` when the call has no `arguments` member, the object when it has
+/// one, and `None` when it cannot be read as I-JSON (nothing then matches it).
+pub fn arguments_json(arguments: Option<&JsonObject>) -> Option<Json> {
+    match arguments {
+        None => Some(Json::Null),
+        Some(o) => oac_core::json::parse(Value::from(o.clone()).to_string().as_bytes()).ok(),
+    }
+}
+
 /// The result of a `send` or `reply`, from the core's result unchanged ([IFC-ADP-060]).
 /// `sent` reports the message id and `accepted-by-adapter`, never a later state
 /// ([MCPB-TOOL-006], [MCPB-TOOL-008]); a reply also says whether it went correlated
 /// ([SC-RCP-055]). `refused` and `not-passed` are tool execution errors carrying the code.
 pub fn send_result(r: &SendRequestResult) -> CallToolResult {
     match r {
-        SendRequestResult::Refused { error, .. } => refusal(*error),
+        SendRequestResult::Refused {
+            error,
+            pairing_value,
+        } => refusal_with(*error, pairing_value.as_deref()),
         SendRequestResult::NotPassed { id, error } => {
             let mut out = CallToolResult::error(vec![ContentBlock::text(format!(
                 "{}: message {} was created but not passed to a transport.",
@@ -416,7 +485,10 @@ pub fn send_result(r: &SendRequestResult) -> CallToolResult {
 /// content ([MCPB-TOOL-014], [MCPB-TOOL-015]), or the refusal.
 pub fn discovery_result(r: &DiscoveryRequestResult) -> CallToolResult {
     match r {
-        DiscoveryRequestResult::Refused { error, .. } => refusal(*error),
+        DiscoveryRequestResult::Refused {
+            error,
+            pairing_value,
+        } => refusal_with(*error, pairing_value.as_deref()),
         DiscoveryRequestResult::DiscoveryResult(sessions) => {
             let list: Vec<Value> = sessions
                 .iter()
@@ -437,7 +509,10 @@ pub fn discovery_result(r: &DiscoveryRequestResult) -> CallToolResult {
 /// [IFC-ADP-098]).
 pub fn whoami_result(r: &IdentityRequestResult) -> CallToolResult {
     match r {
-        IdentityRequestResult::Refused { error, .. } => refusal(*error),
+        IdentityRequestResult::Refused {
+            error,
+            pairing_value,
+        } => refusal_with(*error, pairing_value.as_deref()),
         IdentityRequestResult::LocalIdentity(identity) => result(
             Value::from(object(vec![
                 ("session_id", Value::from(identity.session_id.as_str())),
@@ -543,6 +618,103 @@ mod tests {
         assert_eq!(
             parse("read_inbox", None),
             Err(CallError::UnknownTool("read_inbox".into()))
+        );
+    }
+
+    #[test]
+    fn a_pairing_refusal_carries_the_value_in_a_text_block_and_nowhere_else() {
+        let v = "oac-pair-0123456789abcdef0123456789abcdef";
+        let r = refusal_with(ErrorCode::Unauthorized, Some(v));
+        assert_eq!(r.is_error, Some(true));
+        let text = single_text(&r).expect("one text block");
+        assert_eq!(text, pairing_refusal_text(v));
+        assert!(text.starts_with("unauthorized: ") && text.contains(v));
+        // [MCPB-ATT-004]: the structured content is a plain refusal's; the value is not in it.
+        assert_eq!(
+            r.structured_content,
+            refusal(ErrorCode::Unauthorized).structured_content
+        );
+        // The same value gives the same refusal ([MCPB-ATT-025]).
+        assert_eq!(r, refusal_with(ErrorCode::Unauthorized, Some(v)));
+    }
+
+    #[test]
+    fn no_value_gives_the_refusal_it_always_gave() {
+        for code in ErrorCode::ALL {
+            assert_eq!(refusal_with(code, None), refusal(code));
+        }
+        // A value on any other code, or a string that is not a pairing value, is not rendered.
+        let v = "oac-pair-0123456789abcdef0123456789abcdef";
+        assert_eq!(
+            refusal_with(ErrorCode::InvalidRequest, Some(v)),
+            refusal(ErrorCode::InvalidRequest)
+        );
+        for bad in [
+            "",
+            "oac-pair-",
+            "oac-pair-0123456789ABCDEF0123456789ABCDEF",
+            "oac-pair-0123456789abcdef0123456789abcde",
+            "oac-pair-0123456789abcdef0123456789abcdef0",
+            "x oac-pair-0123456789abcdef0123456789abcdef",
+            "0123456789abcdefghjkmnpqrs",
+        ] {
+            assert!(!is_pairing_value(bad), "{bad:?}");
+            assert_eq!(
+                refusal_with(ErrorCode::Unauthorized, Some(bad)),
+                refusal(ErrorCode::Unauthorized),
+                "{bad:?}"
+            );
+        }
+        assert!(is_pairing_value(v));
+    }
+
+    #[test]
+    fn the_three_refused_results_render_a_pairing_value() {
+        let v = "oac-pair-fedcba9876543210fedcba9876543210".to_owned();
+        let want = pairing_refusal(&v);
+        assert_eq!(
+            send_result(&SendRequestResult::Refused {
+                error: ErrorCode::Unauthorized,
+                pairing_value: Some(v.clone()),
+            }),
+            want
+        );
+        assert_eq!(
+            discovery_result(&DiscoveryRequestResult::Refused {
+                error: ErrorCode::Unauthorized,
+                pairing_value: Some(v.clone()),
+            }),
+            want
+        );
+        assert_eq!(
+            whoami_result(&IdentityRequestResult::Refused {
+                error: ErrorCode::Unauthorized,
+                pairing_value: Some(v),
+            }),
+            want
+        );
+        assert_eq!(
+            send_result(&SendRequestResult::Refused {
+                error: ErrorCode::Unauthorized,
+                pairing_value: None,
+            }),
+            refusal(ErrorCode::Unauthorized)
+        );
+    }
+
+    #[test]
+    fn absent_arguments_are_null_and_an_empty_object_is_an_object() {
+        assert_eq!(arguments_json(None), Some(Json::Null));
+        let empty = JsonObject::new();
+        let j = arguments_json(Some(&empty)).unwrap();
+        assert!(j.as_object().is_some_and(|o| o.is_empty()));
+        let a = args("hi");
+        let j = arguments_json(Some(&a)).unwrap();
+        assert_eq!(
+            j.as_object()
+                .and_then(|o| o.get("to"))
+                .and_then(Json::as_str),
+            Some("0123456789abcdefghjkmnpqrs")
         );
     }
 

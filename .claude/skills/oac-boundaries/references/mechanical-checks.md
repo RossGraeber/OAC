@@ -5,8 +5,8 @@ The boundary lint scripts are `scripts/check-herdr-containment.mjs` (checks 9 an
 Checks 1-8 have no script: this file **is** the check — run the whole list as part of every
 `type:code` / `type:spec` work item, not just once. (`scripts/check-skills.mjs` checks skill
 budgets, not ADR-001 boundaries.) `node scripts/local-ci.mjs` runs checks 1, 2, 3, 8, 9,
-10, 11, 12 and 13, client-side, before every PR and merge (no GitHub-hosted CI since
-2026-10-08; the `rg` commands of checks 1-3, 8 and 11 sit verbatim in `.github/local-ci.sh`,
+10, 11, 12, 13 and 14, client-side, before every PR and merge (no GitHub-hosted CI since
+2026-10-08; the `rg` commands of checks 1-3, 8, 11 and 14 sit verbatim in `.github/local-ci.sh`,
 copied from the deleted `boundary-lint.yml`). Checks 1-2 run over `spec/`, which is mandatory
 (a missing `spec/` fails), and over `core/` once it exists, together with the zero-hits group
 of `oac-spec-authoring` `references/neutral-vocabulary-check.md` over `spec/` (#41). Check 2
@@ -209,6 +209,17 @@ fi
 #    is an error. Run by `local-ci.mjs` steps `containment` and `containment-self-test`.
 node scripts/check-containment.mjs
 node scripts/check-containment.mjs --self-test
+
+# 14. Nothing depends on the deleted `codex mcp-server` surface (deprecated 2026-08-20,
+#    deleted 2026-09-05; #69 box 4): no git-tracked entry under adapters/ core/ cli/
+#    transports/, other than Markdown, has `mcp-server` as a word in its path or content (a
+#    string literal, an argument or a command line; `mcp-server-approval` is another word).
+#    Check 4 above is the wider manual grep; this one is wired. Scans the git index; no
+#    tracked file in scope prints PENDING and exits 0. Run by `local-ci.mjs` as section
+#    `boundary-check-14` of .github/local-ci.sh; change both together.
+pattern='(^|[^A-Za-z0-9_-])mcp-server($|[^A-Za-z0-9_-])'
+mapfile -d '' files < <(git ls-files -z -- adapters core cli transports ':(exclude)*.md')
+printf '%s\n' "${files[@]}" | rg -n -i -e "$pattern"; rg -H -n -i -e "$pattern" -- "${files[@]}"
 ```
 
 A clean run, as of the F1 scaffold (#50, 2026-10-05), is zero hits on checks 1 and 2 (on
