@@ -44,6 +44,20 @@ the way; the wait for a confirmation is bounded by 5 s from the call, not from t
 so a call is served only if its approval was answered before the call reached the server,
 which is when Codex makes it.
 
+## For S4 (G8's adapter slice)
+
+- **UNVERIFIED, mid-turn subscription.** Whether a `thread/resume` issued while the thread's
+  MCP call is in flight still gets that item's `item/completed` is not shown by any capture
+  (S1 subscribed before the call). The reveal arrives that way, so the S4 live leg must cover
+  it; if it fails, pairing costs availability only.
+- **Subscription ownership.** `Serving` unsubscribes the threads it subscribed tentatively
+  when the window ends. A thread G7 subscribes to later through `CodexClient::subscribe`
+  while it is still tentative would be unsubscribed under it (`open_window` skips only
+  threads the client already served). S4 and G7 must coordinate subscriptions, for example by
+  subscribing through one owner.
+- `CodexPairing::set_bound` is the hook for `set_binding`; a call is confirmed as soon as a
+  reveal named a thread for its connection, even before `set_bound(true)` arrives.
+
 Tests: unit tests in each module, and `tests/pairing.rs` against the real node fake
 app-server process with its `oacFake/mcp/*` frames and a stand-in core built on
 `PairingWindows`.

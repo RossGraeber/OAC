@@ -852,6 +852,7 @@ const BOUNDARY_CASES = [
   ['boundary-check-14', 'an mcp-server argument in a Rust file', { 'cli/src/main.rs': P('fn main() { spawn("codex", ["mcp', '-server"]); }\n') }, 1],
   ['boundary-check-14', 'a codex mcp-server command line in a script', { 'adapters/codex/run.sh': P('codex mcp', '-server --stdio\n') }, 1],
   ['boundary-check-14', 'an mcp-server argument in a manifest', { 'transports/x/Cargo.toml': P('args = ["mcp', '-server"]\n') }, 1],
+  ['boundary-check-14', 'an mcp-server path name', { [P('cli/src/mcp', '-server.rs')]: '// x\n' }, 1],
   ['boundary-check-14', 'a longer name is not the argument (mcp-server-approval)', { 'cli/src/main.rs': P('// the mcp', '-server-approval dialog\n') }, 0],
   ['boundary-check-14', 'Markdown prose may say the surface is gone', { 'spec/bindings/mcp.md': P('`codex mcp', '-server` is deleted\n'), 'cli/README.md': P('not mcp', '-server\n'), 'cli/src/main.rs': '// cli\n' }, 0],
   ['boundary-check-14', 'outside the product paths (tools/) is not scanned', { 'tools/x.mjs': P('run("mcp', '-server");\n'), 'cli/src/main.rs': '// cli\n' }, 0],

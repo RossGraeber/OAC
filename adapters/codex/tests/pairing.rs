@@ -16,7 +16,7 @@ mod support;
 use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -95,6 +95,8 @@ struct TestPort {
     log: Mutex<Vec<&'static str>>,
     pairing: OnceLock<CodexPairing<u8>>,
     requests: AtomicU64,
+    /// Bind in the core but do not call `set_bound` yet: the window between the two.
+    hold_set_bound: AtomicBool,
 }
 
 impl TestPort {
@@ -109,6 +111,7 @@ impl TestPort {
             log: Mutex::default(),
             pairing: OnceLock::new(),
             requests: AtomicU64::new(0),
+            hold_set_bound: AtomicBool::new(false),
         })
     }
 
@@ -211,7 +214,9 @@ impl CallPort<u8> for TestPort {
             RevealOutcome::Refused(_) => core.outcomes.push("refused"),
         }
         drop(core);
-        if let Some((a, bound)) = set_bound {
+        if let Some((a, bound)) = set_bound
+            && !(bound && self.hold_set_bound.load(Ordering::SeqCst))
+        {
             self.pairing.get().unwrap().set_bound(&a, bound);
         }
         self.changed.notify_all();
@@ -929,6 +934,28 @@ fn a_paired_call_is_served_on_a_confirmation_that_came_first() {
     s.barrier();
     assert_eq!(s.pairing.diagnostics().content_mismatches, 0);
     assert!(!s.port.log().contains(&"unconfirmed"));
+    mcp.stop();
+}
+
+#[test]
+fn a_call_between_the_cores_binding_and_set_bound_still_needs_a_confirmation() {
+    // The core binds inside `CallPort::reveal`; `set_bound` arrives later. A call in that
+    // window must not reach a bound core unconfirmed ([MCPB-ATT-013]).
+    let s = Scene::new();
+    s.port.hold_set_bound.store(true, Ordering::SeqCst);
+    let thread = s.fake.busy_thread();
+    let (mut mcp, text) = s.refused_whoami(&thread, "{}");
+    s.report(&thread, "whoami", "{}", true, &text);
+    s.port
+        .wait_for("the core's binding", |c| c.bound.contains_key(&1));
+    // No `set_bound(true)` yet, and no confirmation: refused, not served.
+    let r = mcp.call("list_sessions", Some("{}"), &thread);
+    assert!(is_error(&r), "served unconfirmed: {}", r.to_compact());
+    assert_eq!(s.pairing.diagnostics().unconfirmed, 1);
+    assert_eq!(
+        s.port.log().iter().filter(|l| **l == "unconfirmed").count(),
+        1
+    );
     mcp.stop();
 }
 

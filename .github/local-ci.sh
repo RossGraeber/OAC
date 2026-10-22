@@ -131,16 +131,18 @@ boundary-check-14)
   # exits 0 -- pending is not a pass.
   set +e
   pattern='(^|[^A-Za-z0-9_-])mcp-server($|[^A-Za-z0-9_-])'
-  mapfile -d '' files < <(git ls-files -z -- adapters core cli transports ':(exclude)*.md')
-  if [ "${#files[@]}" -eq 0 ]; then
+  # Path names through a pipe and content through git grep: no file list is ever a command
+  # line, so the Windows 32K limit cannot cut the scan short.
+  count=$(git ls-files -- adapters core cli transports ':(exclude)*.md' | wc -l)
+  if [ "$count" -eq 0 ]; then
     echo "check 14 PENDING: no tracked non-Markdown files under adapters/ core/ cli/ transports/"
     exit 0
   fi
-  printf '%s\n' "${files[@]}" | rg -n -i -e "$pattern"
+  git ls-files -- adapters core cli transports ':(exclude)*.md' | rg -n -i -e "$pattern"
   pstatus=$?
-  rg -H -n -i -e "$pattern" -- "${files[@]}"
+  git grep --cached -I -n -i -E -e "$pattern" -- adapters core cli transports ':(exclude)*.md'
   status=$?
-  [ "$pstatus" -eq 1 ] && [ "$status" -eq 1 ] && { echo "check 14 clean (${#files[@]} tracked files)"; exit 0; }
+  [ "$pstatus" -eq 1 ] && [ "$status" -eq 1 ] && { echo "check 14 clean ($count tracked files)"; exit 0; }
   echo "check 14 failed (rg exit $pstatus/$status): stop and cite the boundary (oac-boundaries, oac-codex-appserver \"Removed surface\")"
   exit 1
   ;;

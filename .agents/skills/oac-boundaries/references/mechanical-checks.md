@@ -218,8 +218,8 @@ node scripts/check-containment.mjs --self-test
 #    tracked file in scope prints PENDING and exits 0. Run by `local-ci.mjs` as section
 #    `boundary-check-14` of .github/local-ci.sh; change both together.
 pattern='(^|[^A-Za-z0-9_-])mcp-server($|[^A-Za-z0-9_-])'
-mapfile -d '' files < <(git ls-files -z -- adapters core cli transports ':(exclude)*.md')
-printf '%s\n' "${files[@]}" | rg -n -i -e "$pattern"; rg -H -n -i -e "$pattern" -- "${files[@]}"
+git ls-files -- adapters core cli transports ':(exclude)*.md' | rg -n -i -e "$pattern"
+git grep --cached -I -n -i -E -e "$pattern" -- adapters core cli transports ':(exclude)*.md'
 ```
 
 A clean run, as of the F1 scaffold (#50, 2026-10-05), is zero hits on checks 1 and 2 (on

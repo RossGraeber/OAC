@@ -420,8 +420,12 @@ impl<K: Clone + Eq + Hash + Send + Sync + 'static> Inner<K> {
         let route = {
             let mut conns = lock(&self.conns);
             let c = conns.entry(key.clone()).or_default();
+            // A thread from a reveal is enough to need a confirmation, whatever `bound` says:
+            // the core binds inside `CallPort::reveal`, before `set_bound` arrives, and a call
+            // in between must not reach a bound core unconfirmed ([MCPB-ATT-013]). If the core
+            // did not bind, it refuses the confirmed call and `unpair` follows.
             match (c.bound, c.stopped, c.thread) {
-                (true, false, Some(t)) => Route::Confirm(t),
+                (_, false, Some(t)) => Route::Confirm(t),
                 (true, false, None) => Route::Missing,
                 _ => Route::Unbound {
                     list: c.window_until.is_none_or(|u| now >= u),

@@ -807,12 +807,18 @@ mod tests {
     fn server_requests_are_counted_and_never_answered() {
         let (client, out) = inner_with_recording_writer();
         // Parser-level hostile inputs, not a claimed recording of Codex approvals.
-        for id in ["1", "\"approval\""] {
+        for (id, method) in [
+            ("1", "item/commandExecution/requestApproval"),
+            ("\"approval\"", "item/commandExecution/requestApproval"),
+            // The MCP tool approval of the S1 capture: an elicitation. Answering it would
+            // decide a tool approval, which is the harness user's (permission relay stays off).
+            ("0", "mcpServer/elicitation/request"),
+        ] {
             client.inner.dispatch(&format!(
-                r#"{{"id":{id},"method":"item/commandExecution/requestApproval","params":{{}}}}"#
+                r#"{{"id":{id},"method":"{method}","params":{{}}}}"#
             ));
         }
-        assert_eq!(client.diagnostics().server_requests, 2);
+        assert_eq!(client.diagnostics().server_requests, 3);
         assert!(
             out.lock().unwrap().is_empty(),
             "an approval must write no answer"
