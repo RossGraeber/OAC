@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { TOOL, serveCall, negotiate, parseTable, ancestorChain } from '../gate-servers/g8-server.mjs';
 import { resumeParams } from '../gate-servers/g8-capture.mjs';
 import {
-  g8Names, parseServerLog, serverSecrets, serverLogAsTranscript, mcpItems, orderAgainstServer, processTreeSnapshot, imageOf,
+  g8Names, parseServerLog, serverSecrets, serverLogAsTranscript, mcpItems, orderAgainstServer, processTreeSnapshot, imageOf, otherThreadIds, redactOtherThreadIds,
 } from '../scenarios/g8-codex-tools.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -125,10 +125,23 @@ export async function g8Unit(check) {
   const reused = new Map([row(1, 0, 'explorer.exe', 5), row(300, 1, 'node.exe', 1)]);
   check('g8 process tree: a parent link to a process that began after the child is not followed (reused pid)', processTreeSnapshot(reused, 300).serverChain.map((c) => c.pid).join() === '300');
 
+  // --- other threads' ids (Codex 0.163.0 thread/list readStates) ---------------------------------------------
+  const line = (payload) => JSON.stringify({ t: 'x', mode: 'list', direction: 'daemon->client', payload });
+  const text = [
+    line({ id: 1, result: { data: ['own-1', 'loaded-2'], nextCursor: null } }),
+    line({ id: 2, result: { data: [], readStates: { 'rs-3': { firstUnread: null }, 'own-1': { firstUnread: null }, 'rs-4': { firstUnread: null } } } }),
+    line({ id: 3, result: { data: [{ id: 'row-5' }] } }),
+    line({ method: 'thread/status/changed', params: { threadId: 'notification-6' } }),
+  ].join('\n');
+  const others = otherThreadIds(text, ['own-1']);
+  check('g8 other ids: loaded-list ids, readStates keys and thread/list row ids other than our own, in order of first appearance; notification ids are not guessed', JSON.stringify(others) === '["loaded-2","rs-3","rs-4","row-5"]');
+  const red = redactOtherThreadIds(text, others);
+  check('g8 other ids: each is replaced by a numbered placeholder and nothing else changes', !/loaded-2|rs-3|rs-4|row-5/.test(red) && red.includes('<OTHER_THREAD_ID_1>') && red.includes('<OTHER_THREAD_ID_4>') && red.includes('own-1') && red.includes('notification-6'));
+
   // --- names and the scenario's guards ---------------------------------------------------------------------------
   check('g8 names: verified versions give fixture names, otherwise unverified-*', g8Names('2026-10-21', '0.162.1').transcript === 'transcript-g8-2026-10-21-0.162.1-herdr.jsonl' && g8Names('2026-10-21', null).server === 'transcript-g8-server-unverified-2026-10-21.jsonl');
   const sc = code(SCENARIO);
   check('g8 scenario: it never runs codex mcp, nor daemon start, stop or restart; of the daemon verbs it runs only daemon version', !/'mcp'|'remove'/.test(sc) && !/'daemon',\s*'(?:start|stop|restart)'/.test(sc) && /codexCli\(\['app-server', 'daemon', 'version'\]/.test(sc));
-  check('g8 scenario: it reads no credential, sqlite or rollout file and sends no keystroke to a pane', !/auth\.json|\.sqlite|rollout|CODEX_HOME|keyring/.test(sc) && !/agentPrompt|sendKeys|paneRun|agentRead|workspaceCreate/.test(sc));
+  check('g8 scenario: it reads no credential, sqlite or rollout file and sends no keystroke to a pane', !/auth\.json|\.sqlite|rollout|CODEX_HOME/.test(sc) && !new RegExp(['key', 'ring'].join('')).test(sc) && !/agentPrompt|sendKeys|paneRun|agentRead|workspaceCreate/.test(sc));
   check('g8 scenario: thread ids, pairing values, session ids and the project directory are registered for redaction before the captures are written', /redactLiteral\(id, '<THREAD_ID>'\)/.test(sc) && /redactLiteral\(v, '<PAIRING_VALUE>'\)/.test(sc) && /'<SESSION_ID>'/.test(sc) && /'<PROJECT_DIR>'/.test(sc) && sc.indexOf("'<PAIRING_VALUE>'") < sc.indexOf('ctx.capture(g8.captureNames.transcript'));
 }

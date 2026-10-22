@@ -684,6 +684,105 @@ await test('provenance: every fixture the fake reads has a MANIFEST.json entry',
   for (const [name, src] of Object.entries(used)) assert(paths.has(src.file), `template ${name} comes from ${src.file}`);
 });
 
+// ---- 2b. mcpToolCall items (G8 S1, #69, #403) -----------------------------------------------
+// oacFake/mcp/start and oacFake/mcp/complete replay the mcpToolCall item recorded on Codex
+// 0.163.0 (docs/planning/gates/fixtures/g8-codex-tools/). The recorded result text is elided
+// in that fixture (#130), so a replayed result carries the caller's text.
+
+const g8Recorded = () => readTranscript('g8').filter((f) => f.mode === 'watch' && f.direction === 'daemon->client' && f.payload.params?.item?.type === 'mcpToolCall');
+const g8At = (line) => {
+  const f = g8Recorded().find((x) => x.line === line);
+  assert(f, `${fixturePath('g8')} has no mcpToolCall frame at L${line}`);
+  return f;
+};
+function busyThread(fake) {
+  const { tui, threadId } = idleThread(fake);
+  tui.ok('turn/start', { threadId, input: [{ type: 'text', text: 'use the tool' }] });
+  return { tui, threadId };
+}
+
+await test('mcp: oacFake/mcp/start sends item/started of an mcpToolCall with the recorded shape (G8 L120, L128)', () => {
+  const fake = new FakeCodexAppServer();
+  const { tui, threadId } = busyThread(fake);
+  const before = tui.frames.length;
+  const r = control(fake, 'oacFake/mcp/start', { threadId, server: 'oac-g8', tool: 'g8_pair', arguments: {} });
+  assert(/^exec-[0-9a-f-]{36}$/.test(r.itemId), 'the item id has the recorded exec-<uuid> form');
+  const got = tui.frames.slice(before).filter((p) => p.method === 'item/started');
+  eq(got.length, 1, 'one item/started');
+  for (const line of [120, 128]) {
+    const want = g8At(line);
+    eq(shape({ ...got[0], params: { ...got[0].params, item: { ...got[0].params.item, arguments: null } } }), shape({ ...want.payload, params: { ...want.payload.params, item: { ...want.payload.params.item, arguments: null } } }), `shape against ${fixturePath('g8')}:${line}`);
+  }
+  eq([got[0].params.item.status, got[0].params.item.result, got[0].params.item.durationMs, got[0].params.item.arguments], ['inProgress', null, null, {}], 'in progress, no result, arguments as given');
+  eq([got[0].params.threadId, got[0].params.turnId], [threadId, r.turnId], 'the thread and its running turn');
+});
+
+await test('mcp: oacFake/mcp/complete sends item/completed: status failed for the refusal (L125), completed otherwise (L134); the result has the recorded members and no isError', () => {
+  const fake = new FakeCodexAppServer();
+  const { tui, threadId } = busyThread(fake);
+  for (const [outcome, line] of [['failed', 125], ['completed', 134]]) {
+    const { itemId } = control(fake, 'oacFake/mcp/start', { threadId, server: 'oac-g8', tool: 'g8_pair', arguments: { pairing: 'p' } });
+    const before = tui.frames.length;
+    const done = control(fake, 'oacFake/mcp/complete', { threadId, itemId, outcome, text: `text for ${outcome}` });
+    eq(done.status, outcome, 'result status');
+    const got = tui.frames.slice(before).filter((p) => p.method === 'item/completed');
+    eq(got.length, 1, 'one item/completed');
+    const want = g8At(line).payload;
+    const scrub = (p) => ({ ...p, params: { ...p.params, item: { ...p.params.item, id: null, arguments: null, result: { ...p.params.item.result, content: null } } } });
+    eq(shape(scrub(got[0])), shape(scrub(want)), `shape against ${fixturePath('g8')}:${line}`);
+    eq([got[0].params.item.status, got[0].params.item.error, 'isError' in got[0].params.item.result, got[0].params.item.result.content[0].text], [outcome, null, false, `text for ${outcome}`], 'status, error null, no isError, the caller\'s text');
+    assert(Number.isInteger(got[0].params.item.durationMs) && got[0].params.item.durationMs >= 0, 'durationMs is set');
+  }
+});
+
+await test('mcp: item/started precedes item/completed, and the completed item joins the turn (thread/turns/list); the turn ends as before', () => {
+  const fake = new FakeCodexAppServer();
+  const { tui, threadId } = busyThread(fake);
+  const { itemId } = control(fake, 'oacFake/mcp/start', { threadId, server: 'oac-g8', tool: 'g8_pair' });
+  control(fake, 'oacFake/mcp/complete', { threadId, itemId, text: 'ok' });
+  const order = tui.frames.filter((p) => p.params?.item?.type === 'mcpToolCall').map((p) => p.method);
+  eq(order, ['item/started', 'item/completed'], 'order');
+  control(fake, 'oacFake/turn/complete', { threadId, agentText: 'done' });
+  const items = tui.ok('thread/turns/list', { threadId, limit: 5, sortDirection: 'desc', itemsView: 'full' }).data[0].items;
+  assert(items.some((i) => i.type === 'mcpToolCall' && i.id === itemId && i.status === 'completed'), 'the completed mcpToolCall is in the turn\'s items');
+});
+
+await test('mcp: refusals are -32602 (no running turn, no such started item, arguments not an object, bad outcome or text, unknown thread) and the fake keeps serving', () => {
+  const fake = new FakeCodexAppServer();
+  const { threadId } = idleThread(fake);
+  const ctl = client(fake, 'oac-fake-control', { init: false });
+  const code = (method, params) => ctl.request(method, params).error?.code;
+  eq(code('oacFake/mcp/start', { threadId, server: 'a', tool: 'b' }), -32602, 'no running turn');
+  eq(code('oacFake/mcp/start', { threadId: '00000000-0000-7000-8000-000000000000', server: 'a', tool: 'b' }), -32602, 'unknown thread');
+  busyThread(fake);
+  const busy = [...fake.threads.values()].find((t) => t.activeTurn);
+  eq(code('oacFake/mcp/start', { threadId: busy.id, server: 'a', tool: 'b', arguments: null }), -32602, 'arguments null (the spec expected null for none; Codex reported {})');
+  eq(code('oacFake/mcp/start', { threadId: busy.id, server: 'a', tool: 'b', arguments: [] }), -32602, 'arguments an array');
+  eq(code('oacFake/mcp/start', { threadId: busy.id, server: '', tool: 'b' }), -32602, 'empty server');
+  eq(code('oacFake/mcp/complete', { threadId: busy.id, itemId: 'exec-nope', text: 'x' }), -32602, 'no such started item');
+  const { itemId } = control(fake, 'oacFake/mcp/start', { threadId: busy.id, server: 'a', tool: 'b' });
+  eq(code('oacFake/mcp/complete', { threadId: busy.id, itemId, outcome: 'cancelled', text: 'x' }), -32602, 'bad outcome');
+  eq(code('oacFake/mcp/complete', { threadId: busy.id, itemId }), -32602, 'no text');
+  control(fake, 'oacFake/mcp/complete', { threadId: busy.id, itemId, text: 'x' });
+  eq(code('oacFake/mcp/complete', { threadId: busy.id, itemId, text: 'x' }), -32602, 'a second complete of the same item');
+});
+
+await test('mcp: the control calls are logged in the control log, not the call log, so an adapter-side assertion is unaffected', () => {
+  const fake = new FakeCodexAppServer();
+  const { threadId } = busyThread(fake);
+  const { itemId } = control(fake, 'oacFake/mcp/start', { threadId, server: 'oac-g8', tool: 'g8_pair' });
+  control(fake, 'oacFake/mcp/complete', { threadId, itemId, text: 'ok' });
+  const rep = control(fake, 'oacFake/calls', {});
+  eq(rep.control.filter((c) => c.method.startsWith('oacFake/mcp/')).map((c) => c.method), ['oacFake/mcp/start', 'oacFake/mcp/complete'], 'control log');
+  assert(!rep.calls.some((c) => c.method.startsWith('oacFake/')), 'no oacFake method in the call log');
+  eq(control(fake, 'oacFake/calls', { clientName: 'adapter' }).calls, [], 'an adapter that made only these control calls has no Codex call logged');
+});
+
+await test('mcp: the recorded order of the call is item/started, approval, stub call, item/completed in the fixture (G8 L120-L125); the fake models the first and last', () => {
+  const rec = readTranscript('g8').filter((f) => f.mode === 'watch' && f.direction === 'daemon->client' && f.line >= 120 && f.line <= 125).map((f) => `${f.payload.method}${f.payload.params?.item?.type ? ` ${f.payload.params.item.type}` : ''}${f.payload.params?.status?.activeFlags?.length ? ' waitingOnApproval' : ''}`);
+  eq(rec, ['item/started mcpToolCall', 'thread/status/changed waitingOnApproval', 'mcpServer/elicitation/request', 'serverRequest/resolved', 'thread/status/changed', 'item/completed mcpToolCall'], 'recorded frame kinds');
+});
+
 // ---- 3. transports --------------------------------------------------------------------
 
 function startServer(args) {

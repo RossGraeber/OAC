@@ -8,8 +8,8 @@
 // The operator's own Codex TUI is the system under test. The driver launches no Codex, types
 // nothing into it and accepts no dialog: the operator registers the stub MCP server, starts
 // plain `codex`, accepts the trust and MCP-approval dialogs and types the prompts. The steps
-// are written out in the operator script (G8 S1). The driver never runs `codex mcp add`,
-// `codex mcp remove`, `codex app-server daemon start` or `daemon stop`; it runs only
+// are written out in the operator script (G8 S1). The driver never registers or removes an MCP server
+// with the Codex CLI, and never runs the daemon's start or stop verbs; it runs only
 // `codex --version` (the manifest does) and `codex app-server daemon version`. The driver's
 // own hash of the Codex config files must show no change over the run, so the registration is
 // made before the run starts and removed after it ends.
@@ -130,6 +130,35 @@ export function serverLogAsTranscript(events) {
     .map((o) => JSON.stringify(o))
     .join('\n');
 }
+
+// --- other threads' ids ----------------------------------------------------------------------------------
+
+// Ids of threads other than the operator's own that a capture carries: thread/loaded/list
+// data and the keys of a thread/list `readStates` map (new in Codex 0.163.0), in order of first
+// appearance. They are the operator's other saved sessions: not ours to publish.
+export function otherThreadIds(text, ownIds = []) {
+  const out = [];
+  const add = (id) => {
+    if (typeof id === 'string' && !ownIds.includes(id) && !out.includes(id) && !id.startsWith('<')) out.push(id);
+  };
+  for (const raw of String(text ?? '').split(/\r?\n/)) {
+    if (!raw.trim()) continue;
+    let o;
+    try {
+      o = JSON.parse(raw);
+    } catch {
+      continue;
+    }
+    const r = o?.payload?.result;
+    if (o?.direction !== 'daemon->client' || !r) continue;
+    if (Array.isArray(r.data)) for (const x of r.data) add(typeof x === 'string' ? x : x?.id);
+    if (r.readStates && typeof r.readStates === 'object') Object.keys(r.readStates).forEach(add);
+  }
+  return out;
+}
+
+// The same replacement, applied to text: each id -> <OTHER_THREAD_ID_n>.
+export const redactOtherThreadIds = (text, ids) => ids.reduce((t, id, i) => t.split(id).join(`<OTHER_THREAD_ID_${i + 1}>`), String(text));
 
 // --- mcpToolCall items on the wire --------------------------------------------------------------------
 
@@ -525,9 +554,9 @@ export default {
         g8.sanitizer = san.report;
         transcriptText = san.text;
         // Other loaded threads' ids appear in thread/loaded/list: not ours to publish.
-        const others = new Set();
-        for (const l of g2Facts(parseG2Transcript(transcriptText)).loadedLists) for (const id of l.data) if (!secrets.threadIds.includes(id)) others.add(id);
-        [...others].forEach((id) => ctx.redactLiteral(id, '<OTHER_THREAD_ID>'));
+        // Codex 0.163.0's thread/list also answers a `readStates` map keyed by the ids of the
+        // operator's other saved threads.
+        otherThreadIds(transcriptText, secrets.threadIds).forEach((id, i) => ctx.redactLiteral(id, `<OTHER_THREAD_ID_${i + 1}>`));
       }
       ctx.record('g8', g8);
       if (g8.captureNames) {

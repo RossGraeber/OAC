@@ -29,6 +29,8 @@ export const FIXTURE_FILES = {
   s3: 's3-codex-capture/transcript-2026-10-07-0.161.0-herdr.jsonl',
   // #343 review: items already queued when a turn is interrupted (row e's first half).
   s3QueuedInterrupt: 's3-codex-capture/transcript-2026-10-08-0.161.0-queued-interrupt-herdr.jsonl',
+  // G8 S1 (#69, #403): mcpToolCall items from the operator's TUI thread, Codex 0.163.0.
+  g8: 'g8-codex-tools/transcript-g8-2026-10-22-0.163.0-herdr.jsonl',
 };
 
 export const fixturePath = (key) => `${FIXTURE_DIR}/${FIXTURE_FILES[key]}`;
@@ -141,8 +143,19 @@ export function loadTemplates(root = REPO_ROOT) {
     interruptedTurnCompleted: T.notification('turn/completed interrupted', 's3', 'turn/completed', (p) => p.params?.turn?.status === 'interrupted'),
   };
 
+  // G8 S1: the mcpToolCall item as recorded, started and completed (a refusal: status failed;
+  // a served call: status completed). The recorded result text is elided in the fixture
+  // (tools/herdr/lib/elide.mjs, #130), so the text of a replayed result is the caller's own.
+  const isMcp = (status) => (p) => p.params?.item?.type === 'mcpToolCall' && (status === null || p.params.item.status === status);
+  const g8 = {
+    started: T.notification('item/started mcpToolCall', 'g8', 'item/started', isMcp(null)),
+    completed: T.notification('item/completed mcpToolCall (completed)', 'g8', 'item/completed', isMcp('completed')),
+    failed: T.notification('item/completed mcpToolCall (failed)', 'g8', 'item/completed', isMcp('failed')),
+  };
+
   const t = {
     s3,
+    g8,
     initialize,
     remoteControlStatus: T.notification('remoteControl/status/changed', 'd6Conn1', 'remoteControl/status/changed'),
     accountUpdated: T.notification('account/updated', 'd6Conn1', 'account/updated'),
@@ -205,6 +218,14 @@ function checkShapes(t) {
   for (const k of ['id', 'items', 'itemsView', 'status', 'error', 'startedAt', 'completedAt', 'durationMs']) {
     need(k in s3.interruptedTurnCompleted.params.turn, `interrupted turn/completed turn.${k}`);
   }
+  const g8 = t.g8;
+  for (const [n, p] of [['item/started mcpToolCall', g8.started], ['item/completed mcpToolCall (completed)', g8.completed], ['item/completed mcpToolCall (failed)', g8.failed]]) {
+    for (const k of ['type', 'id', 'server', 'tool', 'status', 'arguments', 'result', 'error', 'durationMs']) need(k in p.params.item, `${n} item.${k}`);
+    need(typeof p.params.threadId === 'string' && typeof p.params.turnId === 'string', `${n} threadId and turnId`);
+  }
+  need('startedAtMs' in g8.started.params && 'completedAtMs' in g8.completed.params && 'completedAtMs' in g8.failed.params, 'mcpToolCall startedAtMs and completedAtMs');
+  need(g8.started.params.item.status === 'inProgress' && g8.started.params.item.result === null && g8.started.params.item.durationMs === null, 'item/started mcpToolCall is in progress with no result');
+  need(Array.isArray(g8.failed.params.item.result?.content) && g8.failed.params.item.error === null && !('isError' in g8.failed.params.item.result), 'a failed mcpToolCall carries its refusal in result.content, not in error, and has no isError member');
   need(Array.isArray(t.turnsList.data) && t.turnsList.data.length > 0, 'thread/turns/list result data');
   need(Array.isArray(t.loadedList.data) && 'nextCursor' in t.loadedList, 'thread/loaded/list result');
   need(Array.isArray(t.threadList.data) && 'nextCursor' in t.threadList, 'thread/list result');

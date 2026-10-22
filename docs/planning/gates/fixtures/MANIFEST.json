@@ -7242,6 +7242,154 @@
         "applicable": false,
         "reason": "pane text: verbatim herdr agent reads of the Codex TUI screen, not app-server protocol traffic"
       }
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g8-codex-tools/transcript-g8-2026-10-22-0.163.0-herdr.jsonl",
+      "provider": "codex",
+      "surface": "codex-app-server",
+      "observed_version": {
+        "codex_cli": "0.163.0 (codex --version `codex-cli 0.163.0`)",
+        "codex_daemon": "0.163.0/0.163.0/0.163.0 (cliVersion/appServerVersion/managedCodexVersion)",
+        "commit": "83086188ae0614bd882818ff1aa23f3194962012",
+        "node": "25.2.1",
+        "client_visible_user_agent": "codex-tui/0.163.0 (Windows 10.0.26300; x86_64) unknown (oac_g8_capture; 0.0.1) (initialize result)"
+      },
+      "pins_row": "Codex CLI / app-server",
+      "pins_as_of": "PINS.md as committed at HEAD 060d0fd23acf91ae83a3c078221b3262b5c01f95 when the run started recorded last tested 0.161.0, so the run recorded VERSION WARNING findings (#216); the change that commits this fixture records 0.163.0 as last tested (#69, #403), which this entry matches",
+      "version_matches_pin": true,
+      "capture_date": "2026-10-22",
+      "capture_utc_range": "2026-10-22T03:49:01.753Z-2026-10-22T03:55:16.650Z",
+      "superseded_by": null,
+      "driver": {
+        "herdr_version": "herdr 0.9.1",
+        "driver_commit": "060d0fd23acf91ae83a3c078221b3262b5c01f95",
+        "run_manifest": "docs/planning/gates/herdr-runs/G8-S1-2026-10-22.run-manifest.json"
+      },
+      "notes": [
+        "Captured for #69 and #403 (G8 slice S1): the operator's own Codex TUI thread, an `oac-g8` stub MCP server, a passive capture client. Scenario tools/herdr/scenarios/g8-codex-tools.mjs. NOT a gate run and NOT verdict-bearing. Record: docs/planning/gates/herdr-runs/G8-S1-2026-10-22.md; findings: docs/planning/gates/fixtures/g8-codex-tools/README.md.",
+        "The 20 ids in the thread/list `readStates` keys (the operator's other saved threads) were replaced after the driver wrote the capture; the committed run manifest records both sha256 values (captures[0].driverWrittenSha256, postDriverRedaction).",
+        "An earlier attempt of the same scenario (run 1) is not committed: it stopped on a scenario precondition that Codex's session-start MCP launch defeated (fixed in 060d0fd)."
+      ],
+      "redaction": {
+        "script": "tools/herdr/lib/redact.mjs",
+        "script_sha256": "c950d99ac992db9db85528613923453429c75749e16b6424d8555bd6b85b6dc2",
+        "residual_scan_result": "tools/herdr/lib/redact.mjs (run.mjs): droppedHazardLines=0, hazardProtocolFrames=0, residualLeaks=0, residualGenericHits=0. After the driver: 20 other-thread ids replaced by <OTHER_THREAD_ID_n> (tools/herdr/scenarios/g8-codex-tools.mjs otherThreadIds). Elided by #130: 3 tool-result texts (L125, L134, L143) and the approval request bodies (L122, L130, L140). Third-party-text sweep by the recording agent: the only thread items are userMessage, agentMessage and the three mcpToolCall items; no file, command or other tool item."
+      },
+      "coverage": {
+        "thread/resume with only threadId and excludeTurns on the TUI thread (carrier subscription)": "106-108",
+        "turn/started, userMessage, then the model calls the stub tool": "115-119",
+        "mcpToolCall call 1 (arguments {}; refused, status failed): item/started, waitingOnApproval, mcpServer/elicitation/request, serverRequest/resolved, item/completed": "120-125",
+        "mcpToolCall call 2 (arguments {pairing}; status completed)": "128-134",
+        "mcpToolCall call 3 (arguments {}; status completed)": "138-143",
+        "the model's summary and turn end": "146-186"
+      },
+      "schema": {
+        "commit": "979011409de0a60b52f179721948e65531d26144",
+        "hash_method": "hash-tree.mjs (committed, quarantined, at docs/planning/gates/fixtures/d6-codex-protocol/hash-tree.mjs.throwaway-quarantined, sha256 73dbcb0524be80e70acdbaad95dd5d7767c2c077e5b686a2392f1bd6aa97d808): sorted relative POSIX file paths under the tree; for each, one line '<path>  <sha256-of-that-file>' (two literal spaces between path and hash); all lines '\\n'-joined with a trailing '\\n'; tree_sha256 is the sha256 of that whole listing text.",
+        "upstream": null,
+        "local_generation": null,
+        "sha256": null,
+        "note": "Schema not recorded as a tree at Codex 0.163.0. `codex app-server generate-json-schema --experimental` was run at 0.163.0 by the recording agent and the mcpToolCall member of ThreadItem, McpToolCallStatus and McpToolCallResult in v2/ItemStartedNotification.json compared with the vendored rust-v0.161.0 copy (docs/planning/vendor/codex-app-server-protocol/rust-v0.161.0/json/v2/ItemStartedNotification.json): identical. Nothing else was compared.",
+        "validated_against": "mcpToolCall item members only, against the 0.163.0 experimental-tier generation; not a full-tree validation"
+      }
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g8-codex-tools/transcript-g8-server-2026-10-22-0.163.0.jsonl",
+      "provider": "codex",
+      "surface": "codex-app-server",
+      "observed_version": {
+        "codex_cli": "0.163.0 (codex --version `codex-cli 0.163.0`)",
+        "codex_daemon": "0.163.0/0.163.0/0.163.0 (cliVersion/appServerVersion/managedCodexVersion)",
+        "commit": "83086188ae0614bd882818ff1aa23f3194962012",
+        "node": "25.2.1",
+        "client_visible_user_agent": "codex-tui/0.163.0 (Windows 10.0.26300; x86_64) unknown (oac_g8_capture; 0.0.1) (initialize result)"
+      },
+      "pins_row": "Codex CLI / app-server",
+      "pins_as_of": "PINS.md as committed at HEAD 060d0fd23acf91ae83a3c078221b3262b5c01f95 when the run started recorded last tested 0.161.0, so the run recorded VERSION WARNING findings (#216); the change that commits this fixture records 0.163.0 as last tested (#69, #403), which this entry matches",
+      "version_matches_pin": true,
+      "capture_date": "2026-10-22",
+      "capture_utc_range": "2026-10-22T03:49:01.753Z-2026-10-22T03:55:16.650Z",
+      "superseded_by": null,
+      "notes": [
+        "The stub server's own log of the same run (tools/herdr/gate-servers/g8-server.mjs), re-shaped as a transcript by serverLogAsTranscript: what Codex sent it (initialize, tools/list, three tools/call with _meta) and what it answered, with its own timestamps. Not a herdr-suffixed capture; written by the scenario from the stub log. Run record: docs/planning/gates/herdr-runs/G8-S1-2026-10-22.md."
+      ],
+      "redaction": {
+        "script": "tools/herdr/lib/redact.mjs",
+        "script_sha256": "c950d99ac992db9db85528613923453429c75749e16b6424d8555bd6b85b6dc2",
+        "residual_scan_result": "tools/herdr/lib/redact.mjs (run.mjs): droppedHazardLines=0, hazardProtocolFrames=0, residualLeaks=0, residualGenericHits=0. The thread id and session id in _meta, and the pairing value, replaced by <THREAD_ID>, <THREAD_ID> and <PAIRING_VALUE> by the driver. The stub's result texts are OAC's own and are kept."
+      },
+      "coverage": {
+        "server start (session open), initialize, tools/list": "1-6",
+        "the process tree of the stub (own ancestors)": "7",
+        "call 1: refused with the pairing value (callSeq 1)": "8-11",
+        "call 2: the value given (callSeq 2)": "12-15",
+        "call 3: {} (callSeq 3)": "16-19"
+      },
+      "schema": {
+        "applicable": false,
+        "reason": "the stub MCP server's own log: MCP stdio frames (protocolVersion 2025-06-18) of an OAC-written server, not app-server protocol traffic"
+      }
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g8-codex-tools/transcript-g8-proc-2026-10-22-0.163.0.jsonl",
+      "provider": "codex",
+      "surface": "codex-app-server",
+      "observed_version": {
+        "codex_cli": "0.163.0 (codex --version `codex-cli 0.163.0`)",
+        "codex_daemon": "0.163.0/0.163.0/0.163.0 (cliVersion/appServerVersion/managedCodexVersion)",
+        "commit": "83086188ae0614bd882818ff1aa23f3194962012",
+        "node": "25.2.1",
+        "client_visible_user_agent": "codex-tui/0.163.0 (Windows 10.0.26300; x86_64) unknown (oac_g8_capture; 0.0.1) (initialize result)"
+      },
+      "pins_row": "Codex CLI / app-server",
+      "pins_as_of": "PINS.md as committed at HEAD 060d0fd23acf91ae83a3c078221b3262b5c01f95 when the run started recorded last tested 0.161.0, so the run recorded VERSION WARNING findings (#216); the change that commits this fixture records 0.163.0 as last tested (#69, #403), which this entry matches",
+      "version_matches_pin": true,
+      "capture_date": "2026-10-22",
+      "capture_utc_range": "2026-10-22T03:49:01.753Z-2026-10-22T03:55:16.650Z",
+      "superseded_by": null,
+      "notes": [
+        "One record: pid, parent pid and image name only (no command line, path or user name) of the stub server's ancestors and of every codex process, taken from the OS process table when the stub's tree event appeared. Run record: docs/planning/gates/herdr-runs/G8-S1-2026-10-22.md."
+      ],
+      "redaction": {
+        "script": "tools/herdr/lib/redact.mjs",
+        "script_sha256": "c950d99ac992db9db85528613923453429c75749e16b6424d8555bd6b85b6dc2",
+        "residual_scan_result": "tools/herdr/lib/redact.mjs (run.mjs): droppedHazardLines=0, hazardProtocolFrames=0, residualLeaks=0, residualGenericHits=0. No identity-bearing field is recorded by design (images, pids, parent pids and an app-server flag only)."
+      },
+      "coverage": {
+        "the stub's ancestor chain and the codex processes": "1"
+      },
+      "schema": {
+        "applicable": false,
+        "reason": "OS process-table data (pid, parent pid, image), not app-server protocol traffic"
+      }
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g8-codex-tools/README.md",
+      "provider": "codex",
+      "surface": "documentation (not a protocol fixture)",
+      "observed_version": {
+        "note": "N/A -- documentation file."
+      },
+      "pins_row": null,
+      "pins_as_of": null,
+      "version_matches_pin": null,
+      "capture_date": null,
+      "capture_utc_range": null,
+      "superseded_by": null,
+      "redaction": {
+        "script": null,
+        "script_sha256": null,
+        "residual_scan_result": "N/A -- authored documentation, not captured wire traffic."
+      },
+      "coverage": null,
+      "coverage_notes": "Documents this directory's files, the redaction applied, and the findings against facts C1 to C10 of spec/bindings/mcp.md section 4.5.1 at Codex 0.163.0. Not itself a captured protocol exchange.",
+      "notes": [
+        "Added with the G8 S1 capture (#69, #403)."
+      ],
+      "schema": {
+        "applicable": false,
+        "reason": "documentation"
+      }
     }
   ]
 }

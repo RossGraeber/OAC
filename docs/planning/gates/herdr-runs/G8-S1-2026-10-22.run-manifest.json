@@ -1,0 +1,1683 @@
+{
+  "schemaVersion": 3,
+  "runId": "20261022T035218Z-760755",
+  "outcome": "PASS",
+  "outcomeReason": null,
+  "scenario": {
+    "name": "g8-codex-tools",
+    "file": "tools/herdr/scenarios/g8-codex-tools.mjs",
+    "description": "G8 S1 (#69, #403): capture mcpToolCall items and their order against a stub MCP server, from the operator's own Codex TUI. Not a gate run; not verdict-bearing.",
+    "params": {
+      "serverLog": "<USER_HOME>\\AppData\\Local\\Temp\\oac-g8\\stub-1.log",
+      "projectDir": "<PROJECT_DIR>",
+      "operatorPrompt": "G8 capture marker: reply with the single word ready.",
+      "serverName": "oac-g8",
+      "expectedCalls": "3",
+      "quietMs": "8000",
+      "attachTimeoutMs": "900000",
+      "toolTimeoutMs": "1200000",
+      "wireTimeoutMs": "30000",
+      "cliTimeoutMs": "60000",
+      "clientTimeoutMs": "60000",
+      "listPollMs": "3000"
+    }
+  },
+  "launch": {
+    "argv": [
+      "codex"
+    ],
+    "herdrReportedArgv": null
+  },
+  "driver": {
+    "entry": "tools/herdr/run.mjs",
+    "commit": "060d0fd23acf91ae83a3c078221b3262b5c01f95",
+    "toolsHerdrDirty": false,
+    "node": "v25.2.1"
+  },
+  "herdr": {
+    "pinRow": "herdr (test tooling)",
+    "executable": {
+      "requested": "herdr",
+      "resolved": true,
+      "basename": "herdr.exe",
+      "realBasename": "herdr.exe",
+      "sha256": "007781224360a8bdd1d1a35d34c08c11db3cc3c7132769cffea795869d36b9b6",
+      "bytes": 25562624,
+      "format": "pe",
+      "runUnderNode": false,
+      "testDouble": false,
+      "unchangedAfterRun": true
+    },
+    "executableCheck": {
+      "platform": "win32-x64",
+      "expectedSha256": "007781224360a8bdd1d1a35d34c08c11db3cc3c7132769cffea795869d36b9b6",
+      "firstParty": true,
+      "basis": "First-party, verified 2026-10-03 in the three steps listed above. The release zip hashes to the API digest. `gh release verify-asset` confirmed it against the release attestation for tag `v0.9.1` (sha1 `8544776216a8d28088db59a5344ea21ee2d05d2b`). Its `herdr.exe` hashes to this value. The same value is the sha256 of the installed `herdr.exe` (25562624 bytes, standalone package `0.9.1-x86_64-pc-windows-msvc`) and of the herdr the driver recorded in run `G5-2026-10-02` (`herdr.executable.sha256`).",
+      "result": "match",
+      "detail": "herdr executable sha256 equals PINS.md's expected value for win32-x64"
+    },
+    "pinnedTag": "v0.9.1",
+    "pinsSource": {
+      "path": "docs/planning/PINS.md",
+      "headCommit": "060d0fd23acf91ae83a3c078221b3262b5c01f95",
+      "committedSha256": "52ea5ab05831b0eadf9fefd42602ccc64fd21290ce263cd7d1fbc393dad5c9f4",
+      "workingTreeMatchesHead": true
+    },
+    "expectedVersionOutput": "herdr 0.9.1",
+    "observedVersionOutput": "herdr 0.9.1",
+    "serverStatus": {
+      "status": "running",
+      "running": true,
+      "version": "0.9.1",
+      "protocol": 22,
+      "capabilities": {
+        "live_handoff": false,
+        "detached_server_daemon": false,
+        "endpoint_protocol_generation": 1,
+        "surface_interest": true,
+        "health_check": true
+      },
+      "compatible": true,
+      "endpoint_compatible": true,
+      "socket": "<USER_HOME>\\AppData\\Roaming\\herdr\\sessions\\oac-k-g8-codex-tools-20261022T035218Z-757089\\herdr.sock",
+      "session": "oac-k-g8-codex-tools-20261022T035218Z-757089",
+      "restart_needed": false,
+      "server_binary_stale": false
+    },
+    "config": {
+      "path": "<SCRATCH>\\herdr-config.toml",
+      "contents": "[update]\nversion_check = false\nmanifest_check = false\n"
+    },
+    "agentManifests": {
+      "id": "cli:server:agent-manifests",
+      "result": {
+        "last_check_unix": 1790783747,
+        "last_result": "failed: failed to fetch https://herdr.dev/agent-detection/index.toml",
+        "manifests": [
+          {
+            "active_version": "2026.09.14.1",
+            "agent": "pi",
+            "cached_remote_version": "2026.09.14.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\pi.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.09.11.1",
+            "agent": "claude",
+            "cached_remote_version": "2026.09.11.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\claude.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.09.23.1",
+            "agent": "codex",
+            "cached_remote_version": "2026.09.23.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\codex.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.06.10.1",
+            "agent": "gemini",
+            "cached_remote_version": "2026.06.10.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\gemini.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.08.03.1",
+            "agent": "cursor",
+            "cached_remote_version": "2026.08.03.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\cursor.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.06.15.1",
+            "agent": "devin",
+            "cached_remote_version": "2026.06.15.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\devin.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.06.24.1",
+            "agent": "agy",
+            "cached_remote_version": "2026.06.24.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\agy.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.09.11.1",
+            "agent": "cline",
+            "cached_remote_version": "2026.09.11.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\cline.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.06.10.1",
+            "agent": "opencode",
+            "cached_remote_version": "2026.06.10.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\opencode.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.08.29.1",
+            "agent": "copilot",
+            "cached_remote_version": "2026.08.29.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\copilot.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.06.10.1",
+            "agent": "kimi",
+            "cached_remote_version": "2026.06.10.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\kimi.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.09.19.1",
+            "agent": "kiro",
+            "cached_remote_version": "2026.09.19.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\kiro.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.06.10.1",
+            "agent": "droid",
+            "cached_remote_version": "2026.06.10.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\droid.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.07.09.1",
+            "agent": "amp",
+            "cached_remote_version": "2026.07.09.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\amp.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.09.18.1",
+            "agent": "grok",
+            "cached_remote_version": "2026.09.18.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\grok.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.07.24.1",
+            "agent": "hermes",
+            "cached_remote_version": "2026.07.24.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\hermes.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.06.10.1",
+            "agent": "kilo",
+            "cached_remote_version": "2026.06.10.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\kilo.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.06.10.1",
+            "agent": "qodercli",
+            "cached_remote_version": "2026.06.10.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\qodercli.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.08.14.1",
+            "agent": "qwen",
+            "cached_remote_version": "2026.08.14.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\qwen.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.08.24.1",
+            "agent": "letta",
+            "cached_remote_version": "2026.08.24.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\letta.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.07.09.2",
+            "agent": "maki",
+            "cached_remote_version": "2026.07.09.2",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\maki.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.08.26.1",
+            "agent": "muse",
+            "cached_remote_version": "2026.08.26.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\muse.toml",
+            "source_kind": "remote"
+          }
+        ],
+        "type": "agent_manifest_status"
+      }
+    }
+  },
+  "harnessVersions": {
+    "codex": "codex-cli 0.163.0"
+  },
+  "harnessExecutables": {
+    "codex": {
+      "requested": "codex",
+      "resolved": true,
+      "basename": "codex.exe",
+      "realBasename": "codex.exe",
+      "sha256": "2692c8c7bb2cf8b0aefe638741fc90236f4b824c59578ce84994f9de58200993",
+      "bytes": 341270320,
+      "format": "pe"
+    }
+  },
+  "os": {
+    "platform": "win32",
+    "type": "Windows_NT",
+    "release": "10.0.26300",
+    "arch": "x64"
+  },
+  "session": {
+    "name": "oac-k-g8-codex-tools-20261022T035218Z-757089",
+    "serverPid": 39516,
+    "panePids": []
+  },
+  "env": {
+    "serverLaunch": {
+      "added": {
+        "HERDR_CONFIG_PATH": "<SCRATCH>\\herdr-config.toml"
+      },
+      "removed": [
+        "ANTHROPIC_BASE_URL",
+        "CLAUDECODE",
+        "CLAUDE_AGENT_SDK_MCP_NO_PREFIX",
+        "CLAUDE_AGENT_SDK_VERSION",
+        "CLAUDE_CODE_ACCOUNT_UUID",
+        "CLAUDE_CODE_CHILD_SESSION",
+        "CLAUDE_CODE_DESKTOP_APP_VERSION",
+        "CLAUDE_CODE_DISABLE_CRON",
+        "CLAUDE_CODE_DISABLE_TERMINAL_TITLE",
+        "CLAUDE_CODE_EAGER_FLUSH",
+        "CLAUDE_CODE_EMIT_TOOL_USE_SUMMARIES",
+        "CLAUDE_CODE_ENABLE_ASK_USER_QUESTION_TOOL",
+        "CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING",
+        "CLAUDE_CODE_ENABLE_TELEMETRY",
+        "CLAUDE_CODE_ENTRYPOINT",
+        "CLAUDE_CODE_EXECPATH",
+        "CLAUDE_CODE_HARBOR_KITE",
+        "CLAUDE_CODE_HOST_SESSION_ID",
+        "CLAUDE_CODE_OAUTH_SCOPES",
+        "CLAUDE_CODE_ORGANIZATION_UUID",
+        "CLAUDE_CODE_SDK_HAS_HOST_AUTH_REFRESH",
+        "CLAUDE_CODE_SESSION_ATTENDED",
+        "CLAUDE_CODE_SESSION_ID",
+        "CLAUDE_CODE_SIMPLE",
+        "CLAUDE_CODE_STARTUP_FAILURE_RESULTS",
+        "CLAUDE_CODE_TERMINAL_MCP_TOOLS",
+        "CLAUDE_CODE_USER_EMAIL",
+        "CLAUDE_PID",
+        "CLAUDE_PREVIEW_CLASSIFIER_FLOOR"
+      ]
+    },
+    "pane": null
+  },
+  "harnessConfig": {
+    "before": [
+      {
+        "file": "~/.claude/settings.json",
+        "present": true,
+        "sha256": "2e54eb77c9f2292a50bad59471fb2f1f8883c0b4cec78600cda58f07cc6909e4"
+      },
+      {
+        "file": "~/.codex/config.toml",
+        "present": true,
+        "sha256": "479df28413a9fc902dab9be6c3dc216dc618e1ac0a47527729c0c8a44a8b0ef3"
+      },
+      {
+        "file": "~/.codex/hooks.json",
+        "present": true,
+        "sha256": "190a0ca24dd0fe9a4b3b2bc232915064a53ae4ec6b9d52bf8924d49255866f93"
+      }
+    ],
+    "after": [
+      {
+        "file": "~/.claude/settings.json",
+        "present": true,
+        "sha256": "2e54eb77c9f2292a50bad59471fb2f1f8883c0b4cec78600cda58f07cc6909e4"
+      },
+      {
+        "file": "~/.codex/config.toml",
+        "present": true,
+        "sha256": "479df28413a9fc902dab9be6c3dc216dc618e1ac0a47527729c0c8a44a8b0ef3"
+      },
+      {
+        "file": "~/.codex/hooks.json",
+        "present": true,
+        "sha256": "190a0ca24dd0fe9a4b3b2bc232915064a53ae4ec6b9d52bf8924d49255866f93"
+      }
+    ],
+    "unchanged": true,
+    "changed": [],
+    "mustStayUnchanged": []
+  },
+  "timebox": {
+    "budgetMs": 3600000,
+    "start": "2026-10-22T03:52:18.045Z",
+    "end": "2026-10-22T03:55:16.651Z",
+    "elapsedMs": 178606,
+    "expired": false,
+    "teardownEnd": "2026-10-22T03:55:19.456Z"
+  },
+  "commands": [
+    {
+      "seq": 1,
+      "role": "preflight",
+      "argv": [
+        "herdr",
+        "--version"
+      ],
+      "target": null,
+      "startedAt": "2026-10-22T03:52:18.571Z",
+      "endedAt": "2026-10-22T03:52:18.643Z",
+      "durationMs": 72,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 10000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 12,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 2,
+      "role": "lifecycle",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g8-codex-tools-20261022T035218Z-757089",
+        "server"
+      ],
+      "target": null,
+      "startedAt": "2026-10-22T03:52:20.178Z",
+      "endedAt": null,
+      "durationMs": null,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": null,
+        "by": "long-running server; stopped by teardown (session stop, then process-group kill)"
+      },
+      "pid": 39516
+    },
+    {
+      "seq": 3,
+      "role": "lifecycle",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g8-codex-tools-20261022T035218Z-757089",
+        "status",
+        "server",
+        "--json"
+      ],
+      "target": null,
+      "startedAt": "2026-10-22T03:52:20.207Z",
+      "endedAt": "2026-10-22T03:52:20.271Z",
+      "durationMs": 64,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 5000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 488,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 4,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g8-codex-tools-20261022T035218Z-757089",
+        "server",
+        "agent-manifests",
+        "--json"
+      ],
+      "target": null,
+      "startedAt": "2026-10-22T03:52:20.271Z",
+      "endedAt": "2026-10-22T03:52:20.674Z",
+      "durationMs": 403,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 7198,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 5,
+      "role": "lifecycle",
+      "argv": [
+        "herdr",
+        "session",
+        "stop",
+        "oac-k-g8-codex-tools-20261022T035218Z-757089",
+        "--json"
+      ],
+      "target": null,
+      "startedAt": "2026-10-22T03:55:18.036Z",
+      "endedAt": "2026-10-22T03:55:18.263Z",
+      "durationMs": 227,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 25000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 355,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 6,
+      "role": "lifecycle",
+      "argv": [
+        "herdr",
+        "session",
+        "delete",
+        "oac-k-g8-codex-tools-20261022T035218Z-757089",
+        "--json"
+      ],
+      "target": null,
+      "startedAt": "2026-10-22T03:55:19.299Z",
+      "endedAt": "2026-10-22T03:55:19.353Z",
+      "durationMs": 54,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 355,
+      "stderrBytes": 0
+    }
+  ],
+  "teardown": {
+    "sessionStop": "ok",
+    "serverExited": true,
+    "panes": {
+      "created": 0,
+      "queried": [],
+      "notQueried": []
+    },
+    "forcedKills": [],
+    "leftoverProcesses": [],
+    "unverifiedPids": [],
+    "skippedReusedPids": [],
+    "skippedPreexistingPids": [],
+    "protectedProcesses": [],
+    "processScan": "process table (pid, parent pid, creation time, argv) checked for --session <name>",
+    "sessionDelete": "ok",
+    "clean": true
+  },
+  "scratch": {
+    "location": "os.tmpdir(), outside the repository",
+    "path": "<SCRATCH>",
+    "removed": true,
+    "holders": [
+      "the shared Codex app-server daemon (left running; the driver never stops it) may hold the directory of a thread it loaded under scratch; it is released on `codex app-server daemon stop`, or when the daemon unloads the thread (documented: no subscribers and no thread activity for 30 minutes). The driver does not call thread/archive or thread/delete, which would unload it sooner, because both write to the operator's Codex thread store (thread/delete destroys the run's rollout) and whether their shutdown releases the directory handle is unverified"
+    ],
+    "removal": {
+      "attempts": 1,
+      "errors": []
+    }
+  },
+  "captures": [
+    {
+      "file": "transcript-g8-2026-10-22-0.163.0-herdr.jsonl",
+      "format": "jsonl",
+      "written": true,
+      "sha256": "afef946ac607a67eeab3f459367f814238d4cef32b0a9739fb14922ce1e0d69b",
+      "redaction": {
+        "mode": "jsonl",
+        "lines": 186,
+        "droppedHazardLines": 0,
+        "unterminatedKeyBlock": false,
+        "hazardProtocolFrames": [],
+        "elidedToolOutputs": [
+          {
+            "line": 108,
+            "path": "$.payload.result.collaborationMode.settings.developer_instructions",
+            "bytes": 1307,
+            "sha256": "9fe43931f329b9a052622cded0cfc498c375286bd0dc8b411c75f0eaef7bac73"
+          },
+          {
+            "line": 122,
+            "path": "$.payload.params.message",
+            "bytes": 50,
+            "sha256": "4ce0d4f5e7730c2e70ef091608e3ea9ced1a4c3ad044452cf2c1f08b5dd532e0"
+          },
+          {
+            "line": 122,
+            "path": "$.payload.params.requestedSchema.type",
+            "bytes": 6,
+            "sha256": "2958d416d08aa5a472d7b509036cb7eafd542add84527e66a145ea64cb4cdc75"
+          },
+          {
+            "line": 122,
+            "path": "$.payload.params.requestedSchema.<key>",
+            "bytes": 10,
+            "sha256": "96adb92452863058fa1616efcc89c6e7c92a0c49148dfbd3e127ce829a45406e"
+          },
+          {
+            "line": 122,
+            "path": "$.payload.params._meta.<key>",
+            "bytes": 19,
+            "sha256": "87bf2e6dfa1f8d98142dd139021df980937358f165c7cc828b644a43b2689f0d"
+          },
+          {
+            "line": 122,
+            "path": "$.payload.params._meta.<key>",
+            "bytes": 13,
+            "sha256": "e39367fa569baafa5f43ac7032081f78dfd5eed938799afd17fbd08113c7f3ed"
+          },
+          {
+            "line": 122,
+            "path": "$.payload.params._meta.<key>",
+            "bytes": 7,
+            "sha256": "1c61425b1ba94748e725edd6fbc902b80e08483116a8affb4b8829143e486f1e"
+          },
+          {
+            "line": 122,
+            "path": "$.payload.params._meta.<key>[0]",
+            "bytes": 7,
+            "sha256": "3f3af1ecebbd1410ab417ec0d27bbfcb5d340e177ae159b59fc8626c2dfd9175"
+          },
+          {
+            "line": 122,
+            "path": "$.payload.params._meta.<key>[1]",
+            "bytes": 6,
+            "sha256": "9cdc6c47aa193ae7fdab6c57a88f118e0adbe254c82095d39531f5e5c1314bdd"
+          },
+          {
+            "line": 122,
+            "path": "$.payload.params._meta.<key>",
+            "bytes": 16,
+            "sha256": "4498c3cdcc1dc84b0863d3ab5f504342b6e5cfc5f2089791303211e6da81d32e"
+          },
+          {
+            "line": 122,
+            "path": "$.payload.params._meta.<key>",
+            "bytes": 164,
+            "sha256": "09068c9f542be4b12365342fe775947386c1aa754f2134de920c53a47adb105a"
+          },
+          {
+            "line": 122,
+            "path": "$.payload.params._meta.<key>",
+            "bytes": 11,
+            "sha256": "c13f737de333e961f6d7bbe527f62008ca5db935bdc204b83aacc1a9168458f4"
+          },
+          {
+            "line": 122,
+            "path": "$.payload.params._meta.<key>",
+            "bytes": 19,
+            "sha256": "4ffbcc4c1115ca96f87934d3369cd09fa810eac41b5deebf9e7129e69de4ab85"
+          },
+          {
+            "line": 125,
+            "path": "$.payload.params.item.result.content[0].text",
+            "bytes": 144,
+            "sha256": "dba4a10d160a3470d81eb142256e2a9f2dee06c04be25f5316cb350dd8b1cc4a"
+          },
+          {
+            "line": 130,
+            "path": "$.payload.params.message",
+            "bytes": 50,
+            "sha256": "4ce0d4f5e7730c2e70ef091608e3ea9ced1a4c3ad044452cf2c1f08b5dd532e0"
+          },
+          {
+            "line": 130,
+            "path": "$.payload.params.requestedSchema.type",
+            "bytes": 6,
+            "sha256": "2958d416d08aa5a472d7b509036cb7eafd542add84527e66a145ea64cb4cdc75"
+          },
+          {
+            "line": 130,
+            "path": "$.payload.params.requestedSchema.<key>",
+            "bytes": 10,
+            "sha256": "96adb92452863058fa1616efcc89c6e7c92a0c49148dfbd3e127ce829a45406e"
+          },
+          {
+            "line": 130,
+            "path": "$.payload.params._meta.<key>",
+            "bytes": 19,
+            "sha256": "87bf2e6dfa1f8d98142dd139021df980937358f165c7cc828b644a43b2689f0d"
+          },
+          {
+            "line": 130,
+            "path": "$.payload.params._meta.<key>",
+            "bytes": 13,
+            "sha256": "e39367fa569baafa5f43ac7032081f78dfd5eed938799afd17fbd08113c7f3ed"
+          },
+          {
+            "line": 130,
+            "path": "$.payload.params._meta.<key>",
+            "bytes": 7,
+            "sha256": "1c61425b1ba94748e725edd6fbc902b80e08483116a8affb4b8829143e486f1e"
+          },
+          {
+            "line": 130,
+            "path": "$.payload.params._meta.<key>[0]",
+            "bytes": 7,
+            "sha256": "3f3af1ecebbd1410ab417ec0d27bbfcb5d340e177ae159b59fc8626c2dfd9175"
+          },
+          {
+            "line": 130,
+            "path": "$.payload.params._meta.<key>[1]",
+            "bytes": 6,
+            "sha256": "9cdc6c47aa193ae7fdab6c57a88f118e0adbe254c82095d39531f5e5c1314bdd"
+          },
+          {
+            "line": 130,
+            "path": "$.payload.params._meta.<key>",
+            "bytes": 16,
+            "sha256": "4498c3cdcc1dc84b0863d3ab5f504342b6e5cfc5f2089791303211e6da81d32e"
+          },
+          {
+            "line": 130,
+            "path": "$.payload.params._meta.<key>",
+            "bytes": 164,
+            "sha256": "09068c9f542be4b12365342fe775947386c1aa754f2134de920c53a47adb105a"
+          },
+          {
+            "line": 130,
+            "path": "$.payload.params._meta.<key>",
+            "bytes": 11,
+            "sha256": "c13f737de333e961f6d7bbe527f62008ca5db935bdc204b83aacc1a9168458f4"
+          },
+          {
+            "line": 130,
+            "path": "$.payload.params._meta.<key>.<key>",
+            "bytes": 7,
+            "sha256": "f9f5cf73e6038b91418b0f090fdaf9df1e9a40dc00799e42f837cc533864aeac"
+          },
+          {
+            "line": 130,
+            "path": "$.payload.params._meta.<key>.<key>",
+            "bytes": 15,
+            "sha256": "6e651993da72c804d152a817347934ba783ca8caf77bcc69c2815e2b0ca078e3"
+          },
+          {
+            "line": 130,
+            "path": "$.payload.params._meta.<key>",
+            "bytes": 19,
+            "sha256": "4ffbcc4c1115ca96f87934d3369cd09fa810eac41b5deebf9e7129e69de4ab85"
+          },
+          {
+            "line": 130,
+            "path": "$.payload.params._meta.<key>[0].name",
+            "bytes": 7,
+            "sha256": "f9f5cf73e6038b91418b0f090fdaf9df1e9a40dc00799e42f837cc533864aeac"
+          },
+          {
+            "line": 130,
+            "path": "$.payload.params._meta.<key>[0].<key>",
+            "bytes": 5,
+            "sha256": "cd42404d52ad55ccfa9aca4adc828aa5800ad9d385a0671fbcbf724118320619"
+          },
+          {
+            "line": 130,
+            "path": "$.payload.params._meta.<key>[0].<key>",
+            "bytes": 15,
+            "sha256": "6e651993da72c804d152a817347934ba783ca8caf77bcc69c2815e2b0ca078e3"
+          },
+          {
+            "line": 130,
+            "path": "$.payload.params._meta.<key>[0].<key>",
+            "bytes": 12,
+            "sha256": "391484accd676559e96a829b843f77a8ac506a0b7b3c6897ce1eb580eecb3087"
+          },
+          {
+            "line": 130,
+            "path": "$.payload.params._meta.<key>[0].<key>",
+            "bytes": 7,
+            "sha256": "f9f5cf73e6038b91418b0f090fdaf9df1e9a40dc00799e42f837cc533864aeac"
+          },
+          {
+            "line": 134,
+            "path": "$.payload.params.item.result.content[0].text",
+            "bytes": 34,
+            "sha256": "e8a55bbceb042e50d8d1f74dd345b684c8ae2e88e124234e4f2637f1e0620422"
+          },
+          {
+            "line": 140,
+            "path": "$.payload.params.message",
+            "bytes": 50,
+            "sha256": "4ce0d4f5e7730c2e70ef091608e3ea9ced1a4c3ad044452cf2c1f08b5dd532e0"
+          },
+          {
+            "line": 140,
+            "path": "$.payload.params.requestedSchema.type",
+            "bytes": 6,
+            "sha256": "2958d416d08aa5a472d7b509036cb7eafd542add84527e66a145ea64cb4cdc75"
+          },
+          {
+            "line": 140,
+            "path": "$.payload.params.requestedSchema.<key>",
+            "bytes": 10,
+            "sha256": "96adb92452863058fa1616efcc89c6e7c92a0c49148dfbd3e127ce829a45406e"
+          },
+          {
+            "line": 140,
+            "path": "$.payload.params._meta.<key>",
+            "bytes": 19,
+            "sha256": "87bf2e6dfa1f8d98142dd139021df980937358f165c7cc828b644a43b2689f0d"
+          },
+          {
+            "line": 140,
+            "path": "$.payload.params._meta.<key>",
+            "bytes": 13,
+            "sha256": "e39367fa569baafa5f43ac7032081f78dfd5eed938799afd17fbd08113c7f3ed"
+          },
+          {
+            "line": 140,
+            "path": "$.payload.params._meta.<key>",
+            "bytes": 7,
+            "sha256": "1c61425b1ba94748e725edd6fbc902b80e08483116a8affb4b8829143e486f1e"
+          },
+          {
+            "line": 140,
+            "path": "$.payload.params._meta.<key>[0]",
+            "bytes": 7,
+            "sha256": "3f3af1ecebbd1410ab417ec0d27bbfcb5d340e177ae159b59fc8626c2dfd9175"
+          },
+          {
+            "line": 140,
+            "path": "$.payload.params._meta.<key>[1]",
+            "bytes": 6,
+            "sha256": "9cdc6c47aa193ae7fdab6c57a88f118e0adbe254c82095d39531f5e5c1314bdd"
+          },
+          {
+            "line": 140,
+            "path": "$.payload.params._meta.<key>",
+            "bytes": 16,
+            "sha256": "4498c3cdcc1dc84b0863d3ab5f504342b6e5cfc5f2089791303211e6da81d32e"
+          },
+          {
+            "line": 140,
+            "path": "$.payload.params._meta.<key>",
+            "bytes": 164,
+            "sha256": "09068c9f542be4b12365342fe775947386c1aa754f2134de920c53a47adb105a"
+          },
+          {
+            "line": 140,
+            "path": "$.payload.params._meta.<key>",
+            "bytes": 11,
+            "sha256": "c13f737de333e961f6d7bbe527f62008ca5db935bdc204b83aacc1a9168458f4"
+          },
+          {
+            "line": 140,
+            "path": "$.payload.params._meta.<key>",
+            "bytes": 19,
+            "sha256": "4ffbcc4c1115ca96f87934d3369cd09fa810eac41b5deebf9e7129e69de4ab85"
+          },
+          {
+            "line": 143,
+            "path": "$.payload.params.item.result.content[0].text",
+            "bytes": 44,
+            "sha256": "65e6505b8cc52ec9caff41173fce605ca6b42d047e0de093de401f45bce58ceb"
+          }
+        ],
+        "replacements": {
+          "home": 13,
+          "literal <THREAD_ID>": 94,
+          "literal <OTHER_THREAD_ID>": 2,
+          "literal <PROJECT_DIR>": 8,
+          "literal <PAIRING_VALUE>": 5
+        },
+        "residualLeaks": [],
+        "residualGenericHits": []
+      },
+      "driverWrittenSha256": "7520e5d5666a742fa54e70f9aa1f59c7497f9f19738ba3fe08694d960ede38a3",
+      "postDriverRedaction": "After the driver wrote this capture (sha256 in driverWrittenSha256), the 20 ids of the operator's other saved threads in its thread/list `readStates` keys were replaced by <OTHER_THREAD_ID_1>..<OTHER_THREAD_ID_20> by otherThreadIds/redactOtherThreadIds in tools/herdr/scenarios/g8-codex-tools.mjs (Codex 0.163.0 added that map; the driver run registered only loaded-thread ids). No other byte changed; sha256 is of the committed file."
+    },
+    {
+      "file": "transcript-g8-server-2026-10-22-0.163.0.jsonl",
+      "format": "jsonl",
+      "written": true,
+      "sha256": "2112b7256385152f02fe62b160e5127792ec8bb8eea22e7d8a30e2d28b497555",
+      "redaction": {
+        "mode": "jsonl",
+        "lines": 19,
+        "droppedHazardLines": 0,
+        "unterminatedKeyBlock": false,
+        "hazardProtocolFrames": [],
+        "elidedToolOutputs": [],
+        "replacements": {
+          "literal <THREAD_ID>": 15,
+          "literal <PAIRING_VALUE>": 4
+        },
+        "residualLeaks": [],
+        "residualGenericHits": []
+      }
+    },
+    {
+      "file": "transcript-g8-proc-2026-10-22-0.163.0.jsonl",
+      "format": "jsonl",
+      "written": true,
+      "sha256": "7d204b7105e042918a6bc8493ffa9f22c085a6d2f4bfadc54b80e4569fe536df",
+      "redaction": {
+        "mode": "jsonl",
+        "lines": 1,
+        "droppedHazardLines": 0,
+        "unterminatedKeyBlock": false,
+        "hazardProtocolFrames": [],
+        "elidedToolOutputs": [],
+        "replacements": {},
+        "residualLeaks": [],
+        "residualGenericHits": []
+      }
+    }
+  ],
+  "redaction": {
+    "runLiteralPlaceholders": [
+      "<THREAD_ID>",
+      "<SESSION_ID>",
+      "<PAIRING_VALUE>",
+      "<PROJECT_DIR>",
+      "<INSTALLATION_ID>",
+      "<OTHER_THREAD_ID>"
+    ]
+  },
+  "scenarioData": {
+    "g8": {
+      "nonVerdictBearing": "#69/#403 G8 slice S1: a fixture capture of mcpToolCall items; compared against no other run, not a gate run, never changes a gate verdict",
+      "params": {
+        "serverLog": "<serverLog>",
+        "projectDir": "<projectDir>",
+        "operatorPrompt": "G8 capture marker: reply with the single word ready.",
+        "serverName": "oac-g8",
+        "expectedCalls": "3",
+        "quietMs": "8000",
+        "attachTimeoutMs": "900000",
+        "toolTimeoutMs": "1200000",
+        "wireTimeoutMs": "30000",
+        "cliTimeoutMs": "60000",
+        "clientTimeoutMs": "60000",
+        "listPollMs": "3000"
+      },
+      "date": "2026-10-22",
+      "versions": {
+        "pinsRow": "Codex CLI / app-server",
+        "pinsMinimum": "0.154.0",
+        "pinsLastTested": "0.161.0",
+        "cliOutput": "codex-cli 0.163.0",
+        "cli": "0.163.0",
+        "daemon": {
+          "status": "running",
+          "cliVersion": "0.163.0",
+          "appServerVersion": "0.163.0",
+          "managedCodexVersion": "0.163.0"
+        },
+        "wire": "0.163.0",
+        "verified": true,
+        "matchesLastTested": false,
+        "warnings": [
+          "VERSION WARNING (G8 S1 capture): `codex --version` reports 0.163.0; docs/planning/PINS.md \"Codex CLI / app-server\" records minimum 0.154.0, last tested 0.161.0 (not the last tested 0.161.0). Codex versions float and are never gated (operator decision on #216, 2026-10-01): the run continues, and this is a finding only. It does not by itself invalidate any gate verdict. The run does not edit PINS.md; record the version as last tested there after a live run.",
+          "VERSION WARNING (G8 S1 capture): `codex app-server daemon version` cliVersion reports 0.163.0; docs/planning/PINS.md \"Codex CLI / app-server\" records minimum 0.154.0, last tested 0.161.0 (not the last tested 0.161.0). Codex versions float and are never gated (operator decision on #216, 2026-10-01): the run continues, and this is a finding only. It does not by itself invalidate any gate verdict. The run does not edit PINS.md; record the version as last tested there after a live run.",
+          "VERSION WARNING (G8 S1 capture): `codex app-server daemon version` appServerVersion reports 0.163.0; docs/planning/PINS.md \"Codex CLI / app-server\" records minimum 0.154.0, last tested 0.161.0 (not the last tested 0.161.0). Codex versions float and are never gated (operator decision on #216, 2026-10-01): the run continues, and this is a finding only. It does not by itself invalidate any gate verdict. The run does not edit PINS.md; record the version as last tested there after a live run.",
+          "VERSION WARNING (G8 S1 capture): `codex app-server daemon version` managedCodexVersion reports 0.163.0; docs/planning/PINS.md \"Codex CLI / app-server\" records minimum 0.154.0, last tested 0.161.0 (not the last tested 0.161.0). Codex versions float and are never gated (operator decision on #216, 2026-10-01): the run continues, and this is a finding only. It does not by itself invalidate any gate verdict. The run does not edit PINS.md; record the version as last tested there after a live run.",
+          "VERSION WARNING (G8 S1 capture): the wire initialize userAgent reports 0.163.0; docs/planning/PINS.md \"Codex CLI / app-server\" records minimum 0.154.0, last tested 0.161.0 (not the last tested 0.161.0). Codex versions float and are never gated (operator decision on #216, 2026-10-01): the run continues, and this is a finding only. It does not by itself invalidate any gate verdict. The run does not edit PINS.md; record the version as last tested there after a live run."
+        ]
+      },
+      "server": {
+        "staged": [
+          {
+            "path": "tools/herdr/gate-servers/g8-server.mjs",
+            "headCommit": "060d0fd23acf91ae83a3c078221b3262b5c01f95",
+            "committedSha256": "3c58f3e1e525427fca4249299f68addbd149aed5baaf303a6036d70b624cea62",
+            "workingTreeSha256": "3c58f3e1e525427fca4249299f68addbd149aed5baaf303a6036d70b624cea62",
+            "workingTreeMatchesHead": true,
+            "copy": "<SCRATCH>\\g8-server\\g8-server.mjs",
+            "copySha256": "3c58f3e1e525427fca4249299f68addbd149aed5baaf303a6036d70b624cea62",
+            "match": true
+          }
+        ],
+        "note": "the operator registers the committed path, not this copy; the staged copy is for the record (sha256)"
+      },
+      "client": [
+        {
+          "path": "tools/herdr/gate-servers/g8-capture.mjs",
+          "headCommit": "060d0fd23acf91ae83a3c078221b3262b5c01f95",
+          "committedSha256": "5de543520ffebdbeb8897d17335749eb7cc3894eb8b060af998c455790855b06",
+          "workingTreeSha256": "5de543520ffebdbeb8897d17335749eb7cc3894eb8b060af998c455790855b06",
+          "workingTreeMatchesHead": true,
+          "copy": "<SCRATCH>\\g8-client\\g8-capture.mjs",
+          "copySha256": "5de543520ffebdbeb8897d17335749eb7cc3894eb8b060af998c455790855b06",
+          "match": true
+        }
+      ],
+      "daemon": {
+        "versionBefore": {
+          "label": "daemon version",
+          "argv": [
+            "codex",
+            "app-server",
+            "daemon",
+            "version"
+          ],
+          "exitCode": 0,
+          "timedOut": false,
+          "spawnError": null,
+          "parsed": {
+            "status": "running",
+            "cliVersion": "0.163.0",
+            "appServerVersion": "0.163.0",
+            "managedCodexVersion": "0.163.0"
+          }
+        },
+        "versionAfter": {
+          "label": "daemon version (post-run)",
+          "argv": [
+            "codex",
+            "app-server",
+            "daemon",
+            "version"
+          ],
+          "exitCode": 0,
+          "timedOut": false,
+          "spawnError": null,
+          "parsed": {
+            "status": "running",
+            "cliVersion": "0.163.0",
+            "appServerVersion": "0.163.0",
+            "managedCodexVersion": "0.163.0"
+          }
+        }
+      },
+      "clientRuns": [
+        {
+          "mode": "list",
+          "startedAt": "2026-10-22T03:52:21.671Z",
+          "endedAt": "2026-10-22T03:52:23.754Z",
+          "exitCode": 0,
+          "timedOut": false,
+          "linesBefore": 0
+        },
+        {
+          "mode": "list",
+          "startedAt": "2026-10-22T03:52:23.759Z",
+          "endedAt": "2026-10-22T03:52:24.629Z",
+          "exitCode": 0,
+          "timedOut": false,
+          "linesBefore": 10
+        },
+        {
+          "mode": "list",
+          "startedAt": "2026-10-22T03:52:27.645Z",
+          "endedAt": "2026-10-22T03:52:28.495Z",
+          "exitCode": 0,
+          "timedOut": false,
+          "linesBefore": 20
+        },
+        {
+          "mode": "list",
+          "startedAt": "2026-10-22T03:52:31.502Z",
+          "endedAt": "2026-10-22T03:52:32.387Z",
+          "exitCode": 0,
+          "timedOut": false,
+          "linesBefore": 30
+        },
+        {
+          "mode": "list",
+          "startedAt": "2026-10-22T03:52:35.402Z",
+          "endedAt": "2026-10-22T03:52:36.234Z",
+          "exitCode": 0,
+          "timedOut": false,
+          "linesBefore": 40
+        },
+        {
+          "mode": "list",
+          "startedAt": "2026-10-22T03:52:39.256Z",
+          "endedAt": "2026-10-22T03:52:40.057Z",
+          "exitCode": 0,
+          "timedOut": false,
+          "linesBefore": 50
+        },
+        {
+          "mode": "list",
+          "startedAt": "2026-10-22T03:52:43.077Z",
+          "endedAt": "2026-10-22T03:52:43.868Z",
+          "exitCode": 0,
+          "timedOut": false,
+          "linesBefore": 60
+        },
+        {
+          "mode": "list",
+          "startedAt": "2026-10-22T03:52:46.876Z",
+          "endedAt": "2026-10-22T03:52:47.636Z",
+          "exitCode": 0,
+          "timedOut": false,
+          "linesBefore": 70
+        },
+        {
+          "mode": "list",
+          "startedAt": "2026-10-22T03:52:50.648Z",
+          "endedAt": "2026-10-22T03:52:51.447Z",
+          "exitCode": 0,
+          "timedOut": false,
+          "linesBefore": 80
+        },
+        {
+          "mode": "list",
+          "startedAt": "2026-10-22T03:52:54.459Z",
+          "endedAt": "2026-10-22T03:52:55.284Z",
+          "exitCode": 0,
+          "timedOut": false,
+          "linesBefore": 90
+        }
+      ],
+      "thread": {
+        "id": "<THREAD_ID>",
+        "loadedBeforeMarker": true
+      },
+      "watch": {
+        "startedAt": "2026-10-22T03:52:55.307Z",
+        "linesBefore": 100,
+        "resumeLine": 108,
+        "resumeStatus": "active",
+        "resumeRequestMembers": [
+          "excludeTurns",
+          "threadId"
+        ],
+        "stoppedAt": "2026-10-22T03:55:16.642Z"
+      },
+      "calls": [
+        {
+          "callSeq": 1,
+          "refused": true,
+          "paired": null,
+          "t": "2026-10-22T03:54:57.930Z"
+        },
+        {
+          "callSeq": 2,
+          "refused": false,
+          "paired": true,
+          "t": "2026-10-22T03:55:01.190Z"
+        },
+        {
+          "callSeq": 3,
+          "refused": false,
+          "paired": false,
+          "t": "2026-10-22T03:55:03.751Z"
+        }
+      ],
+      "processTree": {
+        "stubOwn": [
+          {
+            "pid": 41628,
+            "ppid": 30180,
+            "image": "node.exe"
+          },
+          {
+            "pid": 30180,
+            "ppid": 30860,
+            "image": "codex.exe"
+          }
+        ],
+        "stubOwnAvailable": true,
+        "atServerEventLine": 7,
+        "snapshot": {
+          "available": true,
+          "serverPid": 41628,
+          "serverChain": [
+            {
+              "pid": 41628,
+              "ppid": 30180,
+              "image": "node.exe"
+            },
+            {
+              "pid": 30180,
+              "ppid": 30860,
+              "image": "codex.exe"
+            }
+          ],
+          "codexProcesses": [
+            {
+              "pid": 19028,
+              "ppid": 17508,
+              "image": "codex.exe",
+              "appServer": true
+            },
+            {
+              "pid": 30180,
+              "ppid": 30860,
+              "image": "codex.exe",
+              "appServer": true
+            },
+            {
+              "pid": 32552,
+              "ppid": 30860,
+              "image": "codex.exe",
+              "appServer": true
+            },
+            {
+              "pid": 32716,
+              "ppid": 32840,
+              "image": "codex.exe",
+              "appServer": false
+            },
+            {
+              "pid": 37528,
+              "ppid": 32764,
+              "image": "codex",
+              "appServer": true
+            }
+          ],
+          "ancestorsThatAreCodex": [
+            {
+              "pid": 30180,
+              "ppid": 30860,
+              "image": "codex.exe",
+              "appServer": true
+            }
+          ],
+          "serverDescendsFromAppServer": true,
+          "serverDescendsFromCodexImage": true
+        },
+        "note": "pid, parent pid and image name only"
+      },
+      "items": [
+        {
+          "itemId": "exec-998b94f1-a1d6-4ea6-b1f0-ab47cd117b67",
+          "started": {
+            "line": 120,
+            "t": "2026-10-22T03:54:53.781Z",
+            "threadId": "<THREAD_ID>",
+            "turnId": "01a161bf-4dac-7852-884c-151c605562af",
+            "server": "oac-g8",
+            "tool": "g8_pair",
+            "status": "inProgress",
+            "argumentsKind": "empty-object",
+            "arguments": {},
+            "itemMembers": [
+              "appContext",
+              "arguments",
+              "durationMs",
+              "error",
+              "id",
+              "mcpAppUi",
+              "pluginId",
+              "readOnlyHint",
+              "result",
+              "server",
+              "status",
+              "tool",
+              "type"
+            ],
+            "resultMembers": null,
+            "isError": null,
+            "hasError": false,
+            "paramsMembers": [
+              "item",
+              "startedAtMs",
+              "threadId",
+              "turnId"
+            ]
+          },
+          "completed": {
+            "line": 125,
+            "t": "2026-10-22T03:54:57.948Z",
+            "threadId": "<THREAD_ID>",
+            "turnId": "01a161bf-4dac-7852-884c-151c605562af",
+            "server": "oac-g8",
+            "tool": "g8_pair",
+            "status": "failed",
+            "argumentsKind": "empty-object",
+            "arguments": {},
+            "itemMembers": [
+              "appContext",
+              "arguments",
+              "durationMs",
+              "error",
+              "id",
+              "mcpAppUi",
+              "pluginId",
+              "readOnlyHint",
+              "result",
+              "server",
+              "status",
+              "tool",
+              "type"
+            ],
+            "resultMembers": [
+              "_meta",
+              "content",
+              "structuredContent"
+            ],
+            "isError": null,
+            "hasError": false,
+            "paramsMembers": [
+              "completedAtMs",
+              "item",
+              "threadId",
+              "turnId"
+            ]
+          }
+        },
+        {
+          "itemId": "exec-8c5c5e14-a3f7-44fb-991b-bf38d95d45b8",
+          "started": {
+            "line": 128,
+            "t": "2026-10-22T03:55:00.210Z",
+            "threadId": "<THREAD_ID>",
+            "turnId": "01a161bf-4dac-7852-884c-151c605562af",
+            "server": "oac-g8",
+            "tool": "g8_pair",
+            "status": "inProgress",
+            "argumentsKind": "object",
+            "arguments": {
+              "pairing": "<PAIRING_VALUE>"
+            },
+            "itemMembers": [
+              "appContext",
+              "arguments",
+              "durationMs",
+              "error",
+              "id",
+              "mcpAppUi",
+              "pluginId",
+              "readOnlyHint",
+              "result",
+              "server",
+              "status",
+              "tool",
+              "type"
+            ],
+            "resultMembers": null,
+            "isError": null,
+            "hasError": false,
+            "paramsMembers": [
+              "item",
+              "startedAtMs",
+              "threadId",
+              "turnId"
+            ]
+          },
+          "completed": {
+            "line": 134,
+            "t": "2026-10-22T03:55:01.216Z",
+            "threadId": "<THREAD_ID>",
+            "turnId": "01a161bf-4dac-7852-884c-151c605562af",
+            "server": "oac-g8",
+            "tool": "g8_pair",
+            "status": "completed",
+            "argumentsKind": "object",
+            "arguments": {
+              "pairing": "<PAIRING_VALUE>"
+            },
+            "itemMembers": [
+              "appContext",
+              "arguments",
+              "durationMs",
+              "error",
+              "id",
+              "mcpAppUi",
+              "pluginId",
+              "readOnlyHint",
+              "result",
+              "server",
+              "status",
+              "tool",
+              "type"
+            ],
+            "resultMembers": [
+              "_meta",
+              "content",
+              "structuredContent"
+            ],
+            "isError": null,
+            "hasError": false,
+            "paramsMembers": [
+              "completedAtMs",
+              "item",
+              "threadId",
+              "turnId"
+            ]
+          }
+        },
+        {
+          "itemId": "exec-2ee250df-9aea-48be-a623-a41bad9c4654",
+          "started": {
+            "line": 138,
+            "t": "2026-10-22T03:55:02.860Z",
+            "threadId": "<THREAD_ID>",
+            "turnId": "01a161bf-4dac-7852-884c-151c605562af",
+            "server": "oac-g8",
+            "tool": "g8_pair",
+            "status": "inProgress",
+            "argumentsKind": "empty-object",
+            "arguments": {},
+            "itemMembers": [
+              "appContext",
+              "arguments",
+              "durationMs",
+              "error",
+              "id",
+              "mcpAppUi",
+              "pluginId",
+              "readOnlyHint",
+              "result",
+              "server",
+              "status",
+              "tool",
+              "type"
+            ],
+            "resultMembers": null,
+            "isError": null,
+            "hasError": false,
+            "paramsMembers": [
+              "item",
+              "startedAtMs",
+              "threadId",
+              "turnId"
+            ]
+          },
+          "completed": {
+            "line": 143,
+            "t": "2026-10-22T03:55:03.778Z",
+            "threadId": "<THREAD_ID>",
+            "turnId": "01a161bf-4dac-7852-884c-151c605562af",
+            "server": "oac-g8",
+            "tool": "g8_pair",
+            "status": "completed",
+            "argumentsKind": "empty-object",
+            "arguments": {},
+            "itemMembers": [
+              "appContext",
+              "arguments",
+              "durationMs",
+              "error",
+              "id",
+              "mcpAppUi",
+              "pluginId",
+              "readOnlyHint",
+              "result",
+              "server",
+              "status",
+              "tool",
+              "type"
+            ],
+            "resultMembers": [
+              "_meta",
+              "content",
+              "structuredContent"
+            ],
+            "isError": null,
+            "hasError": false,
+            "paramsMembers": [
+              "completedAtMs",
+              "item",
+              "threadId",
+              "turnId"
+            ]
+          }
+        }
+      ],
+      "ordering": [
+        {
+          "itemId": "exec-998b94f1-a1d6-4ea6-b1f0-ab47cd117b67",
+          "callSeq": 1,
+          "paired": true,
+          "startedLine": 120,
+          "completedLine": 125,
+          "startedVsCallIn": {
+            "ms": -4148,
+            "relation": "before"
+          },
+          "completedVsCallOut": {
+            "ms": 18,
+            "relation": "after"
+          },
+          "startedBeforeCallIn": true,
+          "completedAfterCallOut": true,
+          "stubRefused": true,
+          "stubArgumentKeys": [],
+          "stubHasArguments": true,
+          "wireArgumentsKind": "empty-object",
+          "wireStatus": "failed",
+          "completedCarriesIssuedValue": true
+        },
+        {
+          "itemId": "exec-8c5c5e14-a3f7-44fb-991b-bf38d95d45b8",
+          "callSeq": 2,
+          "paired": true,
+          "startedLine": 128,
+          "completedLine": 134,
+          "startedVsCallIn": {
+            "ms": -979,
+            "relation": "before"
+          },
+          "completedVsCallOut": {
+            "ms": 26,
+            "relation": "after"
+          },
+          "startedBeforeCallIn": true,
+          "completedAfterCallOut": true,
+          "stubRefused": false,
+          "stubArgumentKeys": [
+            "pairing"
+          ],
+          "stubHasArguments": true,
+          "wireArgumentsKind": "object",
+          "wireStatus": "completed",
+          "completedCarriesIssuedValue": null
+        },
+        {
+          "itemId": "exec-2ee250df-9aea-48be-a623-a41bad9c4654",
+          "callSeq": 3,
+          "paired": true,
+          "startedLine": 138,
+          "completedLine": 143,
+          "startedVsCallIn": {
+            "ms": -890,
+            "relation": "before"
+          },
+          "completedVsCallOut": {
+            "ms": 27,
+            "relation": "after"
+          },
+          "startedBeforeCallIn": true,
+          "completedAfterCallOut": true,
+          "stubRefused": false,
+          "stubArgumentKeys": [],
+          "stubHasArguments": true,
+          "wireArgumentsKind": "empty-object",
+          "wireStatus": "completed",
+          "completedCarriesIssuedValue": null
+        }
+      ],
+      "findings": [],
+      "captureNames": {
+        "transcript": "transcript-g8-2026-10-22-0.163.0-herdr.jsonl",
+        "server": "transcript-g8-server-2026-10-22-0.163.0.jsonl",
+        "proc": "transcript-g8-proc-2026-10-22-0.163.0.jsonl"
+      },
+      "stoppedAt": null,
+      "stubSawMetaKeys": [
+        [
+          "callId",
+          "x-codex-turn-metadata",
+          "threadId",
+          "sessionId",
+          "windowId",
+          "itemId",
+          "traceparent",
+          "progressToken"
+        ],
+        [
+          "callId",
+          "x-codex-turn-metadata",
+          "threadId",
+          "sessionId",
+          "windowId",
+          "itemId",
+          "traceparent",
+          "progressToken"
+        ],
+        [
+          "callId",
+          "x-codex-turn-metadata",
+          "threadId",
+          "sessionId",
+          "windowId",
+          "itemId",
+          "traceparent",
+          "progressToken"
+        ]
+      ],
+      "postRun": {
+        "cliOutput": "codex-cli 0.163.0",
+        "cli": "0.163.0",
+        "daemon": {
+          "status": "running",
+          "cliVersion": "0.163.0",
+          "appServerVersion": "0.163.0",
+          "managedCodexVersion": "0.163.0"
+        },
+        "wireVersionsSeen": [
+          "0.163.0"
+        ],
+        "matches": true
+      },
+      "sanitizer": {
+        "threadListEntriesRemoved": 199,
+        "threadListResultsTouched": 10,
+        "serverNames": 11,
+        "installationIds": 11,
+        "planFields": 15,
+        "creditFields": 4,
+        "unparsedLines": 0
+      }
+    }
+  },
+  "findings": [
+    "the driver was started from inside a Claude Code session: 29 of its variables (names in env.serverLaunch.removed) were removed so the harness under test does not run as that session's child or through its relay (#163)",
+    "VERSION WARNING (G8 S1 capture): `codex --version` reports 0.163.0; docs/planning/PINS.md \"Codex CLI / app-server\" records minimum 0.154.0, last tested 0.161.0 (not the last tested 0.161.0). Codex versions float and are never gated (operator decision on #216, 2026-10-01): the run continues, and this is a finding only. It does not by itself invalidate any gate verdict. The run does not edit PINS.md; record the version as last tested there after a live run.",
+    "VERSION WARNING (G8 S1 capture): `codex app-server daemon version` cliVersion reports 0.163.0; docs/planning/PINS.md \"Codex CLI / app-server\" records minimum 0.154.0, last tested 0.161.0 (not the last tested 0.161.0). Codex versions float and are never gated (operator decision on #216, 2026-10-01): the run continues, and this is a finding only. It does not by itself invalidate any gate verdict. The run does not edit PINS.md; record the version as last tested there after a live run.",
+    "VERSION WARNING (G8 S1 capture): `codex app-server daemon version` appServerVersion reports 0.163.0; docs/planning/PINS.md \"Codex CLI / app-server\" records minimum 0.154.0, last tested 0.161.0 (not the last tested 0.161.0). Codex versions float and are never gated (operator decision on #216, 2026-10-01): the run continues, and this is a finding only. It does not by itself invalidate any gate verdict. The run does not edit PINS.md; record the version as last tested there after a live run.",
+    "VERSION WARNING (G8 S1 capture): `codex app-server daemon version` managedCodexVersion reports 0.163.0; docs/planning/PINS.md \"Codex CLI / app-server\" records minimum 0.154.0, last tested 0.161.0 (not the last tested 0.161.0). Codex versions float and are never gated (operator decision on #216, 2026-10-01): the run continues, and this is a finding only. It does not by itself invalidate any gate verdict. The run does not edit PINS.md; record the version as last tested there after a live run.",
+    "VERSION WARNING (G8 S1 capture): the wire initialize userAgent reports 0.163.0; docs/planning/PINS.md \"Codex CLI / app-server\" records minimum 0.154.0, last tested 0.161.0 (not the last tested 0.161.0). Codex versions float and are never gated (operator decision on #216, 2026-10-01): the run continues, and this is a finding only. It does not by itself invalidate any gate verdict. The run does not edit PINS.md; record the version as last tested there after a live run."
+  ],
+  "manifestRedaction": {
+    "afterRedaction": "droppedHazardLines=0 hazardProtocolFrames=0 residualLeaks=0 residualGenericHits=0",
+    "replacements": {
+      "home": 24,
+      "literal <PROJECT_DIR>": 1,
+      "literal <SCRATCH>": 5,
+      "literal <THREAD_ID>": 6,
+      "literal <PAIRING_VALUE>": 2
+    },
+    "withheld": [],
+    "writtenClean": true
+  }
+}

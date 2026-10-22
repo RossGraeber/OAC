@@ -618,6 +618,10 @@ export class FakeCodexAppServer {
         return { result: { threadId: this.createThread(p).id } };
       case 'oacFake/thread/setArchived':
         return { result: this.setArchived(p) };
+      case 'oacFake/mcp/start':
+        return { result: this.mcpStart(p) };
+      case 'oacFake/mcp/complete':
+        return { result: this.mcpComplete(p) };
       case 'oacFake/calls':
         return { result: this.callReport(p) };
       case 'oacFake/thread/state': {
@@ -696,6 +700,61 @@ export class FakeCodexAppServer {
     th.archived = archived;
     th.loaded = !archived;
     return { threadId: th.id, archived: th.archived, loaded: th.loaded };
+  }
+
+  // oacFake/mcp/start: the thread's running turn makes an MCP tool call. Sends subscribers the
+  // `item/started` of an `mcpToolCall` item, as recorded in the G8 S1 capture (Codex 0.163.0:
+  // item/started at the model's call, status inProgress, result and durationMs null; the stub
+  // server saw the call later, after the approval step). `arguments` must be a JSON object:
+  // Codex reported `{}` for a call the model made with no arguments (the `null` the spec's
+  // C9 expected was not seen), and no other shape is recorded. Not modelled: the
+  // `mcpServer/elicitation/request` approval step that followed (see README).
+  mcpStart({ threadId, server, tool, arguments: args = {} } = {}) {
+    const th = this.threads.get(threadId);
+    if (!th) throw new RpcError(-32602, `unknown thread ${threadId}`);
+    if (!th.activeTurn) throw new RpcError(-32602, `thread ${threadId} has no running turn: an mcpToolCall item is recorded only inside a turn`);
+    if (typeof server !== 'string' || !server || typeof tool !== 'string' || !tool) throw new RpcError(-32602, 'server and tool must be non-empty strings');
+    if (args === null || typeof args !== 'object' || Array.isArray(args)) throw new RpcError(-32602, 'arguments must be a JSON object (Codex reported {} for a call with none; no other shape is recorded)');
+    const turn = th.activeTurn;
+    const item = structuredClone(this.t.g8.started.params.item);
+    item.id = `exec-${uuidv7(this.now()).toLowerCase()}`;
+    item.server = server;
+    item.tool = tool;
+    item.arguments = structuredClone(args);
+    const startedMs = this.now();
+    turn.mcpCalls ??= new Map();
+    turn.mcpCalls.set(item.id, { item: structuredClone(item), startedMs });
+    this.broadcast(th, this.t.g8.started, { ...structuredClone(this.t.g8.started.params), item, threadId: th.id, turnId: turn.id, startedAtMs: startedMs });
+    return { threadId: th.id, turnId: turn.id, itemId: item.id };
+  }
+
+  // oacFake/mcp/complete: the call returned. Sends `item/completed` for the item
+  // oacFake/mcp/start made: status `completed`, or `failed` for a tool error result (the
+  // recorded refusal: status failed, the refusal text in result.content, error null, and no
+  // isError member in result). `text` is the result's one text block. The recorded
+  // text was elided from the fixture, so the shape (content, structuredContent null, _meta
+  // null) is the recording's and the text is the caller's.
+  mcpComplete({ threadId, itemId, outcome = 'completed', text } = {}) {
+    const th = this.threads.get(threadId);
+    if (!th) throw new RpcError(-32602, `unknown thread ${threadId}`);
+    if (!th.activeTurn) throw new RpcError(-32602, `thread ${threadId} has no running turn`);
+    if (outcome !== 'completed' && outcome !== 'failed') throw new RpcError(-32602, 'outcome must be completed or failed');
+    if (typeof text !== 'string') throw new RpcError(-32602, 'text must be a string');
+    const turn = th.activeTurn;
+    const call = turn.mcpCalls?.get(itemId);
+    if (!call) throw new RpcError(-32602, `no started mcpToolCall ${itemId} in the running turn`);
+    turn.mcpCalls.delete(itemId);
+    const tpl = outcome === 'failed' ? this.t.g8.failed : this.t.g8.completed;
+    const item = structuredClone(call.item);
+    item.status = outcome;
+    item.result = structuredClone(tpl.params.item.result);
+    item.result.content = [{ ...structuredClone(tpl.params.item.result.content[0]), type: 'text', text }];
+    item.error = null;
+    const done = this.now();
+    item.durationMs = done - call.startedMs;
+    turn.items.push(item);
+    this.broadcast(th, tpl, { ...structuredClone(tpl.params), item: structuredClone(item), threadId: th.id, turnId: turn.id, completedAtMs: done });
+    return { threadId: th.id, turnId: turn.id, itemId, status: outcome };
   }
 
   // Finish the running turn. status "completed" (recorded, D6 conn1) or "interrupted"
