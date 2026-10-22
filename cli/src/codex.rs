@@ -576,8 +576,14 @@ mod platform {
     //! and waits (`WSAWaitForMultipleEvents`) on that event and on a wake event the closer
     //! sets. A receive still pending when the reader is woken stays registered with the
     //! socket and is reaped when the socket is closed: `closesocket` cancels outstanding
-    //! overlapped operations (Learn, `closesocket`, Remarks), and the buffer and `OVERLAPPED`
-    //! live until `WSAGetOverlappedResult` has seen the operation end.
+    //! overlapped operations (Learn, `closesocket`, Remarks). The descriptor may be reused by
+    //! the system as soon as it is closed, so nothing is asked of it afterwards: the reaper
+    //! waits on the receive's own event, which is signalled when the cancelled operation
+    //! completes, and only then frees the buffer and the `OVERLAPPED` (Learn, `closesocket`:
+    //! resources are not to be cleaned up until the I/O requests have completed). If that wait
+    //! fails the memory is leaked, never freed under a receive that might still write to it.
+    //! The byte count is read with `WSAGetOverlappedResult` on the open socket (Learn,
+    //! `WSARecv`: pass NULL for `lpNumberOfBytesRecvd` when an `OVERLAPPED` is used).
     use std::io::{self, Read, Write};
     use std::path::Path;
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -642,12 +648,16 @@ mod platform {
                 .unwrap_or_else(|e| e.into_inner())
                 .take()
             {
-                let (mut n, mut flags) = (0u32, 0u32);
-                // SAFETY: the overlapped is the one the receive was issued with, still alive;
-                // waiting makes sure the operation has ended before its memory is freed.
-                unsafe {
-                    WSAGetOverlappedResult(self.socket, &*p.overlapped, &mut n, 1, &mut flags)
-                };
+                // Wait on the receive's own event, not on the closed descriptor.
+                let event = p.event as HANDLE;
+                // SAFETY: one live event handle, owned by `p`.
+                let r = unsafe { WSAWaitForMultipleEvents(1, &event, 1, WSA_INFINITE, 0) };
+                if r == WSA_WAIT_EVENT_0 as u32 {
+                    drop(p);
+                } else {
+                    // The operation may still write to its buffer: leak it rather than free it.
+                    std::mem::forget(p);
+                }
             }
         }
     }
@@ -697,7 +707,7 @@ mod platform {
             };
             pending.wsabuf.buf = pending.data.as_mut_ptr();
             pending.overlapped.hEvent = event as HANDLE;
-            let (mut received, mut flags) = (0u32, 0u32);
+            let mut flags = 0u32;
             // SAFETY: `wsabuf`, `data` and `overlapped` are boxed and outlive the operation
             // (they move into the socket's pending slot if the reader is woken first).
             let rc = unsafe {
@@ -705,17 +715,17 @@ mod platform {
                     self.socket.socket,
                     &*pending.wsabuf,
                     1,
-                    &mut received,
+                    std::ptr::null_mut(),
                     &mut flags,
                     &mut *pending.overlapped,
                     None,
                 )
             };
+            // SAFETY: no preconditions.
+            if rc != 0 && unsafe { WSAGetLastError() } != WSA_IO_PENDING {
+                return Ok(false); // reset or closed: the end of the stream here
+            }
             if rc != 0 {
-                // SAFETY: no preconditions.
-                if unsafe { WSAGetLastError() } != WSA_IO_PENDING {
-                    return Ok(false); // reset or closed: the end of the stream here
-                }
                 let events = [event as HANDLE, self.wake.event as HANDLE];
                 // SAFETY: two live event handles.
                 let r = unsafe { WSAWaitForMultipleEvents(2, events.as_ptr(), 0, WSA_INFINITE, 0) };
@@ -742,22 +752,17 @@ mod platform {
                         .unwrap_or_else(|e| e.into_inner()) = Some(pending);
                     return Err(error);
                 }
-                let (mut n, mut f) = (0u32, 0u32);
-                // SAFETY: the operation has completed (its event is set).
-                let ok = unsafe {
-                    WSAGetOverlappedResult(
-                        self.socket.socket,
-                        &*pending.overlapped,
-                        &mut n,
-                        0,
-                        &mut f,
-                    )
-                };
-                if ok == 0 {
-                    return Ok(false); // aborted or reset: the end of the stream here
-                }
-                received = n;
             }
+            let (mut n, mut f) = (0u32, 0u32);
+            // SAFETY: the operation has completed (an immediate completion, or its event is set),
+            // on a socket that is still open.
+            let ok = unsafe {
+                WSAGetOverlappedResult(self.socket.socket, &*pending.overlapped, &mut n, 0, &mut f)
+            };
+            if ok == 0 {
+                return Ok(false); // aborted or reset: the end of the stream here
+            }
+            let received = n;
             if received == 0 {
                 return Ok(false);
             }
