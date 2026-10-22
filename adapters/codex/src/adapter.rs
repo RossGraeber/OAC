@@ -136,8 +136,11 @@ struct Att {
     phase: Phase,
     /// The connection's server, once the carrier is up.
     server: Option<ServerHandle>,
-    /// The native thread id the last reveal named. Kept by this module only; not committed.
-    learned: Option<String>,
+    /// The distinct native thread ids that reveals named since the last `set_binding`, in
+    /// order (bounded). Kept by this module only; not committed. The core decides on a value,
+    /// not on a thread, and `set_binding` does not say which reveal it decided on, so a second
+    /// thread before the decision makes the choice ambiguous: nothing is committed then.
+    pending: Vec<String>,
     /// The session the core's latest `set_binding` named.
     bound: Option<SessionId>,
     /// The thread of a delivery: `learned`, committed by the `set_binding` that named a
@@ -149,12 +152,49 @@ struct Att {
     reply_records_evicted: bool,
 }
 
+/// The most distinct threads kept between two `set_binding` calls.
+const PENDING_KEPT: usize = 4;
+
 impl Att {
+    /// A reveal named `thread`.
+    fn revealed(&mut self, thread: &str) {
+        if !self.pending.iter().any(|t| t == thread) && self.pending.len() < PENDING_KEPT {
+            self.pending.push(thread.to_owned());
+        }
+    }
+
+    /// The core's `set_binding` named `session`: the thread of delivery becomes the one thread
+    /// the reveals since the last call named. Two or more make the core's decision ambiguous
+    /// (the second reveal could be a forged one for another thread, [MCPB-ATT-011]), so no
+    /// thread is committed. With no reveal since, the committed thread stands.
+    fn bind(&mut self, session: SessionId) {
+        // A different session id is a new session: what the earlier one was handed carries
+        // nothing forward ([SC-ID-151]).
+        if self.bound.as_ref().is_some_and(|b| *b != session) {
+            self.handed.clear();
+            self.reply_records_evicted = false;
+        }
+        self.bound = Some(session);
+        match self.pending.len() {
+            0 => {}
+            1 => self.thread = self.pending.pop(),
+            _ => self.thread = None,
+        }
+        self.pending.clear();
+    }
+
+    /// The core's binding ended: a binding that ended needs a new reveal.
+    fn unbind(&mut self) {
+        self.bound = None;
+        self.thread = None;
+        self.pending.clear();
+    }
+
     fn new() -> Att {
         Att {
             phase: Phase::Opening,
             server: None,
-            learned: None,
+            pending: Vec::new(),
             bound: None,
             thread: None,
             handed: VecDeque::new(),
@@ -348,7 +388,7 @@ impl Inner {
             let Some(att) = st.attachments.get_mut(a) else {
                 return;
             };
-            att.learned = Some(reveal.native_id().to_owned());
+            att.revealed(reveal.native_id());
             (st.handler.clone(), st.carrier_handle.clone())
         };
         self.emit(
@@ -785,22 +825,8 @@ impl ProviderAdapter for CodexAdapter {
             };
             let bound = session.is_some();
             match session {
-                Some(s) => {
-                    // A different session id is a new session: what the earlier one was
-                    // handed carries nothing forward ([SC-ID-151]).
-                    if att.bound.as_ref().is_some_and(|b| *b != s) {
-                        att.handed.clear();
-                        att.reply_records_evicted = false;
-                    }
-                    att.bound = Some(s);
-                    // The thread the reveal named is committed by the core's binding.
-                    att.thread = att.learned.clone();
-                }
-                None => {
-                    att.bound = None;
-                    att.thread = None;
-                    att.learned = None;
-                }
+                Some(session) => att.bind(session),
+                None => att.unbind(),
             }
             (pairing, bound)
         };
@@ -991,6 +1017,49 @@ impl ProviderAdapter for CodexAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn session(n: u8) -> SessionId {
+        // Parsed, not minted: an adapter's source mints no session id ([IFC-ADP-007]).
+        SessionId::parse(if n == 1 {
+            "01harn7x9k2m4p6q8r0s2t4v6w"
+        } else {
+            "7gq3m8z2c5k9t1w4x6b0n2r8vd"
+        })
+        .unwrap()
+    }
+
+    /// The commit follows the reveals since the last decision: one thread commits, a second
+    /// thread before the decision commits nothing (it could be a forged reveal, [MCPB-ATT-011]),
+    /// no reveal leaves the committed thread, and an ended binding needs a new reveal.
+    #[test]
+    fn the_core_decision_commits_only_an_unambiguous_thread() {
+        let mut a = Att::new();
+        a.revealed("t1");
+        a.revealed("t1");
+        a.bind(session(1));
+        assert_eq!(a.thread.as_deref(), Some("t1"));
+        // Re-bound with no new reveal: unchanged.
+        a.bind(session(1));
+        assert_eq!(a.thread.as_deref(), Some("t1"));
+        // Two threads before one decision: nothing is committed, not even the earlier one.
+        a.revealed("t2");
+        a.revealed("t3");
+        a.bind(session(1));
+        assert_eq!(a.thread, None);
+        assert!(a.pending.is_empty());
+        // Ended: a binding that ended needs a new reveal.
+        a.revealed("t4");
+        a.bind(session(2));
+        assert_eq!(a.thread.as_deref(), Some("t4"));
+        a.unbind();
+        a.bind(session(2));
+        assert_eq!(a.thread, None);
+        // Bounded.
+        for i in 0..20 {
+            a.revealed(&format!("t{i}"));
+        }
+        assert_eq!(a.pending.len(), PENDING_KEPT);
+    }
 
     /// The table of the module documentation: every answer of the add maps to one outcome.
     #[test]

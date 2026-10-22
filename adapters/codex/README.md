@@ -136,3 +136,9 @@ close payload, degraded health and recovery, and private event Debug output. The
 in the default tier with no live harness. The security mutation runner currently targets
 core mitigations and the security suite, which cannot reach this client-only crate;
 the two review mutations are checked against this crate's unit tests directly.
+
+## For S5 (the daemon's wiring)
+
+- **One carrier per adapter life; a lost carrier is permanent.** If Codex's app-server restarts (for example the auto-updater), Codex is unusable until OAC restarts. S5 must either rebuild the adapter when the carrier is lost, or allow a fresh designation after `Lost` (`designate_carrier` refuses a second one today). Recorded as `docs/planning/v0.1/11-risks.md` row 90.
+- **Order.** The daemon must designate the carrier (`CodexAdapter::designate_carrier(handle)`) and hand it over with `Pipelines::connect_carrier` **before** any shim connection arrives: with no carrier a shim connection is closed, and while the carrier connects it waits.
+- **Surface.** The adapter uses the legacy event surface; interfaces 0.5/0.6's cooperative local-call surface is not implemented for Codex.

@@ -4583,6 +4583,11 @@ fn an_unconfirmed_event_for_an_unbound_attachment_is_a_finding_without_a_binding
         told_before,
         "the event changed what the adapter was told of an attachment that was never bound"
     );
+    // The stop of [IFC-ADP-092] is in force between the event and the reveal: a request from
+    // the attachment is refused.
+    let r = n.adapter.sink().send(request(&a, &stranger(), "between"));
+    assert_eq!(r.error(), Some(ErrorCode::Unauthorized), "{r:?}");
+    assert_eq!(r.outcome(), "refused");
     // Another attachment is not touched: it is still refused with a value, not stopped.
     assert_ne!(pairing_refusal(&n, &other), None);
     // A signal after the event pairs it, with the value issued before the event.

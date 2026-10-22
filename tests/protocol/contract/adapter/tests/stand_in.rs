@@ -1047,8 +1047,7 @@ fn the_queue_stand_in_passes_against_the_fake_codex_app_server() {
                 .rows
                 .iter()
                 .any(|r| r.id == id && matches!(r.verdict, oac_contract_adapter::Verdict::Pass(_))),
-            "no passing {id} row:
-{report}"
+            "no passing {id} row:\n{report}"
         );
     }
     for id in [
@@ -1327,8 +1326,7 @@ fn the_suite_catches_each_planted_queue_harness_breach() {
                     .rows
                     .iter()
                     .any(|r| r.check == "harness-profile-is-the-bindings" && r.verdict.is_fail()),
-                "{what}:
-{report}"
+                "{what}:\n{report}"
             );
         }
     }
