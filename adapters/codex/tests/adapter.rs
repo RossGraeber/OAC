@@ -956,6 +956,10 @@ impl Scene {
 fn a_lost_carrier_can_be_designated_again_and_a_live_one_cannot() {
     let mut s = Scene::new();
     assert_eq!(s.adapter.carrier_state(), CarrierState::Up);
+    // A session served through this carrier, paired, with a hand-off built for it.
+    let mut old = s.session();
+    s.pair(&mut old);
+    let old_hand_off = s.hand_off(&old, "to the attachment of a lost carrier");
     let (spare, _keep) = shim_connection();
     assert!(
         !s.adapter.designate_carrier(spare.handle()),
@@ -988,6 +992,26 @@ fn a_lost_carrier_can_be_designated_again_and_a_live_one_cannot() {
         assert!(Instant::now() < end, "the new carrier did not come up");
         std::thread::sleep(Duration::from_millis(10));
     }
+    // The attachment of the lost carrier is fenced off: the core binding it again changes
+    // nothing, and a hand-off to it is not sent (the new carrier serves none of its
+    // threads, and nothing reaches the new pairing).
+    let before = s.adapter.bound_session(&old.handle);
+    assert_eq!(before, Some(s.session_of(&old)));
+    s.adapter
+        .set_binding(&old.handle, Some(SessionId::from_random_octets([0x77; 16])));
+    assert_eq!(
+        s.adapter.bound_session(&old.handle),
+        before,
+        "the lost carrier's attachment is not re-bound"
+    );
+    assert_eq!(s.adapter.deliver(old_hand_off), HandOffOutcome::Failed);
+    // It can still be unbound.
+    s.adapter.set_binding(&old.handle, None);
+    assert_eq!(s.adapter.bound_session(&old.handle), None);
+    assert!(
+        fake.client_calls_of("thread/queue/add").is_empty(),
+        "nothing was handed to the new app-server"
+    );
     // A shim connection is served through it.
     let (conn, mut shim) = shim_connection();
     s.adapter.take_connection(conn);

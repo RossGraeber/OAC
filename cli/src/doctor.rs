@@ -246,6 +246,11 @@ fn codex_check(probes: &Probes<'_>) -> Check {
             Fail,
             "the Codex control socket is not served by a process of this user",
         ),
+        SocketProbe::Unverified => check(
+            "codex",
+            Warn,
+            "the Codex control socket accepted a connection and the owner of its server could not be verified",
+        ),
         SocketProbe::Unreachable(why) => check(
             "codex",
             Warn,

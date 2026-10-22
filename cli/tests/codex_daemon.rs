@@ -805,7 +805,14 @@ impl Host {
 
 impl Drop for Host {
     fn drop(&mut self) {
+        // Ask the host to end its shims and itself, and give it a bounded moment, so that the
+        // shim processes (its children) exit before it is killed (#435).
         let _ = writeln!(self.commands, "0 exit");
+        let _ = self.commands.flush();
+        let end = Instant::now() + Duration::from_secs(5);
+        while Instant::now() < end && !matches!(self.child.try_wait(), Ok(Some(_))) {
+            std::thread::sleep(Duration::from_millis(25));
+        }
         let _ = self.child.kill();
         let _ = self.child.wait();
     }

@@ -51,7 +51,14 @@ impl Drop for Dir {
 struct Seen {
     connections: AtomicUsize,
     octets: AtomicUsize,
+    /// Connections whose client closed (the server read end of stream).
+    closed: AtomicUsize,
     stop: AtomicBool,
+}
+
+/// The bytes a fake server sends: a pattern that shows loss, repeats and reordering.
+fn pattern(n: usize) -> Vec<u8> {
+    (0..n).map(|i| (i % 251) as u8).collect()
 }
 
 fn eventually(what: &str, mut f: impl FnMut() -> bool) {
@@ -65,7 +72,7 @@ fn eventually(what: &str, mut f: impl FnMut() -> bool) {
 #[cfg(unix)]
 mod server {
     use super::*;
-    use std::io::Read;
+    use std::io::{Read, Write};
     use std::os::unix::net::UnixListener;
 
     pub struct Server {
@@ -74,7 +81,7 @@ mod server {
     }
 
     impl Server {
-        pub fn listen(path: &Path) -> Server {
+        pub fn serve_at(path: &Path, payload: usize) -> Server {
             let listener = UnixListener::bind(path).expect("bind the fake control socket");
             listener.set_nonblocking(true).unwrap();
             let seen = Arc::new(Seen::default());
@@ -85,7 +92,7 @@ mod server {
                         Ok((mut conn, _)) => {
                             s.connections.fetch_add(1, Ordering::SeqCst);
                             conn.set_nonblocking(false).unwrap();
-                            let _ = conn.set_read_timeout(Some(Duration::from_millis(200)));
+                            conn.write_all(&pattern(payload)).unwrap();
                             let mut buf = [0u8; 64];
                             while let Ok(n) = conn.read(&mut buf) {
                                 if n == 0 {
@@ -93,6 +100,7 @@ mod server {
                                 }
                                 s.octets.fetch_add(n, Ordering::SeqCst);
                             }
+                            s.closed.fetch_add(1, Ordering::SeqCst);
                         }
                         Err(_) => std::thread::sleep(Duration::from_millis(10)),
                     }
@@ -118,7 +126,7 @@ mod server {
     use super::*;
     use windows_sys::Win32::Networking::WinSock::{
         AF_UNIX, FIONBIO, SOCK_STREAM, SOCKADDR, SOCKADDR_UN, WSADATA, WSAStartup, accept, bind,
-        closesocket, ioctlsocket, listen, recv, socket,
+        closesocket, ioctlsocket, listen, recv, send, socket,
     };
 
     pub struct Server {
@@ -127,7 +135,7 @@ mod server {
     }
 
     impl Server {
-        pub fn listen(path: &Path) -> Server {
+        pub fn serve_at(path: &Path, payload: usize) -> Server {
             let bytes = path.to_str().unwrap().as_bytes();
             // SAFETY: plain Winsock calls on sockets this function owns; `address` is a live
             // SOCKADDR_UN of at least the length passed.
@@ -171,6 +179,16 @@ mod server {
                     let mut blocking: u32 = 0;
                     // SAFETY: `conn` is ours; the buffer is a live local.
                     unsafe { ioctlsocket(conn, FIONBIO, &mut blocking) };
+                    let data = pattern(payload);
+                    let mut sent = 0;
+                    while sent < data.len() {
+                        // SAFETY: the slice is live for the length passed.
+                        let n = unsafe {
+                            send(conn, data[sent..].as_ptr(), (data.len() - sent) as i32, 0)
+                        };
+                        assert!(n > 0, "the fake server could not send");
+                        sent += n as usize;
+                    }
                     let mut buf = [0u8; 64];
                     loop {
                         // SAFETY: `buf` is a live buffer of the length passed.
@@ -180,6 +198,7 @@ mod server {
                         }
                         s.octets.fetch_add(n as usize, Ordering::SeqCst);
                     }
+                    s.closed.fetch_add(1, Ordering::SeqCst);
                     // SAFETY: `conn` is ours and closed once.
                     unsafe { closesocket(conn) };
                 }
@@ -233,7 +252,7 @@ fn the_doctor_tells_an_absent_a_live_and_a_stale_control_socket_apart_without_se
     assert_eq!(probe_control_socket(Some(&path)), SocketProbe::Absent);
     assert_eq!(check_of(SocketProbe::Absent).result, CheckResult::Skip);
 
-    let server = Server::listen(&path);
+    let server = Server::serve_at(&path, 0);
     assert_eq!(probe_control_socket(Some(&path)), SocketProbe::Reachable);
     let seen = server.seen.clone();
     eventually("the server accepted the probe", || {
@@ -267,7 +286,7 @@ fn the_doctor_tells_an_absent_a_live_and_a_stale_control_socket_apart_without_se
 fn the_opener_authenticates_the_server_and_reads_its_process_id_from_the_operating_system() {
     let dir = Dir::new("o");
     let path = dir.socket();
-    let server = Server::listen(&path);
+    let server = Server::serve_at(&path, 0);
     assert_eq!(
         control_socket_server(&path),
         Ok(Some(std::process::id())),
@@ -297,4 +316,65 @@ fn the_opener_authenticates_the_server_and_reads_its_process_id_from_the_operati
         Err(OpenError::Absent) => {}
         other => panic!("{:?}", other.err()),
     }
+}
+
+/// A stream that spans many reads arrives whole and in order (reads smaller and larger than
+/// one receive), the writer reaches the server, and `close` wakes a read that is blocked in
+/// another thread (which returns the end of the stream) and ends the connection for the server.
+/// On Windows this is the overlapped receive and its wake event, not a receive timeout.
+#[test]
+fn a_long_stream_arrives_whole_and_close_wakes_a_blocked_reader() {
+    use std::io::{Read, Write};
+    const TOTAL: usize = 300_007;
+    let dir = Dir::new("w");
+    let path = dir.socket();
+    let server = Server::serve_at(&path, TOTAL);
+    let seen = server.seen.clone();
+    let mut socket = oac_cli::codex::open_blocking(&path).expect("the control socket opens");
+
+    let mut got = Vec::with_capacity(TOTAL);
+    let mut sizes = [1usize, 7, 1000, 8191, 8192, 20_000].into_iter().cycle();
+    let end = Instant::now() + WAIT;
+    while got.len() < TOTAL {
+        assert!(Instant::now() < end, "the stream stalled at {}", got.len());
+        let mut buf = vec![0u8; sizes.next().unwrap()];
+        let n = socket.reader.read(&mut buf).expect("a read");
+        assert!(n > 0, "the stream ended early at {}", got.len());
+        got.extend_from_slice(&buf[..n]);
+    }
+    assert_eq!(got.len(), TOTAL);
+    assert!(
+        got == pattern(TOTAL),
+        "bytes were lost, repeated or reordered"
+    );
+
+    // The writer reaches the server.
+    socket.writer.write_all(b"hello").unwrap();
+    eventually("the server read what was written", || {
+        seen.octets.load(Ordering::SeqCst) == 5
+    });
+
+    // The server sends nothing more: the reader blocks in a receive in another thread.
+    let mut reader = socket.reader;
+    let (tx, rx) = std::sync::mpsc::channel();
+    let blocked = std::thread::spawn(move || {
+        let mut buf = [0u8; 64];
+        let _ = tx.send(reader.read(&mut buf));
+    });
+    assert!(
+        rx.recv_timeout(Duration::from_millis(300)).is_err(),
+        "the read returned with nothing to read"
+    );
+    (socket.close)();
+    let woken = rx
+        .recv_timeout(WAIT)
+        .expect("close woke the blocked reader")
+        .expect("a read result");
+    assert_eq!(woken, 0, "the end of the stream");
+    blocked.join().unwrap();
+    eventually("the server saw the connection end", || {
+        seen.closed.load(Ordering::SeqCst) == 1
+    });
+    drop(socket.writer);
+    server.stop();
 }

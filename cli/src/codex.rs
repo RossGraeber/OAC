@@ -26,7 +26,10 @@
 //!   through `windows-sys` (the `Win32_Networking_WinSock` feature, approved by the lead
 //!   2026-10-21). The server's process id comes from `WSAIoctl` with
 //!   `SIO_AF_UNIX_GETPEERPID`, and that process's token owner must be this user's
-//!   (`crate::peer::process_is_current_user`). **UNVERIFIED in first-party documentation:**
+//!   (`crate::peer::process_user_matches`, pinned by the process's start time, read before the
+//!   check and used again for the observation, so a recycled id is not mistaken for it; an
+//!   id or start time that cannot be read is [`OpenError::Unverified`], not "another user").
+//!   **UNVERIFIED in first-party documentation:**
 //!   the Microsoft Learn pages for `WSAIoctl`, the Winsock IOCTL list and the 2018 `AF_UNIX`
 //!   announcement do not mention this control code, and the announcement says the Windows
 //!   implementation has no ancillary data. The constant is defined in the Windows SDK
@@ -119,8 +122,11 @@ pub enum OpenError {
     Absent,
     /// Something is there, and the connection failed.
     Unreachable(String),
-    /// The server is not this user's process, or its user could not be established.
+    /// The server's owner was established and is another user.
     NotThisUser,
+    /// The server's owner could not be established (its user or process id could not be
+    /// read). The same outcome on every platform: no carrier, a warning in doctor.
+    Unverified,
 }
 
 impl std::fmt::Display for OpenError {
@@ -130,6 +136,9 @@ impl std::fmt::Display for OpenError {
             OpenError::Unreachable(why) => write!(f, "the Codex control socket: {why}"),
             OpenError::NotThisUser => {
                 f.write_str("the Codex control socket is not served by a process of this user")
+            }
+            OpenError::Unverified => {
+                f.write_str("could not verify the owner of the Codex control socket's server")
             }
         }
     }
@@ -163,7 +172,7 @@ pub struct CarrierWiring {
 pub fn control_socket_opener(path: PathBuf) -> CarrierOpener {
     Arc::new(move |runtime| {
         let socket = platform::connect(&path)?;
-        let observation = observe_server(socket.pid);
+        let observation = observe_server(socket.process.as_ref());
         Ok(OpenedCarrier {
             stream: blocking_stream(runtime, socket.reader, socket.writer, socket.close),
             observation,
@@ -171,27 +180,39 @@ pub fn control_socket_opener(path: PathBuf) -> CarrierOpener {
     })
 }
 
-/// The server process as the Codex harness process, or the label alone.
-fn observe_server(pid: Option<u32>) -> PeerObservation {
-    let label_only = || PeerObservation {
-        harness_label: oac_core::ids::Token::parse(LABEL),
-        ..PeerObservation::none()
-    };
-    let (Some(pid), Ok(table)) = (pid, SystemTable::new()) else {
-        return label_only();
-    };
-    let Some(started) = peer::process_started(pid) else {
-        return label_only();
-    };
-    peer::observe_process(&table, LABEL, &ProcessId { pid, started })
+/// The server process as the Codex harness process, or the label alone. The process is the
+/// one pinned (id and start time) when its owner was checked.
+fn observe_server(process: Option<&ProcessId>) -> PeerObservation {
+    match (process, SystemTable::new()) {
+        (Some(process), Ok(table)) => peer::observe_process(&table, LABEL, process),
+        _ => PeerObservation {
+            harness_label: oac_core::ids::Token::parse(LABEL),
+            ..PeerObservation::none()
+        },
+    }
 }
 
 /// An authenticated blocking connection to the control socket.
-struct Socket {
-    reader: Box<dyn Read + Send>,
-    writer: Box<dyn Write + Send>,
-    close: Box<dyn Fn() + Send + Sync>,
-    pid: Option<u32>,
+pub struct Socket {
+    /// Reads the server's bytes; `Ok(0)` is the end of the stream, and also what a blocked
+    /// read returns once `close` has been called.
+    pub reader: Box<dyn Read + Send>,
+    /// Writes to the server.
+    pub writer: Box<dyn Write + Send>,
+    /// Ends the connection and wakes a read blocked in another thread.
+    pub close: Box<dyn Fn() + Send + Sync>,
+    /// The server process, pinned by its start time, when the platform gives its id.
+    pub process: Option<ProcessId>,
+}
+
+/// Opens the control socket at `path` as a blocking [`Socket`], authenticating its server as
+/// this user's.
+///
+/// # Errors
+///
+/// As [`OpenError`].
+pub fn open_blocking(path: &Path) -> Result<Socket, OpenError> {
+    platform::connect(path)
 }
 
 /// A blocking stream as an async one, for [`relay::attach`]: two threads move bytes between
@@ -256,7 +277,7 @@ pub fn blocking_stream(
 /// As [`OpenError`].
 pub fn control_socket_server(path: &Path) -> Result<Option<u32>, OpenError> {
     let socket = platform::connect(path)?;
-    let pid = socket.pid;
+    let pid = socket.process.map(|p| p.pid);
     (socket.close)();
     Ok(pid)
 }
@@ -270,8 +291,10 @@ pub enum SocketProbe {
     Absent,
     /// A connection was accepted and the server is a process of this user.
     Reachable,
-    /// The server is not this user's process.
+    /// The server is another user's process (confirmed).
     OtherUser,
+    /// The server's owner could not be verified.
+    Unverified,
     /// A socket is there and the connection failed (a stale socket, or a server that is
     /// not accepting).
     Unreachable(String),
@@ -290,6 +313,7 @@ pub fn probe_control_socket(path: Option<&Path>) -> SocketProbe {
         }
         Err(OpenError::Absent) => SocketProbe::Absent,
         Err(OpenError::NotThisUser) => SocketProbe::OtherUser,
+        Err(OpenError::Unverified) => SocketProbe::Unverified,
         Err(OpenError::Unreachable(why)) => SocketProbe::Unreachable(why),
     }
 }
@@ -316,6 +340,8 @@ pub struct CarrierDriver {
     runtime: Handle,
     log: LogSink,
     serial: tokio::sync::Mutex<()>,
+    /// Set when the daemon shuts down: an attempt in flight is abandoned, not waited for.
+    stopped: tokio::sync::watch::Receiver<bool>,
 }
 
 impl CarrierDriver {
@@ -326,6 +352,7 @@ impl CarrierDriver {
         pipelines: Arc<Pipelines>,
         runtime: Handle,
         log: LogSink,
+        stopped: tokio::sync::watch::Receiver<bool>,
     ) -> Arc<CarrierDriver> {
         Arc::new(CarrierDriver {
             adapter: wiring.adapter,
@@ -335,6 +362,7 @@ impl CarrierDriver {
             runtime,
             log,
             serial: tokio::sync::Mutex::new(()),
+            stopped,
         })
     }
 
@@ -342,6 +370,19 @@ impl CarrierDriver {
     /// at start and for each Codex shim connection, **before** the shim is given to the core.
     /// Calls are serialized, so shims that arrive together open one carrier.
     pub async fn ensure(self: &Arc<Self>) -> Ensured {
+        let mut stopped = self.stopped.clone();
+        if *stopped.borrow() {
+            return Ensured::Failed;
+        }
+        // Shutdown abandons the attempt (the blocking open finishes on its own thread and
+        // its stream is dropped) rather than waiting for it: up to `OPEN_WAIT` otherwise.
+        tokio::select! {
+            ensured = self.ensure_once() => ensured,
+            _ = stopped.changed() => Ensured::Failed,
+        }
+    }
+
+    async fn ensure_once(self: &Arc<Self>) -> Ensured {
         let _one = self.serial.lock().await;
         match self.adapter.carrier_state() {
             CarrierState::Up | CarrierState::Connecting => return Ensured::Present,
@@ -423,6 +464,7 @@ mod platform {
     use std::path::Path;
 
     use super::{OpenError, Socket};
+    use crate::peer::{self, ProcessId};
 
     fn euid() -> u32 {
         // SAFETY: geteuid has no preconditions, cannot fail and touches no memory of ours.
@@ -451,7 +493,9 @@ mod platform {
         Ok((cred.uid, u32::try_from(cred.pid).ok().filter(|p| *p != 0)))
     }
 
-    #[cfg(not(target_os = "linux"))]
+    /// macOS: `getpeereid` for the user, `LOCAL_PEERPID` (0x002 at level `SOL_LOCAL`, 0) for
+    /// the process.
+    #[cfg(target_os = "macos")]
     fn server(fd: std::os::fd::RawFd) -> io::Result<(u32, Option<u32>)> {
         let (mut uid, mut gid) = (0 as libc::uid_t, 0 as libc::gid_t);
         // SAFETY: `uid` and `gid` are locals.
@@ -460,8 +504,7 @@ mod platform {
         }
         let mut pid: libc::pid_t = 0;
         let mut len = std::mem::size_of::<libc::pid_t>() as libc::socklen_t;
-        // SAFETY: `pid` and `len` are locals of the sizes passed. LOCAL_PEERPID is 0x002 at
-        // level SOL_LOCAL (0).
+        // SAFETY: `pid` and `len` are locals of the sizes passed.
         let rc = unsafe {
             libc::getsockopt(
                 fd,
@@ -475,20 +518,35 @@ mod platform {
         Ok((uid, pid.filter(|p| *p != 0)))
     }
 
+    /// Other Unixes: the user only. There is no process id here, so no pairing key (never a
+    /// guessed one).
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    fn server(fd: std::os::fd::RawFd) -> io::Result<(u32, Option<u32>)> {
+        let (mut uid, mut gid) = (0 as libc::uid_t, 0 as libc::gid_t);
+        // SAFETY: `uid` and `gid` are locals.
+        if unsafe { libc::getpeereid(fd, &mut uid, &mut gid) } != 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok((uid, None))
+    }
+
     pub fn connect(path: &Path) -> Result<Socket, OpenError> {
-        match std::fs::symlink_metadata(path) {
-            Err(e) if e.kind() == io::ErrorKind::NotFound => return Err(OpenError::Absent),
-            _ => {}
+        if let Err(e) = std::fs::symlink_metadata(path)
+            && e.kind() == io::ErrorKind::NotFound
+        {
+            return Err(OpenError::Absent);
         }
         let stream = UnixStream::connect(path).map_err(|e| match e.kind() {
             io::ErrorKind::NotFound => OpenError::Absent,
             _ => OpenError::Unreachable(format!("connect failed ({:?})", e.kind())),
         })?;
-        let (uid, pid) = server(stream.as_raw_fd())
-            .map_err(|_| OpenError::Unreachable("the server's user could not be read".into()))?;
+        let (uid, pid) = server(stream.as_raw_fd()).map_err(|_| OpenError::Unverified)?;
         if uid != euid() {
             return Err(OpenError::NotThisUser);
         }
+        // The start time pins the process the id names now.
+        let process = pid
+            .and_then(|pid| peer::process_started(pid).map(|started| ProcessId { pid, started }));
         let reader = stream
             .try_clone()
             .map_err(|e| OpenError::Unreachable(format!("{:?}", e.kind())))?;
@@ -499,81 +557,237 @@ mod platform {
             reader: Box::new(reader),
             writer: Box::new(writer),
             close: Box::new(move || {
+                // Already disconnected is the usual answer when the peer closed first.
                 let _ = stream.shutdown(std::net::Shutdown::Both);
             }),
-            pid,
+            process,
         })
     }
 }
 
 #[cfg(windows)]
 mod platform {
+    //! Winsock `AF_UNIX`, overlapped.
+    //!
+    //! Microsoft Learn, "SOL_SOCKET Socket Options", `SO_RCVTIMEO`: when a blocking receive
+    //! times out, the connection is in an indeterminate state and should be closed, so a
+    //! receive timeout is not used to wake a reader. The socket is created overlapped
+    //! (`WSASocketW` with `WSA_FLAG_OVERLAPPED`); the reader issues `WSARecv` with an event
+    //! and waits (`WSAWaitForMultipleEvents`) on that event and on a wake event the closer
+    //! sets. A receive still pending when the reader is woken stays registered with the
+    //! socket and is reaped when the socket is closed: `closesocket` cancels outstanding
+    //! overlapped operations (Learn, `closesocket`, Remarks), and the buffer and `OVERLAPPED`
+    //! live until `WSAGetOverlappedResult` has seen the operation end.
     use std::io::{self, Read, Write};
     use std::path::Path;
     use std::sync::atomic::{AtomicBool, Ordering};
-    use std::sync::{Arc, Once};
+    use std::sync::{Arc, Mutex, Once};
 
+    use windows_sys::Win32::Foundation::HANDLE;
     use windows_sys::Win32::Networking::WinSock::{
-        AF_UNIX, SD_BOTH, SIO_AF_UNIX_GETPEERPID, SO_RCVTIMEO, SOCK_STREAM, SOCKADDR, SOCKADDR_UN,
-        SOCKET, SOL_SOCKET, WSADATA, WSAETIMEDOUT, WSAGetLastError, WSAIoctl, WSAStartup,
-        closesocket, connect as winsock_connect, recv, send, setsockopt, shutdown, socket,
+        AF_UNIX, SD_BOTH, SIO_AF_UNIX_GETPEERPID, SOCK_STREAM, SOCKADDR, SOCKADDR_UN, SOCKET,
+        WSA_FLAG_NO_HANDLE_INHERIT, WSA_FLAG_OVERLAPPED, WSA_INFINITE, WSA_IO_PENDING,
+        WSA_WAIT_EVENT_0, WSABUF, WSACloseEvent, WSACreateEvent, WSADATA, WSAGetLastError,
+        WSAGetOverlappedResult, WSAIoctl, WSARecv, WSASetEvent, WSASocketW, WSAStartup,
+        WSAWaitForMultipleEvents, closesocket, connect as winsock_connect, send, shutdown,
     };
+    use windows_sys::Win32::System::IO::OVERLAPPED;
 
     use super::{OpenError, Socket};
+    use crate::peer::{self, ProcessId};
 
     const INVALID: SOCKET = usize::MAX;
+    /// The bytes one receive takes.
+    const RECV_BYTES: usize = 8192;
 
-    /// A Winsock socket, closed when the last reference goes.
-    struct Owned(SOCKET);
+    fn last_error(what: &str) -> io::Error {
+        // SAFETY: no preconditions.
+        io::Error::other(format!("{what} failed ({})", unsafe { WSAGetLastError() }))
+    }
 
-    impl Drop for Owned {
+    /// One receive in flight: the buffer and the `OVERLAPPED` must not move or be freed until
+    /// the operation has ended, so they are boxed and travel together.
+    struct Pending {
+        overlapped: Box<OVERLAPPED>,
+        data: Box<[u8; RECV_BYTES]>,
+        wsabuf: Box<WSABUF>,
+        event: isize,
+    }
+
+    // SAFETY: the raw pointers inside point only into this value's own boxes, and the value
+    // is used by one thread at a time (the reader, then whoever drops the socket).
+    unsafe impl Send for Pending {}
+
+    impl Drop for Pending {
         fn drop(&mut self) {
-            // SAFETY: the socket is ours and is closed once.
-            unsafe { closesocket(self.0) };
+            // SAFETY: the event was made by WSACreateEvent and is closed once.
+            unsafe { WSACloseEvent(self.event) };
         }
     }
 
-    /// How long one `recv` waits before it looks at the closing flag. Winsock's `shutdown`
-    /// does not wake a `recv` blocked in another thread, and closing the socket under it
-    /// would race with a reused handle, so the read wakes by itself. This is a local wake-up
-    /// of a blocked read, not a poll of the server or a reconnect timer.
-    const READ_TICK_MS: u32 = 250;
-
-    #[derive(Clone)]
-    struct Stream {
-        socket: Arc<Owned>,
-        closing: Arc<AtomicBool>,
+    /// A Winsock socket, closed when the last reference goes. A receive left pending is
+    /// reaped after the close.
+    struct Owned {
+        socket: SOCKET,
+        pending: Mutex<Option<Pending>>,
     }
 
-    impl Read for Stream {
-        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-            let len = buf.len().min(i32::MAX as usize) as i32;
-            loop {
-                if self.closing.load(Ordering::SeqCst) {
-                    return Ok(0);
-                }
-                // SAFETY: `buf` is a live buffer of at least `len` octets.
-                let n = unsafe { recv(self.socket.0, buf.as_mut_ptr(), len, 0) };
-                if n >= 0 {
-                    return Ok(n as usize);
-                }
-                // SAFETY: no preconditions.
-                if unsafe { WSAGetLastError() } == WSAETIMEDOUT {
-                    continue;
-                }
-                // A closed or reset connection is the end of the stream here.
-                return Ok(0);
+    impl Drop for Owned {
+        fn drop(&mut self) {
+            // SAFETY: the socket is ours and is closed once; this cancels the pending receive.
+            unsafe { closesocket(self.socket) };
+            if let Some(p) = self
+                .pending
+                .get_mut()
+                .unwrap_or_else(|e| e.into_inner())
+                .take()
+            {
+                let (mut n, mut flags) = (0u32, 0u32);
+                // SAFETY: the overlapped is the one the receive was issued with, still alive;
+                // waiting makes sure the operation has ended before its memory is freed.
+                unsafe {
+                    WSAGetOverlappedResult(self.socket, &*p.overlapped, &mut n, 1, &mut flags)
+                };
             }
         }
     }
 
-    impl Write for Stream {
+    /// The event that wakes a blocked reader.
+    struct Wake {
+        event: isize,
+        set: AtomicBool,
+    }
+
+    impl Drop for Wake {
+        fn drop(&mut self) {
+            // SAFETY: the event was made by WSACreateEvent and is closed once.
+            unsafe { WSACloseEvent(self.event) };
+        }
+    }
+
+    struct Reader {
+        socket: Arc<Owned>,
+        wake: Arc<Wake>,
+        /// Received and not yet handed on.
+        carry: Vec<u8>,
+        carried: usize,
+    }
+
+    impl Reader {
+        /// Receives into the carry; `Ok(false)` is the end of the stream (or a wake).
+        fn receive(&mut self) -> io::Result<bool> {
+            if self.wake.set.load(Ordering::SeqCst) {
+                return Ok(false);
+            }
+            // SAFETY: plain event creation.
+            let event = unsafe { WSACreateEvent() };
+            if event == 0 {
+                return Err(last_error("WSACreateEvent"));
+            }
+            // SAFETY: OVERLAPPED is plain data; zero is its documented starting value.
+            let overlapped = Box::new(unsafe { std::mem::zeroed::<OVERLAPPED>() });
+            let mut pending = Pending {
+                overlapped,
+                data: Box::new([0u8; RECV_BYTES]),
+                wsabuf: Box::new(WSABUF {
+                    len: RECV_BYTES as u32,
+                    buf: std::ptr::null_mut(),
+                }),
+                event,
+            };
+            pending.wsabuf.buf = pending.data.as_mut_ptr();
+            pending.overlapped.hEvent = event as HANDLE;
+            let (mut received, mut flags) = (0u32, 0u32);
+            // SAFETY: `wsabuf`, `data` and `overlapped` are boxed and outlive the operation
+            // (they move into the socket's pending slot if the reader is woken first).
+            let rc = unsafe {
+                WSARecv(
+                    self.socket.socket,
+                    &*pending.wsabuf,
+                    1,
+                    &mut received,
+                    &mut flags,
+                    &mut *pending.overlapped,
+                    None,
+                )
+            };
+            if rc != 0 {
+                // SAFETY: no preconditions.
+                if unsafe { WSAGetLastError() } != WSA_IO_PENDING {
+                    return Ok(false); // reset or closed: the end of the stream here
+                }
+                let events = [event as HANDLE, self.wake.event as HANDLE];
+                // SAFETY: two live event handles.
+                let r = unsafe { WSAWaitForMultipleEvents(2, events.as_ptr(), 0, WSA_INFINITE, 0) };
+                if r == WSA_WAIT_EVENT_0 as u32 + 1 {
+                    // Woken to close. Take a receive that finished at the same time.
+                    // SAFETY: as above, a zero timeout on the receive's event only.
+                    let done = unsafe { WSAWaitForMultipleEvents(1, events.as_ptr(), 0, 0, 0) };
+                    if done != WSA_WAIT_EVENT_0 as u32 {
+                        // Still pending: the socket reaps it when it is closed.
+                        *self
+                            .socket
+                            .pending
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner()) = Some(pending);
+                        return Ok(false);
+                    }
+                } else if r != WSA_WAIT_EVENT_0 as u32 {
+                    // The wait failed with the receive still in flight: park it as above.
+                    let error = last_error("WSAWaitForMultipleEvents");
+                    *self
+                        .socket
+                        .pending
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner()) = Some(pending);
+                    return Err(error);
+                }
+                let (mut n, mut f) = (0u32, 0u32);
+                // SAFETY: the operation has completed (its event is set).
+                let ok = unsafe {
+                    WSAGetOverlappedResult(
+                        self.socket.socket,
+                        &*pending.overlapped,
+                        &mut n,
+                        0,
+                        &mut f,
+                    )
+                };
+                if ok == 0 {
+                    return Ok(false); // aborted or reset: the end of the stream here
+                }
+                received = n;
+            }
+            if received == 0 {
+                return Ok(false);
+            }
+            self.carry = pending.data[..received as usize].to_vec();
+            self.carried = 0;
+            Ok(true)
+        }
+    }
+
+    impl Read for Reader {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            if self.carried >= self.carry.len() && !self.receive()? {
+                return Ok(0);
+            }
+            let n = (self.carry.len() - self.carried).min(buf.len());
+            buf[..n].copy_from_slice(&self.carry[self.carried..self.carried + n]);
+            self.carried += n;
+            Ok(n)
+        }
+    }
+
+    struct Writer(Arc<Owned>);
+
+    impl Write for Writer {
         fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
             let len = buf.len().min(i32::MAX as usize) as i32;
             // SAFETY: `buf` is a live buffer of at least `len` octets.
-            let n = unsafe { send(self.socket.0, buf.as_ptr(), len, 0) };
+            let n = unsafe { send(self.0.socket, buf.as_ptr(), len, 0) };
             if n < 0 {
-                return Err(io::Error::from(io::ErrorKind::BrokenPipe));
+                return Err(last_error("send"));
             }
             Ok(n as usize)
         }
@@ -583,13 +797,22 @@ mod platform {
         }
     }
 
-    fn startup() {
+    fn startup() -> Result<(), OpenError> {
         static ONCE: Once = Once::new();
+        static OK: AtomicBool = AtomicBool::new(false);
         ONCE.call_once(|| {
             // SAFETY: WSADATA is plain data that the call fills; version 2.2.
             let mut data: WSADATA = unsafe { std::mem::zeroed() };
-            unsafe { WSAStartup(0x0202, &mut data) };
+            OK.store(
+                unsafe { WSAStartup(0x0202, &mut data) } == 0,
+                Ordering::SeqCst,
+            );
         });
+        if OK.load(Ordering::SeqCst) {
+            Ok(())
+        } else {
+            Err(OpenError::Unreachable("Winsock did not start".to_owned()))
+        }
     }
 
     /// The process id of the server on `s`, from `SIO_AF_UNIX_GETPEERPID` (see the module
@@ -617,15 +840,17 @@ mod platform {
     }
 
     pub fn connect(path: &Path) -> Result<Socket, OpenError> {
-        startup();
-        match std::fs::symlink_metadata(path) {
-            Err(e) if e.kind() == io::ErrorKind::NotFound => return Err(OpenError::Absent),
-            _ => {}
+        startup()?;
+        if let Err(e) = std::fs::symlink_metadata(path)
+            && e.kind() == io::ErrorKind::NotFound
+        {
+            return Err(OpenError::Absent);
         }
         let text = path.to_str().ok_or_else(|| {
             OpenError::Unreachable("the socket path is not valid UTF-8".to_owned())
         })?;
         let bytes = text.as_bytes();
+        // SAFETY: SOCKADDR_UN is plain data; zero is a valid starting value.
         let mut address: SOCKADDR_UN = unsafe { std::mem::zeroed() };
         if bytes.len() >= address.sun_path.len() {
             return Err(OpenError::Unreachable(
@@ -636,12 +861,24 @@ mod platform {
         for (slot, b) in address.sun_path.iter_mut().zip(bytes) {
             *slot = *b as i8;
         }
-        // SAFETY: plain Winsock calls on a socket this function owns.
-        let s = unsafe { socket(i32::from(AF_UNIX), SOCK_STREAM, 0) };
+        // SAFETY: plain Winsock call; the socket it returns is owned below.
+        let s = unsafe {
+            WSASocketW(
+                i32::from(AF_UNIX),
+                SOCK_STREAM,
+                0,
+                std::ptr::null(),
+                0,
+                WSA_FLAG_OVERLAPPED | WSA_FLAG_NO_HANDLE_INHERIT,
+            )
+        };
         if s == INVALID {
             return Err(OpenError::Unreachable("no AF_UNIX socket".to_owned()));
         }
-        let owned = Arc::new(Owned(s));
+        let owned = Arc::new(Owned {
+            socket: s,
+            pending: Mutex::new(None),
+        });
         let length = (std::mem::size_of::<u16>() + bytes.len() + 1) as i32;
         // SAFETY: `address` is a live SOCKADDR_UN of at least `length` octets.
         let rc = unsafe {
@@ -656,37 +893,46 @@ mod platform {
             let code = unsafe { WSAGetLastError() };
             return Err(OpenError::Unreachable(format!("connect failed ({code})")));
         }
+        // The id first, then the start time that pins the process, then the owner check on
+        // that same process: a recycled id is another process and fails the pin.
         let Some(pid) = server_pid(s) else {
-            return Err(OpenError::NotThisUser);
+            return Err(OpenError::Unverified);
         };
-        if !crate::peer::process_is_current_user(pid) {
+        let Some(started) = peer::process_started(pid) else {
+            return Err(OpenError::Unverified);
+        };
+        if !peer::process_user_matches(pid, Some(started)) {
             return Err(OpenError::NotThisUser);
         }
-        let tick = READ_TICK_MS;
-        // SAFETY: `tick` is a local DWORD of the size passed.
-        unsafe {
-            setsockopt(
-                s,
-                SOL_SOCKET,
-                SO_RCVTIMEO,
-                (&tick as *const u32).cast(),
-                std::mem::size_of::<u32>() as i32,
-            )
-        };
-        let stream = Stream {
-            socket: owned.clone(),
-            closing: Arc::new(AtomicBool::new(false)),
-        };
-        let closing = stream.closing.clone();
+        // SAFETY: plain event creation.
+        let event = unsafe { WSACreateEvent() };
+        if event == 0 {
+            return Err(OpenError::Unreachable("no wake event".to_owned()));
+        }
+        let wake = Arc::new(Wake {
+            event,
+            set: AtomicBool::new(false),
+        });
+        let closer = wake.clone();
+        let closing = owned.clone();
         Ok(Socket {
-            reader: Box::new(stream.clone()),
-            writer: Box::new(stream),
-            close: Box::new(move || {
-                closing.store(true, Ordering::SeqCst);
-                // SAFETY: the socket is open while `owned` is referenced.
-                unsafe { shutdown(owned.0, SD_BOTH) };
+            reader: Box::new(Reader {
+                socket: owned.clone(),
+                wake,
+                carry: Vec::new(),
+                carried: 0,
             }),
-            pid: Some(pid),
+            writer: Box::new(Writer(owned)),
+            close: Box::new(move || {
+                closer.set.store(true, Ordering::SeqCst);
+                // SAFETY: the wake event is open while `closer` is referenced. A failure
+                // leaves the reader blocked until the peer closes: nothing else can be done.
+                unsafe { WSASetEvent(closer.event) };
+                // SAFETY: the socket is open while `closing` is referenced. The usual failure
+                // is "not connected" (the peer closed first), which is the state wanted.
+                unsafe { shutdown(closing.socket, SD_BOTH) };
+            }),
+            process: Some(ProcessId { pid, started }),
         })
     }
 }

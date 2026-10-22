@@ -514,6 +514,7 @@ impl Daemon {
                         pipelines.clone(),
                         runtime.clone(),
                         log.clone(),
+                        stopped.clone(),
                     )
                 });
             carriers.extend(carrier.clone());
