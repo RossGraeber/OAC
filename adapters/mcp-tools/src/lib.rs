@@ -158,22 +158,24 @@ pub fn tools() -> Vec<Tool> {
         ),
         Tool::new(
             REPLY,
-            "Reply to an OAC message you received. Name it by its oac_message_id in in_reply_to.",
+            "Reply to an OAC message you received. Name it by its oac_message_id in in_reply_to. Without in_reply_to, name the session in to: the reply is then sent uncorrelated, not linked to any message.",
             schema(
                 vec![
                     (
                         "in_reply_to",
-                        string_schema("The oac_message_id of the message you are answering."),
+                        string_schema(
+                            "Optional: the oac_message_id of the message you are answering. Without it, to is required and the reply is sent uncorrelated.",
+                        ),
                     ),
                     ("content", content_schema()),
                     (
                         "to",
                         string_schema(
-                            "Optional: the session to reply to (the oac_sender of the message).",
+                            "The session to reply to (the oac_sender of the message). Required when in_reply_to is absent.",
                         ),
                     ),
                 ],
-                &["in_reply_to", "content"],
+                &["content"],
             ),
         ),
         Tool::new(
@@ -207,9 +209,12 @@ pub enum ToolCall {
     },
     /// `reply`.
     Reply {
-        /// The requested target: the message the harness says this answers. Untrusted.
-        in_reply_to: String,
-        /// The session the harness names, when it names one.
+        /// The requested target: the message the harness says this answers. Untrusted. `None`
+        /// when the harness named none (an empty `in_reply_to` counts as none); `to` is then
+        /// present ([`parse`] refuses the call otherwise), and the reply goes uncorrelated
+        /// ([SC-RCP-055]).
+        in_reply_to: Option<String>,
+        /// The session the harness names. Present whenever `in_reply_to` is `None`.
         to: Option<SessionId>,
         /// The content parts.
         content: Vec<ContentPart>,
@@ -286,13 +291,22 @@ pub fn parse(name: &str, arguments: Option<&JsonObject>) -> Result<ToolCall, Cal
             conversation_id: str_arg(arguments, "conversation_id")?.map(str::to_owned),
             correlation_id: str_arg(arguments, "correlation_id")?.map(str::to_owned),
         }),
-        REPLY => Ok(ToolCall::Reply {
-            in_reply_to: str_arg(arguments, "in_reply_to")?
-                .ok_or(CallError::Invalid("in_reply_to is required"))?
-                .to_owned(),
-            to: session_arg(arguments, "to")?,
-            content: content_arg(arguments)?,
-        }),
+        REPLY => {
+            let in_reply_to = str_arg(arguments, "in_reply_to")?
+                .filter(|t| !t.is_empty())
+                .map(str::to_owned);
+            let to = session_arg(arguments, "to")?;
+            if in_reply_to.is_none() && to.is_none() {
+                return Err(CallError::Invalid(
+                    "to is required when in_reply_to is absent",
+                ));
+            }
+            Ok(ToolCall::Reply {
+                in_reply_to,
+                to,
+                content: content_arg(arguments)?,
+            })
+        }
         LIST_SESSIONS => Ok(ToolCall::ListSessions),
         WHOAMI => Ok(ToolCall::Whoami),
         other => Err(CallError::UnknownTool(other.to_owned())),
@@ -327,17 +341,22 @@ pub fn send_request(
 /// The `SendRequest` for a `reply` call: `requested_target` is the harness's
 /// `in_reply_to`, untrusted. The core decides whether the reply is correlated
 /// (`spec/session-channels.md` §8.2.2).
+///
+/// A reply that names no `in_reply_to` is still a reply: its target is the empty string,
+/// which is no envelope's `id`, so the core sends it uncorrelated and says so in its result
+/// ([SC-RCP-055]). It is never a new message (`requested_target: None` is that), and no
+/// target is guessed for it ([SC-RCP-052]).
 pub fn reply_request(
     attachment: Attachment,
     to: SessionId,
     content: Vec<ContentPart>,
-    in_reply_to: String,
+    in_reply_to: Option<String>,
 ) -> SendRequest {
     SendRequest {
         attachment,
         to,
         content,
-        requested_target: Some(in_reply_to),
+        requested_target: Some(in_reply_to.unwrap_or_default()),
         conversation_id: None,
         correlation_id: None,
     }
@@ -586,6 +605,75 @@ mod tests {
         assert_eq!(t, tools());
     }
 
+    /// Approval 5 of #69: `in_reply_to` is optional on `reply`; without it `to` is required,
+    /// and the request goes out as a reply with an empty target, which the core sends
+    /// uncorrelated and reports as `uncorrelated` ([SC-RCP-055]).
+    #[test]
+    fn a_reply_without_in_reply_to_needs_to_and_goes_uncorrelated() {
+        let reply = tools().into_iter().find(|t| t.name == REPLY).unwrap();
+        let required: Vec<&str> = reply
+            .input_schema
+            .get("required")
+            .and_then(|r| r.as_array())
+            .unwrap()
+            .iter()
+            .filter_map(|v| v.as_str())
+            .collect();
+        assert_eq!(required, ["content"]);
+        let props = reply.input_schema.get("properties").unwrap();
+        assert!(props.get("in_reply_to").is_some() && props.get("to").is_some());
+        // `to` alone is enough; an empty `in_reply_to` is none.
+        for with_empty in [false, true] {
+            let mut a = args("answer");
+            if with_empty {
+                a.insert("in_reply_to".into(), Value::from(""));
+            }
+            let ToolCall::Reply {
+                in_reply_to,
+                to,
+                content,
+            } = parse(REPLY, Some(&a)).unwrap()
+            else {
+                panic!("a reply");
+            };
+            assert_eq!(in_reply_to, None);
+            let to = to.unwrap();
+            let req = reply_request(
+                oac_core::adapter::Connection::accept(Default::default(), Default::default())
+                    .handle()
+                    .clone(),
+                to,
+                content,
+                in_reply_to,
+            );
+            assert_eq!(req.requested_target.as_deref(), Some(""));
+            assert!(req.conversation_id.is_none() && req.correlation_id.is_none());
+        }
+        // Neither: refused as invalid, with no request.
+        let mut none = args("answer");
+        none.remove("to");
+        assert!(matches!(
+            parse(REPLY, Some(&none)),
+            Err(CallError::Invalid(_))
+        ));
+        // A named target is passed on as written.
+        let mut named = args("answer");
+        named.insert("in_reply_to".into(), Value::from("msg-1"));
+        let ToolCall::Reply { in_reply_to, .. } = parse(REPLY, Some(&named)).unwrap() else {
+            panic!("a reply");
+        };
+        assert_eq!(in_reply_to.as_deref(), Some("msg-1"));
+        // The result says so ([SC-RCP-055]).
+        let sent = SendRequestResult::Sent {
+            id: oac_core::ids::Token::parse("m1").unwrap(),
+            correlation: Some(Correlation::Uncorrelated),
+            receipts: oac_core::adapter::ReceiptStream(std::sync::mpsc::channel().1),
+        };
+        let r = send_result(&sent);
+        let text = single_text(&r).unwrap();
+        assert!(text.contains("\"correlation\":\"uncorrelated\""), "{text}");
+    }
+
     #[test]
     fn send_parses_and_ignores_unknown_members() {
         let mut a = args("hello");
@@ -611,10 +699,10 @@ mod tests {
         let mut a = args("x");
         a.insert("content".into(), Value::from(Vec::<Value>::new()));
         assert!(matches!(parse(SEND, Some(&a)), Err(CallError::Invalid(_))));
-        assert!(matches!(
-            parse(REPLY, Some(&args("x"))),
-            Err(CallError::Invalid(_))
-        ));
+        // A reply names its `in_reply_to` or its `to`; with neither it is invalid.
+        let mut a = args("x");
+        a.remove("to");
+        assert!(matches!(parse(REPLY, Some(&a)), Err(CallError::Invalid(_))));
         assert_eq!(
             parse("read_inbox", None),
             Err(CallError::UnknownTool("read_inbox".into()))
