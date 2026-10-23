@@ -31,9 +31,9 @@ path, host, installation id and plan fields are replaced; no residual leak
 keeps only the run's own thread there, as it does for the list's rows (199 rows and 199
 `readStates` entries removed from ten results; `readStates` is `{}` in nine of them and holds only the
 TUI thread's entry in the tenth). The 9 UUID-shaped strings left in the herdr
-transcript are not thread ids: three turn ids (the marker turn `01a1670b-...`, the tool turn
-`01a1670c-50f6-...`), three `exec-` item ids, the user message's item id, and two
-`readState` `revision` values. The four 32-hex strings in the stub's transcript are the W3C
+transcript are not thread ids: two turn ids (the marker turn `01a1670b-...`, the tool turn
+`01a1670c-50f6-...`), three `exec-` item ids, the user message's item id, the user message's
+`clientId`, and two `readState` `revision` values. The four 32-hex strings in the stub's transcript are the W3C
 `traceparent` trace ids of `tools/list` and the three `tools/call`.
 
 **Third-party text.** Tool-result bodies, the approval request's `message`,
