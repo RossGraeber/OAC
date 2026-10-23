@@ -8,9 +8,21 @@ mod ports;
 
 use std::fs::{OpenOptions, TryLockError};
 use std::net::{Ipv4Addr, TcpListener};
+use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::thread;
 
 use ports::{PortClaim, RENDEZVOUS_PORTS, claim_path};
+
+/// Every test of this binary that claims a port holds this for its whole body. The tests of one
+/// binary run in parallel and claim from the same range, so a claim released by one test
+/// (`drop(claim)` then `try_lock()`) can legitimately be taken by another before the release is
+/// checked, which made those checks flaky (#445, seen on Windows). Serialized, nothing else
+/// claims while a release is being checked; the claim itself is unchanged and nothing is
+/// retried.
+fn claiming() -> MutexGuard<'static, ()> {
+    static CLAIMING: Mutex<()> = Mutex::new(());
+    CLAIMING.lock().unwrap_or_else(PoisonError::into_inner)
+}
 
 fn open(port: u16) -> std::fs::File {
     OpenOptions::new()
@@ -25,6 +37,7 @@ fn open(port: u16) -> std::fs::File {
 /// other process and thread meets); once the claim is dropped, it can.
 #[test]
 fn a_held_claim_excludes_every_other_handle_until_it_is_dropped() {
+    let _serial = claiming();
     let claim = PortClaim::claim();
     let port = claim.port();
     assert!(RENDEZVOUS_PORTS.contains(&port));
@@ -41,6 +54,7 @@ fn a_held_claim_excludes_every_other_handle_until_it_is_dropped() {
 /// pairwise distinct, and each port is free to bind while its claim is held.
 #[test]
 fn concurrent_claims_are_distinct_and_bindable() {
+    let _serial = claiming();
     let claims: Vec<PortClaim> = thread::scope(|scope| {
         let handles: Vec<_> = (0..32).map(|_| scope.spawn(PortClaim::claim)).collect();
         handles.into_iter().map(|h| h.join().unwrap()).collect()
@@ -58,6 +72,7 @@ fn concurrent_claims_are_distinct_and_bindable() {
 /// A claimed value keeps its claim for as long as it lives, and gives the port back after.
 #[test]
 fn a_claimed_value_keeps_the_claim_until_it_is_dropped() {
+    let _serial = claiming();
     let value = ports::claimed(|port| format!("rendezvous-{port}"));
     let port = value.port();
     assert_eq!(*value, format!("rendezvous-{port}"));
@@ -91,6 +106,7 @@ fn the_rendezvous_range_lies_below_the_linux_ephemeral_range() {
 /// other error, and gives up after the bounded number of attempts.
 #[test]
 fn start_first_retries_on_the_foreign_holder_refusal_only_and_is_bounded() {
+    let _serial = claiming();
     let refusal = format!("port 1 {}", ports::FOREIGN_HOLDER_REFUSAL);
 
     // Refused once: the second attempt runs on another port, whose claim is held.
