@@ -307,8 +307,10 @@ https://learn.chatgpt.com/docs/cli/reference, retrieved 2026-09-17, Codex `0.154
 Applied to OAC:
 
 ```
-codex mcp add oac -- oac mcp-shim
+codex mcp add oac -- oac mcp-shim --harness codex
 ```
+
+(Dated note, 2026-10-22, #69: this line read `codex mcp add oac -- oac mcp-shim` until now. `oac mcp-shim` without `--harness <claude or codex>` exits `2` (usage, §5), so the registration as written could not work. The Codex registration names its harness. The part after `--` is what Codex runs; `codex mcp add` itself is as quoted above. A registered stdio MCP server was also seen to start when a Codex session opened, not at its first tool call (once, for one server): the G8 S1 capture saw `initialize` and `tools/list` arrive 57.6 s before the first prompt, on Codex `0.163.0` (`docs/planning/gates/fixtures/g8-codex-tools/README.md`).)
 
 This is the **supported outbound tool-registration** path
 (`docs/planning/decisions/C2-process-model.md` §6) — distinct from the live-inject path
@@ -476,7 +478,7 @@ Ticked against issue #29's four acceptance boxes, in the style of
 
 - [x] **One documented command each for Claude/Codex, quoted verbatim with flags** —
       §7 (Claude: `claude --dangerously-load-development-channels server:oac`), §9
-      (Codex: `codex mcp add oac -- oac mcp-shim`).
+      (Codex: `codex mcp add oac -- oac mcp-shim --harness codex`).
 - [x] **Zero-file local default; config optional** — §3-§4.
 - [x] **Command surface stated** — §5-§6.
 - [x] **`--dangerously-load-development-channels` consent step preserved** — §8.

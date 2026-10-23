@@ -415,6 +415,8 @@ function longStrings(v, rel, out, stop) {
 // text, so the caps are subsumed.)
 export const HISTORY_CURSOR_KEYS = Object.freeze(['requestedThreadId', 'rolloutOrdinal', 'includeAnchor', 'scope']);
 export const CURSOR_SCOPE_KINDS = Object.freeze(new Set(['turns', 'itemsByCreatedAtOrdinal', 'itemsByUpdatedAtOrdinal']));
+// G8 S1: a capture whose own thread id was redacted by a run literal (<THREAD_ID>) keeps the cursor.
+const REDACTED_THREAD_ID = '<THREAD_ID>';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const sameKeys = (o, keys) => isObj(o) && Object.keys(o).join() === keys.join();
 /** True when `s` is a HistoryCursor exactly as Codex serializes one (header). */
@@ -426,7 +428,7 @@ export function isHistoryCursor(s) {
     return false;
   }
   return sameKeys(v, HISTORY_CURSOR_KEYS)
-    && typeof v.requestedThreadId === 'string' && UUID_RE.test(v.requestedThreadId)
+    && typeof v.requestedThreadId === 'string' && (UUID_RE.test(v.requestedThreadId) || v.requestedThreadId === REDACTED_THREAD_ID)
     && Number.isSafeInteger(v.rolloutOrdinal) && v.rolloutOrdinal >= 0
     && typeof v.includeAnchor === 'boolean'
     && sameKeys(v.scope, ['kind']) && CURSOR_SCOPE_KINDS.has(v.scope.kind)
