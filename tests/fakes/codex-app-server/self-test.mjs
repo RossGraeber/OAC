@@ -701,7 +701,7 @@ function busyThread(fake) {
   return { tui, threadId };
 }
 
-await test('mcp: oacFake/mcp/start sends item/started of an mcpToolCall with the recorded shape (G8 L120, L128)', () => {
+await test('mcp: oacFake/mcp/start sends item/started of an mcpToolCall with the recorded shape (G8 L120, L128, L137)', () => {
   const fake = new FakeCodexAppServer();
   const { tui, threadId } = busyThread(fake);
   const before = tui.frames.length;
@@ -710,7 +710,7 @@ await test('mcp: oacFake/mcp/start sends item/started of an mcpToolCall with the
   assert(g8Recorded().every((f) => /^exec-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(f.payload.params.item.id)), 'and the recording\'s ids have that form');
   const got = tui.frames.slice(before).filter((p) => p.method === 'item/started');
   eq(got.length, 1, 'one item/started');
-  for (const line of [120, 128]) {
+  for (const line of [120, 128, 137]) {
     const want = g8At(line);
     eq(shape({ ...got[0], params: { ...got[0].params, item: { ...got[0].params.item, arguments: null } } }), shape({ ...want.payload, params: { ...want.payload.params, item: { ...want.payload.params.item, arguments: null } } }), `shape against ${fixturePath('g8')}:${line}`);
   }
@@ -733,7 +733,7 @@ await test('mcp: oacFake/mcp/complete sends item/completed: status failed for th
     eq(shape(scrub(got[0])), shape(scrub(want)), `shape against ${fixturePath('g8')}:${line}`);
     eq([got[0].params.item.status, got[0].params.item.error, 'isError' in got[0].params.item.result, got[0].params.item.result.content[0].text], [outcome, null, false, `text for ${outcome}`], 'status, error null, no isError, the caller\'s text');
     eq(got[0].params.item.durationMs, 3, 'durationMs defaults to the recorded 3 ms of the call alone, not the time since item/started');
-    eq([g8At(125).payload.params.item.durationMs, g8At(134).payload.params.item.durationMs, g8At(143).payload.params.item.durationMs], [4, 3, 3], 'the recording: 4, 3 and 3 ms');
+    eq([g8At(125).payload.params.item.durationMs, g8At(134).payload.params.item.durationMs, g8At(143).payload.params.item.durationMs], [3, 4, 3], 'the recording: 3, 4 and 3 ms');
   }
 });
 

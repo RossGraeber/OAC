@@ -30,7 +30,7 @@ export const FIXTURE_FILES = {
   // #343 review: items already queued when a turn is interrupted (row e's first half).
   s3QueuedInterrupt: 's3-codex-capture/transcript-2026-10-08-0.161.0-queued-interrupt-herdr.jsonl',
   // G8 S1 (#69, #403): mcpToolCall items from the operator's TUI thread, Codex 0.163.0.
-  g8: 'g8-codex-tools/transcript-g8-2026-10-22-0.163.0-herdr.jsonl',
+  g8: 'g8-codex-tools/transcript-g8-2026-10-23-0.163.0-herdr.jsonl',
 };
 
 export const fixturePath = (key) => `${FIXTURE_DIR}/${FIXTURE_FILES[key]}`;

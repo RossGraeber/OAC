@@ -719,7 +719,7 @@ export class FakeCodexAppServer {
     if (args !== null && (typeof args !== 'object' || Array.isArray(args))) throw new RpcError(-32602, 'arguments must be a JSON object (recorded) or null (source only, C9; not recorded)');
     const turn = th.activeTurn;
     const item = structuredClone(this.t.g8.started.params.item);
-    item.id = `exec-${randomUUID()}`; // the recorded form: exec-<uuid v4> (G8 L120)
+    item.id = `exec-${randomUUID()}`; // the recorded form: exec-<uuid v4> (G8 L120, L128, L137)
     item.server = server;
     item.tool = tool;
     item.arguments = structuredClone(args);
@@ -731,9 +731,9 @@ export class FakeCodexAppServer {
   }
 
   // oacFake/mcp/complete: the call returned. `durationMs` is the time of the MCP call alone, after
-  // the approval, as Codex reports it: 4, 3 and 3 ms in the recording (G8 L125, L134, L143), not the
-  // time from item/started, which includes the approval (4148, 979 and 890 ms there). The fake has
-  // no approval step, so the caller says it; the default is the recorded 3. Sends `item/completed` for the item
+  // the approval, as Codex reports it: 3, 4 and 3 ms in the recording (G8 L125, L134, L143), not the
+  // time from item/started, which includes the approval (23869, 1537 and 1778 ms to the stub's call). The fake has
+  // no approval step, so the caller says it; the default is 3, the recording's commonest value. Sends `item/completed` for the item
   // oacFake/mcp/start made: status `completed`, or `failed` for a tool error result (the
   // recorded refusal: status failed, the refusal text in result.content, error null, and no
   // isError member in result). `text` is the result's one text block. The recorded

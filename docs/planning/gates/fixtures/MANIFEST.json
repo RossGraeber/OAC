@@ -7244,7 +7244,7 @@
       }
     },
     {
-      "path": "docs/planning/gates/fixtures/g8-codex-tools/transcript-g8-2026-10-22-0.163.0-herdr.jsonl",
+      "path": "docs/planning/gates/fixtures/g8-codex-tools/transcript-g8-2026-10-23-0.163.0-herdr.jsonl",
       "provider": "codex",
       "surface": "codex-app-server",
       "observed_version": {
@@ -7255,33 +7255,32 @@
         "client_visible_user_agent": "codex-tui/0.163.0 (Windows 10.0.26300; x86_64) unknown (oac_g8_capture; 0.0.1) (initialize result)"
       },
       "pins_row": "Codex CLI / app-server",
-      "pins_as_of": "PINS.md as committed at HEAD 060d0fd23acf91ae83a3c078221b3262b5c01f95 when the run started recorded last tested 0.161.0, so the run recorded VERSION WARNING findings (#216); the change that commits this fixture records 0.163.0 as last tested (#69, #403), which this entry matches",
+      "pins_as_of": "PINS.md as committed at driver commit fa69963edddf0cb5f1b829eafc4c311a5ed2e19f (and at its parent 15bad19) records last tested 0.163.0, the version the run used, so the run recorded no VERSION WARNING (#216)",
       "version_matches_pin": true,
-      "capture_date": "2026-10-22",
-      "capture_utc_range": "2026-10-22T03:49:01.753Z-2026-10-22T03:55:16.650Z",
+      "capture_date": "2026-10-23",
+      "capture_utc_range": "2026-10-23T04:35:24.307Z-2026-10-23T04:37:50.296Z",
       "superseded_by": null,
       "driver": {
         "herdr_version": "herdr 0.9.1",
-        "driver_commit": "060d0fd23acf91ae83a3c078221b3262b5c01f95",
-        "run_manifest": "docs/planning/gates/herdr-runs/G8-S1-2026-10-22.run-manifest.json"
+        "driver_commit": "fa69963edddf0cb5f1b829eafc4c311a5ed2e19f",
+        "run_manifest": "docs/planning/gates/herdr-runs/G8-S1-2026-10-23.run-manifest.json"
       },
       "notes": [
-        "Captured for #69 and #403 (G8 slice S1): the operator's own Codex TUI thread, an `oac-g8` stub MCP server, a passive capture client. Scenario tools/herdr/scenarios/g8-codex-tools.mjs. NOT a gate run and NOT verdict-bearing. Record: docs/planning/gates/herdr-runs/G8-S1-2026-10-22.md; findings: docs/planning/gates/fixtures/g8-codex-tools/README.md.",
-        "The 20 ids in the thread/list `readStates` keys (the operator's other saved threads) were replaced after the driver wrote the capture; the committed run manifest records both sha256 values (captures[0].driverWrittenSha256, postDriverRedaction).",
-        "An earlier attempt of the same scenario (run 1) is not committed: it stopped on a scenario precondition that Codex's session-start MCP launch defeated (fixed in 060d0fd)."
+        "Captured for #69 and #403 (G8 slice S1): the operator's own Codex TUI thread, an `oac-g8` stub MCP server, a passive capture client. Scenario tools/herdr/scenarios/g8-codex-tools.mjs. NOT a gate run and NOT verdict-bearing. Record: docs/planning/gates/herdr-runs/G8-S1-2026-10-23.md; findings: docs/planning/gates/fixtures/g8-codex-tools/README.md. The file is exactly what the driver wrote; its sha256 is the run manifest's.",
+        "Two earlier attempts of the same scenario are not committed. Run 1 stopped on a scenario precondition that Codex's session-start MCP launch defeated (fixed in 060d0fd). Run 2 passed, but its transcript carried the ids of the operator's other saved threads (Codex 0.163.0 added a `readStates` map to thread/list) that the scenario of that time did not redact; the shared sanitizer (tools/herdr/lib/g2.mjs sanitizeTranscript) now drops them, and this run is the re-run."
       ],
       "redaction": {
         "script": "tools/herdr/lib/redact.mjs",
         "script_sha256": "c950d99ac992db9db85528613923453429c75749e16b6424d8555bd6b85b6dc2",
-        "residual_scan_result": "tools/herdr/lib/redact.mjs (run.mjs): droppedHazardLines=0, hazardProtocolFrames=0, residualLeaks=0, residualGenericHits=0. After the driver: 20 other-thread ids replaced by <OTHER_THREAD_ID_n> (tools/herdr/scenarios/g8-codex-tools.mjs otherThreadIds). Elided by #130: 3 tool-result texts (L125, L134, L143) and the approval request bodies (L122, L130, L140). Third-party-text sweep by the recording agent: the only thread items are userMessage, agentMessage and the three mcpToolCall items; no file, command or other tool item."
+        "residual_scan_result": "tools/herdr/lib/redact.mjs (run.mjs), after the lib/g2.mjs sanitizer (199 other-thread entries removed from 10 thread/list results, all with their readStates entries; host, installation id, plan and credit fields replaced; the TUI thread's id, one other loaded thread's id, the pairing value and the project directory replaced as run literals): droppedHazardLines=0, hazardProtocolFrames=0, residualLeaks=0, residualGenericHits=0. Elided by #130: harness instruction text in the thread/resume result (L108), the three tool-result texts (L125, L134, L143) and the approval request bodies (L122, L130, L139). Third-party-text sweep by the recording agent: the only thread items are userMessage, agentMessage and the three mcpToolCall items; no file, command or other tool item. The 9 UUID-shaped strings left are 3 turn ids, 3 exec- item ids, 1 user-message item id, 2 readState `revision` values; none is a thread id."
       },
       "coverage": {
         "thread/resume with only threadId and excludeTurns on the TUI thread (carrier subscription)": "106-108",
         "turn/started, userMessage, then the model calls the stub tool": "115-119",
         "mcpToolCall call 1 (arguments {}; refused, status failed): item/started, waitingOnApproval, mcpServer/elicitation/request, serverRequest/resolved, item/completed": "120-125",
         "mcpToolCall call 2 (arguments {pairing}; status completed)": "128-134",
-        "mcpToolCall call 3 (arguments {}; status completed)": "138-143",
-        "the model's summary and turn end": "146-186"
+        "mcpToolCall call 3 (arguments {}; status completed)": "137-143",
+        "the model's summary and turn end": "146-184"
       },
       "schema": {
         "commit": "979011409de0a60b52f179721948e65531d26144",
@@ -7294,7 +7293,7 @@
       }
     },
     {
-      "path": "docs/planning/gates/fixtures/g8-codex-tools/transcript-g8-server-2026-10-22-0.163.0.jsonl",
+      "path": "docs/planning/gates/fixtures/g8-codex-tools/transcript-g8-server-2026-10-23-0.163.0.jsonl",
       "provider": "codex",
       "surface": "codex-app-server",
       "observed_version": {
@@ -7305,18 +7304,18 @@
         "client_visible_user_agent": "codex-tui/0.163.0 (Windows 10.0.26300; x86_64) unknown (oac_g8_capture; 0.0.1) (initialize result)"
       },
       "pins_row": "Codex CLI / app-server",
-      "pins_as_of": "PINS.md as committed at HEAD 060d0fd23acf91ae83a3c078221b3262b5c01f95 when the run started recorded last tested 0.161.0, so the run recorded VERSION WARNING findings (#216); the change that commits this fixture records 0.163.0 as last tested (#69, #403), which this entry matches",
+      "pins_as_of": "PINS.md as committed at driver commit fa69963edddf0cb5f1b829eafc4c311a5ed2e19f (and at its parent 15bad19) records last tested 0.163.0, the version the run used, so the run recorded no VERSION WARNING (#216)",
       "version_matches_pin": true,
-      "capture_date": "2026-10-22",
-      "capture_utc_range": "2026-10-22T03:49:01.753Z-2026-10-22T03:55:16.650Z",
+      "capture_date": "2026-10-23",
+      "capture_utc_range": "2026-10-23T04:35:24.307Z-2026-10-23T04:37:50.296Z",
       "superseded_by": null,
       "notes": [
-        "The stub server's own log of the same run (tools/herdr/gate-servers/g8-server.mjs), re-shaped as a transcript by serverLogAsTranscript: what Codex sent it (initialize, tools/list, three tools/call with _meta) and what it answered, with its own timestamps. Not a herdr-suffixed capture; written by the scenario from the stub log. Run record: docs/planning/gates/herdr-runs/G8-S1-2026-10-22.md."
+        "The stub server's own log of the same run (tools/herdr/gate-servers/g8-server.mjs), re-shaped as a transcript by serverLogAsTranscript: what Codex sent it (initialize, tools/list, three tools/call with _meta) and what it answered, with its own timestamps. Not a herdr-suffixed capture; written by the scenario from the stub log. Run record: docs/planning/gates/herdr-runs/G8-S1-2026-10-23.md."
       ],
       "redaction": {
         "script": "tools/herdr/lib/redact.mjs",
         "script_sha256": "c950d99ac992db9db85528613923453429c75749e16b6424d8555bd6b85b6dc2",
-        "residual_scan_result": "tools/herdr/lib/redact.mjs (run.mjs): droppedHazardLines=0, hazardProtocolFrames=0, residualLeaks=0, residualGenericHits=0. The thread id and session id in _meta, and the pairing value, replaced by <THREAD_ID>, <THREAD_ID> and <PAIRING_VALUE> by the driver. The stub's result texts are OAC's own and are kept."
+        "residual_scan_result": "tools/herdr/lib/redact.mjs (run.mjs): droppedHazardLines=0, hazardProtocolFrames=0, residualLeaks=0, residualGenericHits=0. The thread id and session id in _meta, and the pairing value, replaced by <THREAD_ID> and <PAIRING_VALUE> as run literals. The stub's result texts are OAC's own and are kept. The four 32-hex strings are the W3C traceparent trace ids of tools/list and the three tools/call."
       },
       "coverage": {
         "server start (session open), initialize, tools/list": "1-6",
@@ -7331,7 +7330,7 @@
       }
     },
     {
-      "path": "docs/planning/gates/fixtures/g8-codex-tools/transcript-g8-proc-2026-10-22-0.163.0.jsonl",
+      "path": "docs/planning/gates/fixtures/g8-codex-tools/transcript-g8-proc-2026-10-23-0.163.0.jsonl",
       "provider": "codex",
       "surface": "codex-app-server",
       "observed_version": {
@@ -7342,13 +7341,13 @@
         "client_visible_user_agent": "codex-tui/0.163.0 (Windows 10.0.26300; x86_64) unknown (oac_g8_capture; 0.0.1) (initialize result)"
       },
       "pins_row": "Codex CLI / app-server",
-      "pins_as_of": "PINS.md as committed at HEAD 060d0fd23acf91ae83a3c078221b3262b5c01f95 when the run started recorded last tested 0.161.0, so the run recorded VERSION WARNING findings (#216); the change that commits this fixture records 0.163.0 as last tested (#69, #403), which this entry matches",
+      "pins_as_of": "PINS.md as committed at driver commit fa69963edddf0cb5f1b829eafc4c311a5ed2e19f (and at its parent 15bad19) records last tested 0.163.0, the version the run used, so the run recorded no VERSION WARNING (#216)",
       "version_matches_pin": true,
-      "capture_date": "2026-10-22",
-      "capture_utc_range": "2026-10-22T03:49:01.753Z-2026-10-22T03:55:16.650Z",
+      "capture_date": "2026-10-23",
+      "capture_utc_range": "2026-10-23T04:35:24.307Z-2026-10-23T04:37:50.296Z",
       "superseded_by": null,
       "notes": [
-        "One record: pid, parent pid and image name only (no command line, path or user name) of the stub server's ancestors and of every codex process, taken from the OS process table when the stub's tree event appeared. Run record: docs/planning/gates/herdr-runs/G8-S1-2026-10-22.md."
+        "One record: pid, parent pid and image name only (no command line, path or user name) of the stub server's ancestors and of every codex process, taken from the OS process table when the stub's tree event appeared. Run record: docs/planning/gates/herdr-runs/G8-S1-2026-10-23.md."
       ],
       "redaction": {
         "script": "tools/herdr/lib/redact.mjs",
