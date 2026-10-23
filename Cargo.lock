@@ -2177,6 +2177,9 @@ name = "oac-adapter-codex"
 version = "0.0.0"
 dependencies = [
  "oac-core",
+ "oac-mcp-tools",
+ "rmcp",
+ "tokio",
 ]
 
 [[package]]

@@ -14,7 +14,8 @@
 //! shim. `turn/start` and `turn/steer` are steering operations (`spec/bindings/mcp.md`
 //! §8.2.1, [MCPB-CDX-003], [MCPB-CDX-004], `spec/security.md` [SEC-AUZ-022]); neither is on
 //! the list, so no code path here can send one. `thread/list`, whose entries carry
-//! previews (`11-risks.md` row 43), is not on it either.
+//! previews (`11-risks.md` row 43), is not on it either; `thread/loaded/list`, which
+//! answers ids only, is ([`CodexClient::loaded_threads`], G8).
 //!
 //! **What it reads.** Responses to its own calls, and notifications, translated by
 //! [`crate::events`]: only for served threads (row 70), only `item/completed` as an item's
@@ -64,7 +65,20 @@ pub const CLIENT_NAME: &str = "oac-codex-adapter";
 pub const CLIENT_TITLE: &str = "OAC Codex adapter";
 
 /// The stable (non-experimental) methods the client may call.
-pub const STABLE_METHODS: &[&str] = &["initialize", "thread/resume", "thread/unsubscribe"];
+pub const STABLE_METHODS: &[&str] = &[
+    "initialize",
+    "thread/loaded/list",
+    "thread/resume",
+    "thread/unsubscribe",
+];
+
+/// The most thread ids [`CodexClient::loaded_threads`] returns, and the most pages it reads.
+/// A daemon that lists more is not read past this: the rest cannot be paired (availability
+/// only).
+pub const LOADED_THREADS_MAX: usize = 256;
+
+/// The most pages of `thread/loaded/list` one [`CodexClient::loaded_threads`] reads.
+pub const LOADED_PAGES_MAX: usize = 8;
 
 /// The notifications the client may send.
 pub const NOTIFICATIONS_SENT: &[&str] = &["initialized"];
@@ -379,6 +393,58 @@ impl CodexClient {
                 Err(e)
             }
         }
+    }
+
+    /// The ids of the threads the app-server has loaded, from `thread/loaded/list` (stable;
+    /// ids only). The one listing the client calls: `thread/list` carries previews, and its
+    /// `readStates` names other saved threads (G8 S1 capture), so it is never sent.
+    ///
+    /// At most [`LOADED_THREADS_MAX`] ids over at most [`LOADED_PAGES_MAX`] pages, each a
+    /// well-formed thread id ([`is_thread_id`]); anything else in the answer is dropped.
+    /// The ids are native: the caller serves them ([`CodexClient::subscribe`]) and shows none.
+    ///
+    /// # Errors
+    ///
+    /// The call's error, or [`ClientError::Shape`] when the answer lacks `data`.
+    pub fn loaded_threads(&self) -> Result<Vec<String>, ClientError> {
+        let mut ids: Vec<String> = Vec::new();
+        let mut cursor: Option<String> = None;
+        for _ in 0..LOADED_PAGES_MAX {
+            let params = match &cursor {
+                None => "{}".to_owned(),
+                Some(c) => format!("{{\"cursor\":{}}}", Json::String(c.clone()).to_compact()),
+            };
+            let r = self.call("thread/loaded/list", &params)?;
+            let c = schema::THREAD_LOADED_LIST_RESPONSE.check(&r);
+            self.inner.count_drift(c.drift.len());
+            if !c.usable() {
+                return Err(ClientError::Shape(schema::THREAD_LOADED_LIST_RESPONSE.name));
+            }
+            let o = r.as_object();
+            for id in o
+                .and_then(|o| o.get("data"))
+                .and_then(Json::as_array)
+                .unwrap_or(&[])
+                .iter()
+                .filter_map(Json::as_str)
+                .filter(|s| is_thread_id(s))
+            {
+                if ids.len() >= LOADED_THREADS_MAX {
+                    return Ok(ids);
+                }
+                if !ids.iter().any(|i| i == id) {
+                    ids.push(id.to_owned());
+                }
+            }
+            cursor = o
+                .and_then(|o| o.get("nextCursor"))
+                .and_then(Json::as_str)
+                .map(str::to_owned);
+            if cursor.is_none() {
+                break;
+            }
+        }
+        Ok(ids)
     }
 
     /// Stop serving `key`: its notifications are dropped from now on, and
@@ -741,12 +807,18 @@ mod tests {
     fn server_requests_are_counted_and_never_answered() {
         let (client, out) = inner_with_recording_writer();
         // Parser-level hostile inputs, not a claimed recording of Codex approvals.
-        for id in ["1", "\"approval\""] {
+        for (id, method) in [
+            ("1", "item/commandExecution/requestApproval"),
+            ("\"approval\"", "item/commandExecution/requestApproval"),
+            // The MCP tool approval of the S1 capture: an elicitation. Answering it would
+            // decide a tool approval, which is the harness user's (permission relay stays off).
+            ("0", "mcpServer/elicitation/request"),
+        ] {
             client.inner.dispatch(&format!(
-                r#"{{"id":{id},"method":"item/commandExecution/requestApproval","params":{{}}}}"#
+                r#"{{"id":{id},"method":"{method}","params":{{}}}}"#
             ));
         }
-        assert_eq!(client.diagnostics().server_requests, 2);
+        assert_eq!(client.diagnostics().server_requests, 3);
         assert!(
             out.lock().unwrap().is_empty(),
             "an approval must write no answer"
@@ -833,6 +905,8 @@ mod tests {
 
     #[test]
     fn steering_methods_are_not_on_any_list() {
+        // `thread/list` returns previews; the one listing is `thread/loaded/list` (ids only).
+        assert!(STABLE_METHODS.contains(&"thread/loaded/list"));
         for m in ["turn/start", "turn/steer", "thread/list", "thread/start"] {
             assert!(!STABLE_METHODS.contains(&m), "{m}");
             assert!(!shim::EXPERIMENTAL_METHODS.contains(&m), "{m}");

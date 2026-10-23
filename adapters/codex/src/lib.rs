@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! The Codex App Server adapter: its client half (G6, #67).
+//! The Codex App Server adapter: its client half (G6, #67) and the internals of the issued-value
+//! pairing (G8 slice S3, #69, #403).
 //!
 //! - [`ws`]: RFC 6455 framing over the stream `cli/` opens (D8).
 //! - [`client`]: JSON-RPC over it, the `initialize` handshake, thread subscriptions, and a
@@ -12,6 +13,10 @@
 //! - [`threads`]: threads and turns, named by keys of the adapter's own; native ids stay
 //!   inside.
 //! - [`events`]: notifications for served threads, with `item/completed` authoritative.
+//! - [`mcp`]: the OAC MCP server for one Codex stdio connection, on `rmcp`. [`pairing`] is the
+//!   pairing of that connection with a thread (`spec/bindings/mcp.md` §4.5), made of
+//!   [`reveal`] (refused-call records and reveal detection), [`confirm`] (the confirmation
+//!   engine) and [`serving`] (which threads the carrier serves while a connection is paired).
 //!
 //! **Approvals.** Server requests are counted and left unanswered. Another thread
 //! subscriber (the TUI) can answer; the first answer resolves Codex's shared callback.
@@ -27,18 +32,25 @@
 //! core, never to a transport (`spec/interfaces.md` [IFC-ADP-001]).
 //!
 //! **Not yet here.** This crate does not implement `ProviderAdapter` yet: hand-off is G7
-//! (#68, through [`client::CodexClient::queue_add`]), and the attachment of a Codex session,
-//! its MCP connection paired with a thread under `spec/bindings/mcp.md` §4.5, is G8 (#69).
-//! The adapter contract suite runs against the adapter once it implements the trait, from
-//! `tests/contract.rs`.
+//! (#68, through [`client::CodexClient::queue_add`]), and the adapter itself, which implements
+//! [`pairing::CallPort`] over the core's request sink and reports attachments, native signals
+//! and `attachment-unconfirmed`, is G8's next slice (S4, #69). The adapter contract suite runs
+//! against the adapter once it implements the trait, from `tests/contract.rs`.
 
 pub mod client;
+pub mod confirm;
 pub mod events;
+pub mod mcp;
+mod mcp_io;
+pub mod pairing;
+pub mod reveal;
 pub mod schema;
+pub mod serving;
 pub mod shim;
 pub mod threads;
 pub mod ws;
 
 pub use client::{ClientError, CodexClient, Diagnostics, EventHandler, Options};
-pub use events::{CodexEvent, CompletedItem};
+pub use events::{CodexEvent, CompletedItem, McpCallStart};
+pub use pairing::{Answer, CallPort, CodexPairing, Config, PairingDiagnostics, Reveal};
 pub use threads::{ThreadKey, ThreadState, ThreadView, TurnEnd};

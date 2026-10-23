@@ -9,236 +9,14 @@
 //! (`oacFake/*`) and a "TUI user" whose turns make a thread busy, and it reads the fake's
 //! call log for what the client sent, filtered by the client's `clientInfo.name`.
 
-use std::collections::HashMap;
-use std::io::{BufRead, BufReader, Write};
-use std::net::TcpStream;
-use std::path::PathBuf;
-use std::process::{Child, ChildStdin, Command, Stdio};
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::mpsc::{self, Sender};
-use std::sync::{Arc, Condvar, Mutex};
-use std::time::{Duration, Instant};
-
-use oac_adapter_codex::client::{CLIENT_NAME, ClientError, CodexClient, Options};
+use oac_adapter_codex::client::{CLIENT_NAME, ClientError};
 use oac_adapter_codex::events::{CodexEvent, CompletedItem};
 use oac_adapter_codex::threads::{ThreadState, TurnEnd};
 use oac_core::health::HealthState;
-use oac_core::json::{self, Json};
+use oac_core::json::Json;
 
-const WAIT: Duration = Duration::from_secs(10);
-const STARTUP: Duration = Duration::from_secs(60);
-const TUI: &str = "oac-g6-test-tui";
-
-fn get<'a>(v: &'a Json, name: &str) -> Option<&'a Json> {
-    v.as_object()?.get(name)
-}
-
-fn get_str<'a>(v: &'a Json, name: &str) -> Option<&'a str> {
-    get(v, name)?.as_str()
-}
-
-fn js(s: &str) -> String {
-    Json::String(s.to_owned()).to_compact()
-}
-
-type Waiters = Arc<Mutex<HashMap<u64, Sender<Result<Json, Json>>>>>;
-
-/// The fake, spawned; its stdio connection for control calls and the TUI user.
-struct Fake {
-    child: Child,
-    stdin: Mutex<ChildStdin>,
-    url: String,
-    waiters: Waiters,
-    next: AtomicU64,
-}
-
-impl Drop for Fake {
-    fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-    }
-}
-
-impl Fake {
-    fn spawn() -> Fake {
-        let server = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../tests/fakes/codex-app-server/server.mjs");
-        let mut child = Command::new("node")
-            .arg(server)
-            .args(["--stdio", "--listen", "ws://127.0.0.1:0"])
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .expect("spawn the fake Codex app-server with node");
-        let stdin = child.stdin.take().unwrap();
-        let stdout = child.stdout.take().unwrap();
-        let stderr = child.stderr.take().unwrap();
-        let (url_tx, url_rx) = mpsc::channel();
-        std::thread::spawn(move || {
-            let mut sent = false;
-            for line in BufReader::new(stderr).lines().map_while(Result::ok) {
-                if !sent
-                    && let Ok(v) = json::parse(line.as_bytes())
-                    && let Some(u) = get_str(&v, "url")
-                {
-                    let _ = url_tx.send(u.to_owned());
-                    sent = true;
-                    continue;
-                }
-                eprintln!("fake codex: {line}");
-            }
-        });
-        let waiters: Waiters = Arc::default();
-        let w = waiters.clone();
-        std::thread::spawn(move || {
-            for line in BufReader::new(stdout).lines().map_while(Result::ok) {
-                let Ok(v) = json::parse(line.as_bytes()) else {
-                    continue;
-                };
-                let Some(id) = get(&v, "id")
-                    .and_then(Json::as_number)
-                    .and_then(|n| n.plain_integer_in(0, u64::MAX))
-                else {
-                    continue;
-                };
-                let reply = match (get(&v, "result"), get(&v, "error")) {
-                    (Some(r), _) => Ok(r.clone()),
-                    (_, Some(e)) => Err(e.clone()),
-                    _ => continue,
-                };
-                if let Some(tx) = w.lock().unwrap().remove(&id) {
-                    let _ = tx.send(reply);
-                }
-            }
-        });
-        let url = url_rx
-            .recv_timeout(STARTUP)
-            .expect("the fake reports its listener");
-        let fake = Fake {
-            child,
-            stdin: Mutex::new(stdin),
-            url,
-            waiters,
-            next: AtomicU64::new(1),
-        };
-        fake.call(
-            "initialize",
-            &format!(
-                "{{\"clientInfo\":{{\"name\":{},\"version\":\"0\"}},\"capabilities\":{{\"experimentalApi\":true}}}}",
-                js(TUI)
-            ),
-        )
-        .expect("initialize the TUI connection");
-        fake
-    }
-
-    fn call(&self, method: &str, params: &str) -> Result<Json, Json> {
-        let id = self.next.fetch_add(1, Ordering::Relaxed);
-        let (tx, rx) = mpsc::channel();
-        self.waiters.lock().unwrap().insert(id, tx);
-        let frame = format!(
-            "{{\"jsonrpc\":\"2.0\",\"id\":{id},\"method\":{},\"params\":{params}}}\n",
-            js(method)
-        );
-        self.stdin
-            .lock()
-            .unwrap()
-            .write_all(frame.as_bytes())
-            .unwrap();
-        rx.recv_timeout(WAIT).expect("an answer from the fake")
-    }
-
-    fn control(&self, method: &str, params: &str) -> Json {
-        self.call(method, params)
-            .unwrap_or_else(|e| panic!("{method}: {}", e.to_compact()))
-    }
-
-    fn create_thread(&self) -> String {
-        let r = self.control("oacFake/thread/create", "{\"cwd\":\"/oac-g6\"}");
-        get_str(&r, "threadId").unwrap().to_owned()
-    }
-
-    fn tui_turn(&self, thread: &str, text: &str) {
-        self.call(
-            "turn/start",
-            &format!(
-                "{{\"threadId\":{},\"input\":[{{\"type\":\"text\",\"text\":{}}}]}}",
-                js(thread),
-                js(text)
-            ),
-        )
-        .expect("the TUI's turn starts");
-    }
-
-    fn complete_turn(&self, thread: &str, agent_text: &str) {
-        self.control(
-            "oacFake/turn/complete",
-            &format!(
-                "{{\"threadId\":{},\"agentText\":{}}}",
-                js(thread),
-                js(agent_text)
-            ),
-        );
-    }
-
-    /// The client's own calls, from the fake's call log.
-    fn client_calls(&self) -> Vec<Json> {
-        let r = self.control(
-            "oacFake/calls",
-            &format!("{{\"clientName\":{}}}", js(CLIENT_NAME)),
-        );
-        assert_eq!(
-            get(&r, "malformed")
-                .and_then(Json::as_array)
-                .map(<[Json]>::len),
-            Some(0),
-            "malformed frames from the client"
-        );
-        get(&r, "calls")
-            .and_then(Json::as_array)
-            .unwrap_or(&[])
-            .to_vec()
-    }
-
-    fn connect(&self, events: &Events) -> CodexClient {
-        let host = self
-            .url
-            .strip_prefix("ws://")
-            .unwrap()
-            .trim_end_matches('/');
-        let s = TcpStream::connect(host).expect("connect to the fake's listener");
-        let r = s.try_clone().unwrap();
-        CodexClient::connect(r, s, &Options::default(), events.handler()).expect("connect")
-    }
-}
-
-#[derive(Clone, Default)]
-struct Events(Arc<(Mutex<Vec<CodexEvent>>, Condvar)>);
-
-impl Events {
-    fn handler(&self) -> oac_adapter_codex::EventHandler {
-        let me = self.clone();
-        Arc::new(move |e| {
-            me.0.0.lock().unwrap().push(e);
-            me.0.1.notify_all();
-        })
-    }
-
-    fn all(&self) -> Vec<CodexEvent> {
-        self.0.0.lock().unwrap().clone()
-    }
-
-    fn wait_for(&self, what: &str, pred: impl Fn(&[CodexEvent]) -> bool) {
-        let end = Instant::now() + WAIT;
-        let mut ev = self.0.0.lock().unwrap();
-        while !pred(&ev) {
-            let now = Instant::now();
-            assert!(now < end, "no {what}; events {ev:?}");
-            ev = self.0.1.wait_timeout(ev, end - now).unwrap().0;
-        }
-    }
-}
+mod support;
+use support::*;
 
 fn method_of(c: &Json) -> &str {
     get_str(c, "method").unwrap_or_default()
@@ -465,5 +243,31 @@ fn unsubscribing_stops_the_events() {
     client.subscribe(&other).unwrap();
     assert!(client.diagnostics().not_served > 0);
     assert_eq!(events.all().len(), n, "{:?}", events.all());
+    client.shutdown();
+}
+
+#[test]
+fn loaded_threads_lists_ids_only_and_never_calls_thread_list() {
+    let fake = Fake::spawn();
+    let client = fake.connect(&Events::default());
+    assert!(client.loaded_threads().unwrap().is_empty());
+    let a = fake.create_thread();
+    let b = fake.create_thread();
+    let mut ids = client.loaded_threads().unwrap();
+    ids.sort();
+    let mut want = vec![a, b];
+    want.sort();
+    assert_eq!(ids, want);
+    // Listing serves nothing: subscribing is a separate step.
+    assert!(client.threads().is_empty());
+    let calls = fake.client_calls();
+    assert!(calls.iter().all(|c| method_of(c) != "thread/list"));
+    assert_eq!(
+        calls
+            .iter()
+            .filter(|c| method_of(c) == "thread/loaded/list")
+            .count(),
+        2
+    );
     client.shutdown();
 }

@@ -111,7 +111,7 @@ const repoRoot = resolve(dirname(scriptPath), '..');
 const BASH_BODIES = '.github/local-ci.sh';
 const PORTED_FILE = 'scripts/local-ci.ported.json';
 // Steps of this runner's own, with no counterpart in a deleted workflow.
-const LOCAL_ONLY = new Set(['local-ci-self-test', 'cargo-config', 'environment', 'test-listeners-self-test', 'test-listeners', 'doctor-boundary-self-test', 'doctor-boundary']);
+const LOCAL_ONLY = new Set(['local-ci-self-test', 'cargo-config', 'environment', 'test-listeners-self-test', 'test-listeners', 'doctor-boundary-self-test', 'doctor-boundary', 'boundary-check-14']);
 // Tiers of this runner's own, with no counterpart in a deleted workflow: none of their steps
 // has a row in the frozen port contract, and no ported row may name one (--self-test).
 export const LOCAL_TIERS = new Set(['lan']);
@@ -200,6 +200,7 @@ export const TIERS = {
     { id: 'boundary-check-8', name: 'check 8: no separately administered server for local use', bash: 'boundary-check-8', needs: ['rg'] },
     { id: 'boundary-checks-1-2', name: 'checks 1-2 and spec neutral vocabulary over spec/ and core/', bash: 'boundary-checks-1-2', needs: ['rg'] },
     { id: 'boundary-check-11', name: 'check 11: no Beacon in product paths', bash: 'boundary-check-11', needs: ['rg'] },
+    { id: 'boundary-check-14', name: 'check 14: no product path passes an mcp-server argument (the deleted codex mcp-server surface; #69)', bash: 'boundary-check-14', needs: ['rg'] },
     // this runner's own coverage, plan, policy and planted rg checks
     { id: 'local-ci-self-test', name: 'local-ci self-test (coverage, plan, commands, policy, planted rg checks)', cmd: ['node', 'scripts/local-ci.mjs', '--self-test'], needs: ['rg'] },
   ],
@@ -325,6 +326,7 @@ export const PATHS = {
   'boundary-check-8': ['**', '.github/local-ci.sh'],
   'boundary-checks-1-2': ['spec/', 'core/', '.github/local-ci.sh'],
   'boundary-check-11': [...PRODUCT, 'Cargo.toml', 'Cargo.lock', '.github/local-ci.sh'],
+  'boundary-check-14': [...PRODUCT, '.github/local-ci.sh'],
   'local-ci-self-test': ['scripts/', '.github/local-ci.sh', 'tools/herdr/test/selftest.mjs'],
   'keystore-os-store': ['cli/', 'core/', 'Cargo.toml', 'Cargo.lock'],
   'keystore-build': ['cli/', 'core/', 'Cargo.toml', 'Cargo.lock'],
@@ -845,6 +847,15 @@ const BOUNDARY_CASES = [
   ['boundary-check-11', 'clean product path', { 'core/src/lib.rs': '// core\n' }, 0],
   ['boundary-check-11', 'Beacon in a product file', { 'core/src/lib.rs': P('// uses ', 'bea', 'con\n') }, 1],
   ['boundary-check-11', 'Beacon in a product path name', { [P('core/src/', 'bea', 'con_store.rs')]: '// x\n' }, 1],
+  ['boundary-check-14', 'no tracked file in scope: PENDING exits 0', { 'README.md': '# x\n' }, 0],
+  ['boundary-check-14', 'clean product path', { 'cli/src/main.rs': 'fn main() { spawn("codex", ["app-server"]); }\n' }, 0],
+  ['boundary-check-14', 'an mcp-server argument in a Rust file', { 'cli/src/main.rs': P('fn main() { spawn("codex", ["mcp', '-server"]); }\n') }, 1],
+  ['boundary-check-14', 'a codex mcp-server command line in a script', { 'adapters/codex/run.sh': P('codex mcp', '-server --stdio\n') }, 1],
+  ['boundary-check-14', 'an mcp-server argument in a manifest', { 'transports/x/Cargo.toml': P('args = ["mcp', '-server"]\n') }, 1],
+  ['boundary-check-14', 'an mcp-server path name', { [P('cli/src/mcp', '-server.rs')]: '// x\n' }, 1],
+  ['boundary-check-14', 'a longer name is not the argument (mcp-server-approval)', { 'cli/src/main.rs': P('// the mcp', '-server-approval dialog\n') }, 0],
+  ['boundary-check-14', 'Markdown prose may say the surface is gone', { 'spec/bindings/mcp.md': P('`codex mcp', '-server` is deleted\n'), 'cli/README.md': P('not mcp', '-server\n'), 'cli/src/main.rs': '// cli\n' }, 0],
+  ['boundary-check-14', 'outside the product paths (tools/) is not scanned', { 'tools/x.mjs': P('run("mcp', '-server");\n'), 'cli/src/main.rs': '// cli\n' }, 0],
 ];
 
 function selfTest() {

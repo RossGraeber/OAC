@@ -6,8 +6,9 @@
 //! - **`item/completed` is authoritative; deltas are not.** An item's content is taken
 //!   only from its `item/completed`. `item/agentMessage/delta` and every other `*/delta`
 //!   notification are counted and dropped. `item/started` is passed on with the item's id
-//!   and kind only, never its content: it says an item began (the confirmation of
-//!   `spec/bindings/mcp.md` §4.5.2 is one, G8), not what it holds.
+//!   and kind, and for an `mcpToolCall` its server, tool and arguments ([`McpCallStart`]):
+//!   that is all a confirmation of `spec/bindings/mcp.md` §4.5.2 is made of (G8). Any other
+//!   started item's content is not read.
 //! - **Only served threads.** A notification is used only when its `threadId` is a thread
 //!   the client subscribed to. Live Codex sends some thread notifications to connections
 //!   that did not subscribe to the thread, and after `thread/unsubscribe`
@@ -81,6 +82,26 @@ impl fmt::Debug for CompletedItem {
     }
 }
 
+/// What an `item/started` of an `mcpToolCall` says, as Codex reported it: the members a
+/// confirmation is matched on (`spec/bindings/mcp.md` §4.5.2). Nothing here is trusted; the
+/// pairing compares it with a call.
+#[derive(Clone, PartialEq, Eq)]
+pub struct McpCallStart {
+    /// The registered server name.
+    pub server: String,
+    /// The tool name.
+    pub tool: String,
+    /// `arguments` as reported (`null` included; `None` when the member is absent).
+    pub arguments: Option<Json>,
+}
+
+/// Debug shows nothing: the arguments of a call can hold a pairing value.
+impl fmt::Debug for McpCallStart {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("McpCallStart").finish_non_exhaustive()
+    }
+}
+
 /// An event about a served thread.
 #[derive(Clone, PartialEq, Eq)]
 pub enum CodexEvent {
@@ -107,7 +128,8 @@ pub enum CodexEvent {
         /// How it ended.
         end: TurnEnd,
     },
-    /// `item/started`: the item began. Its content is not read here.
+    /// `item/started`: the item began. Its content is not read here, except an
+    /// `mcpToolCall`'s call members.
     ItemStarted {
         /// The thread.
         thread: ThreadKey,
@@ -117,6 +139,8 @@ pub enum CodexEvent {
         item: NativeRef,
         /// Its `type`.
         kind: String,
+        /// The call, for an `mcpToolCall` item.
+        call: Option<McpCallStart>,
     },
     /// `item/completed`: the authoritative item.
     ItemCompleted {
@@ -244,11 +268,27 @@ pub fn translate(method: &str, params: Option<&Json>, reg: &mut Registry) -> Tra
                 if !checked(&schema::ANY_ITEM, it) {
                     return Err(Dropped::Malformed);
                 }
+                let kind = member_str(it, "type").unwrap_or_default();
+                let call = if kind == "mcpToolCall" {
+                    if !checked(&schema::MCP_TOOL_CALL_ITEM, it) {
+                        return Err(Dropped::Malformed);
+                    }
+                    Some(McpCallStart {
+                        server: member_str(it, "server")
+                            .ok_or(Dropped::Malformed)?
+                            .to_owned(),
+                        tool: member_str(it, "tool").ok_or(Dropped::Malformed)?.to_owned(),
+                        arguments: member(it, "arguments").cloned(),
+                    })
+                } else {
+                    None
+                };
                 Ok(CodexEvent::ItemStarted {
                     thread,
                     turn: NativeRef::new(member_str(params, "turnId").unwrap_or_default()),
                     item: NativeRef::new(member_str(it, "id").unwrap_or_default()),
-                    kind: member_str(it, "type").unwrap_or_default().to_owned(),
+                    kind: kind.to_owned(),
+                    call,
                 })
             }
             _ => {
@@ -365,6 +405,11 @@ mod tests {
             turn: id.clone(),
             item: id,
             kind: secret.into(),
+            call: Some(McpCallStart {
+                server: secret.into(),
+                tool: secret.into(),
+                arguments: Some(Json::String(secret.into())),
+            }),
         };
         assert!(!format!("{started:?}").contains(secret));
     }
@@ -514,7 +559,7 @@ mod tests {
     }
 
     #[test]
-    fn item_started_passes_no_content() {
+    fn item_started_passes_only_an_mcp_calls_members() {
         let (mut r, k) = reg();
         let v = p(&format!(
             r#"{{"item":{{"type":"mcpToolCall","id":"c","server":"oac","tool":"send","arguments":{{"to":"x"}},"status":"inProgress"}},"threadId":"{T}","turnId":"u","startedAtMs":1}}"#
@@ -525,8 +570,35 @@ mod tests {
                 thread: k,
                 turn: NativeRef::new("u"),
                 item: NativeRef::new("c"),
-                kind: "mcpToolCall".into()
+                kind: "mcpToolCall".into(),
+                call: Some(McpCallStart {
+                    server: "oac".into(),
+                    tool: "send".into(),
+                    arguments: Some(p(r#"{"to":"x"}"#)),
+                }),
             })
+        );
+        // Any other item's content is not read.
+        let v = p(&format!(
+            r#"{{"item":{{"type":"commandExecution","id":"d","command":"ls"}},"threadId":"{T}","turnId":"u","startedAtMs":1}}"#
+        ));
+        assert_eq!(
+            translate("item/started", Some(&v), &mut r).event,
+            Ok(CodexEvent::ItemStarted {
+                thread: k,
+                turn: NativeRef::new("u"),
+                item: NativeRef::new("d"),
+                kind: "commandExecution".into(),
+                call: None,
+            })
+        );
+        // An mcpToolCall without a server or tool is malformed, not a confirmation.
+        let v = p(&format!(
+            r#"{{"item":{{"type":"mcpToolCall","id":"c","tool":"send","arguments":{{}}}},"threadId":"{T}","turnId":"u","startedAtMs":1}}"#
+        ));
+        assert_eq!(
+            translate("item/started", Some(&v), &mut r).event,
+            Err(Dropped::Malformed)
         );
     }
 }

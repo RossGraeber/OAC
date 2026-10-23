@@ -176,6 +176,18 @@ pub const THREAD_UNSUBSCRIBE_PARAMS: Shape = Shape {
     sent: &["threadId"],
 };
 
+/// `thread/loaded/list` params: only a `cursor`, after the first page. Never a `limit`.
+/// The method answers ids only (stable; `spec/bindings/mcp.md` §4.5, G8): it is the one
+/// listing the client calls, because `thread/list` returns previews.
+pub const THREAD_LOADED_LIST_PARAMS: Shape = Shape {
+    name: "ThreadLoadedListParams",
+    file: "v2/ThreadLoadedListParams.json",
+    definition: None,
+    required: &[],
+    relied_on: &[],
+    sent: &["cursor"],
+};
+
 /// A text input item (`UserInput` variant `text`), as the experimental queue add sends it.
 pub const TEXT_USER_INPUT: Shape = Shape {
     name: "TextUserInput",
@@ -214,6 +226,16 @@ pub const THREAD_RESUME_RESPONSE: Shape = Shape {
         "thread",
     ],
     relied_on: &[("thread", Kind::Obj)],
+    sent: &[],
+};
+
+/// The `thread/loaded/list` result: thread ids, and the cursor of the next page.
+pub const THREAD_LOADED_LIST_RESPONSE: Shape = Shape {
+    name: "ThreadLoadedListResponse",
+    file: "v2/ThreadLoadedListResponse.json",
+    definition: None,
+    required: &["data"],
+    relied_on: &[("data", Kind::Arr)],
     sent: &[],
 };
 
@@ -372,9 +394,11 @@ pub const ALL: &[Shape] = &[
     INITIALIZE_CAPABILITIES,
     THREAD_RESUME_PARAMS,
     THREAD_UNSUBSCRIBE_PARAMS,
+    THREAD_LOADED_LIST_PARAMS,
     TEXT_USER_INPUT,
     INITIALIZE_RESPONSE,
     THREAD_RESUME_RESPONSE,
+    THREAD_LOADED_LIST_RESPONSE,
     THREAD,
     ITEM_STARTED,
     ITEM_COMPLETED,
