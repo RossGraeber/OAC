@@ -15,7 +15,8 @@
 //   .claude   .codex   (the default locations of a harness's own files; `.claude` also
 //   catches `.claude.json` and `.claude/`)
 // ALLOW lists the legitimate mentions, one exact trimmed line each with its reason. An entry
-// that no longer matches fails (stale). Its one entry is a struct field access that is not a path.
+// that no longer matches fails (stale). Its entries are a struct field access that is not a path
+// and, in cli/src/codex.rs alone, the two constants that build the Codex control socket's path.
 //
 // Exit codes: 0 = clean; 1 = a violation (or a failed self-test case); 2 = usage or
 // environment error. Node built-ins and git only.
@@ -32,6 +33,13 @@ const repoRoot = resolve(dirname(scriptPath), '..');
 export const FORBIDDEN = ['auth.json', '.credentials.json', '.sqlite', 'CODEX_HOME', 'CLAUDE_CONFIG_DIR', '.claude', '.codex'];
 // { file, line (exact, trimmed), reason }
 export const ALLOW = [
+  // The Codex control socket's path (G8 S5, #433; lead approval 2026-10-21, approval 2): ONE module,
+  // cli/src/codex.rs, names the Codex home variable and its default directory, on exactly these
+  // two lines, to build `<home>/app-server-control/app-server-control.sock`. The module reads
+  // metadata of, and connects to, that one path and nothing else under the home: no credential
+  // file, database, rollout or configuration. No other file in cli/src may name either.
+  { file: 'cli/src/codex.rs', line: 'const HOME_VARIABLE: &str = "CODEX_HOME";', reason: 'the environment variable that locates the control socket (approval 2)' },
+  { file: 'cli/src/codex.rs', line: 'const HOME_DIRECTORY: &str = ".codex";', reason: 'the default home directory name, to locate the control socket only (approval 2)' },
   // The `claude` field of the doctor's probes (`claude --version`), not a path.
   { file: 'cli/src/doctor.rs', line: 'match (probes.claude)() {', reason: 'a struct field named claude, not the .claude directory' },
 ];
@@ -82,6 +90,9 @@ function selfTest() {
     expect('an allowed exact line passes', scan(dir, [{ file: 'cli/src/x.rs', line: 'let a = "auth.json";', reason: 't' }]).length === 0);
     put('fn clean() {}\n');
     expect('a stale allow entry fails', scan(dir, [{ file: 'cli/src/x.rs', line: 'gone', reason: 't' }]).length === 1);
+    put('const HOME_VARIABLE: &str = "CODEX_HOME";\n');
+    expect('the codex.rs allowance does not cover another file', scan(dir, [{ file: 'cli/src/codex.rs', line: 'const HOME_VARIABLE: &str = "CODEX_HOME";', reason: 't' }]).length === 2);
+    put('fn clean() {}\n');
     mkdirSync(join(dir, 'core'), { recursive: true });
     writeFileSync(join(dir, 'core/y.rs'), '// auth.json\n'); git('add', '-A');
     expect('files outside cli/src are not scanned', scan(dir, []).length === 0);

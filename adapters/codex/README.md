@@ -54,7 +54,7 @@ which is when Codex makes it.
   (`Pipelines::connect_carrier`); never in-band ([MCPB-ATT-006]). Every other connection is a
   shim connection: one attachment, `attachment-opened` after the first `tools/list` answer.
   With no carrier up, a shim connection is closed; while the carrier connects, shim
-  connections wait. One carrier serves an adapter's life.
+  connections wait. One carrier serves an adapter at a time; a lost one is replaced by a new designation (S5).
 - **Pairing.** A reveal is reported as a `native-signal` on the carrier (`native_id` the
   notification's `threadId`, `revealed` the value, start kind `fresh`). The thread is kept per
   attachment, uncommitted. `set_binding(Some)` commits it and calls
@@ -137,8 +137,8 @@ in the default tier with no live harness. The security mutation runner currently
 core mitigations and the security suite, which cannot reach this client-only crate;
 the two review mutations are checked against this crate's unit tests directly.
 
-## For S5 (the daemon's wiring)
+## For S5 (the daemon's wiring; done in S5)
 
-- **One carrier per adapter life; a lost carrier is permanent.** If Codex's app-server restarts (for example the auto-updater), Codex is unusable until OAC restarts. S5 must either rebuild the adapter when the carrier is lost, or allow a fresh designation after `Lost` (`designate_carrier` refuses a second one today). Recorded as `docs/planning/v0.1/11-risks.md` row 90.
+- **One carrier at a time; a lost carrier is replaced (S5, `docs/planning/v0.1/11-risks.md` row 90).** `designate_carrier` is refused while a carrier is connecting or up, and accepted again after `CarrierState::Lost` (the start failed, or the connection ended: `carrier_state()`). The daemon (`cli/src/codex.rs`, `CarrierDriver`) connects a carrier at start if the control socket is there and when a Codex shim connects with none or a lost one, never on a timer, and never starts or stops Codex's app-server. Shims served through a lost carrier keep their place until their streams end and hand nothing off.
 - **Order.** The daemon must designate the carrier (`CodexAdapter::designate_carrier(handle)`) and hand it over with `Pipelines::connect_carrier` **before** any shim connection arrives: with no carrier a shim connection is closed, and while the carrier connects it waits.
 - **Surface.** The adapter uses the legacy event surface; interfaces 0.5/0.6's cooperative local-call surface is not implemented for Codex.

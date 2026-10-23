@@ -87,6 +87,7 @@ fn parts(tag: &str) -> (Parts, ports::PortClaim, NamespaceDir) {
         config: PipelineConfig::default(),
         harnesses: vec![("claude".to_owned(), Arc::new(ClaudeAdapter::new()) as _)],
         log: LogSink::discard(),
+        codex: None,
     };
     (parts, claim, guard)
 }

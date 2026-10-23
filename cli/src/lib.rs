@@ -8,6 +8,7 @@
 //! - [`keystore`]: the device-key stores, the operating system's credential store and the
 //!   encrypted-file fallback (#52, F3; `docs/planning/decisions/C4-session-identity.md`
 //!   §10-§11).
+//! - [`codex`]: the Codex carrier, the daemon's connection to Codex's app-server control socket (G8 S5, #433).
 //! - [`commands`]: `start`, `mcp-shim` and the hook handler's connector, wired to the real
 //!   transport, key stores and adapters.
 //! - [`daemon`]: the per-device daemon (G9, #70).
@@ -25,6 +26,7 @@
 //! - [`peer`]: what the daemon observes about the process at the other end of a local
 //!   connection (pairing key, harness working directory) from the operating system (G9, #70).
 
+pub mod codex;
 pub mod commands;
 pub mod control;
 pub mod daemon;

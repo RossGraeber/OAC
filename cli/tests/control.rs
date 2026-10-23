@@ -178,6 +178,7 @@ impl Rig {
             config: PipelineConfig::default(),
             harnesses: vec![("claude".to_owned(), Arc::new(ClaudeAdapter::new()) as _)],
             log: sink,
+            codex: None,
         };
         let rt = Rt::new();
         let daemon = rt

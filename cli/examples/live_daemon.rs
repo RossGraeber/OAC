@@ -7,7 +7,7 @@
 //! namespace, so a second daemon in a namespace beside the real one would be a second peer
 //! with the same identity). A live leg that drives a real harness from a scripted terminal must not
 //! touch that key, so it runs this instead: the same `Daemon::start` (same lock, same
-//! endpoints, same peer authentication and observation, same relay, same Claude adapter), but
+//! endpoints, same peer authentication and observation, same relay, same Claude and Codex adapters), but
 //!
 //! - the key is made in memory for this run and kept nowhere;
 //! - the transport is the in-memory one, with nothing to announce to;
@@ -40,6 +40,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use oac_adapter_claude::ClaudeAdapter;
+use oac_adapter_codex::CodexAdapter;
+use oac_cli::codex::{CarrierWiring, control_socket_opener, default_control_socket_path};
 use oac_cli::daemon::{Daemon, Diagnostic, LogSink, Parts};
 use oac_cli::ipc::Scope;
 use oac_cli::logfile::{LogFile, MAX_LOG_BYTES};
@@ -268,6 +270,15 @@ fn main() {
         None => LogFile::open(Some(&namespace)),
     });
     let failure_log = log.clone();
+    // The Codex adapter, with the real control socket as its carrier (the path of
+    // `OAC_CODEX_CONTROL_SOCKET`, else the Codex home default): the same wiring as `oac start`.
+    // The carrier is connected at start if the socket is there and when a Codex shim connects;
+    // this never starts or stops Codex's app-server.
+    let codex_adapter = Arc::new(CodexAdapter::new());
+    let codex = default_control_socket_path().map(|path| CarrierWiring {
+        adapter: codex_adapter.clone(),
+        opener: control_socket_opener(path),
+    });
     let parts = Parts {
         scope,
         key_store: Box::new(MemoryKeyStore::new()),
@@ -279,8 +290,12 @@ fn main() {
         clock,
         monotonic: Arc::new(move || net.now()),
         config: PipelineConfig::default(),
-        harnesses: vec![("claude".to_owned(), Arc::new(ClaudeAdapter::new()) as _)],
+        harnesses: vec![
+            ("claude".to_owned(), Arc::new(ClaudeAdapter::new()) as _),
+            ("codex".to_owned(), codex_adapter as _),
+        ],
         log,
+        codex,
     };
     // A line `stop` on standard input stops the daemon as Ctrl-C does. The end of the input
     // does not: the sender is kept alive, because a dropped sender would complete the receiver
