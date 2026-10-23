@@ -9,10 +9,12 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { sanitizeTranscript } from '../lib/g2.mjs';
+import { isHistoryCursor } from '../lib/elide.mjs';
 import { TOOL, serveCall, negotiate, parseTable, ancestorChain } from '../gate-servers/g8-server.mjs';
 import { resumeParams } from '../gate-servers/g8-capture.mjs';
 import {
-  g8Names, parseServerLog, serverSecrets, serverLogAsTranscript, mcpItems, orderAgainstServer, processTreeSnapshot, imageOf, otherThreadIds, redactOtherThreadIds,
+  g8Names, parseServerLog, serverSecrets, serverLogAsTranscript, mcpItems, orderAgainstServer, processTreeSnapshot, imageOf, otherThreadIds, redactOtherThreadIds, serverLogPrecondition,
 } from '../scenarios/g8-codex-tools.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -125,18 +127,47 @@ export async function g8Unit(check) {
   const reused = new Map([row(1, 0, 'explorer.exe', 5), row(300, 1, 'node.exe', 1)]);
   check('g8 process tree: a parent link to a process that began after the child is not followed (reused pid)', processTreeSnapshot(reused, 300).serverChain.map((c) => c.pid).join() === '300');
 
-  // --- other threads' ids (Codex 0.163.0 thread/list readStates) ---------------------------------------------
-  const line = (payload) => JSON.stringify({ t: 'x', mode: 'list', direction: 'daemon->client', payload });
+  // --- other threads' ids ------------------------------------------------------------------------------------
+  const line = (payload, direction = 'daemon->client', mode = 'list') => JSON.stringify({ t: 'x', mode, direction, payload });
   const text = [
     line({ id: 1, result: { data: ['own-1', 'loaded-2'], nextCursor: null } }),
-    line({ id: 2, result: { data: [], readStates: { 'rs-3': { firstUnread: null }, 'own-1': { firstUnread: null }, 'rs-4': { firstUnread: null } } } }),
-    line({ id: 3, result: { data: [{ id: 'row-5' }] } }),
     line({ method: 'thread/status/changed', params: { threadId: 'notification-6' } }),
   ].join('\n');
   const others = otherThreadIds(text, ['own-1']);
-  check('g8 other ids: loaded-list ids, readStates keys and thread/list row ids other than our own, in order of first appearance; notification ids are not guessed', JSON.stringify(others) === '["loaded-2","rs-3","rs-4","row-5"]');
-  const red = redactOtherThreadIds(text, others);
-  check('g8 other ids: each is replaced by a numbered placeholder and nothing else changes', !/loaded-2|rs-3|rs-4|row-5/.test(red) && red.includes('<OTHER_THREAD_ID_1>') && red.includes('<OTHER_THREAD_ID_4>') && red.includes('own-1') && red.includes('notification-6'));
+  check('g8 other ids: loaded-list ids other than our own, in order of first appearance; notification ids are not guessed', JSON.stringify(others) === '["loaded-2"]');
+  const red = redactOtherThreadIds(text, ['loaded-2', 'x-9']);
+  check('g8 other ids: each is replaced by a numbered placeholder and nothing else changes', !/loaded-2/.test(red) && red.includes('<OTHER_THREAD_ID_1>') && red.includes('own-1') && red.includes('notification-6'));
+
+  // --- the shared sanitizer drops other threads' readStates entries (Codex 0.163.0 thread/list) ---------------
+  const rsText = [
+    line({ jsonrpc: '2.0', id: 2, method: 'thread/list', params: {} }, 'client->daemon'),
+    line({ id: 2, result: { data: [{ id: 'own-1' }, { id: 'other-2' }], readStates: { 'other-3': { firstUnread: null, revision: 'initial:other-3' }, 'own-1': { firstUnread: null, revision: 'initial:own-1' }, 'other-4': { firstUnread: null, revision: 'initial:other-4' } }, nextCursor: null } }),
+    line({ jsonrpc: '2.0', id: 3, method: 'thread/list', params: {} }, 'client->daemon', 'other'),
+    line({ id: 3, result: { data: [], readStates: { 'other-5': { firstUnread: null, revision: 'initial:other-5' } } } }, 'daemon->client', 'other'),
+  ].join('\n');
+  const san = sanitizeTranscript(rsText, { ownThreadId: 'own-1' });
+  const got = san.text.split('\n').map((l) => JSON.parse(l)).filter((o) => o.direction === 'daemon->client');
+  check('g8 sanitizer: a thread/list readStates map keeps only the run\'s own thread; every other key and its revision value is gone, and the result is marked', JSON.stringify(Object.keys(got[0].payload.result.readStates)) === '["own-1"]' && got[0].payload.result.readStates['own-1'].revision === 'initial:own-1' && !/other-[2-5]/.test(san.text) && got[0].payload.result._fixtureNote === 'unrelated sessions removed for privacy' && san.report.readStatesEntriesRemoved === 3);
+  const none = JSON.parse(sanitizeTranscript(rsText, { ownThreadId: null }).text.split(/\r?\n/)[1]);
+  check('g8 sanitizer: with no own thread every readStates entry goes', Object.keys(none.payload.result.readStates).length === 0);
+  check('g8 sanitizer: the shared function is the one the g2, g5, l3 and s3 scenarios import', ['g2-codex-inject', 'g5-provenance', 'l3-beacon', 's3-codex-capture', 'g8-codex-tools'].every((n) => /sanitizeTranscript/.test(read(join(REPO, 'tools', 'herdr', 'scenarios', `${n}.mjs`)))));
+
+  // --- the HistoryCursor check keeps the redaction placeholder, exactly -----------------------------------------
+  const cur = (id) => JSON.stringify({ requestedThreadId: id, rolloutOrdinal: 1, includeAnchor: true, scope: { kind: 'turns' } });
+  check('g8 cursor: isHistoryCursor keeps the exact <THREAD_ID> and a UUID, and rejects <THREAD_ID>x, <OTHER_THREAD_ID_1> and a non-id', isHistoryCursor(cur('<THREAD_ID>')) && isHistoryCursor(cur('01a161bd-83f6-75c1-9598-16d1f0b29724')) && !isHistoryCursor(cur('<THREAD_ID>x')) && !isHistoryCursor(cur('<OTHER_THREAD_ID_1>')) && !isHistoryCursor(cur('x')));
+
+  // --- a reused stub log: exactly one start, no tool call ----------------------------------------------------------
+  const logLines = (...evs) => evs.map((e) => JSON.stringify({ t: '2026-10-22T00:00:00.000Z', pid: 1, ppid: 0, seq: 1, ...e })).join('\n');
+  const okLog = logLines({ event: 'start' }, { event: 'rpc-in', frame: { jsonrpc: '2.0', id: 0, method: 'initialize' } }, { event: 'tree' });
+  const p1 = serverLogPrecondition(okLog);
+  check('g8 precondition: a log with one start and no tool call is usable, and the counts are returned', p1.ok && p1.starts === 1 && p1.calls === 0 && p1.reason === null);
+  const p0 = serverLogPrecondition(logLines({ event: 'rpc-in', frame: { method: 'x' } }));
+  const p2 = serverLogPrecondition(logLines({ event: 'start' }, { event: 'start' }));
+  check('g8 precondition: no start, or two starts, is refused with the count in the reason', !p0.ok && p0.starts === 0 && /0 .start. events/.test(p0.reason) && !p2.ok && p2.starts === 2 && /2 .start. events/.test(p2.reason));
+  const pc = serverLogPrecondition(logLines({ event: 'start' }, { event: 'call-in', callSeq: 1 }));
+  const pf = serverLogPrecondition(logLines({ event: 'start' }, { event: 'rpc-in', frame: { jsonrpc: '2.0', id: 2, method: 'tools/call' } }));
+  check('g8 precondition: a log that already holds a tool call (call-in, or a tools/call frame) is refused', !pc.ok && pc.calls === 1 && !pf.ok && pf.calls === 1);
+  check('g8 precondition: the scenario applies it before anything else runs and records the counts', /logAtStart && !logAtStart\.ok\) throw new DriverError\(logAtStart\.reason\)/.test(code(SCENARIO)) && /serverLogAtStart:/.test(code(SCENARIO)));
 
   // --- names and the scenario's guards ---------------------------------------------------------------------------
   check('g8 names: verified versions give fixture names, otherwise unverified-*', g8Names('2026-10-21', '0.162.1').transcript === 'transcript-g8-2026-10-21-0.162.1-herdr.jsonl' && g8Names('2026-10-21', null).server === 'transcript-g8-server-unverified-2026-10-21.jsonl');

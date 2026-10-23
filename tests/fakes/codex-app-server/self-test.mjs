@@ -715,15 +715,16 @@ function busyThread(fake) {
   return { tui, threadId };
 }
 
-await test('mcp: oacFake/mcp/start sends item/started of an mcpToolCall with the recorded shape (G8 L120, L128)', () => {
+await test('mcp: oacFake/mcp/start sends item/started of an mcpToolCall with the recorded shape (G8 L120, L128, L137)', () => {
   const fake = new FakeCodexAppServer();
   const { tui, threadId } = busyThread(fake);
   const before = tui.frames.length;
   const r = control(fake, 'oacFake/mcp/start', { threadId, server: 'oac-g8', tool: 'g8_pair', arguments: {} });
-  assert(/^exec-[0-9a-f-]{36}$/.test(r.itemId), 'the item id has the recorded exec-<uuid> form');
+  assert(/^exec-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(r.itemId), 'the item id has the recorded exec-<uuid v4> form');
+  assert(g8Recorded().every((f) => /^exec-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(f.payload.params.item.id)), 'and the recording\'s ids have that form');
   const got = tui.frames.slice(before).filter((p) => p.method === 'item/started');
   eq(got.length, 1, 'one item/started');
-  for (const line of [120, 128]) {
+  for (const line of [120, 128, 137]) {
     const want = g8At(line);
     eq(shape({ ...got[0], params: { ...got[0].params, item: { ...got[0].params.item, arguments: null } } }), shape({ ...want.payload, params: { ...want.payload.params, item: { ...want.payload.params.item, arguments: null } } }), `shape against ${fixturePath('g8')}:${line}`);
   }
@@ -745,8 +746,20 @@ await test('mcp: oacFake/mcp/complete sends item/completed: status failed for th
     const scrub = (p) => ({ ...p, params: { ...p.params, item: { ...p.params.item, id: null, arguments: null, result: { ...p.params.item.result, content: null } } } });
     eq(shape(scrub(got[0])), shape(scrub(want)), `shape against ${fixturePath('g8')}:${line}`);
     eq([got[0].params.item.status, got[0].params.item.error, 'isError' in got[0].params.item.result, got[0].params.item.result.content[0].text], [outcome, null, false, `text for ${outcome}`], 'status, error null, no isError, the caller\'s text');
-    assert(Number.isInteger(got[0].params.item.durationMs) && got[0].params.item.durationMs >= 0, 'durationMs is set');
+    eq(got[0].params.item.durationMs, 3, 'durationMs defaults to the recorded 3 ms of the call alone, not the time since item/started');
+    eq([g8At(125).payload.params.item.durationMs, g8At(134).payload.params.item.durationMs, g8At(143).payload.params.item.durationMs], [3, 4, 3], 'the recording: 3, 4 and 3 ms');
   }
+});
+
+await test('mcp: arguments null is allowed (source only, C9; not recorded) and an explicit durationMs is used; a bad durationMs is refused', () => {
+  const fake = new FakeCodexAppServer();
+  const { tui, threadId } = busyThread(fake);
+  const { itemId } = control(fake, 'oacFake/mcp/start', { threadId, server: 'oac-g8', tool: 'g8_pair', arguments: null });
+  eq(tui.notifications('item/started').at(-1).params.item.arguments, null, 'arguments null as given');
+  const ctl = client(fake, 'oac-fake-control', { init: false });
+  eq(ctl.request('oacFake/mcp/complete', { threadId, itemId, text: 'x', durationMs: -1 }).error?.code, -32602, 'negative durationMs');
+  control(fake, 'oacFake/mcp/complete', { threadId, itemId, text: 'x', durationMs: 4 });
+  eq(tui.notifications('item/completed').at(-1).params.item.durationMs, 4, 'durationMs as given');
 });
 
 await test('mcp: item/started precedes item/completed, and the completed item joins the turn (thread/turns/list); the turn ends as before', () => {
@@ -770,7 +783,7 @@ await test('mcp: refusals are -32602 (no running turn, no such started item, arg
   eq(code('oacFake/mcp/start', { threadId: '00000000-0000-7000-8000-000000000000', server: 'a', tool: 'b' }), -32602, 'unknown thread');
   busyThread(fake);
   const busy = [...fake.threads.values()].find((t) => t.activeTurn);
-  eq(code('oacFake/mcp/start', { threadId: busy.id, server: 'a', tool: 'b', arguments: null }), -32602, 'arguments null (the spec expected null for none; Codex reported {})');
+  eq(code('oacFake/mcp/start', { threadId: busy.id, server: 'a', tool: 'b', arguments: 'x' }), -32602, 'arguments a string');
   eq(code('oacFake/mcp/start', { threadId: busy.id, server: 'a', tool: 'b', arguments: [] }), -32602, 'arguments an array');
   eq(code('oacFake/mcp/start', { threadId: busy.id, server: '', tool: 'b' }), -32602, 'empty server');
   eq(code('oacFake/mcp/complete', { threadId: busy.id, itemId: 'exec-nope', text: 'x' }), -32602, 'no such started item');
