@@ -15,7 +15,7 @@
 //   - Turns never progress on a timer. A turn runs until a test calls
 //     `oacFake/turn/complete` (no sleeps, no polling, deterministic order).
 
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { loadTemplates } from './fixtures.mjs';
 
 // JSON-RPC codes in the implementation-defined server-error range, used only by the fake.
@@ -705,19 +705,21 @@ export class FakeCodexAppServer {
   // oacFake/mcp/start: the thread's running turn makes an MCP tool call. Sends subscribers the
   // `item/started` of an `mcpToolCall` item, as recorded in the G8 S1 capture (Codex 0.163.0:
   // item/started at the model's call, status inProgress, result and durationMs null; the stub
-  // server saw the call later, after the approval step). `arguments` must be a JSON object:
-  // Codex reported `{}` for a call the model made with no arguments (the `null` the spec's
-  // C9 expected was not seen), and no other shape is recorded. Not modelled: the
+  // server saw the call later, after the approval step). `arguments` is a JSON object (the
+  // recorded shape: Codex reported `{}` for a call the model was asked to make without
+  // arguments) or `null`. `null` is SOURCE ONLY: the spec's C9 says Codex reports it for a call
+  // with no `arguments` member, but no run has shown it (11-risks.md row 75), so a test that
+  // uses it exercises an unrecorded shape. Arrays and scalars are refused. Not modelled: the
   // `mcpServer/elicitation/request` approval step that followed (see README).
   mcpStart({ threadId, server, tool, arguments: args = {} } = {}) {
     const th = this.threads.get(threadId);
     if (!th) throw new RpcError(-32602, `unknown thread ${threadId}`);
     if (!th.activeTurn) throw new RpcError(-32602, `thread ${threadId} has no running turn: an mcpToolCall item is recorded only inside a turn`);
     if (typeof server !== 'string' || !server || typeof tool !== 'string' || !tool) throw new RpcError(-32602, 'server and tool must be non-empty strings');
-    if (args === null || typeof args !== 'object' || Array.isArray(args)) throw new RpcError(-32602, 'arguments must be a JSON object (Codex reported {} for a call with none; no other shape is recorded)');
+    if (args !== null && (typeof args !== 'object' || Array.isArray(args))) throw new RpcError(-32602, 'arguments must be a JSON object (recorded) or null (source only, C9; not recorded)');
     const turn = th.activeTurn;
     const item = structuredClone(this.t.g8.started.params.item);
-    item.id = `exec-${uuidv7(this.now()).toLowerCase()}`;
+    item.id = `exec-${randomUUID()}`; // the recorded form: exec-<uuid v4> (G8 L120, L128, L137)
     item.server = server;
     item.tool = tool;
     item.arguments = structuredClone(args);
@@ -728,18 +730,22 @@ export class FakeCodexAppServer {
     return { threadId: th.id, turnId: turn.id, itemId: item.id };
   }
 
-  // oacFake/mcp/complete: the call returned. Sends `item/completed` for the item
+  // oacFake/mcp/complete: the call returned. `durationMs` is the time of the MCP call alone, after
+  // the approval, as Codex reports it: 3, 4 and 3 ms in the recording (G8 L125, L134, L143), not the
+  // time from item/started, which includes the approval (23869, 1537 and 1778 ms to the stub's call). The fake has
+  // no approval step, so the caller says it; the default is 3, the recording's commonest value. Sends `item/completed` for the item
   // oacFake/mcp/start made: status `completed`, or `failed` for a tool error result (the
   // recorded refusal: status failed, the refusal text in result.content, error null, and no
   // isError member in result). `text` is the result's one text block. The recorded
   // text was elided from the fixture, so the shape (content, structuredContent null, _meta
   // null) is the recording's and the text is the caller's.
-  mcpComplete({ threadId, itemId, outcome = 'completed', text } = {}) {
+  mcpComplete({ threadId, itemId, outcome = 'completed', text, durationMs = 3 } = {}) {
     const th = this.threads.get(threadId);
     if (!th) throw new RpcError(-32602, `unknown thread ${threadId}`);
     if (!th.activeTurn) throw new RpcError(-32602, `thread ${threadId} has no running turn`);
     if (outcome !== 'completed' && outcome !== 'failed') throw new RpcError(-32602, 'outcome must be completed or failed');
     if (typeof text !== 'string') throw new RpcError(-32602, 'text must be a string');
+    if (!Number.isInteger(durationMs) || durationMs < 0) throw new RpcError(-32602, 'durationMs must be a non-negative integer');
     const turn = th.activeTurn;
     const call = turn.mcpCalls?.get(itemId);
     if (!call) throw new RpcError(-32602, `no started mcpToolCall ${itemId} in the running turn`);
@@ -751,7 +757,7 @@ export class FakeCodexAppServer {
     item.result.content = [{ ...structuredClone(tpl.params.item.result.content[0]), type: 'text', text }];
     item.error = null;
     const done = this.now();
-    item.durationMs = done - call.startedMs;
+    item.durationMs = durationMs;
     turn.items.push(item);
     this.broadcast(th, tpl, { ...structuredClone(tpl.params), item: structuredClone(item), threadId: th.id, turnId: turn.id, completedAtMs: done });
     return { threadId: th.id, turnId: turn.id, itemId, status: outcome };

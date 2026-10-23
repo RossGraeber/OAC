@@ -21,8 +21,9 @@
 //     --param projectDir=<abs path of the directory the operator's TUI runs in>
 //
 // What it does:
-//   0. Preflight: parameters, the stub server's log must not exist yet, versions against
-//      PINS.md as committed (a difference is a VERSION WARNING finding, never a stop, #216).
+//   0. Preflight: parameters; a reused stub server log must hold exactly one `start` event
+//      and no `tools/call` yet (serverLogPrecondition); versions against PINS.md as committed
+//      (a difference is a VERSION WARNING finding, never a stop, #216).
 //   1. `list` (gate-servers/g8-capture.mjs): proves the shared daemon answers; no daemon is
 //      started.
 //   2. Waits (bounded, polling `list`) for the operator's marker prompt to appear as a loaded
@@ -131,11 +132,29 @@ export function serverLogAsTranscript(events) {
     .join('\n');
 }
 
+// --- the stub server's log, before the run ---------------------------------------------------------------
+
+// A log the stub was registered to write may already exist when the run starts: Codex was seen
+// (once, for one server) to start a registered MCP server when the TUI session opened, so
+// `initialize` and `tools/list` arrive before any prompt. It is usable only if it holds exactly
+// one `start` event (one server process, so one session) and no `tools/call`. The counts are
+// recorded either way. -> { starts, calls, ok, reason }
+export function serverLogPrecondition(text) {
+  const { events } = parseServerLog(text);
+  const starts = events.filter((e) => e.event === 'start').length;
+  const calls = events.filter((e) => e.event === 'call-in' || e.frame?.method === 'tools/call').length;
+  let reason = null;
+  if (calls > 0) reason = `the stub server log already holds ${calls} tool call record(s); use a fresh path so one run holds one registration's calls`;
+  else if (starts !== 1) reason = `the stub server log holds ${starts} \`start\` events, not one: ${starts === 0 ? 'the stub has not started, so Codex has not opened a session with it registered' : 'more than one server process has run, so more than one session or thread may be attached'}`;
+  return { starts, calls, ok: reason === null, reason };
+}
+
 // --- other threads' ids ----------------------------------------------------------------------------------
 
-// Ids of threads other than the operator's own that a capture carries: thread/loaded/list
-// data and the keys of a thread/list `readStates` map (new in Codex 0.163.0), in order of first
-// appearance. They are the operator's other saved sessions: not ours to publish.
+// Ids of threads other than the operator's own that a capture still carries after the shared
+// sanitizer (lib/g2.mjs sanitizeTranscript, which already drops the other entries of a
+// thread/list result and of its `readStates` map): thread/loaded/list data, in order of first
+// appearance. They are the operator's other loaded threads: not ours to publish.
 export function otherThreadIds(text, ownIds = []) {
   const out = [];
   const add = (id) => {
@@ -152,7 +171,6 @@ export function otherThreadIds(text, ownIds = []) {
     const r = o?.payload?.result;
     if (o?.direction !== 'daemon->client' || !r) continue;
     if (Array.isArray(r.data)) for (const x of r.data) add(typeof x === 'string' ? x : x?.id);
-    if (r.readStates && typeof r.readStates === 'object') Object.keys(r.readStates).forEach(add);
   }
   return out;
 }
@@ -322,18 +340,17 @@ export default {
     const operatorPrompt = params.operatorPrompt || DEFAULT_MARKER;
     const abortSignal = ctx.herdr.abortSignal;
     const serverLog = params.serverLog;
-    // Codex starts every registered MCP server when a TUI session starts (initialize and
-    // tools/list before any prompt), so the log may already exist. It must hold no tool call yet:
-    // one run holds one registration's calls.
-    if (existsSync(serverLog) && /"method":"tools\/call"/.test(readFileSync(serverLog, 'utf8'))) {
-      throw new DriverError('the stub server log already holds a tools/call; use a fresh path so one run holds one registration\'s calls');
-    }
+    // A registered server was seen to start when the TUI session opened (initialize and
+    // tools/list before any prompt), so the log may already exist (serverLogPrecondition).
+    const logAtStart = existsSync(serverLog) ? serverLogPrecondition(readFileSync(serverLog, 'utf8')) : null;
+    if (logAtStart && !logAtStart.ok) throw new DriverError(logAtStart.reason);
 
     const g8 = {
       nonVerdictBearing: G8_NON_VERDICT,
       params: { ...params, serverLog: '<serverLog>', projectDir: '<projectDir>' },
       date: new Date().toISOString().slice(0, 10),
       versions: null,
+      serverLogAtStart: logAtStart ? { starts: logAtStart.starts, calls: logAtStart.calls } : { starts: 0, calls: 0, note: 'no log file yet' },
       server: null,
       client: null,
       daemon: { versionBefore: null, versionAfter: null },

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 3,
-  "runId": "20261022T035218Z-760755",
+  "runId": "20261023T043548Z-b28855",
   "outcome": "PASS",
   "outcomeReason": null,
   "scenario": {
@@ -8,7 +8,7 @@
     "file": "tools/herdr/scenarios/g8-codex-tools.mjs",
     "description": "G8 S1 (#69, #403): capture mcpToolCall items and their order against a stub MCP server, from the operator's own Codex TUI. Not a gate run; not verdict-bearing.",
     "params": {
-      "serverLog": "<USER_HOME>\\AppData\\Local\\Temp\\oac-g8\\stub-1.log",
+      "serverLog": "<USER_HOME>\\AppData\\Local\\Temp\\oac-g8\\stub-2.log",
       "projectDir": "<PROJECT_DIR>",
       "operatorPrompt": "G8 capture marker: reply with the single word ready.",
       "serverName": "oac-g8",
@@ -30,7 +30,7 @@
   },
   "driver": {
     "entry": "tools/herdr/run.mjs",
-    "commit": "060d0fd23acf91ae83a3c078221b3262b5c01f95",
+    "commit": "fa69963edddf0cb5f1b829eafc4c311a5ed2e19f",
     "toolsHerdrDirty": false,
     "node": "v25.2.1"
   },
@@ -59,8 +59,8 @@
     "pinnedTag": "v0.9.1",
     "pinsSource": {
       "path": "docs/planning/PINS.md",
-      "headCommit": "060d0fd23acf91ae83a3c078221b3262b5c01f95",
-      "committedSha256": "52ea5ab05831b0eadf9fefd42602ccc64fd21290ce263cd7d1fbc393dad5c9f4",
+      "headCommit": "fa69963edddf0cb5f1b829eafc4c311a5ed2e19f",
+      "committedSha256": "968ba14a79546ed7366ab6495888cec358684561858572097c7f77854b3cb8a2",
       "workingTreeMatchesHead": true
     },
     "expectedVersionOutput": "herdr 0.9.1",
@@ -79,8 +79,8 @@
       },
       "compatible": true,
       "endpoint_compatible": true,
-      "socket": "<USER_HOME>\\AppData\\Roaming\\herdr\\sessions\\oac-k-g8-codex-tools-20261022T035218Z-757089\\herdr.sock",
-      "session": "oac-k-g8-codex-tools-20261022T035218Z-757089",
+      "socket": "<USER_HOME>\\AppData\\Roaming\\herdr\\sessions\\oac-k-g8-codex-tools-20261023T043548Z-cc0843\\herdr.sock",
+      "session": "oac-k-g8-codex-tools-20261023T043548Z-cc0843",
       "restart_needed": false,
       "server_binary_stale": false
     },
@@ -340,8 +340,8 @@
     "arch": "x64"
   },
   "session": {
-    "name": "oac-k-g8-codex-tools-20261022T035218Z-757089",
-    "serverPid": 39516,
+    "name": "oac-k-g8-codex-tools-20261023T043548Z-cc0843",
+    "serverPid": 988,
     "panePids": []
   },
   "env": {
@@ -360,6 +360,7 @@
         "CLAUDE_CODE_DISABLE_CRON",
         "CLAUDE_CODE_DISABLE_TERMINAL_TITLE",
         "CLAUDE_CODE_EAGER_FLUSH",
+        "CLAUDE_CODE_EMIT_STARTUP_TIMING",
         "CLAUDE_CODE_EMIT_TOOL_USE_SUMMARIES",
         "CLAUDE_CODE_ENABLE_ASK_USER_QUESTION_TOOL",
         "CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING",
@@ -393,7 +394,7 @@
       {
         "file": "~/.codex/config.toml",
         "present": true,
-        "sha256": "479df28413a9fc902dab9be6c3dc216dc618e1ac0a47527729c0c8a44a8b0ef3"
+        "sha256": "339f2e169503ef1b05d078ea60c5321261463b06474ddaf39ca00369fc3c7dea"
       },
       {
         "file": "~/.codex/hooks.json",
@@ -410,7 +411,7 @@
       {
         "file": "~/.codex/config.toml",
         "present": true,
-        "sha256": "479df28413a9fc902dab9be6c3dc216dc618e1ac0a47527729c0c8a44a8b0ef3"
+        "sha256": "339f2e169503ef1b05d078ea60c5321261463b06474ddaf39ca00369fc3c7dea"
       },
       {
         "file": "~/.codex/hooks.json",
@@ -424,11 +425,11 @@
   },
   "timebox": {
     "budgetMs": 3600000,
-    "start": "2026-10-22T03:52:18.045Z",
-    "end": "2026-10-22T03:55:16.651Z",
-    "elapsedMs": 178606,
+    "start": "2026-10-23T04:35:48.185Z",
+    "end": "2026-10-23T04:37:50.297Z",
+    "elapsedMs": 122112,
     "expired": false,
-    "teardownEnd": "2026-10-22T03:55:19.456Z"
+    "teardownEnd": "2026-10-23T04:37:52.716Z"
   },
   "commands": [
     {
@@ -439,9 +440,9 @@
         "--version"
       ],
       "target": null,
-      "startedAt": "2026-10-22T03:52:18.571Z",
-      "endedAt": "2026-10-22T03:52:18.643Z",
-      "durationMs": 72,
+      "startedAt": "2026-10-23T04:35:49.217Z",
+      "endedAt": "2026-10-23T04:35:49.829Z",
+      "durationMs": 612,
       "bound": {
         "herdrTimeoutMs": null,
         "driverDeadlineMs": 10000,
@@ -464,11 +465,11 @@
       "argv": [
         "herdr",
         "--session",
-        "oac-k-g8-codex-tools-20261022T035218Z-757089",
+        "oac-k-g8-codex-tools-20261023T043548Z-cc0843",
         "server"
       ],
       "target": null,
-      "startedAt": "2026-10-22T03:52:20.178Z",
+      "startedAt": "2026-10-23T04:35:51.303Z",
       "endedAt": null,
       "durationMs": null,
       "bound": {
@@ -476,7 +477,7 @@
         "driverDeadlineMs": null,
         "by": "long-running server; stopped by teardown (session stop, then process-group kill)"
       },
-      "pid": 39516
+      "pid": 988
     },
     {
       "seq": 3,
@@ -484,15 +485,15 @@
       "argv": [
         "herdr",
         "--session",
-        "oac-k-g8-codex-tools-20261022T035218Z-757089",
+        "oac-k-g8-codex-tools-20261023T043548Z-cc0843",
         "status",
         "server",
         "--json"
       ],
       "target": null,
-      "startedAt": "2026-10-22T03:52:20.207Z",
-      "endedAt": "2026-10-22T03:52:20.271Z",
-      "durationMs": 64,
+      "startedAt": "2026-10-23T04:35:51.310Z",
+      "endedAt": "2026-10-23T04:35:51.355Z",
+      "durationMs": 45,
       "bound": {
         "herdrTimeoutMs": null,
         "driverDeadlineMs": 5000,
@@ -515,15 +516,15 @@
       "argv": [
         "herdr",
         "--session",
-        "oac-k-g8-codex-tools-20261022T035218Z-757089",
+        "oac-k-g8-codex-tools-20261023T043548Z-cc0843",
         "server",
         "agent-manifests",
         "--json"
       ],
       "target": null,
-      "startedAt": "2026-10-22T03:52:20.271Z",
-      "endedAt": "2026-10-22T03:52:20.674Z",
-      "durationMs": 403,
+      "startedAt": "2026-10-23T04:35:51.355Z",
+      "endedAt": "2026-10-23T04:35:51.973Z",
+      "durationMs": 618,
       "bound": {
         "herdrTimeoutMs": null,
         "driverDeadlineMs": 15000,
@@ -547,13 +548,13 @@
         "herdr",
         "session",
         "stop",
-        "oac-k-g8-codex-tools-20261022T035218Z-757089",
+        "oac-k-g8-codex-tools-20261023T043548Z-cc0843",
         "--json"
       ],
       "target": null,
-      "startedAt": "2026-10-22T03:55:18.036Z",
-      "endedAt": "2026-10-22T03:55:18.263Z",
-      "durationMs": 227,
+      "startedAt": "2026-10-23T04:37:51.277Z",
+      "endedAt": "2026-10-23T04:37:51.603Z",
+      "durationMs": 326,
       "bound": {
         "herdrTimeoutMs": null,
         "driverDeadlineMs": 25000,
@@ -577,13 +578,13 @@
         "herdr",
         "session",
         "delete",
-        "oac-k-g8-codex-tools-20261022T035218Z-757089",
+        "oac-k-g8-codex-tools-20261023T043548Z-cc0843",
         "--json"
       ],
       "target": null,
-      "startedAt": "2026-10-22T03:55:19.299Z",
-      "endedAt": "2026-10-22T03:55:19.353Z",
-      "durationMs": 54,
+      "startedAt": "2026-10-23T04:37:52.519Z",
+      "endedAt": "2026-10-23T04:37:52.564Z",
+      "durationMs": 45,
       "bound": {
         "herdrTimeoutMs": null,
         "driverDeadlineMs": 15000,
@@ -633,13 +634,13 @@
   },
   "captures": [
     {
-      "file": "transcript-g8-2026-10-22-0.163.0-herdr.jsonl",
+      "file": "transcript-g8-2026-10-23-0.163.0-herdr.jsonl",
       "format": "jsonl",
       "written": true,
-      "sha256": "afef946ac607a67eeab3f459367f814238d4cef32b0a9739fb14922ce1e0d69b",
+      "sha256": "f0624bedf4d17b9bc39c9b25b4568b4788f5cf6b5feb175739d61c143b608e3d",
       "redaction": {
         "mode": "jsonl",
-        "lines": 186,
+        "lines": 184,
         "droppedHazardLines": 0,
         "unterminatedKeyBlock": false,
         "hazardProtocolFrames": [],
@@ -849,73 +850,73 @@
             "sha256": "e8a55bbceb042e50d8d1f74dd345b684c8ae2e88e124234e4f2637f1e0620422"
           },
           {
-            "line": 140,
+            "line": 139,
             "path": "$.payload.params.message",
             "bytes": 50,
             "sha256": "4ce0d4f5e7730c2e70ef091608e3ea9ced1a4c3ad044452cf2c1f08b5dd532e0"
           },
           {
-            "line": 140,
+            "line": 139,
             "path": "$.payload.params.requestedSchema.type",
             "bytes": 6,
             "sha256": "2958d416d08aa5a472d7b509036cb7eafd542add84527e66a145ea64cb4cdc75"
           },
           {
-            "line": 140,
+            "line": 139,
             "path": "$.payload.params.requestedSchema.<key>",
             "bytes": 10,
             "sha256": "96adb92452863058fa1616efcc89c6e7c92a0c49148dfbd3e127ce829a45406e"
           },
           {
-            "line": 140,
+            "line": 139,
             "path": "$.payload.params._meta.<key>",
             "bytes": 19,
             "sha256": "87bf2e6dfa1f8d98142dd139021df980937358f165c7cc828b644a43b2689f0d"
           },
           {
-            "line": 140,
+            "line": 139,
             "path": "$.payload.params._meta.<key>",
             "bytes": 13,
             "sha256": "e39367fa569baafa5f43ac7032081f78dfd5eed938799afd17fbd08113c7f3ed"
           },
           {
-            "line": 140,
+            "line": 139,
             "path": "$.payload.params._meta.<key>",
             "bytes": 7,
             "sha256": "1c61425b1ba94748e725edd6fbc902b80e08483116a8affb4b8829143e486f1e"
           },
           {
-            "line": 140,
+            "line": 139,
             "path": "$.payload.params._meta.<key>[0]",
             "bytes": 7,
             "sha256": "3f3af1ecebbd1410ab417ec0d27bbfcb5d340e177ae159b59fc8626c2dfd9175"
           },
           {
-            "line": 140,
+            "line": 139,
             "path": "$.payload.params._meta.<key>[1]",
             "bytes": 6,
             "sha256": "9cdc6c47aa193ae7fdab6c57a88f118e0adbe254c82095d39531f5e5c1314bdd"
           },
           {
-            "line": 140,
+            "line": 139,
             "path": "$.payload.params._meta.<key>",
             "bytes": 16,
             "sha256": "4498c3cdcc1dc84b0863d3ab5f504342b6e5cfc5f2089791303211e6da81d32e"
           },
           {
-            "line": 140,
+            "line": 139,
             "path": "$.payload.params._meta.<key>",
             "bytes": 164,
             "sha256": "09068c9f542be4b12365342fe775947386c1aa754f2134de920c53a47adb105a"
           },
           {
-            "line": 140,
+            "line": 139,
             "path": "$.payload.params._meta.<key>",
             "bytes": 11,
             "sha256": "c13f737de333e961f6d7bbe527f62008ca5db935bdc204b83aacc1a9168458f4"
           },
           {
-            "line": 140,
+            "line": 139,
             "path": "$.payload.params._meta.<key>",
             "bytes": 19,
             "sha256": "4ffbcc4c1115ca96f87934d3369cd09fa810eac41b5deebf9e7129e69de4ab85"
@@ -929,22 +930,20 @@
         ],
         "replacements": {
           "home": 13,
-          "literal <THREAD_ID>": 94,
-          "literal <OTHER_THREAD_ID>": 2,
+          "literal <THREAD_ID>": 92,
+          "literal <OTHER_THREAD_ID_1>": 2,
           "literal <PROJECT_DIR>": 8,
           "literal <PAIRING_VALUE>": 5
         },
         "residualLeaks": [],
         "residualGenericHits": []
-      },
-      "driverWrittenSha256": "7520e5d5666a742fa54e70f9aa1f59c7497f9f19738ba3fe08694d960ede38a3",
-      "postDriverRedaction": "After the driver wrote this capture (sha256 in driverWrittenSha256), the 20 ids of the operator's other saved threads in its thread/list `readStates` keys were replaced by <OTHER_THREAD_ID_1>..<OTHER_THREAD_ID_20> by otherThreadIds/redactOtherThreadIds in tools/herdr/scenarios/g8-codex-tools.mjs (Codex 0.163.0 added that map; the driver run registered only loaded-thread ids). No other byte changed; sha256 is of the committed file."
+      }
     },
     {
-      "file": "transcript-g8-server-2026-10-22-0.163.0.jsonl",
+      "file": "transcript-g8-server-2026-10-23-0.163.0.jsonl",
       "format": "jsonl",
       "written": true,
-      "sha256": "2112b7256385152f02fe62b160e5127792ec8bb8eea22e7d8a30e2d28b497555",
+      "sha256": "6d5e5107169774531dfcc402b56070d4064ff9fbae3e25665bba2f29bfd2d44a",
       "redaction": {
         "mode": "jsonl",
         "lines": 19,
@@ -961,10 +960,10 @@
       }
     },
     {
-      "file": "transcript-g8-proc-2026-10-22-0.163.0.jsonl",
+      "file": "transcript-g8-proc-2026-10-23-0.163.0.jsonl",
       "format": "jsonl",
       "written": true,
-      "sha256": "7d204b7105e042918a6bc8493ffa9f22c085a6d2f4bfadc54b80e4569fe536df",
+      "sha256": "b488e10bb060a294adcb3778fe4b41c461908af0a4ab55b0b164913dc1acaf82",
       "redaction": {
         "mode": "jsonl",
         "lines": 1,
@@ -985,7 +984,7 @@
       "<PAIRING_VALUE>",
       "<PROJECT_DIR>",
       "<INSTALLATION_ID>",
-      "<OTHER_THREAD_ID>"
+      "<OTHER_THREAD_ID_1>"
     ]
   },
   "scenarioData": {
@@ -1005,11 +1004,11 @@
         "clientTimeoutMs": "60000",
         "listPollMs": "3000"
       },
-      "date": "2026-10-22",
+      "date": "2026-10-23",
       "versions": {
         "pinsRow": "Codex CLI / app-server",
         "pinsMinimum": "0.154.0",
-        "pinsLastTested": "0.161.0",
+        "pinsLastTested": "0.163.0",
         "cliOutput": "codex-cli 0.163.0",
         "cli": "0.163.0",
         "daemon": {
@@ -1020,25 +1019,23 @@
         },
         "wire": "0.163.0",
         "verified": true,
-        "matchesLastTested": false,
-        "warnings": [
-          "VERSION WARNING (G8 S1 capture): `codex --version` reports 0.163.0; docs/planning/PINS.md \"Codex CLI / app-server\" records minimum 0.154.0, last tested 0.161.0 (not the last tested 0.161.0). Codex versions float and are never gated (operator decision on #216, 2026-10-01): the run continues, and this is a finding only. It does not by itself invalidate any gate verdict. The run does not edit PINS.md; record the version as last tested there after a live run.",
-          "VERSION WARNING (G8 S1 capture): `codex app-server daemon version` cliVersion reports 0.163.0; docs/planning/PINS.md \"Codex CLI / app-server\" records minimum 0.154.0, last tested 0.161.0 (not the last tested 0.161.0). Codex versions float and are never gated (operator decision on #216, 2026-10-01): the run continues, and this is a finding only. It does not by itself invalidate any gate verdict. The run does not edit PINS.md; record the version as last tested there after a live run.",
-          "VERSION WARNING (G8 S1 capture): `codex app-server daemon version` appServerVersion reports 0.163.0; docs/planning/PINS.md \"Codex CLI / app-server\" records minimum 0.154.0, last tested 0.161.0 (not the last tested 0.161.0). Codex versions float and are never gated (operator decision on #216, 2026-10-01): the run continues, and this is a finding only. It does not by itself invalidate any gate verdict. The run does not edit PINS.md; record the version as last tested there after a live run.",
-          "VERSION WARNING (G8 S1 capture): `codex app-server daemon version` managedCodexVersion reports 0.163.0; docs/planning/PINS.md \"Codex CLI / app-server\" records minimum 0.154.0, last tested 0.161.0 (not the last tested 0.161.0). Codex versions float and are never gated (operator decision on #216, 2026-10-01): the run continues, and this is a finding only. It does not by itself invalidate any gate verdict. The run does not edit PINS.md; record the version as last tested there after a live run.",
-          "VERSION WARNING (G8 S1 capture): the wire initialize userAgent reports 0.163.0; docs/planning/PINS.md \"Codex CLI / app-server\" records minimum 0.154.0, last tested 0.161.0 (not the last tested 0.161.0). Codex versions float and are never gated (operator decision on #216, 2026-10-01): the run continues, and this is a finding only. It does not by itself invalidate any gate verdict. The run does not edit PINS.md; record the version as last tested there after a live run."
-        ]
+        "matchesLastTested": true,
+        "warnings": []
+      },
+      "serverLogAtStart": {
+        "starts": 1,
+        "calls": 0
       },
       "server": {
         "staged": [
           {
             "path": "tools/herdr/gate-servers/g8-server.mjs",
-            "headCommit": "060d0fd23acf91ae83a3c078221b3262b5c01f95",
-            "committedSha256": "3c58f3e1e525427fca4249299f68addbd149aed5baaf303a6036d70b624cea62",
-            "workingTreeSha256": "3c58f3e1e525427fca4249299f68addbd149aed5baaf303a6036d70b624cea62",
+            "headCommit": "fa69963edddf0cb5f1b829eafc4c311a5ed2e19f",
+            "committedSha256": "18ab3e390e7d6b0db8d3b68c10baf6aedf897fe1d2c2c9d0d0d899d27745744a",
+            "workingTreeSha256": "18ab3e390e7d6b0db8d3b68c10baf6aedf897fe1d2c2c9d0d0d899d27745744a",
             "workingTreeMatchesHead": true,
             "copy": "<SCRATCH>\\g8-server\\g8-server.mjs",
-            "copySha256": "3c58f3e1e525427fca4249299f68addbd149aed5baaf303a6036d70b624cea62",
+            "copySha256": "18ab3e390e7d6b0db8d3b68c10baf6aedf897fe1d2c2c9d0d0d899d27745744a",
             "match": true
           }
         ],
@@ -1047,7 +1044,7 @@
       "client": [
         {
           "path": "tools/herdr/gate-servers/g8-capture.mjs",
-          "headCommit": "060d0fd23acf91ae83a3c078221b3262b5c01f95",
+          "headCommit": "fa69963edddf0cb5f1b829eafc4c311a5ed2e19f",
           "committedSha256": "5de543520ffebdbeb8897d17335749eb7cc3894eb8b060af998c455790855b06",
           "workingTreeSha256": "5de543520ffebdbeb8897d17335749eb7cc3894eb8b060af998c455790855b06",
           "workingTreeMatchesHead": true,
@@ -1097,80 +1094,80 @@
       "clientRuns": [
         {
           "mode": "list",
-          "startedAt": "2026-10-22T03:52:21.671Z",
-          "endedAt": "2026-10-22T03:52:23.754Z",
+          "startedAt": "2026-10-23T04:35:52.691Z",
+          "endedAt": "2026-10-23T04:35:53.553Z",
           "exitCode": 0,
           "timedOut": false,
           "linesBefore": 0
         },
         {
           "mode": "list",
-          "startedAt": "2026-10-22T03:52:23.759Z",
-          "endedAt": "2026-10-22T03:52:24.629Z",
+          "startedAt": "2026-10-23T04:35:53.557Z",
+          "endedAt": "2026-10-23T04:35:54.321Z",
           "exitCode": 0,
           "timedOut": false,
           "linesBefore": 10
         },
         {
           "mode": "list",
-          "startedAt": "2026-10-22T03:52:27.645Z",
-          "endedAt": "2026-10-22T03:52:28.495Z",
+          "startedAt": "2026-10-23T04:35:57.333Z",
+          "endedAt": "2026-10-23T04:35:58.122Z",
           "exitCode": 0,
           "timedOut": false,
           "linesBefore": 20
         },
         {
           "mode": "list",
-          "startedAt": "2026-10-22T03:52:31.502Z",
-          "endedAt": "2026-10-22T03:52:32.387Z",
+          "startedAt": "2026-10-23T04:36:01.127Z",
+          "endedAt": "2026-10-23T04:36:01.917Z",
           "exitCode": 0,
           "timedOut": false,
           "linesBefore": 30
         },
         {
           "mode": "list",
-          "startedAt": "2026-10-22T03:52:35.402Z",
-          "endedAt": "2026-10-22T03:52:36.234Z",
+          "startedAt": "2026-10-23T04:36:04.932Z",
+          "endedAt": "2026-10-23T04:36:05.705Z",
           "exitCode": 0,
           "timedOut": false,
           "linesBefore": 40
         },
         {
           "mode": "list",
-          "startedAt": "2026-10-22T03:52:39.256Z",
-          "endedAt": "2026-10-22T03:52:40.057Z",
+          "startedAt": "2026-10-23T04:36:08.716Z",
+          "endedAt": "2026-10-23T04:36:09.493Z",
           "exitCode": 0,
           "timedOut": false,
           "linesBefore": 50
         },
         {
           "mode": "list",
-          "startedAt": "2026-10-22T03:52:43.077Z",
-          "endedAt": "2026-10-22T03:52:43.868Z",
+          "startedAt": "2026-10-23T04:36:12.505Z",
+          "endedAt": "2026-10-23T04:36:13.259Z",
           "exitCode": 0,
           "timedOut": false,
           "linesBefore": 60
         },
         {
           "mode": "list",
-          "startedAt": "2026-10-22T03:52:46.876Z",
-          "endedAt": "2026-10-22T03:52:47.636Z",
+          "startedAt": "2026-10-23T04:36:16.281Z",
+          "endedAt": "2026-10-23T04:36:17.033Z",
           "exitCode": 0,
           "timedOut": false,
           "linesBefore": 70
         },
         {
           "mode": "list",
-          "startedAt": "2026-10-22T03:52:50.648Z",
-          "endedAt": "2026-10-22T03:52:51.447Z",
+          "startedAt": "2026-10-23T04:36:20.058Z",
+          "endedAt": "2026-10-23T04:36:20.831Z",
           "exitCode": 0,
           "timedOut": false,
           "linesBefore": 80
         },
         {
           "mode": "list",
-          "startedAt": "2026-10-22T03:52:54.459Z",
-          "endedAt": "2026-10-22T03:52:55.284Z",
+          "startedAt": "2026-10-23T04:36:23.865Z",
+          "endedAt": "2026-10-23T04:36:24.667Z",
           "exitCode": 0,
           "timedOut": false,
           "linesBefore": 90
@@ -1181,7 +1178,7 @@
         "loadedBeforeMarker": true
       },
       "watch": {
-        "startedAt": "2026-10-22T03:52:55.307Z",
+        "startedAt": "2026-10-23T04:36:24.706Z",
         "linesBefore": 100,
         "resumeLine": 108,
         "resumeStatus": "active",
@@ -1189,96 +1186,138 @@
           "excludeTurns",
           "threadId"
         ],
-        "stoppedAt": "2026-10-22T03:55:16.642Z"
+        "stoppedAt": "2026-10-23T04:37:50.277Z"
       },
       "calls": [
         {
           "callSeq": 1,
           "refused": true,
           "paired": null,
-          "t": "2026-10-22T03:54:57.930Z"
+          "t": "2026-10-23T04:37:30.090Z"
         },
         {
           "callSeq": 2,
           "refused": false,
           "paired": true,
-          "t": "2026-10-22T03:55:01.190Z"
+          "t": "2026-10-23T04:37:33.966Z"
         },
         {
           "callSeq": 3,
           "refused": false,
           "paired": false,
-          "t": "2026-10-22T03:55:03.751Z"
+          "t": "2026-10-23T04:37:37.588Z"
         }
       ],
       "processTree": {
         "stubOwn": [
           {
-            "pid": 41628,
-            "ppid": 30180,
+            "pid": 25796,
+            "ppid": 19396,
             "image": "node.exe"
           },
           {
-            "pid": 30180,
-            "ppid": 30860,
+            "pid": 19396,
+            "ppid": 13292,
             "image": "codex.exe"
+          },
+          {
+            "pid": 13292,
+            "ppid": 2636,
+            "image": "codex.exe"
+          },
+          {
+            "pid": 2636,
+            "ppid": 9820,
+            "image": "powershell.exe"
+          },
+          {
+            "pid": 9820,
+            "ppid": 9612,
+            "image": "explorer.exe"
           }
         ],
         "stubOwnAvailable": true,
         "atServerEventLine": 7,
         "snapshot": {
           "available": true,
-          "serverPid": 41628,
+          "serverPid": 25796,
           "serverChain": [
             {
-              "pid": 41628,
-              "ppid": 30180,
+              "pid": 25796,
+              "ppid": 19396,
               "image": "node.exe"
             },
             {
-              "pid": 30180,
-              "ppid": 30860,
+              "pid": 19396,
+              "ppid": 13292,
               "image": "codex.exe"
+            },
+            {
+              "pid": 13292,
+              "ppid": 2636,
+              "image": "codex.exe"
+            },
+            {
+              "pid": 2636,
+              "ppid": 9820,
+              "image": "powershell.exe"
+            },
+            {
+              "pid": 9820,
+              "ppid": 9612,
+              "image": "Explorer.EXE"
             }
           ],
           "codexProcesses": [
             {
-              "pid": 19028,
-              "ppid": 17508,
+              "pid": 1112,
+              "ppid": 22020,
               "image": "codex.exe",
               "appServer": true
             },
             {
-              "pid": 30180,
-              "ppid": 30860,
-              "image": "codex.exe",
-              "appServer": true
-            },
-            {
-              "pid": 32552,
-              "ppid": 30860,
-              "image": "codex.exe",
-              "appServer": true
-            },
-            {
-              "pid": 32716,
-              "ppid": 32840,
+              "pid": 12056,
+              "ppid": 22020,
               "image": "codex.exe",
               "appServer": false
             },
             {
-              "pid": 37528,
-              "ppid": 32764,
+              "pid": 13292,
+              "ppid": 2636,
+              "image": "codex.exe",
+              "appServer": false
+            },
+            {
+              "pid": 19396,
+              "ppid": 13292,
+              "image": "codex.exe",
+              "appServer": true
+            },
+            {
+              "pid": 27448,
+              "ppid": 13292,
+              "image": "codex.exe",
+              "appServer": true
+            },
+            {
+              "pid": 7656,
+              "ppid": 27048,
               "image": "codex",
               "appServer": true
             }
           ],
           "ancestorsThatAreCodex": [
             {
-              "pid": 30180,
-              "ppid": 30860,
+              "pid": 19396,
+              "ppid": 13292,
               "image": "codex.exe",
               "appServer": true
+            },
+            {
+              "pid": 13292,
+              "ppid": 2636,
+              "image": "codex.exe",
+              "appServer": false
             }
           ],
           "serverDescendsFromAppServer": true,
@@ -1288,12 +1327,12 @@
       },
       "items": [
         {
-          "itemId": "exec-998b94f1-a1d6-4ea6-b1f0-ab47cd117b67",
+          "itemId": "exec-6b1cd627-fc83-4c1e-90aa-aab67bbf6e44",
           "started": {
             "line": 120,
-            "t": "2026-10-22T03:54:53.781Z",
+            "t": "2026-10-23T04:37:06.220Z",
             "threadId": "<THREAD_ID>",
-            "turnId": "01a161bf-4dac-7852-884c-151c605562af",
+            "turnId": "01a1670c-50f6-72b1-9887-c020efeaaaa5",
             "server": "oac-g8",
             "tool": "g8_pair",
             "status": "inProgress",
@@ -1326,9 +1365,9 @@
           },
           "completed": {
             "line": 125,
-            "t": "2026-10-22T03:54:57.948Z",
+            "t": "2026-10-23T04:37:30.108Z",
             "threadId": "<THREAD_ID>",
-            "turnId": "01a161bf-4dac-7852-884c-151c605562af",
+            "turnId": "01a1670c-50f6-72b1-9887-c020efeaaaa5",
             "server": "oac-g8",
             "tool": "g8_pair",
             "status": "failed",
@@ -1365,12 +1404,12 @@
           }
         },
         {
-          "itemId": "exec-8c5c5e14-a3f7-44fb-991b-bf38d95d45b8",
+          "itemId": "exec-195e8ac9-6228-48dc-a885-30adeb0ae9f8",
           "started": {
             "line": 128,
-            "t": "2026-10-22T03:55:00.210Z",
+            "t": "2026-10-23T04:37:32.428Z",
             "threadId": "<THREAD_ID>",
-            "turnId": "01a161bf-4dac-7852-884c-151c605562af",
+            "turnId": "01a1670c-50f6-72b1-9887-c020efeaaaa5",
             "server": "oac-g8",
             "tool": "g8_pair",
             "status": "inProgress",
@@ -1405,9 +1444,9 @@
           },
           "completed": {
             "line": 134,
-            "t": "2026-10-22T03:55:01.216Z",
+            "t": "2026-10-23T04:37:33.980Z",
             "threadId": "<THREAD_ID>",
-            "turnId": "01a161bf-4dac-7852-884c-151c605562af",
+            "turnId": "01a1670c-50f6-72b1-9887-c020efeaaaa5",
             "server": "oac-g8",
             "tool": "g8_pair",
             "status": "completed",
@@ -1446,12 +1485,12 @@
           }
         },
         {
-          "itemId": "exec-2ee250df-9aea-48be-a623-a41bad9c4654",
+          "itemId": "exec-9c0f9dc8-69da-478d-82aa-1051f01fe877",
           "started": {
-            "line": 138,
-            "t": "2026-10-22T03:55:02.860Z",
+            "line": 137,
+            "t": "2026-10-23T04:37:35.809Z",
             "threadId": "<THREAD_ID>",
-            "turnId": "01a161bf-4dac-7852-884c-151c605562af",
+            "turnId": "01a1670c-50f6-72b1-9887-c020efeaaaa5",
             "server": "oac-g8",
             "tool": "g8_pair",
             "status": "inProgress",
@@ -1484,9 +1523,9 @@
           },
           "completed": {
             "line": 143,
-            "t": "2026-10-22T03:55:03.778Z",
+            "t": "2026-10-23T04:37:37.608Z",
             "threadId": "<THREAD_ID>",
-            "turnId": "01a161bf-4dac-7852-884c-151c605562af",
+            "turnId": "01a1670c-50f6-72b1-9887-c020efeaaaa5",
             "server": "oac-g8",
             "tool": "g8_pair",
             "status": "completed",
@@ -1525,13 +1564,13 @@
       ],
       "ordering": [
         {
-          "itemId": "exec-998b94f1-a1d6-4ea6-b1f0-ab47cd117b67",
+          "itemId": "exec-6b1cd627-fc83-4c1e-90aa-aab67bbf6e44",
           "callSeq": 1,
           "paired": true,
           "startedLine": 120,
           "completedLine": 125,
           "startedVsCallIn": {
-            "ms": -4148,
+            "ms": -23869,
             "relation": "before"
           },
           "completedVsCallOut": {
@@ -1548,17 +1587,17 @@
           "completedCarriesIssuedValue": true
         },
         {
-          "itemId": "exec-8c5c5e14-a3f7-44fb-991b-bf38d95d45b8",
+          "itemId": "exec-195e8ac9-6228-48dc-a885-30adeb0ae9f8",
           "callSeq": 2,
           "paired": true,
           "startedLine": 128,
           "completedLine": 134,
           "startedVsCallIn": {
-            "ms": -979,
+            "ms": -1537,
             "relation": "before"
           },
           "completedVsCallOut": {
-            "ms": 26,
+            "ms": 14,
             "relation": "after"
           },
           "startedBeforeCallIn": true,
@@ -1573,17 +1612,17 @@
           "completedCarriesIssuedValue": null
         },
         {
-          "itemId": "exec-2ee250df-9aea-48be-a623-a41bad9c4654",
+          "itemId": "exec-9c0f9dc8-69da-478d-82aa-1051f01fe877",
           "callSeq": 3,
           "paired": true,
-          "startedLine": 138,
+          "startedLine": 137,
           "completedLine": 143,
           "startedVsCallIn": {
-            "ms": -890,
+            "ms": -1778,
             "relation": "before"
           },
           "completedVsCallOut": {
-            "ms": 27,
+            "ms": 20,
             "relation": "after"
           },
           "startedBeforeCallIn": true,
@@ -1598,9 +1637,9 @@
       ],
       "findings": [],
       "captureNames": {
-        "transcript": "transcript-g8-2026-10-22-0.163.0-herdr.jsonl",
-        "server": "transcript-g8-server-2026-10-22-0.163.0.jsonl",
-        "proc": "transcript-g8-proc-2026-10-22-0.163.0.jsonl"
+        "transcript": "transcript-g8-2026-10-23-0.163.0-herdr.jsonl",
+        "server": "transcript-g8-server-2026-10-23-0.163.0.jsonl",
+        "proc": "transcript-g8-proc-2026-10-23-0.163.0.jsonl"
       },
       "stoppedAt": null,
       "stubSawMetaKeys": [
@@ -1652,6 +1691,7 @@
       "sanitizer": {
         "threadListEntriesRemoved": 199,
         "threadListResultsTouched": 10,
+        "readStatesEntriesRemoved": 199,
         "serverNames": 11,
         "installationIds": 11,
         "planFields": 15,
@@ -1661,12 +1701,7 @@
     }
   },
   "findings": [
-    "the driver was started from inside a Claude Code session: 29 of its variables (names in env.serverLaunch.removed) were removed so the harness under test does not run as that session's child or through its relay (#163)",
-    "VERSION WARNING (G8 S1 capture): `codex --version` reports 0.163.0; docs/planning/PINS.md \"Codex CLI / app-server\" records minimum 0.154.0, last tested 0.161.0 (not the last tested 0.161.0). Codex versions float and are never gated (operator decision on #216, 2026-10-01): the run continues, and this is a finding only. It does not by itself invalidate any gate verdict. The run does not edit PINS.md; record the version as last tested there after a live run.",
-    "VERSION WARNING (G8 S1 capture): `codex app-server daemon version` cliVersion reports 0.163.0; docs/planning/PINS.md \"Codex CLI / app-server\" records minimum 0.154.0, last tested 0.161.0 (not the last tested 0.161.0). Codex versions float and are never gated (operator decision on #216, 2026-10-01): the run continues, and this is a finding only. It does not by itself invalidate any gate verdict. The run does not edit PINS.md; record the version as last tested there after a live run.",
-    "VERSION WARNING (G8 S1 capture): `codex app-server daemon version` appServerVersion reports 0.163.0; docs/planning/PINS.md \"Codex CLI / app-server\" records minimum 0.154.0, last tested 0.161.0 (not the last tested 0.161.0). Codex versions float and are never gated (operator decision on #216, 2026-10-01): the run continues, and this is a finding only. It does not by itself invalidate any gate verdict. The run does not edit PINS.md; record the version as last tested there after a live run.",
-    "VERSION WARNING (G8 S1 capture): `codex app-server daemon version` managedCodexVersion reports 0.163.0; docs/planning/PINS.md \"Codex CLI / app-server\" records minimum 0.154.0, last tested 0.161.0 (not the last tested 0.161.0). Codex versions float and are never gated (operator decision on #216, 2026-10-01): the run continues, and this is a finding only. It does not by itself invalidate any gate verdict. The run does not edit PINS.md; record the version as last tested there after a live run.",
-    "VERSION WARNING (G8 S1 capture): the wire initialize userAgent reports 0.163.0; docs/planning/PINS.md \"Codex CLI / app-server\" records minimum 0.154.0, last tested 0.161.0 (not the last tested 0.161.0). Codex versions float and are never gated (operator decision on #216, 2026-10-01): the run continues, and this is a finding only. It does not by itself invalidate any gate verdict. The run does not edit PINS.md; record the version as last tested there after a live run."
+    "the driver was started from inside a Claude Code session: 30 of its variables (names in env.serverLaunch.removed) were removed so the harness under test does not run as that session's child or through its relay (#163)"
   ],
   "manifestRedaction": {
     "afterRedaction": "droppedHazardLines=0 hazardProtocolFrames=0 residualLeaks=0 residualGenericHits=0",

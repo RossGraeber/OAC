@@ -313,6 +313,11 @@ copied from the presumptive shape in the task breakdown:
   codex mcp add oac -- oac mcp-shim
   ```
 
+  *(Dated note, 2026-10-22, #69, fixed in #452; approved by the lead on 2026-10-22: the command
+  above is kept as decided, but it does not work as written. `oac mcp-shim` without `--harness <claude or codex>` exits `2`
+  (usage), so the registration is `codex mcp add oac -- oac mcp-shim --harness codex`. The
+  current text is `docs/planning/v0.1/08-cli-and-deployment.md` §9.)*
+
   This is the outbound tool-registration path (§9 of PLANNING-PROMPT.md's decision
   list), distinct from the daemon-attach live-inject path (§2 leg 4 above), which is a
   runtime behaviour of the Codex app-server itself, not a CLI command a user types.

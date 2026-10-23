@@ -872,14 +872,16 @@ export function identifyTuiThread(facts, { operatorPrompt, projectDirs, sinceLin
 // What the human runs' redaction did to the committed G2 fixtures (G2-result.md "Redaction"),
 // done structurally here before the generic redaction in run.mjs:
 //   - thread/list results keep only the run's own TUI thread (other saved sessions carry
-//     private prompt previews and rollout paths) and are marked with _fixtureNote;
+//     private prompt previews and rollout paths) and are marked with _fixtureNote; the
+//     `readStates` map Codex 0.163.0 adds to that result, keyed by thread id, likewise keeps
+//     only the run's own thread (its values carry `revision: "initial:<thread id>"`);
 //   - remoteControl/status/changed serverName -> <HOST>, installationId -> <INSTALLATION_ID>;
 //   - account plan and credit fields -> <REDACTED>.
 // Returns the sanitized text, counts, and the installation ids seen (for the caller to also
 // register as run literals; they are never recorded themselves).
 export function sanitizeTranscript(text, { ownThreadId = null } = {}) {
   const lines = String(text ?? '').split('\n');
-  const report = { threadListEntriesRemoved: 0, threadListResultsTouched: 0, serverNames: 0, installationIds: 0, planFields: 0, creditFields: 0, unparsedLines: 0 };
+  const report = { threadListEntriesRemoved: 0, threadListResultsTouched: 0, readStatesEntriesRemoved: 0, serverNames: 0, installationIds: 0, planFields: 0, creditFields: 0, unparsedLines: 0 };
   const installationIds = new Set();
   const pending = new Map(); // `${mode}\0${id}` -> method (per open connection of a mode)
   const out = lines.map((raw) => {
@@ -904,6 +906,15 @@ export function sanitizeTranscript(text, { ownThreadId = null } = {}) {
           p.result._fixtureNote = 'unrelated sessions removed for privacy';
           report.threadListEntriesRemoved += removed;
           report.threadListResultsTouched += 1;
+        }
+      }
+      if (answered === 'thread/list' && p.result?.readStates && typeof p.result.readStates === 'object' && !Array.isArray(p.result.readStates)) {
+        const states = p.result.readStates;
+        const keys = Object.keys(states).filter((k) => !(ownThreadId && k === ownThreadId));
+        if (keys.length) {
+          for (const k of keys) delete states[k];
+          p.result._fixtureNote ??= 'unrelated sessions removed for privacy';
+          report.readStatesEntriesRemoved += keys.length;
         }
       }
       const prm = p.params;
