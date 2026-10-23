@@ -2176,7 +2176,9 @@ dependencies = [
 name = "oac-adapter-codex"
 version = "0.0.0"
 dependencies = [
+ "oac-contract-adapter",
  "oac-core",
+ "oac-fake-claude",
  "oac-mcp-tools",
  "rmcp",
  "tokio",

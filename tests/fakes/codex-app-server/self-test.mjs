@@ -529,13 +529,27 @@ await test('archive control: a thread put into the recorded archived state gets 
   const req = s3.find((f) => f.direction === 'client->daemon' && f.payload.method === 'thread/queue/add' && JSON.stringify(f.payload.params.input).includes('OAC S3 ARCHIVED'));
   const resp = s3.find((f) => f.line > req.line && f.mode === req.mode && f.payload.id === req.payload.id && f.payload.error);
   const want = JSON.parse(JSON.stringify(resp.payload.error).split(req.payload.params.threadId).join(threadId));
+  // A subscriber sees what `thread/archive` sent in the capture, unprompted and in its order:
+  // `thread/status/changed` notLoaded (L1024), then `thread/archived` (L1029). Putting the
+  // thread back sends nothing.
+  const sub = client(fake, 'subscriber');
+  sub.ok('thread/resume', { threadId, excludeTurns: true });
+  const seen = sub.frames.length;
   eq(control(fake, 'oacFake/thread/setArchived', { threadId, archived: true }), { threadId, archived: true, loaded: false }, 'archived');
+  const sent = sub.frames.slice(seen);
+  eq(sent.map((f) => f.method), ['thread/status/changed', 'thread/archived'], 'the recorded frames, in the recorded order');
+  eq(sent[0].params, { threadId, status: { type: 'notLoaded' } }, 'notLoaded (S3 L1024)');
+  eq(sent[1].params, { threadId }, 'archived (S3 L1029)');
+  const archivedAt = s3.findIndex((f) => f.payload.method === 'thread/archived');
+  assert(archivedAt >= 0 && JSON.stringify(Object.keys(s3[archivedAt].payload.params)) === JSON.stringify(['threadId']), 'the recorded thread/archived carries only threadId');
   const before = c.frames.length;
   eq(add(c, threadId, 'refused').error, want, 'the recorded archived refusal (S3 L1030-L1032)');
   eq(c.frames.length, before + 1, 'the refusal is the only frame');
   let st = control(fake, 'oacFake/thread/state', { threadId });
   eq([st.loaded, st.activeTurnId, st.queue.length], [false, null, 0], 'nothing queued or started');
+  const sentBefore = sub.frames.length;
   eq(control(fake, 'oacFake/thread/setArchived', { threadId, archived: false }), { threadId, archived: false, loaded: true }, 'put back');
+  eq(sub.frames.length, sentBefore, 'putting a thread back sends no frame (no thread/unarchive capture)');
   assert(add(c, threadId, 'later').result, 'an add is accepted again');
   st = control(fake, 'oacFake/thread/state', { threadId });
   assert(st.activeTurnId, 'the later add started a turn at once (S3 L65-L73)');

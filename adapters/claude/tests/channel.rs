@@ -1516,8 +1516,10 @@ fn tool_results_never_assert_delivery() {
 ///   with that id; the id is passed on unchanged;
 /// - the id wrong or never handed off, with `to` given: passed on as the requested target,
 ///   which the core downgrades to an uncorrelated reply; the adapter picks nothing;
-/// - `to` left out and nothing to resolve it from, or the id left out: `invalid-request`,
-///   nothing reaches the core, and nothing is guessed from the only message in sight.
+/// - `to` left out and nothing to resolve it from: `invalid-request`, nothing reaches the
+///   core, and nothing is guessed from the only message in sight;
+/// - the id left out (or empty), with `to` given: a reply with an empty requested target,
+///   which the core sends uncorrelated (approval 5 of #69); with neither: `invalid-request`.
 #[test]
 fn reply_correlation_uses_the_echoed_attributes_and_tolerates_their_omission() {
     let (a, core) = adapter_with(WAIT);
@@ -1578,15 +1580,38 @@ fn reply_correlation_uses_the_echoed_attributes_and_tolerates_their_omission() {
         &format!("{{\"in_reply_to\":\"made-up\",{body}}}"),
     );
     assert!(result_text(&r).starts_with("invalid-request"), "{r:?}");
-    // The id omitted.
+    // The id omitted, `to` named (approval 5 of #69): a reply, sent uncorrelated. Its
+    // requested target is the empty string, which is no envelope's id, so the core cannot
+    // link it to anything, and nothing is guessed from the hand-off record.
     let r = tool_call(
         &mut w,
         6,
         "reply",
         &format!("{{\"to\":\"{echoed_sender}\",{body}}}"),
     );
+    assert!(result_text(&r).contains("accepted-by-adapter"), "{r:?}");
+    {
+        let sent = core.sent.lock().unwrap();
+        assert_eq!(sent.len(), 4);
+        assert_eq!(sent[3].to, sender);
+        assert_eq!(sent[3].requested_target.as_deref(), Some(""));
+    }
+    // An empty `in_reply_to` is no `in_reply_to`.
+    let r = tool_call(
+        &mut w,
+        7,
+        "reply",
+        &format!("{{\"in_reply_to\":\"\",\"to\":\"{echoed_sender}\",{body}}}"),
+    );
+    assert!(result_text(&r).contains("accepted-by-adapter"), "{r:?}");
+    assert_eq!(
+        core.sent.lock().unwrap()[4].requested_target.as_deref(),
+        Some("")
+    );
+    // Neither the id nor `to`: nothing to send to, and nothing is guessed.
+    let r = tool_call(&mut w, 8, "reply", &format!("{{{body}}}"));
     assert!(result_text(&r).starts_with("invalid-request"), "{r:?}");
-    assert_eq!(core.sent.lock().unwrap().len(), 3, "nothing guessed");
+    assert_eq!(core.sent.lock().unwrap().len(), 5, "nothing guessed");
     a.shutdown();
 }
 

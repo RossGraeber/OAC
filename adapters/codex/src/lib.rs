@@ -3,6 +3,10 @@
 //! The Codex App Server adapter: its client half (G6, #67) and the internals of the issued-value
 //! pairing (G8 slice S3, #69, #403).
 //!
+//! - [`adapter`]: [`CodexAdapter`], the `ProviderAdapter` (G8 slice S4): the carrier, the
+//!   shim connections, the hand-off through `thread/queue/add` (G7), and the
+//!   [`pairing::CallPort`] seam.
+//! - [`frame`]: the C6 §5.0 frame a hand-off is written as.
 //! - [`ws`]: RFC 6455 framing over the stream `cli/` opens (D8).
 //! - [`client`]: JSON-RPC over it, the `initialize` handshake, thread subscriptions, and a
 //!   fixed allowlist of methods the client may send.
@@ -31,15 +35,13 @@
 //! this crate. It depends on `oac-core` only and routes every outbound message through the
 //! core, never to a transport (`spec/interfaces.md` [IFC-ADP-001]).
 //!
-//! **Not yet here.** This crate does not implement `ProviderAdapter` yet: hand-off is G7
-//! (#68, through [`client::CodexClient::queue_add`]), and the adapter itself, which implements
-//! [`pairing::CallPort`] over the core's request sink and reports attachments, native signals
-//! and `attachment-unconfirmed`, is G8's next slice (S4, #69). The adapter contract suite runs
-//! against the adapter once it implements the trait, from `tests/contract.rs`.
 
+pub mod adapter;
 pub mod client;
 pub mod confirm;
 pub mod events;
+pub mod frame;
+mod gate;
 pub mod mcp;
 mod mcp_io;
 pub mod pairing;
@@ -50,6 +52,7 @@ pub mod shim;
 pub mod threads;
 pub mod ws;
 
+pub use adapter::CodexAdapter;
 pub use client::{ClientError, CodexClient, Diagnostics, EventHandler, Options};
 pub use events::{CodexEvent, CompletedItem, McpCallStart};
 pub use pairing::{Answer, CallPort, CodexPairing, Config, PairingDiagnostics, Reveal};

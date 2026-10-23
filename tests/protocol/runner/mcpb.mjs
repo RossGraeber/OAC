@@ -116,13 +116,15 @@ function rpcErrorCarriesOacCode(err, table83) {
   return codesIn(err.message || '', table83).length > 0 || codesIn(JSON.stringify(err.data ?? ''), table83).length > 0;
 }
 
-// Does the tool's input fail its inputSchema? Only the argument a fixture can rely on is
-// tested: §5.1 names `to` for `send` and `in_reply_to` for `reply` (§4.4, §8.2).
+// Does the tool's input fail its inputSchema? Only the arguments a fixture can rely on are
+// tested: §5.1 names `to` for `send`, and for `reply` `in_reply_to` or `to` (a reply that
+// names no `in_reply_to` names its `to` and goes uncorrelated, `spec/session-channels.md`
+// §8.2.2, [SC-RCP-055]; approval 5 of #69), and `content` for both.
 function failsInputSchema(ex) {
   const args = req(ex).params.arguments;
   if (!isObj(args)) return true;
   if (toolName(ex) === 'send') return !isStr(args.to) || !Array.isArray(args.content);
-  if (toolName(ex) === 'reply') return !isStr(args.in_reply_to) || !Array.isArray(args.content);
+  if (toolName(ex) === 'reply') return (!isStr(args.in_reply_to) && !isStr(args.to)) || !Array.isArray(args.content);
   return false;
 }
 

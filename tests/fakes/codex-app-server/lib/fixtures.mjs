@@ -167,6 +167,9 @@ export function loadTemplates(root = REPO_ROOT) {
     goalCleared: T.notification('thread/goal/cleared', 'd6Conn2', 'thread/goal/cleared'),
     statusActive: T.notification('thread/status/changed active', 'd6Conn1', 'thread/status/changed', status('active')),
     statusIdle: T.notification('thread/status/changed idle', 'd6Conn1', 'thread/status/changed', status('idle')),
+    // `thread/archive`'s two notifications (S3 capture, cases-reload L1024 and L1029).
+    statusNotLoaded: T.notification('thread/status/changed notLoaded', 's3', 'thread/status/changed', status('notLoaded')),
+    threadArchived: T.notification('thread/archived', 's3', 'thread/archived'),
     turnStart,
     turnStarted: T.notification('turn/started', 'd6Conn1', 'turn/started'),
     userItemStarted: T.notification('item/started userMessage', 'd6Conn1', 'item/started', isItem('userMessage')),

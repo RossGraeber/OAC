@@ -9,6 +9,17 @@
 //! Codex calls carry the client name [`TUI_CLIENT`], and [`CodexFake::observations`] reads
 //! only the adapter's own (by its `clientInfo.name`).
 //!
+//! [`CodexHarness`] is a complete harness over the fake, for an adapter that takes the
+//! binding's two connections (`spec/bindings/mcp.md` §4.5): the **carrier**, a socket to the
+//! fake's listener that the daemon designates ([`Designate`]) and gives to the adapter
+//! first, and one **shim connection** per session, the stdio of the OAC MCP server that
+//! Codex started, over which the harness speaks MCP as Codex does. A session opens
+//! the way Codex's does: `initialize`, `tools/list`, then a call that the core side refuses
+//! with a pairing value ([`Scripted::RefusePairing`]), which the fake reports as an
+//! `mcpToolCall` item (`oacFake/mcp/start`, `oacFake/mcp/complete`, replaying the S1 capture)
+//! so that the adapter sees its reveal on the carrier. Every later call is reported the same
+//! way before it is made, which is Codex's own confirmation.
+//!
 //! [`PROFILE`] is `spec/bindings/mcp.md` §8.2.1: `thread/queue/add` is the holding
 //! hand-off; `turn/start` and `turn/steer` are steering operations; a hand-off carries no
 //! setting override ([MCPB-CDX-002] to [MCPB-CDX-005]).
@@ -23,12 +34,13 @@
 //! status and its stderr so far, read for at most a second more, so that a descendant
 //! holding the pipe cannot hang it (#340, PR #341 review).
 
-use std::collections::HashMap;
-use std::io::{self, BufRead, BufReader, Write};
+use std::collections::{HashMap, VecDeque};
+use std::io::{self, BufRead, BufReader, Read, Write};
+use std::net::TcpStream;
 use std::path::PathBuf;
 use std::process::{Child, ChildStdin, Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::mpsc::{self, Sender};
+use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -36,8 +48,13 @@ use oac_core::delivery::ErrorCode;
 use oac_core::json::{self, Json};
 use oac_fake_claude::evidence::{member, member_str};
 
-use crate::claude::json_string;
-use crate::{HandOffCall, Observations, Profile, Rule, WAIT};
+use oac_core::adapter::{AdapterEvent, Connection, ConnectionHandle, ProviderAdapter};
+
+use crate::claude::{FETCH_CAPABILITIES, OAC_TOOLS, PipeWriter, json_string, pipe};
+use crate::{
+    AdapterHarness, CoreSide, Gap, HandOffCall, HarnessRequest, Observations, ObservedResult,
+    Profile, Rule, Scripted, Step, WAIT, peer_session,
+};
 
 /// The holding hand-off ([SEC-AUZ-025]; `spec/bindings/mcp.md` §8.2.1).
 pub const HOLDING_HAND_OFF: &str = "thread/queue/add";
@@ -62,9 +79,10 @@ pub const PROFILE: Profile = Profile {
     // The TUI user's turns (`CodexFake::tui_turn`) make a thread busy.
     runs_own_turns: true,
     // Codex's requests travel the MCP tool path shared with Claude (`spec/bindings/mcp.md`
-    // section 5), which the fake app-server does not model; they are exercised through the
-    // Claude harness.
-    makes_requests: false,
+    // section 5). [`CodexHarness`] makes them over the adapter's shim connection, each
+    // reported to the carrier as Codex reports a call (`oacFake/mcp/*`), so that the
+    // adapter's pairing and confirmation are in the path.
+    makes_requests: true,
 };
 
 /// The client name of the suite's own "TUI user" connection.
@@ -561,6 +579,515 @@ impl Drop for CodexFake {
     fn drop(&mut self) {
         let _ = self.child.kill();
         let _ = self.child.wait();
+    }
+}
+
+// ---- the harness --------------------------------------------------------------------------
+
+/// The `clientInfo.name` the Codex adapter presents to the app-server
+/// (`oac_adapter_codex::client::CLIENT_NAME`): [`CodexFake::observations`] reads only the
+/// calls of the client of this name.
+pub const ADAPTER_CLIENT: &str = "oac-codex-adapter";
+
+/// How the daemon designates the carrier: called with the carrier's handle after the core side
+/// accepted the connection and before the adapter is given it (for the Codex adapter,
+/// `CodexAdapter::designate_carrier`). Returns whether the designation was taken.
+pub type Designate = Box<dyn Fn(&ConnectionHandle) -> bool + Send + Sync>;
+
+/// A socket to the fake's listener, moved to and from the carrier connection's pipe by two
+/// threads. Dropping it closes the socket.
+struct CarrierSocket {
+    socket: TcpStream,
+    handle: ConnectionHandle,
+}
+
+impl Drop for CarrierSocket {
+    fn drop(&mut self) {
+        let _ = self.socket.shutdown(std::net::Shutdown::Both);
+    }
+}
+
+/// Codex's side of one shim connection: MCP over newline-delimited JSON on the pipe the
+/// adapter reads and writes.
+struct McpPipe {
+    to_adapter: Option<PipeWriter>,
+    from_adapter: Receiver<Vec<u8>>,
+    partial: Vec<u8>,
+    frames: VecDeque<Json>,
+    next_id: u64,
+}
+
+impl McpPipe {
+    fn send(&mut self, frame: &str) -> Step<()> {
+        let w = self
+            .to_adapter
+            .as_mut()
+            .ok_or_else(|| Gap::Broken("the shim connection is closed".into()))?;
+        w.write_all(format!("{frame}\n").as_bytes())
+            .map_err(|e| Gap::Broken(format!("writing to the adapter: {e}")))
+    }
+
+    fn next_frame(&mut self, end: Instant) -> Step<Json> {
+        loop {
+            if let Some(v) = self.frames.pop_front() {
+                return Ok(v);
+            }
+            let now = Instant::now();
+            if now >= end {
+                return Err(Gap::Broken("no frame from the adapter in time".into()));
+            }
+            let chunk = self
+                .from_adapter
+                .recv_timeout(end - now)
+                .map_err(|e| Gap::Broken(format!("reading from the adapter: {e}")))?;
+            self.partial.extend_from_slice(&chunk);
+            while let Some(i) = self.partial.iter().position(|&b| b == b'\n') {
+                let line: Vec<u8> = self.partial.drain(..=i).collect();
+                let text = String::from_utf8_lossy(&line);
+                let text = text.trim();
+                if !text.is_empty() {
+                    let v = json::parse(text.as_bytes()).map_err(|_| {
+                        Gap::Broken("the adapter sent a frame that is not JSON".into())
+                    })?;
+                    self.frames.push_back(v);
+                }
+            }
+        }
+    }
+
+    /// A request and its response (other frames are skipped).
+    fn request(&mut self, method: &str, params: &str) -> Step<Json> {
+        self.next_id += 1;
+        let id = self.next_id;
+        self.send(&format!(
+            "{{\"jsonrpc\":\"2.0\",\"id\":{id},\"method\":{},\"params\":{params}}}",
+            json_string(method)
+        ))?;
+        let end = Instant::now() + WAIT;
+        loop {
+            let v = self.next_frame(end)?;
+            if member(&v, "id")
+                .and_then(Json::as_number)
+                .is_some_and(|n| n.raw() == id.to_string())
+            {
+                return Ok(v);
+            }
+        }
+    }
+
+    /// A `tools/call`: whether the result is an error, and its first text block.
+    fn call(&mut self, tool: &str, args: &str) -> Step<ObservedResult> {
+        let v = self.request(
+            "tools/call",
+            &format!("{{\"name\":{},\"arguments\":{args}}}", json_string(tool)),
+        )?;
+        let r = member(&v, "result").ok_or_else(|| {
+            Gap::Broken(format!(
+                "tools/call {tool} was answered with an error: {}",
+                v.to_compact()
+            ))
+        })?;
+        Ok(ObservedResult {
+            is_error: member(r, "isError").and_then(Json::as_bool) == Some(true),
+            text: member(r, "content")
+                .and_then(Json::as_array)
+                .and_then(|c| c.first())
+                .and_then(|b| member_str(b, "text"))
+                .unwrap_or_default()
+                .to_owned(),
+        })
+    }
+}
+
+struct CodexSession {
+    thread: String,
+    mcp: McpPipe,
+    /// Inbox-style surfaces the adapter's MCP server offered ([MCPB-DLV-002]).
+    offered: Vec<String>,
+}
+
+/// The adapter contract suite's harness over the fake Codex app-server, for an adapter with
+/// the Codex binding's two connections (see the module documentation).
+pub struct CodexHarness {
+    adapter: Arc<dyn ProviderAdapter>,
+    designate: Designate,
+    registered_name: String,
+    files: Vec<PathBuf>,
+    fake: CodexFake,
+    core: Option<Arc<CoreSide>>,
+    carrier: Option<CarrierSocket>,
+    sessions: Vec<CodexSession>,
+    own: Vec<String>,
+}
+
+impl CodexHarness {
+    /// A harness for `adapter`, which is registered with Codex as `registered_name` (the
+    /// `server` of every reported call), whose carrier the daemon designates with
+    /// `designate`, and whose source `files` the static checks read. Spawns the fake
+    /// Codex app-server.
+    ///
+    /// # Errors
+    ///
+    /// The fake's startup error.
+    pub fn new(
+        adapter: Arc<dyn ProviderAdapter>,
+        registered_name: &str,
+        designate: Designate,
+        files: Vec<PathBuf>,
+    ) -> io::Result<CodexHarness> {
+        Ok(CodexHarness {
+            adapter,
+            designate,
+            registered_name: registered_name.to_owned(),
+            files,
+            fake: CodexFake::spawn()?,
+            core: None,
+            carrier: None,
+            sessions: Vec::new(),
+            own: Vec::new(),
+        })
+    }
+
+    fn session(&mut self, s: usize) -> Step<&mut CodexSession> {
+        self.sessions
+            .get_mut(s)
+            .ok_or_else(|| Gap::Broken(format!("no session {s}")))
+    }
+
+    fn tui_text(&mut self, what: &str) -> String {
+        let t = format!("oac contract tui {what} #{}#", self.own.len());
+        self.own.push(t.clone());
+        t
+    }
+
+    /// The listener's socket, as the core side's connection: the carrier.
+    fn open_carrier(&mut self, core: &CoreSide) -> Step<Connection> {
+        let host = self
+            .fake
+            .url()
+            .strip_prefix("ws://")
+            .ok_or_else(|| Gap::Broken("the fake's url is not ws://".into()))?
+            .trim_end_matches('/')
+            .to_owned();
+        let socket =
+            TcpStream::connect(host).map_err(|e| Gap::Broken(format!("connecting: {e}")))?;
+        let (mut to_adapter, adapter_reads) = pipe();
+        let (adapter_writes, from_adapter) = mpsc::channel::<Vec<u8>>();
+        let conn = core.accept(adapter_reads, PipeWriter::from(adapter_writes));
+        let mut read = socket.try_clone().map_err(|e| Gap::Broken(e.to_string()))?;
+        std::thread::spawn(move || {
+            let mut buf = vec![0u8; 8192];
+            while let Ok(n) = read.read(&mut buf) {
+                if n == 0 || to_adapter.write_all(&buf[..n]).is_err() {
+                    break;
+                }
+            }
+        });
+        let mut write = socket.try_clone().map_err(|e| Gap::Broken(e.to_string()))?;
+        std::thread::spawn(move || {
+            for chunk in from_adapter {
+                if write.write_all(&chunk).is_err() {
+                    break;
+                }
+            }
+        });
+        // The daemon designates the carrier after accepting it and before the adapter has it.
+        if !(self.designate)(conn.handle()) {
+            return Err(Gap::Broken(
+                "the adapter did not take the carrier designation".into(),
+            ));
+        }
+        self.carrier = Some(CarrierSocket {
+            socket,
+            handle: conn.handle().clone(),
+        });
+        Ok(conn)
+    }
+
+    fn mcp_control(&self, method: &str, params: &str) -> Step<Json> {
+        self.fake
+            .call(method, params)
+            .map_err(|e| Gap::Broken(format!("{method}: {}", e.to_compact())))
+    }
+
+    /// Codex reports the call it is about to make: `item/started` of an `mcpToolCall` in the
+    /// thread's running turn. Returns the item.
+    fn report_started(&self, thread: &str, tool: &str, args: &str) -> Step<String> {
+        let r = self.mcp_control(
+            "oacFake/mcp/start",
+            &format!(
+                "{{\"threadId\":{},\"server\":{},\"tool\":{},\"arguments\":{args}}}",
+                json_string(thread),
+                json_string(&self.registered_name),
+                json_string(tool)
+            ),
+        )?;
+        member_str(&r, "itemId")
+            .map(str::to_owned)
+            .ok_or_else(|| Gap::Broken("oacFake/mcp/start named no item".into()))
+    }
+
+    /// The call returned `result`: `item/completed`, a refusal as `failed`.
+    fn report_completed(&self, thread: &str, item: &str, result: &ObservedResult) -> Step<()> {
+        self.mcp_control(
+            "oacFake/mcp/complete",
+            &format!(
+                "{{\"threadId\":{},\"itemId\":{},\"outcome\":{},\"text\":{}}}",
+                json_string(thread),
+                json_string(item),
+                json_string(if result.is_error {
+                    "failed"
+                } else {
+                    "completed"
+                }),
+                json_string(&result.text)
+            ),
+        )
+        .map(|_| ())
+    }
+
+    fn running(&self, thread: &str) -> bool {
+        member_str(&self.fake.thread_state(thread), "activeTurnId").is_some()
+    }
+}
+
+/// The tool and its arguments for a request, in the shape of `oac-mcp-tools`' `inputSchema`
+/// (`spec/bindings/mcp.md` §5), with the spoofed sender, when there is one, as an extra
+/// `from` member that the adapter must ignore ([SC-ID-162]).
+fn encode(r: &HarnessRequest) -> (&'static str, String) {
+    match r {
+        HarnessRequest::Send {
+            to,
+            text,
+            claimed_from,
+        } => (
+            "send",
+            format!(
+                "{{\"to\":{},\"content\":[{{\"type\":\"text\",\"text\":{}}}]{}}}",
+                json_string(to.as_str()),
+                json_string(text),
+                claimed_from
+                    .as_ref()
+                    .map(|f| format!(",\"from\":{}", json_string(f.as_str())))
+                    .unwrap_or_default()
+            ),
+        ),
+        HarnessRequest::Discover => ("list_sessions", "{}".into()),
+    }
+}
+
+impl AdapterHarness for CodexHarness {
+    fn name(&self) -> String {
+        "fake Codex app-server (carrier and shim connections)".into()
+    }
+
+    fn adapter(&self) -> Arc<dyn ProviderAdapter> {
+        self.adapter.clone()
+    }
+
+    fn profile(&self) -> Profile {
+        PROFILE
+    }
+
+    fn open_session(&mut self, core: &CoreSide) -> Step<(usize, Vec<Connection>)> {
+        self.core.get_or_insert_with(|| core.shared());
+        let mut conns = Vec::new();
+        if self.carrier.is_none() {
+            conns.push(self.open_carrier(core)?);
+        }
+        let thread = self.fake.create_thread();
+        let (to_adapter, adapter_reads) = pipe();
+        let (adapter_writes, from_adapter) = mpsc::channel::<Vec<u8>>();
+        conns.push(core.accept(adapter_reads, PipeWriter::from(adapter_writes)));
+        self.sessions.push(CodexSession {
+            thread,
+            mcp: McpPipe {
+                to_adapter: Some(to_adapter),
+                from_adapter,
+                partial: Vec::new(),
+                frames: VecDeque::new(),
+                next_id: 0,
+            },
+            offered: Vec::new(),
+        });
+        Ok((self.sessions.len() - 1, conns))
+    }
+
+    /// Codex starts the session: the MCP opening, then a call refused with a pairing value
+    /// and reported back, so that the adapter reveals the thread to the core side; the core
+    /// side is waited on for the reveal. The session's turn is then ended.
+    fn session_ready(&mut self, s: usize) -> Step<()> {
+        let core = self
+            .core
+            .clone()
+            .ok_or_else(|| Gap::Broken("no session was opened".into()))?;
+        let carrier_handle = self
+            .carrier
+            .as_ref()
+            .map(|c| c.handle.clone())
+            .ok_or_else(|| Gap::Broken("no carrier".into()))?;
+        let thread = self.session(s)?.thread.clone();
+        // The opening, as Codex 0.163.0 does it (S1 server log).
+        {
+            let sess = self.session(s)?;
+            let init = sess.mcp.request(
+                "initialize",
+                "{\"protocolVersion\":\"2025-06-18\",\"capabilities\":{},\"clientInfo\":{\"name\":\"codex-mcp-client\",\"version\":\"0.163.0\"}}",
+            )?;
+            let mut offered = Vec::new();
+            let caps = member(&init, "result").and_then(|r| member(r, "capabilities"));
+            for c in FETCH_CAPABILITIES {
+                if caps.and_then(|x| member(x, c)).is_some() {
+                    offered.push(format!("capability {c}"));
+                }
+            }
+            sess.mcp
+                .send("{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}")?;
+            let tools = sess.mcp.request("tools/list", "{}")?;
+            for t in member(&tools, "result")
+                .and_then(|r| member(r, "tools"))
+                .and_then(Json::as_array)
+                .unwrap_or(&[])
+            {
+                if let Some(name) = member_str(t, "name")
+                    && !OAC_TOOLS.contains(&name)
+                {
+                    offered.push(format!("tool {name}"));
+                }
+            }
+            sess.offered = offered;
+        }
+        // The session's own user is mid-turn, as when a model makes a tool call.
+        let text = self.tui_text("pairing");
+        self.fake
+            .tui_turn(&thread, &text)
+            .map_err(|e| Gap::Broken(e.to_compact()))?;
+        let (tool, args) = encode(&HarnessRequest::Send {
+            to: peer_session(),
+            text: "oac contract pairing".into(),
+            claimed_from: None,
+        });
+        let item = self.report_started(&thread, tool, &args)?;
+        core.script(Scripted::RefusePairing);
+        let refusal = self.session(s)?.mcp.call(tool, &args)?;
+        self.report_completed(&thread, &item, &refusal)?;
+        let value = refusal
+            .text
+            .find("oac-pair-")
+            .and_then(|i| refusal.text.get(i..i + "oac-pair-".len() + 32))
+            .map(str::to_owned)
+            .filter(|_| refusal.is_error)
+            .ok_or_else(|| Gap::Broken("the call was not refused with a pairing value".into()))?;
+        if !core.pairing_values().contains(&value) {
+            return Err(Gap::Broken(
+                "the pairing value in the refusal is not one the core side issued".into(),
+            ));
+        }
+        // The reveal: a native signal on the carrier, naming the thread, carrying the value.
+        let seen = |ev: &[AdapterEvent]| {
+            ev.iter().find_map(|e| match e {
+                AdapterEvent::NativeSignal(n) if n.revealed.as_deref() == Some(value.as_str()) => {
+                    Some(n.clone())
+                }
+                _ => None,
+            })
+        };
+        if !core.wait_for(|ev| seen(ev).is_some()) {
+            return Err(Gap::Broken(
+                "the adapter reported no reveal of the pairing value".into(),
+            ));
+        }
+        let signal = seen(&core.events()).expect("seen above");
+        if signal.native_id != thread || signal.connection.as_ref() != Some(&carrier_handle) {
+            return Err(Gap::Broken(
+                "the reveal does not name the session's thread, or did not arrive on the carrier"
+                    .into(),
+            ));
+        }
+        self.fake.drain(&thread);
+        Ok(())
+    }
+
+    fn end_session(&mut self, s: usize) -> Step<()> {
+        self.session(s)?.mcp.to_adapter = None;
+        Ok(())
+    }
+
+    fn start_turn(&mut self, s: usize) -> Step<()> {
+        let thread = self.session(s)?.thread.clone();
+        let text = self.tui_text("turn");
+        self.fake
+            .tui_turn(&thread, &text)
+            .map_err(|e| Gap::Broken(e.to_compact()))
+    }
+
+    fn drain(&mut self, s: usize) -> Step<()> {
+        let thread = self.session(s)?.thread.clone();
+        self.fake.drain(&thread);
+        Ok(())
+    }
+
+    /// The thread is archived, as after `thread/archive` in the S3 capture: the recorded
+    /// refusal of an add, which the binding classifies `handoff-failed` ([SC-DLV-009]).
+    fn refuse_hand_offs(&mut self, s: usize) -> Step<()> {
+        let thread = self.session(s)?.thread.clone();
+        self.fake.drain(&thread);
+        self.fake.set_archived(&thread, true);
+        Ok(())
+    }
+
+    fn allow_hand_offs(&mut self, s: usize) -> Step<()> {
+        let thread = self.session(s)?.thread.clone();
+        self.fake.set_archived(&thread, false);
+        Ok(())
+    }
+
+    /// Codex makes the call in a turn of the session's thread, reporting it first and its
+    /// result after, as Codex does (the adapter serves a call on a paired connection only
+    /// on that report).
+    fn request(&mut self, s: usize, request: &HarnessRequest) -> Step<ObservedResult> {
+        let (tool, args) = encode(request);
+        let thread = self.session(s)?.thread.clone();
+        let started = !self.running(&thread);
+        if started {
+            let text = self.tui_text("request");
+            self.fake
+                .tui_turn(&thread, &text)
+                .map_err(|e| Gap::Broken(e.to_compact()))?;
+        }
+        let item = self.report_started(&thread, tool, &args)?;
+        let result = self.session(s)?.mcp.call(tool, &args)?;
+        self.report_completed(&thread, &item, &result)?;
+        if started {
+            self.fake.drain(&thread);
+        }
+        Ok(result)
+    }
+
+    fn observe(&mut self, s: usize) -> Observations {
+        let Some(sess) = self.sessions.get(s) else {
+            return Observations::default();
+        };
+        let mut o = self
+            .fake
+            .observations(ADAPTER_CLIENT, &sess.thread, &self.own);
+        // [MCPB-DLV-002]: a capability or tool of the adapter's MCP server that offers
+        // something a session could read repeatedly.
+        o.offered_fetch_surfaces = sess.offered.clone();
+        o
+    }
+
+    fn source_files(&self) -> Vec<PathBuf> {
+        self.files.clone()
+    }
+
+    /// The threads' ids, and the pairing values: none of them may appear in `health`.
+    fn native_ids(&self) -> Vec<String> {
+        let mut ids: Vec<String> = self.sessions.iter().map(|s| s.thread.clone()).collect();
+        if let Some(core) = &self.core {
+            ids.extend(core.pairing_values());
+        }
+        ids
     }
 }
 

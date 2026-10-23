@@ -16,9 +16,14 @@
 //!   endpoint (F8): on the channel path the harness's connection carries the adapter's MCP
 //!   traffic, so any channel adapter plugs in as it is. Run it under both
 //!   [`oac_fake_claude::MidTurnRelease`] settings ([`oac_fake_claude::MidTurnRelease::BOTH`]).
-//! - [`codex::CodexFake`] spawns the fake Codex app-server (F9) and reads its call log; a
-//!   Codex adapter's harness wires its sessions to it ([`codex::PROFILE`] names the holding
-//!   hand-off and the steering operations of `spec/bindings/mcp.md` §8.2.1).
+//! - [`codex::CodexFake`] spawns the fake Codex app-server (F9) and reads its call log
+//!   ([`codex::PROFILE`] names the holding hand-off and the steering operations of
+//!   `spec/bindings/mcp.md` §8.2.1). [`codex::CodexHarness`] is a complete harness over it
+//!   for an adapter with the Codex binding's two connections: the carrier, which the daemon
+//!   designates, and one shim connection per session, over which the harness speaks MCP as
+//!   Codex does and reports each call to the carrier as the app-server reports it
+//!   (`oacFake/mcp/*`), so that a session is paired through a refusal that carries a
+//!   pairing value ([`Scripted::RefusePairing`]) before the suite runs.
 //!
 //! # What it checks
 //!
@@ -57,7 +62,7 @@
 //!   |---|---|---|---|---|
 //!   | `refuse_hand_offs` | [SEC-AUZ-027], [SC-DLV-009] | [`Profile::turned_away_code`] names a code | n/a: a channel notification gets no answer, so there is no refusal | mandatory: the recorded archived refusal |
 //!   | `start_turn` | [SEC-AUZ-025], [SEC-AUZ-026] | [`Profile::runs_own_turns`] | mandatory | mandatory |
-//!   | `request` | [IFC-ADP-003], [IFC-ADP-031], [IFC-ADP-060] | [`Profile::makes_requests`] | mandatory | n/a: the fake app-server does not model the MCP tool path Codex requests travel |
+//!   | `request` | [IFC-ADP-003], [IFC-ADP-031], [IFC-ADP-060] | [`Profile::makes_requests`] | mandatory | mandatory: [`codex::CodexHarness`] makes them over the shim connection |
 //!   | `open_session`, `session_ready`, `end_session`, `drain`, `allow_hand_offs` | the whole run | always | the run fails | the run fails |
 //!
 //!   A [`Gap::Broken`] step always fails.
@@ -130,7 +135,7 @@ use std::fmt;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 use oac_core::adapter::{
@@ -398,6 +403,11 @@ pub enum Scripted {
     Refuse(ErrorCode),
     /// `not-passed` with this code.
     NotPass(ErrorCode),
+    /// `refused` with `unauthorized` and a pairing value the core side issues for the request
+    /// ([IFC-ADP-090]; `spec/bindings/mcp.md` [MCPB-ATT-005]): the refusal that starts a
+    /// Codex connection's issued-value pairing. Each such refusal carries a value not issued
+    /// before, kept in [`CoreSide::pairing_values`].
+    RefusePairing,
 }
 
 /// A request the adapter passed into the sink.
@@ -444,6 +454,8 @@ pub struct CoreSide {
     requests: Mutex<Vec<RecordedRequest>>,
     script: Mutex<VecDeque<Scripted>>,
     next_id: AtomicU64,
+    pairing_values: Mutex<Vec<String>>,
+    me: Weak<CoreSide>,
 }
 
 impl CoreSide {
@@ -454,7 +466,9 @@ impl CoreSide {
             Token::parse("oac-contract-core").expect("a token"),
         );
         let trusted = TrustedKeySet::new(&identity);
-        Arc::new(CoreSide {
+        Arc::new_cyclic(|me| CoreSide {
+            me: me.clone(),
+            pairing_values: Mutex::default(),
             identity,
             trusted,
             issued: Mutex::default(),
@@ -465,6 +479,21 @@ impl CoreSide {
             script: Mutex::default(),
             next_id: AtomicU64::new(1),
         })
+    }
+
+    /// This core side as an `Arc`, for a harness that waits on its events from a step that
+    /// is not given the core side ([`AdapterHarness::session_ready`]).
+    ///
+    /// # Panics
+    ///
+    /// Never: the core side is only made inside an `Arc` ([`CoreSide::new`]).
+    pub fn shared(&self) -> Arc<CoreSide> {
+        self.me.upgrade().expect("a core side lives in an Arc")
+    }
+
+    /// Every pairing value this core side has issued, in order ([`Scripted::RefusePairing`]).
+    pub fn pairing_values(&self) -> Vec<String> {
+        lock(&self.pairing_values).clone()
     }
 
     /// Accept a local connection, as the core does after authenticating its peer
@@ -626,6 +655,17 @@ impl RequestSink for Sink {
                 pairing_value: None,
             },
             Scripted::NotPass(error) => SendRequestResult::NotPassed { id, error },
+            Scripted::RefusePairing => {
+                let value = format!(
+                    "oac-pair-{:032x}",
+                    me.next_id.fetch_add(1, Ordering::Relaxed)
+                );
+                lock(&me.pairing_values).push(value.clone());
+                SendRequestResult::Refused {
+                    error: ErrorCode::Unauthorized,
+                    pairing_value: Some(value),
+                }
+            }
         };
         lock(&me.requests).push(RecordedRequest {
             request: Request::Send(request),
@@ -1326,6 +1366,10 @@ fn scenarios(ctx: &mut Ctx<'_>) -> Result<(), String> {
                 }
                 Scripted::Refuse(code) | Scripted::NotPass(code) => {
                     observed.is_error && observed.text.contains(code.as_str())
+                }
+                // The suite's own request cases never script it; it is the pairing refusal.
+                Scripted::RefusePairing => {
+                    observed.is_error && observed.text.contains(ErrorCode::Unauthorized.as_str())
                 }
             };
             if !ok {

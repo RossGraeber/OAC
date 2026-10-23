@@ -931,10 +931,65 @@ impl AdapterHarness for QueueHarness {
         self.fake.set_archived(&self.sessions[s].0, false);
         Ok(())
     }
-    fn request(&mut self, _s: usize, _r: &HarnessRequest) -> Step<ObservedResult> {
-        Err(Gap::Unsupported(
-            "the fake Codex app-server models the app-server only; the MCP tool path that Codex requests travel (shared with Claude, spec/bindings/mcp.md section 5) is exercised through the Claude harness".into(),
-        ))
+    /// The Codex binding makes requests mandatory (`codex::PROFILE.makes_requests`). The queue
+    /// stand-in has no MCP server: its harness passes the request to the stand-in's sink the
+    /// way the binding's server would, labelled with the session's connection, and renders
+    /// the result as the binding's tool result does ([MCPB-TOOL-006], [MCPB-TOOL-011]): an
+    /// error carries the code, a sent message its id and `accepted-by-adapter`. (A claimed
+    /// sender is not a member of the request, so it is dropped here, as the server drops it.)
+    fn request(&mut self, s: usize, r: &HarnessRequest) -> Step<ObservedResult> {
+        let sink = {
+            let common = self.adapter.common.lock().unwrap();
+            // Once the stand-in has shut down its connections are closed: the request is not
+            // made, as a harness whose connection is closed makes none.
+            if common.down {
+                return Err(Gap::Broken("the stand-in's connections are closed".into()));
+            }
+            common
+                .sink
+                .clone()
+                .ok_or_else(|| Gap::Broken("the stand-in has no request sink".into()))?
+        };
+        let thread = self.sessions[s].0.clone();
+        let attachment = self
+            .adapter
+            .threads
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|(_, t)| **t == thread)
+            .map(|(a, _)| a.clone())
+            .ok_or_else(|| Gap::Broken("the session has no attachment".into()))?;
+        let error = |code: oac_core::delivery::ErrorCode| ObservedResult {
+            is_error: true,
+            text: code.as_str().to_owned(),
+        };
+        Ok(match r {
+            HarnessRequest::Send { to, text, .. } => {
+                match sink.send(SendRequest {
+                    attachment,
+                    to: to.clone(),
+                    content: vec![ContentPart::Text(TextPart::new(text).expect("text"))],
+                    requested_target: None,
+                    conversation_id: None,
+                    correlation_id: None,
+                }) {
+                    SendRequestResult::Refused { error: e, .. }
+                    | SendRequestResult::NotPassed { error: e, .. } => error(e),
+                    SendRequestResult::Sent { id, .. } => ObservedResult {
+                        is_error: false,
+                        text: format!("{} accepted-by-adapter", id.as_str()),
+                    },
+                }
+            }
+            HarnessRequest::Discover => match sink.discover(DiscoveryRequest { attachment }) {
+                DiscoveryRequestResult::Refused { error: e, .. } => error(e),
+                DiscoveryRequestResult::DiscoveryResult(_) => ObservedResult {
+                    is_error: false,
+                    text: "{\"sessions\":[]}".into(),
+                },
+            },
+        })
     }
     fn observe(&mut self, s: usize) -> Observations {
         self.fake
@@ -981,16 +1036,20 @@ fn the_queue_stand_in_passes_against_the_fake_codex_app_server() {
     );
     assert_eq!(
         report.not_applicable(),
-        [
-            "IFC-ADP-003",
-            "IFC-ADP-031",
-            "IFC-ADP-043",
-            "IFC-ADP-053",
-            "IFC-ADP-054",
-            "IFC-ADP-060"
-        ],
+        ["IFC-ADP-043", "IFC-ADP-053", "IFC-ADP-054"],
         "{report}"
     );
+    // The request rows are applicable on the Codex binding (the harness makes requests) and
+    // pass.
+    for id in ["IFC-ADP-003", "IFC-ADP-031", "IFC-ADP-060"] {
+        assert!(
+            report
+                .rows
+                .iter()
+                .any(|r| r.id == id && matches!(r.verdict, oac_contract_adapter::Verdict::Pass(_))),
+            "no passing {id} row:\n{report}"
+        );
+    }
     for id in [
         "MCPB-CDX-002",
         "MCPB-CDX-003",
@@ -1243,33 +1302,32 @@ fn the_suite_catches_each_planted_queue_harness_breach() {
             HarnessBreach::NoSourceFiles,
             &["IFC-ADP-001", "IFC-ADP-002", "IFC-ADP-007", "IFC-ADP-013"],
         ),
-        // Requests are not applicable on the Codex binding, so the gap there stays an
-        // honest n/a; only the roll-up is asserted, and it must pass.
-        (QueueBreach::None, HarnessBreach::RequestsAsGap, &[]),
+        // Requests are mandatory on the Codex binding (`codex::PROFILE.makes_requests`, since
+        // the Codex harness makes them over the adapter's shim connection), so a harness that
+        // says it cannot make them fails the three request rows, as on the channel binding.
+        (
+            QueueBreach::None,
+            HarnessBreach::RequestsAsGap,
+            &["IFC-ADP-003", "IFC-ADP-031", "IFC-ADP-060"],
+        ),
     ];
     for (adapter, breach, ids) in cases {
         let report = rigged_queue_report(adapter, breach);
         let what = format!("{breach:?} over {adapter:?}");
-        match breach {
-            HarnessBreach::RequestsAsGap => report.assert_conformant(),
-            _ => {
-                assert_caught(&report, &what, ids);
-                if matches!(
-                    breach,
-                    HarnessBreach::WeakensProfile
-                        | HarnessBreach::ClaimsOtherBinding
-                        | HarnessBreach::InventsProfile
-                ) {
-                    assert!(
-                        report
-                            .rows
-                            .iter()
-                            .any(|r| r.check == "harness-profile-is-the-bindings"
-                                && r.verdict.is_fail()),
-                        "{what}:\n{report}"
-                    );
-                }
-            }
+        assert_caught(&report, &what, ids);
+        if matches!(
+            breach,
+            HarnessBreach::WeakensProfile
+                | HarnessBreach::ClaimsOtherBinding
+                | HarnessBreach::InventsProfile
+        ) {
+            assert!(
+                report
+                    .rows
+                    .iter()
+                    .any(|r| r.check == "harness-profile-is-the-bindings" && r.verdict.is_fail()),
+                "{what}:\n{report}"
+            );
         }
     }
 }

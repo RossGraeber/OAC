@@ -354,6 +354,17 @@ pub fn is_extension_type(t: &str) -> bool {
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == b'-')
 }
 
+/// A fresh delimiter for one hand-off frame (`spec/security.md` [SEC-PRV-007]): 128 bits of
+/// the operating system's cryptographically secure random number generator, written as 26
+/// lower-case Crockford Base32 characters (letters and digits, so it is an identifier token
+/// and holds no character a frame treats specially). It is derived from no input and names
+/// nothing; an adapter that renders a shared carrier takes one per hand-off.
+pub fn fresh_delimiter() -> String {
+    let mut octets = [0u8; 16];
+    getrandom::fill(&mut octets).expect("the operating system's random number generator");
+    SessionId::from_random_octets(octets).as_str().to_owned()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -366,6 +377,16 @@ mod tests {
         for bad in ["", "a\n", " a", "a b", "é", "a/b"] {
             assert!(!is_token(bad), "{bad:?}");
         }
+    }
+
+    #[test]
+    fn delimiters_are_fresh_tokens_of_128_bits() {
+        let a = fresh_delimiter();
+        let b = fresh_delimiter();
+        assert_eq!(a.len(), 26);
+        assert!(is_token(&a) && is_token(&b));
+        assert!(a.bytes().all(|c| CROCKFORD.contains(&c)));
+        assert_ne!(a, b, "two draws of 128 bits do not repeat");
     }
 
     #[test]

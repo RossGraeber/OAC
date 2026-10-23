@@ -617,7 +617,7 @@ export class FakeCodexAppServer {
       case 'oacFake/thread/create':
         return { result: { threadId: this.createThread(p).id } };
       case 'oacFake/thread/setArchived':
-        return { result: this.setArchived(p) };
+        return this.setArchived(p);
       case 'oacFake/mcp/start':
         return { result: this.mcpStart(p) };
       case 'oacFake/mcp/complete':
@@ -684,9 +684,11 @@ export class FakeCodexAppServer {
   // Test set-up, not a Codex behaviour: put an idle top-level thread into the state the S3
   // capture recorded after `thread/archive` (archived and not loaded, `cases-reload`
   // L1023-L1030), where an add gets the recorded archived refusal (L1030-L1032); or put it
-  // back as it was (loaded, not archived). It sends no frame: neither `thread/archive`'s
-  // notifications nor anything for `thread/unarchive` (not recorded) are modelled. The
-  // restore leaves a recorded state (loaded and idle, S3 L981-L1018) by a transition no
+  // back as it was (loaded, not archived). Archiving sends the thread's subscribers what
+  // `thread/archive` sent in the capture, unprompted: `thread/status/changed` `notLoaded`
+  // (L1024), then, after the control call's response, `thread/archived` (L1029) (#68 note
+  // from the PR #346 review: an adapter must be shown how it reacts to them). Putting a
+  // thread back sends nothing: `thread/unarchive` is not recorded. The restore leaves a recorded state (loaded and idle, S3 L981-L1018) by a transition no
   // fixture records (no `thread/unarchive` capture). Only IFC-ADP-056's detection of a
   // re-sent refused add uses it; SEC-AUZ-027 and IFC-ADP-057 catch that case without it.
   setArchived({ threadId, archived }) {
@@ -699,7 +701,10 @@ export class FakeCodexAppServer {
     if (archived && !th.loaded) throw new RpcError(-32602, 'the S3 capture archived a loaded thread');
     th.archived = archived;
     th.loaded = !archived;
-    return { threadId: th.id, archived: th.archived, loaded: th.loaded };
+    const result = { threadId: th.id, archived: th.archived, loaded: th.loaded };
+    if (!archived) return { result };
+    this.broadcast(th, this.t.statusNotLoaded, { threadId: th.id, status: structuredClone(this.t.statusNotLoaded.params.status) });
+    return { result, after: () => this.broadcast(th, this.t.threadArchived, { threadId: th.id }) };
   }
 
   // oacFake/mcp/start: the thread's running turn makes an MCP tool call. Sends subscribers the

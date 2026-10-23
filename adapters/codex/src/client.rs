@@ -112,8 +112,12 @@ impl Default for Options {
 pub enum ClientError {
     /// The WebSocket Upgrade or the stream failed.
     Connect(WsError),
-    /// The carrier is closed, or the client was shut down.
+    /// The carrier is closed, or the client was shut down, and the request was not sent.
     Closed,
+    /// The carrier closed, or the client was shut down, after the request was sent and
+    /// before its answer: whether the app-server acted is unknown, as for
+    /// [`ClientError::NoAnswer`].
+    LostAnswer,
     /// No response came within the call timeout. Whether the app-server acted is unknown.
     NoAnswer,
     /// The app-server answered with a JSON-RPC error. Its `message` can name a thread, so
@@ -139,6 +143,9 @@ impl fmt::Display for ClientError {
         match self {
             ClientError::Connect(e) => write!(f, "cannot connect to the app-server: {e}"),
             ClientError::Closed => f.write_str("the app-server connection is closed"),
+            ClientError::LostAnswer => {
+                f.write_str("the app-server connection closed before it answered")
+            }
             ClientError::NoAnswer => f.write_str("no answer from the app-server in time"),
             ClientError::Refused { code, .. } => write!(f, "the app-server refused (code {code})"),
             ClientError::Shape(s) => write!(
@@ -467,11 +474,12 @@ impl CodexClient {
     /// Hold `text` for the served thread `key` with `thread/queue/add`, through the
     /// experimental shim, with `client_user_message_id`.
     ///
-    /// For G7 (#68) only: it frames nothing and authorizes nothing. G7 frames the text with
-    /// its provenance header (`spec/security.md` §12), and maps the result to a hand-off
-    /// outcome under `spec/bindings/mcp.md` §8.2.1: `Ok` is `completed`; a
-    /// [`ClientError::Refused`] is `handoff-failed`; [`ClientError::NoAnswer`] is
-    /// `indeterminate`. No other method is ever tried after a refusal ([SEC-AUZ-027]).
+    /// It frames nothing and authorizes nothing: [`crate::adapter`]'s `deliver` (G7, #68) builds
+    /// the C6 §5.0 frame ([`crate::frame`]) and maps the result to a hand-off outcome under
+    /// `spec/bindings/mcp.md` §8.2.1: `Ok` is `completed`; a [`ClientError::Refused`] is
+    /// `handoff-failed`; [`ClientError::NoAnswer`], [`ClientError::LostAnswer`] and a stream
+    /// error are `indeterminate`. No other method is ever tried after a refusal
+    /// ([SEC-AUZ-027]).
     ///
     /// # Errors
     ///
@@ -593,7 +601,7 @@ impl CodexClient {
     }
 
     /// Stop: no event is passed on after this returns, every waiting call fails with
-    /// [`ClientError::Closed`], and a WebSocket close is sent. The reader thread ends when
+    /// [`ClientError::LostAnswer`], and a WebSocket close is sent. The reader thread ends when
     /// the stream does; `cli/`, which opened the stream, closes it.
     pub fn shutdown(&self) {
         self.inner.down.store(true, Ordering::SeqCst);
@@ -646,7 +654,8 @@ impl Inner {
                 lock(&self.stats).consecutive_no_answers += 1;
                 Err(ClientError::NoAnswer)
             }
-            Err(RecvTimeoutError::Disconnected) => Err(ClientError::Closed),
+            // The frame was sent: the answer was lost, not the request.
+            Err(RecvTimeoutError::Disconnected) => Err(ClientError::LostAnswer),
         }
     }
 

@@ -363,7 +363,12 @@ impl Inner {
             let st = lock(&self.state);
             let att = st.attachments.get(a);
             let record = match &call {
-                ToolCall::Reply { in_reply_to, .. } => att.and_then(|x| {
+                // A reply that names no `in_reply_to` has no record to look up: it names its
+                // `to` ([`oac_mcp_tools::parse`]) and goes uncorrelated.
+                ToolCall::Reply {
+                    in_reply_to: Some(in_reply_to),
+                    ..
+                } => att.and_then(|x| {
                     if x.reply_records_evicted {
                         return None;
                     }

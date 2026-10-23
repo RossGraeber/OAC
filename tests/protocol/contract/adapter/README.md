@@ -41,7 +41,7 @@ The dependency direction is the documented one (07 §3, `scripts/check-crate-dep
 this crate's `Cargo.toml`): an adapter takes this suite as a dev-dependency, and the suite
 never depends on an adapter. So the harness a real adapter runs under lives in that adapter,
 at exactly one fixed path: **`adapters/<name>/tests/contract.rs`**. It may use what this
-crate gives it (`claude::ClaudeHarness`, `codex::CodexFake`).
+crate gives it (`claude::ClaudeHarness`, `codex::CodexHarness`, `codex::CodexFake`).
 
 The suite's own checks bound what a harness can do. What they cannot see is a harness that
 fabricates or filters what the fake observed. That residual is covered by reviewing the one
@@ -236,3 +236,30 @@ The real Claude adapter was separately mutated to release its call guard and del
 cancellation outcome by 40 ms: both release profiles fail IFC-ADP-109 and IFC-ADP-070.
 No other contract suite or Claude contract harness was changed. The suite baseline above
 is the dedicated suite revision commit; implementation evidence uses its passing descendant.
+
+## G8 slice S4: the Codex harness (#69, #403; lead-approved 2026-10-21, approval 4)
+
+`codex::CodexHarness` (new) gives the Codex adapter the binding's two connections: the
+carrier, a socket to the fake app-server that the daemon designates (`Designate`) before the
+adapter is given it, and one shim connection per session, over which the harness speaks MCP
+as Codex does. A session is paired the way Codex's is: a call the core side refuses with a
+pairing value (`Scripted::RefusePairing`), reported to the carrier as an `mcpToolCall` item
+(`oacFake/mcp/start`, `oacFake/mcp/complete`), and the harness waits for the adapter's reveal
+(a `native-signal` on the carrier naming the thread, carrying the value). The suite runs
+**unchanged** from `adapters/codex/tests/contract.rs`. Every edit to existing suite files,
+none of which weakens a check:
+
+- `src/codex.rs`: `PROFILE.makes_requests` is `true` (was `false`). Requests are now
+  mandatory on the Codex binding, so `request` returning a `Gap` fails IFC-ADP-003,
+  IFC-ADP-031 and IFC-ADP-060 for it, as for the channel binding. `CodexHarness`,
+  `Designate`, `ADAPTER_CLIENT` and the harness types are added.
+- `src/lib.rs`: `Scripted::RefusePairing` (a refusal `unauthorized` with a new pairing value
+  of the form of MCPB-ATT-005, kept in `CoreSide::pairing_values`), `CoreSide::shared` (the
+  core side as an `Arc`, for a step that is not given it), and the module documentation. No
+  check changed.
+- `tests/stand_in.rs`: the queue stand-in's harness, which returned `Gap::Unsupported` for a
+  request, now passes the request to the stand-in's sink and renders the result as the
+  binding does (it must, since requests are mandatory); its run reports IFC-ADP-003,
+  IFC-ADP-031 and IFC-ADP-060 as passes, not not-applicable; the planted `RequestsAsGap` over
+  the queue stand-in is now caught as those three rows (it was asserted to pass).
+
