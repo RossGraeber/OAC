@@ -367,8 +367,8 @@ mod tests {
         );
     }
 
-    /// The frame is the one G5 arm F passed: `tools/herdr/gate-servers/g5-codex.mjs`
-    /// `buildQuotedFrame` writes the same lines for the same values.
+    /// The frame is the one G5 arm F passed (`docs/planning/gates/G5-result.md`, C13 §11):
+    /// the same lines for the same values. Empty lines and a single empty line are framed.
     #[test]
     fn the_empty_body_and_the_empty_line_are_framed() {
         let f = build(&header(), "a\n\nb", D);

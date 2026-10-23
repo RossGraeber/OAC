@@ -161,7 +161,7 @@ pub fn tools() -> Vec<Tool> {
             "Reply to an OAC message you received. Name it by its oac_message_id in in_reply_to. Without in_reply_to, name the session in to: the reply is then sent uncorrelated, not linked to any message.",
             // No top-level `anyOf`/`oneOf`/`allOf` for "`in_reply_to` or `to`": both harnesses
             // convert an MCP `inputSchema` into their model's tool format (Claude's
-            // `input_schema`, OpenAI-style function schemas for Codex), which commonly reject
+            // `input_schema`, the other harness's function-schema format), which commonly reject
             // a top-level combinator and could drop the whole tool without a sign. The rule
             // is stated in the descriptions and enforced by `parse` (`invalid-request`).
             schema(
