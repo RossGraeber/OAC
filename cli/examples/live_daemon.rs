@@ -25,6 +25,9 @@
 //! under `<dir>/OAC/logs/ns-<namespace>/` with `--state-dir`, else in the user's state
 //! directory. A start that fails says why on standard error and exits 1.
 //!
+//! With a Codex control socket present, it also reports the server it authenticated as the Codex
+//! carrier (a `carrier_server` event: process id and process chain, id and image name only).
+//!
 //! It stops on Ctrl-C, when a line `stop` is read on its standard input, or when `oac stop`
 //! asks over the control endpoint (G10, #71; a `stop_requested` event), and writes a
 //! `stopped` event after the clean shutdown. The end of its standard input (a closed or empty
@@ -41,7 +44,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use oac_adapter_claude::ClaudeAdapter;
 use oac_adapter_codex::CodexAdapter;
-use oac_cli::codex::{CarrierWiring, control_socket_opener, default_control_socket_path};
+use oac_cli::codex::{
+    CarrierOpener, CarrierWiring, OpenedCarrier, blocking_stream, default_control_socket_path,
+    open_blocking,
+};
 use oac_cli::daemon::{Daemon, Diagnostic, LogSink, Parts};
 use oac_cli::ipc::Scope;
 use oac_cli::logfile::{LogFile, MAX_LOG_BYTES};
@@ -52,6 +58,7 @@ use oac_core::keys::MemoryKeyStore;
 use oac_core::pairing::MemoryPairingStore;
 use oac_core::pipeline::PipelineConfig;
 use oac_core::sealing::MemoryAgreementKeyStore;
+use oac_core::session_binding::PeerObservation;
 use oac_transport_memory::{MemoryConfiguration, MemoryNetwork, MemoryTransport};
 
 /// The JSON lines of a run: to the events file when one is given, and to standard output.
@@ -194,6 +201,42 @@ fn tap(events: Events) -> oac_cli::daemon::Tap {
     })
 }
 
+/// The opener of the real control socket, as `oac_cli::codex::control_socket_opener` makes it,
+/// that also reports the server it authenticated (a `carrier_server` event: the server's
+/// process id and its chain of processes, id and image name only). The G8 live leg compares
+/// that process with the nearest `codex` ancestor of each Codex shim (`11-risks.md` row 89).
+/// It reads what the product's opener reads (the socket's path and the connection) and
+/// nothing else under the Codex home.
+fn reporting_opener(path: PathBuf, events: Events) -> CarrierOpener {
+    Arc::new(move |runtime| {
+        let socket = open_blocking(&path)?;
+        let table = peer::SystemTable::new().ok();
+        let (pid, chain) = match (&table, socket.process) {
+            (Some(table), Some(p)) => (p.pid.to_string(), chain_json(table, p.pid)),
+            (_, Some(p)) => (p.pid.to_string(), "[]".to_owned()),
+            _ => ("null".to_owned(), "[]".to_owned()),
+        };
+        let observation = match (&table, socket.process.as_ref()) {
+            (Some(table), Some(p)) => peer::observe_process(table, oac_cli::codex::LABEL, p),
+            _ => PeerObservation {
+                harness_label: Token::parse(oac_cli::codex::LABEL),
+                ..PeerObservation::none()
+            },
+        };
+        events.emit(
+            "carrier_server",
+            &format!(
+                "\"pid\":{pid},\"chain\":{chain},\"pairing_key\":{}",
+                observation.pairing_key.is_some()
+            ),
+        );
+        Ok(OpenedCarrier {
+            stream: blocking_stream(runtime, socket.reader, socket.writer, socket.close),
+            observation,
+        })
+    })
+}
+
 struct Arguments {
     namespace: String,
     events: Option<PathBuf>,
@@ -277,7 +320,7 @@ fn main() {
     let codex_adapter = Arc::new(CodexAdapter::new());
     let codex = default_control_socket_path().map(|path| CarrierWiring {
         adapter: codex_adapter.clone(),
-        opener: control_socket_opener(path),
+        opener: reporting_opener(path, events.clone()),
     });
     let parts = Parts {
         scope,

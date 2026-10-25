@@ -14,6 +14,10 @@
 //                                             connected, recording the item/started and
 //                                             item/completed frames the daemon pushes, until
 //                                             it is killed or the connection closes
+//   node g8-capture.mjs midwatch <threadId>   the same as watch, recorded under its own mode name:
+//                                             G8 slice S6 starts it while a tool call of the
+//                                             thread is in flight, to see whether a thread/resume
+//                                             made mid-turn still gets that call's item/completed
 //
 // `watch` is a passive subscriber. It never calls turn/start, thread/queue/add, turn/steer or
 // any method that changes a thread; the thread/resume request carries no model, cwd, approval,
@@ -163,8 +167,8 @@ function connect(log) {
 
 async function main() {
   const [, , mode, threadId] = process.argv;
-  if (!['list', 'watch'].includes(mode) || (mode === 'watch' && !threadId)) {
-    console.error('usage: g8-capture.mjs list | watch <threadId>');
+  if (!['list', 'watch', 'midwatch'].includes(mode) || (mode !== 'list' && !threadId)) {
+    console.error('usage: g8-capture.mjs list | watch <threadId> | midwatch <threadId>');
     process.exit(2);
   }
   const log = (direction, payload) => appendFileSync(TRANSCRIPT, `${JSON.stringify({ t: new Date().toISOString(), mode, direction, payload })}\n`);
