@@ -152,6 +152,25 @@ fn chain_json(table: &dyn ProcessTable, pid: u32) -> String {
     format!("[{}]", parts.join(","))
 }
 
+/// The processes from `pid` up to the root as JSON with the process id and the image name only
+/// (no start time, no resolved path): what the `carrier_server` event carries.
+fn image_chain_json(table: &dyn ProcessTable, pid: u32) -> String {
+    let mut parts = Vec::new();
+    let mut next = Some(pid);
+    for _ in 0..peer::MAX_ANCESTRY {
+        let Some(info) = next.and_then(|p| table.lookup(p)) else {
+            break;
+        };
+        parts.push(format!(
+            "{{\"pid\":{},\"image\":{}}}",
+            info.id.pid,
+            json_string(&info.image)
+        ));
+        next = info.parent.filter(|p| *p != 0 && *p != info.id.pid);
+    }
+    format!("[{}]", parts.join(","))
+}
+
 fn process_json(id: Option<ProcessId>) -> String {
     id.map_or("null".to_owned(), |p| {
         format!("{{\"pid\":{},\"started\":{}}}", p.pid, p.started)
@@ -212,7 +231,7 @@ fn reporting_opener(path: PathBuf, events: Events) -> CarrierOpener {
         let socket = open_blocking(&path)?;
         let table = peer::SystemTable::new().ok();
         let (pid, chain) = match (&table, socket.process) {
-            (Some(table), Some(p)) => (p.pid.to_string(), chain_json(table, p.pid)),
+            (Some(table), Some(p)) => (p.pid.to_string(), image_chain_json(table, p.pid)),
             (_, Some(p)) => (p.pid.to_string(), "[]".to_owned()),
             _ => ("null".to_owned(), "[]".to_owned()),
         };

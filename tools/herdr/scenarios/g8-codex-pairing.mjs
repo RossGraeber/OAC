@@ -9,10 +9,14 @@
 //     in-memory key, the in-memory transport, a test namespace, the Claude and Codex adapters; the
 //     Codex carrier is the operator's real control socket, opened read-only in the product's way),
 //     in a herdr pane;
-//   - a real Claude Code in print mode, as in the G9 leg A recipe (g9-claude-pairing), in a herdr
-//     pane, with the OAC shim and the hook handler, started by the driver once Codex is paired;
-//   - the operator's own Codex TUI, in the project directory: the driver launches no Codex, types
-//     nothing into it, accepts no dialog and never answers a server request. The operator
+//   - a real Claude Code, interactive (first-party docs: `-p` ignores the development-channels
+//     flag), started by the driver in a herdr pane as g1-claude-wake does, with the OAC shim and the
+//     hook handler, once Codex is paired. Its folder-trust, development-channels and MCP-approval
+//     screens are recorded verbatim before any keystroke and then answered by the driver under the
+//     #196 precedent, by lib/g1.mjs's kind table only (`--param accept=human` leaves them to the
+//     operator). The driver types the one prompt, detects its CLAUDE-DONE line and exits Claude;
+//   - the operator's own Codex TUI, in the project directory: the driver has no Codex pane, launches
+//     no Codex, types nothing into it, accepts no Codex dialog and never answers a server request. The operator
 //     registers OAC as an MCP server named oac-g8live with the Codex CLI (OAC_SCOPE=<ns> in its
 //     environment; command: the absolute path of oac with `mcp-shim --harness codex`) before the run
 //     and removes it afterwards, accepts every dialog
@@ -64,8 +68,8 @@ import { NotRunError, DriverError } from '../lib/herdr.mjs';
 import { parseCodexVersions, pinsReadWarning, parseCodexCliVersion, parseCodexDaemonVersion, codexVersionWarning, CODEX_PIN_ROW, CODEX_DAEMON_VERSION_FIELDS } from '../lib/pins.mjs';
 import { runBounded, spawnLongRunning, killTree, within, processTable } from '../lib/proc.mjs';
 import { CODEX_DAEMON_SCRATCH_HOLDER } from '../lib/scratch.mjs';
-import { committedFile } from '../lib/g1.mjs';
-import { stageGateFiles } from '../lib/gate-common.mjs';
+import { committedFile, classifyScreen, driverMayAcceptExpecting, DIALOG_KINDS } from '../lib/g1.mjs';
+import { stageGateFiles, makeAgent } from '../lib/gate-common.mjs';
 import { regexLiteral } from '../lib/pane-shell.mjs';
 import { PINS_PATH, parseG2Transcript, g2Facts, identifyTuiThread, sanitizeTranscript } from '../lib/g2.mjs';
 import { mcpItems, otherThreadIds, processTreeSnapshot } from './g8-codex-tools.mjs';
@@ -77,6 +81,7 @@ export const LIVE_GATE = 'G8 S6 live leg';
 export const LIVE_NON_VERDICT = '#69/#433 G8 slice S6: a live leg of the Codex pairing and hand-off; compared against no other run, not a gate run, never changes a gate verdict';
 export const LIVE_CLIENT_FILES = Object.freeze(['g8-capture.mjs']);
 export const DEFAULT_SERVER_NAME = 'oac-g8live';
+export const CLAUDE_AGENT = 'g8liveclaude';
 export const DEFAULT_MARKER = 'G8 live leg marker: reply with the single word ready.';
 // The text of the three Claude-to-Codex hand-offs, by test number. Each says how the reply is to be made;
 // the third gives no instruction, to see whether Codex names the message by itself (risk row 17).
@@ -98,6 +103,7 @@ export function liveNames(date, version) {
     transcript: `transcript-g8live-${tail}-herdr.jsonl`,
     events: `events-g8live-${tail}.jsonl`,
     claude: `claude-g8live-${tail}.txt`,
+    screens: `pane-claude-g8live-${tail}-herdr.txt`,
     proc: `transcript-g8live-proc-${tail}.jsonl`,
   };
 }
@@ -119,10 +125,10 @@ export const handoffText = (nonce, n) => {
   return `G8LIVE ${nonce} T3 Please answer this message.`;
 };
 
-// The one-line prompt of the Claude Code print-mode session. No quote, backtick, dollar sign or line
+// The one-line prompt of the interactive Claude Code session. No quote, backtick, dollar sign or line
 // break, so that it survives a pane shell's quoting unchanged. Claude's own report lines carry the
 // nonce, so a line the shell echoes is not mistaken for one.
-export function claudePrompt({ nonce, codexSessionId, maxFirstSleeps = 20, maxLaterSleeps = 30 }) {
+export function claudePrompt({ nonce, codexSessionId, maxFirstSleeps = 60, maxLaterSleeps = 30 }) {
   return [
     `You are the Claude side of an OAC live test, nonce ${nonce}. Do these steps in order.`,
     `Step 1: call the whoami tool of the oac MCP server and print one line: CLAUDE-SID-${nonce}: followed by the session_id it returned.`,
@@ -219,6 +225,12 @@ export function pairingSequence(calls) {
     deviceFingerprint: paired ? DEVICE_IN_TEXT.exec(paired.resultText)?.[1] ?? null : null,
     refusedThenPaired: !!(refusal && paired),
   };
+}
+
+// A refused call that carries no pairing value (plain `unauthorized`): the daemon issued none. -> the call, or null.
+export function refusedWithoutValue(calls) {
+  const c = calls.find((x) => x.completedLine !== null && /unauthorized/i.test(x.resultText ?? '') && !new RegExp(PAIRING_VALUE.source).test(x.resultText ?? ''));
+  return c ? { itemId: c.itemId, tool: c.tool, status: c.status, completedLine: c.completedLine } : null;
 }
 
 // --- the hand-off frame (C6 5.0) --------------------------------------------------------------------
@@ -325,7 +337,7 @@ export function echoTrials(frames, replyCalls, nonce) {
 // A: the watch connection that was subscribed before the call; B: the `midwatch` connection started once
 // the call's item/started had shown. `item` is A's call; `bEntries` are B's transcript entries.
 // -> { verdict: 'received' | 'not-received' | 'not-exercised', why, ... }
-export function midTurnVerdict({ item, bEntries }) {
+export function midTurnVerdict({ item, bEntries, bEndedAt = null }) {
   if (!item || !item.startedT) return { verdict: 'not-exercised', why: 'no OAC tool call was seen to start on the watch connection' };
   const resumed = (() => {
     // the answer to B's thread/resume: the first daemon->client frame with a result after its request
@@ -337,7 +349,10 @@ export function midTurnVerdict({ item, bEntries }) {
   if (resumed.payload?.error) return { verdict: 'not-exercised', why: 'the midwatch thread/resume was answered with an error' };
   const tR = Date.parse(resumed.t);
   const tS = Date.parse(item.startedT);
-  const tC = item.completedT ? Date.parse(item.completedT) : Infinity;
+  if (!item.completedT) return { verdict: 'not-exercised', why: 'the call had not completed on the watch connection, so the resume cannot be placed inside it', callStartedT: item.startedT, resumeAnsweredT: resumed.t };
+  const tC = Date.parse(item.completedT);
+  // The midwatch process must have been alive when the call completed, or a missing item/completed says nothing.
+  if (bEndedAt && Date.parse(bEndedAt) < tC) return { verdict: 'not-exercised', why: 'the midwatch connection had ended before the call completed', callStartedT: item.startedT, callCompletedT: item.completedT, midwatchEndedAt: bEndedAt };
   const got = bEntries.filter((e) => e.mode === 'midwatch' && e.direction === 'daemon->client' && e.payload?.method === 'item/completed' && e.payload.params?.item?.id === item.itemId);
   const gotStarted = bEntries.filter((e) => e.mode === 'midwatch' && e.direction === 'daemon->client' && e.payload?.method === 'item/started' && e.payload.params?.item?.id === item.itemId);
   const mid = tR > tS && tR < tC;
@@ -387,6 +402,21 @@ export function claudeStrings(paneText) {
   return out;
 }
 
+// The line CLAUDE-DONE-<nonce> on a line of its own (a TUI bullet may precede it), and after the session id
+// line: the typed prompt, echoed by the TUI, names it too but comes before the answer.
+function doneAfterId(strings, n, sid) {
+  if (!sid) return false;
+  const re = new RegExp(`^[\\s\\u2022\\u25cf\\u23fa*>-]*CLAUDE-DONE-${n}\\.?\\s*$`, 'm');
+  const idAt = new RegExp(`CLAUDE-SID-${n}: ${sid[1]}`);
+  for (const s of strings) {
+    const a = idAt.exec(s);
+    if (!a) continue;
+    const m = re.exec(s.slice(a.index));
+    if (m) return true;
+  }
+  return false;
+}
+
 // -> { sessionId, received: [{ sender, messageId, text }], sent: [{ n, messageId }], done, channelTags: [[attr names]] }
 export function claudeEvidence(paneText, nonce) {
   const strings = claudeStrings(paneText);
@@ -419,7 +449,7 @@ export function claudeEvidence(paneText, nonce) {
     const attrs = [...m[1].matchAll(/([A-Za-z_][\w-]*)=\\?"/g)].map((a) => a[1]);
     if (attrs.length && !tags.some((t) => t.join() === attrs.join())) tags.push(attrs);
   }
-  return { sessionId: sid ? sid[1] : null, received, sent, done: !!first(new RegExp(`^\\s*CLAUDE-DONE-${n}\\.?\\s*$`, 'm')), channelTags: tags };
+  return { sessionId: sid ? sid[1] : null, received, sent, done: doneAfterId(strings, n, sid), channelTags: tags };
 }
 
 // --- the claims ------------------------------------------------------------------------------------------------
@@ -427,7 +457,7 @@ export function claudeEvidence(paneText, nonce) {
 export const CLAIM_TEXT = Object.freeze({
   1: 'The Codex refusal, then the pairing, then whoami returning a session id',
   2: 'A Codex send reaching the Claude session',
-  3: 'A Claude-to-Codex hand-off arriving in the Codex thread through thread/queue/add, with the provenance header outside the delimited body (C6)',
+  3: 'A Claude-to-Codex hand-off arriving in the Codex thread, with the provenance header outside the delimited body (C6)',
   4: 'A Codex reply with and without in_reply_to, reported correlated and uncorrelated respectively',
   5: 'Open question A: a thread/resume made mid-turn still receives the in-flight call\'s item/completed',
   6: 'Open question B (risk row 89): the shim\'s nearest codex ancestor is the control-socket server process',
@@ -440,7 +470,7 @@ const open = (n, why, evidence = []) => ({ n, claim: CLAIM_TEXT[n], status: 'ans
 
 // All seven, from the run's facts. Pure. A claim is `shown` only with the evidence listed; an open question
 // is `shown` when answered either way ("answered-negative" is an answer: the thing asked was found not to hold).
-export function evaluateClaims({ pairing, codexSend, claude, frames, trials, mid, carrier, nonce }) {
+export function evaluateClaims({ pairing, codexSend, claude, frames, trials, mid, carrier, nonce, noValueRefusal = null }) {
   const out = [];
   // 1
   if (pairing?.refusedThenPaired && pairing.codexSessionId) out.push(shown(1, [`refusal item (status ${pairing.refusal.status}) carried a pairing value; later whoami item (status ${pairing.paired.status}) returned a session_id`]));
@@ -467,7 +497,9 @@ export function evaluateClaims({ pairing, codexSend, claude, frames, trials, mid
   else if (mid?.verdict === 'not-received') out.push(open(5, mid.why, [`resume answered ${mid.resumeMsAfterStart} ms after the call started and ${mid.resumeMsBeforeCompleted} ms before it completed`]));
   else out.push(notShown(5, mid?.why ?? 'no midwatch result', []));
   // 6
-  if (carrier && carrier.sameProcess !== null && carrier.carrierServerPid !== null) {
+  if (noValueRefusal) {
+    out.push(open(6, 'the call was refused with no pairing value: the daemon issued none, so no operating-system key paired this shim with the carrier', [`refused item status ${noValueRefusal.status}, no pairing value in its text`, carrier ? `nearest codex ancestor pid ${carrier.nearestCodexAncestorPid}, carrier server pid ${carrier.carrierServerPid}, same process ${carrier.sameProcess}` : 'no process tree was taken']));
+  } else if (carrier && carrier.sameProcess !== null && carrier.carrierServerPid !== null) {
     const witness = `daemon: nearest harness ancestor pid ${carrier.daemonHarnessPid}, paired ${carrier.daemonPaired}`;
     if (carrier.sameProcess) out.push(shown(6, [`nearest codex ancestor pid ${carrier.nearestCodexAncestorPid} equals the carrier server pid ${carrier.carrierServerPid}`, witness]));
     else out.push(open(6, `the nearest codex ancestor (pid ${carrier.nearestCodexAncestorPid}) is not the carrier server (pid ${carrier.carrierServerPid})`, [witness]));
@@ -483,7 +515,7 @@ export function evaluateClaims({ pairing, codexSend, claude, frames, trials, mid
 
 export default {
   name: 'g8-codex-pairing',
-  description: 'G8 S6 (#69, #433): a real Codex TUI and a real Claude Code (print mode) against the example live daemon: pairing, hand-offs both ways, correlation, the mid-turn resume question and the process ancestry. Not a gate run; not verdict-bearing.',
+  description: 'G8 S6 (#69, #433): a real Codex TUI and a real Claude Code (interactive) against the example live daemon: pairing, hand-offs both ways, correlation, the mid-turn resume question and the process ancestry. Not a gate run; not verdict-bearing.',
   harnesses: ['codex', 'claude'],
   defaults: {
     launch: ['codex'], // recorded only: the operator starts Codex; the driver launches nothing
@@ -511,6 +543,13 @@ export default {
       clientTimeoutMs: '60000',
       listPollMs: '3000',
       claudeLines: '3000',
+      accept: 'driver',
+      startupTimeoutMs: '180000',
+      humanAcceptTimeoutMs: '300000',
+      pollMs: '1000',
+      settleMs: '3000',
+      turnTimeoutMs: '300000',
+      maxDialogs: '12',
     },
   },
 
@@ -546,6 +585,9 @@ export default {
       watch: null,
       midwatch: null,
       stages: [],
+      dialogs: [],
+      herdrStates: [],
+      claudeStart: null,
       pairing: null,
       codexSend: null,
       claude: null,
@@ -570,6 +612,12 @@ export default {
     let daemonStopped = false;
     let eventsPath = null;
     let claudeText = '';
+    let claudeEv = null;
+    let claudePaneId = null;
+    let midStartedFor = null;
+    let midEndedAt = null;
+    let noValueRefusal = null;
+    let analyzed = false;
     let codexSessionId = null;
     let claudeSessionId = null;
     const secrets = { threadIds: new Set(), sessionIds: new Set(), fingerprints: new Set(), pairing: new Set() };
@@ -611,19 +659,72 @@ export default {
       return { linesBefore };
     };
 
+    const accept = params.accept;
+    if (!['human', 'driver'].includes(accept)) throw new DriverError('--param accept must be human or driver');
+    // The Claude session's agent: its dialogs are recorded and answered by the kind table of lib/g1.mjs.
+    // Only the Claude pane has one; there is no Codex pane.
+    const claude = makeAgent({ ctx, g, name: CLAUDE_AGENT, label: 'claude', classify: (t) => classifyScreen(t), dialogKinds: DIALOG_KINDS, driverMayAccept: driverMayAcceptExpecting(() => ['oac']), accept, num, stop });
+
     // Poll `predicate` until it returns a truthy value; `onTimeout` decides (default: stop the run, NOT RUN).
-    const waitFor = async (label, predicate, timeoutMs, { pollMs = 500, onTimeout = null } = {}) => {
+    // With `agent`, the agent's screen is read every pollMs and any dialog on it is handled (recorded,
+    // then answered by the kind table) while waiting.
+    const waitFor = async (label, predicate, timeoutMs, { pollMs = 500, onTimeout = null, agent = null } = {}) => {
       const deadline = deadlineFor(timeoutMs);
+      let nextRead = 0;
       for (;;) {
         aborted();
         const v = await predicate();
         if (v) return v;
+        if (agent && Date.now() >= nextRead) {
+          const r = await agent.read(`wait:${label.slice(0, 40)}`, { keep: 'on-change' });
+          if (r.screen.dialog) await agent.handleDialog(r, label);
+          nextRead = Date.now() + num('pollMs');
+        }
         if (ctx.remainingMs() <= 0 || Date.now() >= deadline) {
           if (onTimeout) return onTimeout();
           stop(`timed out after ${timeoutMs} ms waiting for: ${label}`);
         }
         await sleep(pollMs);
       }
+    };
+
+    // The analysis and the claims, on whatever data exists (run once, from the finally block).
+    const analyze = () => {
+      if (analyzed) return;
+      analyzed = true;
+      const all = entries();
+      const cs = calls();
+      const seq = pairingSequence(cs);
+      if (!g.pairing) g.pairing = { ...seq, codexSessionId: seq.codexSessionId ? '<CODEX_SESSION_ID>' : null, deviceFingerprint: seq.deviceFingerprint ? '<DEVICE_FINGERPRINT>' : null };
+      if (seq.codexSessionId) secrets.sessionIds.add(seq.codexSessionId);
+      if (seq.deviceFingerprint) secrets.fingerprints.add(seq.deviceFingerprint);
+      const fr = handoffFrames(all).filter((f) => testNumberOf(f.text, nonce) !== null);
+      const trials = echoTrials(fr, cs, nonce);
+      for (const f of fr) {
+        if (f.frame.header.oac_sender) secrets.sessionIds.add(f.frame.header.oac_sender);
+        if (f.frame.header.oac_session) secrets.sessionIds.add(f.frame.header.oac_session);
+        if (f.frame.header.oac_device) secrets.fingerprints.add(f.frame.header.oac_device);
+      }
+      g.frames = fr.map((f) => ({ line: f.line, t: f.t, test: testNumberOf(f.text, nonce), messageId: f.messageId, frameOk: f.frame.ok, problems: f.frame.problems, headerKeysInOrder: f.frame.headerKeysInOrder, bodyLineCount: f.frame.bodyLineCount, bodyAllQuoted: f.frame.bodyAllQuoted, endMarker: f.frame.endMarker, provenanceOutsideBody: f.frame.provenanceOutsideBody }));
+      g.trials = trials;
+      const midItem = cs.find((c) => c.itemId === midStartedFor) ?? null;
+      g.midTurn = midTurnVerdict({ item: midItem, bEntries: all.filter((e) => e.mode === 'midwatch'), bEndedAt: midEndedAt });
+      const ev = claudeText ? claudeEvidence(claudeText, nonce) : claudeEv;
+      g.claude = ev && { sessionId: '<CLAUDE_SESSION_ID>', received: ev.received.length, sentIds: ev.sent.length, done: ev.done, channelTags: ev.channelTags };
+      const methods = {};
+      for (const e of all) if (e.mode === 'watch' && e.direction === 'daemon->client' && e.payload?.method) methods[e.payload.method] = (methods[e.payload.method] ?? 0) + 1;
+      g.methodsSeen = methods;
+      const dev = daemonEvents();
+      g.daemonSummary = {
+        accepted: dev.filter((e) => e.event === 'accepted').map((e) => ({ label: e.label, paired: e.paired, peer: e.peer?.pid ?? null, harness: e.harness?.pid ?? null })),
+        stopped: dev.some((e) => e.event === 'stopped'),
+        bindingLines: dev.filter((e) => e.event === 'log' && /binding/.test(e.line ?? '')).length,
+        deliverDecisions: dev.filter((e) => e.event === 'log' && /decision/.test(e.line ?? '') && /deliver/i.test(e.line ?? '')).length,
+      };
+      const sc = cs.find((c) => c.tool === 'send' && c.completedLine !== null) ?? null;
+      g.codexSend = sc && { status: sc.status, completedLine: sc.completedLine, resultState: /accepted-by-adapter/.test(sc.resultText ?? '') ? 'accepted-by-adapter' : 'other' };
+      g.claims = evaluateClaims({ pairing: seq, codexSend: sc, claude: ev, frames: fr, trials, mid: g.midTurn, carrier: g.carrier, nonce, noValueRefusal });
+      for (const c of g.claims) if (c.status === 'not-shown') ctx.finding(`claim ${c.n} not shown: ${c.why}`);
     };
 
     const killClients = async () => {
@@ -747,13 +848,15 @@ export default {
         g.carrier.carrierServerIsListedCodex = snap.available && carrier?.pid != null ? snap.codexProcesses.some((c) => c.pid === carrier.pid) : null;
         g.carrier.carrierServerPairingKey = carrier?.pairing_key ?? null;
       };
-      let midStartedFor = null;
       const startMidwatch = (call) => {
         if (midProc || midStartedFor) return;
         midStartedFor = call.itemId;
         g.midwatch = { startedAt: new Date().toISOString(), linesBefore: entries().at(-1)?.line ?? 0, afterItem: '<ITEM_ID>', callStartedLine: call.startedLine, callStartedT: call.startedT };
         midProc = spawnLongRunning(process.execPath, [join(clientDir, 'g8-capture.mjs'), 'midwatch', threadId], { env: process.env, cwd: clientDir });
         abortSignal?.addEventListener('abort', () => killTree(midProc?.child.pid, 'SIGTERM'), { once: true });
+        midProc.exited.then(() => {
+          midEndedAt = new Date().toISOString();
+        });
       };
       const pairedSeq = await waitFor('the refused whoami, then a whoami that returns a session id', () => {
         takeTree();
@@ -761,8 +864,19 @@ export default {
         const firstOac = cs.find((c) => c.startedLine !== null);
         if (firstOac) startMidwatch(firstOac);
         const seq = pairingSequence(cs);
-        return seq.refusedThenPaired ? seq : exited(watchProc) ? 'exited' : null;
+        if (seq.refusedThenPaired) return seq;
+        // A refusal with no pairing value is a definite answer, not a reason to wait: the daemon issued
+        // none, so no key pairs this shim with the carrier (MCPB-ATT-022; 11-risks row 89).
+        const nv = seq.refusal ? null : refusedWithoutValue(cs);
+        if (nv) return { noValue: nv };
+        return exited(watchProc) ? 'exited' : null;
       }, num('pairTimeoutMs'), { pollMs: 300 });
+      if (pairedSeq.noValue) {
+        noValueRefusal = pairedSeq.noValue;
+        takeTree();
+        ctx.finding(`whoami was refused with no pairing value (item status ${noValueRefusal.status}): the daemon issued none, so no operating-system key pairs this Codex shim with the carrier (11-risks row 89: claim 6/B is answered no for this run); the run goes straight to the analysis`);
+        stop('the Codex whoami was refused with no pairing value (plain unauthorized); the pairing cannot proceed, so the later steps are not run');
+      }
       if (pairedSeq === 'exited') throw new DriverError(`the capture client's watch process ${exited(watchProc)} while waiting for the pairing`);
       g.pairing = pairedSeq;
       codexSessionId = pairedSeq.codexSessionId;
@@ -772,7 +886,12 @@ export default {
       takeTree();
       stage('paired');
 
-      // --- 5. Claude Code, print mode (the G9 leg A recipe) -----------------------------------------------------
+      // --- 5. Claude Code, interactive (the G1 recipe) ----------------------------------------------------------
+      // First-party docs: `-p` ignores --dangerously-load-development-channels, so the session is the
+      // interactive TUI. Its folder-trust, development-channels and MCP-approval screens are recorded
+      // verbatim BEFORE any keystroke (makeAgent's handleDialog keeps the read first), then answered by
+      // the driver under the #196 precedent, by the kind table of lib/g1.mjs only (--param accept=human
+      // leaves them to the operator).
       const mcpPath = join(work, 'mcp.json');
       const settingsPath = join(work, 'settings.json');
       const server = { command: params.oac, args: ['mcp-shim', '--harness', 'claude'] };
@@ -781,15 +900,11 @@ export default {
       writeFileSync(settingsPath, JSON.stringify({ hooks: { SessionStart: [{ hooks: [{ type: 'command', command: `"${slash(params.oac)}" hook` }] }] } }));
       const wsB = await herdr.workspaceCreate({ cwd: ctx.dir('claude-cwd'), label: 'oac-g8live-claude', env: { OAC_SCOPE: ns } });
       ctx.record('claudePane', wsB);
+      claudePaneId = wsB.paneId;
+      await herdr.paneProcessInfo(wsB.paneId);
       await ctx.probeEnv(wsB.paneId, { timeoutMs: num('daemonWaitMs') });
-      const doneMark = `G8LIVE-SHELL-DONE-${nonce}`;
-      const claude = ctx.quoteForPane([
+      const launchArgv = [
         'claude',
-        '-p',
-        claudePrompt({ nonce, codexSessionId }),
-        '--output-format',
-        'stream-json',
-        '--verbose',
         '--dangerously-load-development-channels',
         'server:oac',
         '--allowedTools',
@@ -799,41 +914,34 @@ export default {
         '--strict-mcp-config',
         '--settings',
         settingsPath,
-        '--max-turns',
-        '90',
-      ]);
-      await herdr.paneRun(wsB.paneId, `${claude}; echo ${doneMark}`);
+      ];
+      const started = await herdr.agentStart(CLAUDE_AGENT, { launchArgv, paneId: wsB.paneId, timeoutMs: num('startupTimeoutMs'), allowErrorCodes: ['agent_not_ready'] });
+      ctx.recordLaunchArgv(started.argv);
+      g.claudeStart = { seq: herdr.commands.at(-1).seq, errorCode: started.errorCode, herdrReportedArgv: started.argv };
+      await herdr.paneProcessInfo(wsB.paneId);
       stage('claude-started');
+      await claude.settle('startup', num('startupTimeoutMs'));
+      stage('claude-idle');
       const readClaude = async () => {
         claudeText = await herdr.paneRead(wsB.paneId, { source: 'recent-unwrapped', lines: num('claudeLines') });
-        return claudeEvidence(claudeText, nonce);
+        claudeEv = claudeEvidence(claudeText, nonce);
+        return claudeEv;
       };
-      const shellDone = () => new RegExp(`^\\s*${regexLiteral(doneMark)}\\s*$`, 'm').test(claudeText);
-      const ev0 = await waitFor('the Claude session printing its own session id (CLAUDE-SID line)', async () => {
-        const ev = await readClaude();
-        if (ev.sessionId) return ev;
-        return shellDone() ? 'ended' : null;
-      }, num('claudeStartMs'), { pollMs: 2000 });
-      if (ev0 === 'ended') {
-        ctx.finding('the Claude Code print-mode process ended before it printed a session id (does `--dangerously-load-development-channels` work with `-p`? is the oac shim reachable?); see the Claude capture');
-        stop('the Claude session ended without printing a session id');
-      }
-      claudeSessionId = ev0.sessionId;
+      await claude.prompt(claudePrompt({ nonce, codexSessionId }));
+      stage('claude-prompted');
+      const ev0 = await waitFor('the Claude session printing its own session id (CLAUDE-SID line)', async () => (await readClaude()).sessionId, num('claudeStartMs'), { pollMs: 2000, agent: claude });
+      claudeSessionId = ev0;
       secrets.sessionIds.add(claudeSessionId);
       stage('claude-bound');
 
       // --- 6. Codex send -> Claude (claim 2) ------------------------------------------------------------------
       say(`Claude is bound. In the Codex TUI, type this and press Enter (one send; copy any dialog's text first, then Allow this once):\n  ${sendPrompt(serverName, claudeSessionId, nonce)}`);
-      let claudeEv = ev0;
       const codexSendCall = () => calls().find((c) => c.tool === 'send' && c.completedLine !== null) ?? null;
       await waitFor('the Codex send call completing and the Claude session reporting the message', async () => {
-        claudeEv = await readClaude();
-        const s = codexSendCall();
+        await readClaude();
         const got = claudeEv.received.some((r) => r.line.includes(`G8LIVE ${nonce} FROM-CODEX`));
-        return s && got ? true : shellDone() && s ? true : null;
-      }, num('codexSendTimeoutMs'), { pollMs: 2000, onTimeout: () => { ctx.finding('the Codex send and the Claude report of it were not both seen in time; later steps depend on Claude having received it before it sends the hand-offs'); return false; } });
-      const sc = codexSendCall();
-      g.codexSend = sc && { status: sc.status, completedLine: sc.completedLine, resultState: /accepted-by-adapter/.test(sc.resultText ?? '') ? 'accepted-by-adapter' : 'other' };
+        return codexSendCall() && got ? true : null;
+      }, num('codexSendTimeoutMs'), { pollMs: 2000, agent: claude, onTimeout: () => { ctx.finding('the Codex send and the Claude report of it were not both seen in time; later steps depend on Claude having received it before it sends the hand-offs'); return false; } });
       stage('codex-send-done');
 
       // --- 7. Claude -> Codex hand-offs (claim 3), Codex replies (claims 4 and 7) --------------------------------------
@@ -842,31 +950,33 @@ export default {
       await waitFor('the three hand-offs arriving in the Codex thread', async () => {
         if (frames().length >= 3) return true;
         await readClaude();
-        return shellDone() ? true : null;
-      }, num('handoffTimeoutMs'), { pollMs: 1500, onTimeout: () => { ctx.finding(`only ${frames().length} of 3 hand-offs arrived in the Codex thread`); return false; } });
-      let lastCount = -1;
+        return claudeEv.done ? true : null;
+      }, num('handoffTimeoutMs'), { pollMs: 1500, agent: claude, onTimeout: () => { ctx.finding(`only ${frames().length} of 3 hand-offs arrived in the Codex thread`); return false; } });
+      let lastCount = '';
       let lastChange = Date.now();
       await waitFor('the Codex replies', async () => {
         await readClaude();
-        if (shellDone() && frames().length < 3) return true;
+        if (claudeEv.done && frames().length < 3) return true;
         const done = calls().filter((c) => c.tool === 'reply' && c.completedLine !== null).length;
         const n = `${done}/${frames().length}/${entries().length}`;
-        if (n !== String(lastCount)) {
+        if (n !== lastCount) {
           lastCount = n;
           lastChange = Date.now();
         }
         if (frames().length >= 3 && done >= 3 && Date.now() - lastChange >= num('quietMs')) return true;
         if (frames().length > 0 && Date.now() - lastChange >= num('replyIdleMs')) return true;
         return null;
-      }, num('replyTimeoutMs'), { pollMs: 1500, onTimeout: () => { ctx.finding('the wait for the Codex replies ran out; what arrived is kept'); return false; } });
+      }, num('replyTimeoutMs'), { pollMs: 1500, agent: claude, onTimeout: () => { ctx.finding('the wait for the Codex replies ran out; what arrived is kept'); return false; } });
       stage('handoffs-done');
 
-      // --- 8. Claude finishes, the daemon stops ------------------------------------------------------------------------
-      await waitFor('the Claude print-mode process ending', async () => {
-        claudeEv = await readClaude();
-        return shellDone() ? true : null;
-      }, num('claudeDoneMs'), { pollMs: 3000, onTimeout: () => { ctx.finding('the Claude print-mode process had not ended when the wait ran out; its pane report so far is kept'); return false; } });
-      claudeEv = await readClaude();
+      // --- 8. Claude finishes (its CLAUDE-DONE line), then exits; the daemon stops ------------------------------------------
+      await waitFor('the Claude session printing CLAUDE-DONE', async () => ((await readClaude()).done ? true : null), num('claudeDoneMs'), { pollMs: 3000, agent: claude, onTimeout: () => { ctx.finding('the Claude session had not printed its CLAUDE-DONE line when the wait ran out; its pane report so far is kept'); return false; } });
+      await readClaude();
+      try {
+        await claude.prompt('/exit');
+      } catch (err) {
+        ctx.finding(`the Claude session could not be asked to exit (${String(err.message).slice(0, 120)}); the driver's teardown ends its pane`);
+      }
       await herdr.paneProcessInfo(wsB.paneId);
       await herdr.paneRun(daemonPane, 'stop');
       try {
@@ -877,37 +987,7 @@ export default {
       }
       stage('daemon-stopped');
 
-      // --- 9. analysis ----------------------------------------------------------------------------------------------------
-      const all = entries();
-      const fr = handoffFrames(all).filter((f) => testNumberOf(f.text, nonce) !== null);
-      const allCalls = calls();
-      const trials = echoTrials(fr, allCalls, nonce);
-      for (const f of fr) {
-        if (f.frame.header.oac_sender) secrets.sessionIds.add(f.frame.header.oac_sender);
-        if (f.frame.header.oac_session) secrets.sessionIds.add(f.frame.header.oac_session);
-        if (f.frame.header.oac_device) secrets.fingerprints.add(f.frame.header.oac_device);
-      }
-      g.frames = fr.map((f) => ({ line: f.line, t: f.t, test: testNumberOf(f.text, nonce), messageId: f.messageId, frameOk: f.frame.ok, problems: f.frame.problems, headerKeysInOrder: f.frame.headerKeysInOrder, bodyLineCount: f.frame.bodyLineCount, bodyAllQuoted: f.frame.bodyAllQuoted, endMarker: f.frame.endMarker, provenanceOutsideBody: f.frame.provenanceOutsideBody }));
-      g.trials = trials;
-      const midItem = allCalls.find((c) => c.itemId === midStartedFor) ?? null;
-      g.midTurn = midTurnVerdict({ item: midItem, bEntries: all.filter((e) => e.mode === 'midwatch') });
-      g.claude = { sessionId: '<CLAUDE_SESSION_ID>', received: claudeEv.received.length, sentIds: claudeEv.sent.length, done: claudeEv.done, channelTags: claudeEv.channelTags, shellEnded: shellDone() };
-      const methods = {};
-      for (const e of all) if (e.mode === 'watch' && e.direction === 'daemon->client' && e.payload?.method) methods[e.payload.method] = (methods[e.payload.method] ?? 0) + 1;
-      g.methodsSeen = methods;
-      const devEvents = daemonEvents();
-      g.daemonSummary = {
-        accepted: devEvents.filter((e) => e.event === 'accepted').map((e) => ({ label: e.label, paired: e.paired, peer: e.peer?.pid ?? null, harness: e.harness?.pid ?? null })),
-        stopped: devEvents.some((e) => e.event === 'stopped'),
-        bindingLines: devEvents.filter((e) => e.event === 'log' && /binding/.test(e.line ?? '')).length,
-        deliverDecisions: devEvents.filter((e) => e.event === 'log' && /decision/.test(e.line ?? '') && /deliver/i.test(e.line ?? '')).length,
-      };
-      const claims = evaluateClaims({ pairing: pairedSeq, codexSend: sc, claude: claudeEv, frames: fr, trials, mid: g.midTurn, carrier: g.carrier, nonce });
-      g.claims = claims;
-      for (const c of claims) if (c.status === 'not-shown') ctx.finding(`claim ${c.n} not shown: ${c.why}`);
-      if (claims.some((c) => c.status !== 'shown')) g.someClaimsNotShown = true;
-
-      // --- 10. post-run versions -----------------------------------------------------------------------------------------
+      // --- 9. post-run versions -----------------------------------------------------------------------------------------
       const dv2 = await codexCli(['app-server', 'daemon', 'version'], 'daemon version (post-run)');
       g.daemon.versionAfter = { ...dv2.rec, parsed: parseCodexDaemonVersion(dv2.r.stdout) };
       const postOk = CODEX_DAEMON_VERSION_FIELDS.every((k) => g.daemon.versionAfter.parsed?.[k] === cli);
@@ -917,7 +997,22 @@ export default {
         g.captureNames = liveNames(g.date, null);
       }
     } finally {
+      // The analysis and the claims run on whatever data exists, on every path, a stop included.
+      try {
+        analyze();
+      } catch (err) {
+        ctx.finding(`the analysis of the captured data failed (${String(err.message).slice(0, 160)}); the raw captures are kept`);
+      }
       await killClients();
+      if (claudeText === '' && claudePaneId) {
+        try {
+          claudeText = await herdr.paneRead(claudePaneId, { source: 'recent-unwrapped', lines: num('claudeLines') });
+        } catch {
+          /* the pane is gone */
+        }
+      }
+      g.claudeScreens = claude.sections.length;
+      if (claude.sections.length) ctx.capture(g.captureNames?.screens ?? liveNames(g.date, null).screens, claude.sections.join('\n'));
       if (daemonPane && !daemonStopped) {
         try {
           await herdr.paneRun(daemonPane, 'stop');

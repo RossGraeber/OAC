@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 
 import scenario, {
   liveNames, claudePrompt, handoffText, pairingPrompt, sendPrompt, parseFrame, oacCalls, pairingSequence, handoffFrames, echoTrials, testNumberOf,
-  midTurnVerdict, carrierAncestry, claudeEvidence, claudeEvidenceText, evaluateClaims, sanitizeDaemonEvents, jsonLines, PAIRING_VALUE,
+  midTurnVerdict, refusedWithoutValue, carrierAncestry, claudeEvidence, claudeEvidenceText, evaluateClaims, sanitizeDaemonEvents, jsonLines, PAIRING_VALUE,
 } from '../scenarios/g8-codex-pairing.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -120,19 +120,38 @@ export function g8liveUnit(check) {
   const unknown = carrierAncestry({ shimChain: chain, carrierPid: null });
   check('g8live ancestry: the nearest codex ancestor (not the shim itself) is compared with the opener\'s server pid; the daemon\'s own harness pid is a second witness', same.nearestCodexAncestorPid === 400 && same.sameProcess === true && same.daemonHarnessIsCarrier === true && differ.sameProcess === false && differ.daemonHarnessIsCarrier === false && unknown.sameProcess === null && Object.keys(same.shimChain[0]).sort().join() === 'image,pid,ppid');
 
-  // --- the Claude session's report ----------------------------------------------------------------------------------------------------
-  const echoOfPrompt = `PS C:\\> claude -p "${claudePrompt({ nonce: NONCE, codexSessionId: CODEX_SID })}"`;
-  const stream = [
-    JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: `CLAUDE-SID-${NONCE}: ${CLAUDE_SID}` }] } }),
-    JSON.stringify({ type: 'user', message: { content: [{ type: 'text', text: '<channel source="oac" oac_sender="S" oac_message_id="M">G8LIVE x</channel>' }] } }),
-    JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: `RECEIVED-${NONCE}: oac_sender=S oac_message_id=M G8LIVE ${NONCE} FROM-CODEX\nSENT-${NONCE}-1: id1\nSENT-${NONCE}-2: id2\nCLAUDE-DONE-${NONCE}` }] } }),
+  // --- the Claude session's report (the interactive TUI's text) --------------------------------------------------------------------------------
+  const promptEcho = `> ${claudePrompt({ nonce: NONCE, codexSessionId: CODEX_SID })}`;
+  const tui = [
+    `● CLAUDE-SID-${NONCE}: ${CLAUDE_SID}`,
+    '  ← oac: <channel source="oac" oac_sender="S" oac_message_id="M">G8LIVE x</channel>',
+    `● RECEIVED-${NONCE}: oac_sender=S oac_message_id=M G8LIVE ${NONCE} FROM-CODEX`,
+    `● SENT-${NONCE}-1: id1`,
+    `● SENT-${NONCE}-2: id2`,
+    `● CLAUDE-DONE-${NONCE}`,
   ].join('\n');
-  const evPromptOnly = claudeEvidence(echoOfPrompt, NONCE);
-  const ev = claudeEvidence(`${echoOfPrompt}\n${stream}`, NONCE);
-  check('g8live claude report: the shell\'s echo of the prompt is not a report (no id, no received line, not done)', evPromptOnly.sessionId === null && evPromptOnly.received.length === 0 && evPromptOnly.sent.length === 0 && evPromptOnly.done === false);
-  check('g8live claude report: the session id, the received line, the sent ids, the channel tag attributes and the done line are read from stream-json lines', ev.sessionId === CLAUDE_SID && ev.received.length === 1 && ev.received[0].line.includes('FROM-CODEX') && ev.sent.map((s) => s.n).join() === '1,2' && ev.done === true && ev.channelTags.some((t) => t.join() === 'source,oac_sender,oac_message_id'));
-  const ct = claudeEvidenceText(`${echoOfPrompt}\n${stream}`, NONCE);
-  check('g8live claude capture: only the report lines are kept, not the stream', /^CLAUDE-SID-/.test(ct) && !/"type":"assistant"/.test(ct) && ct.split('\n').length <= 8);
+  const evPromptOnly = claudeEvidence(promptEcho, NONCE);
+  const ev = claudeEvidence(`${promptEcho}\n${tui}`, NONCE);
+  const wrappedEcho = claudeEvidence(`${promptEcho.replace('Step 5: print the line ', 'Step 5: print the line\n')}\n● CLAUDE-SID-${NONCE}: ${CLAUDE_SID}`, NONCE);
+  check('g8live claude report: the TUI\'s echo of the typed prompt is not a report (no id, no received line, not done), even where it wraps CLAUDE-DONE onto its own line before the answer', evPromptOnly.sessionId === null && evPromptOnly.received.length === 0 && evPromptOnly.sent.length === 0 && evPromptOnly.done === false && wrappedEcho.done === false);
+  check('g8live claude report: the session id, the received line, the sent ids, the channel tag attributes and the done line (after the id line, behind a bullet) are read from the TUI text', ev.sessionId === CLAUDE_SID && ev.received.length === 1 && ev.received[0].line.includes('FROM-CODEX') && ev.sent.map((s) => s.n).join() === '1,2' && ev.done === true && ev.channelTags.some((t) => t.join() === 'source,oac_sender,oac_message_id'));
+  const ct = claudeEvidenceText(`${promptEcho}\n${tui}`, NONCE);
+  check('g8live claude capture: only the report lines are kept', /^CLAUDE-SID-/.test(ct) && !/You are the Claude side/.test(ct) && ct.split('\n').length <= 8);
+
+  // --- a refusal with no pairing value; the mid-turn verdict's two new guards ---------------------------------------------------------------------
+  const plainCall = oacCalls([call(11, '2026-10-24T10:00:24.000Z', 'item/completed', 'p1', 'whoami', 'failed', { arguments: null, result: { content: [{ type: 'text', text: 'unauthorized' }] } })], 'oac-g8live');
+  check('g8live no-value: a completed oac call refused as unauthorized with no pairing value is found; one that carries a value, and a success, are not', refusedWithoutValue(plainCall)?.itemId === 'p1' && refusedWithoutValue(oacCalls(wire.slice(0, 2), 'oac-g8live')) === null && refusedWithoutValue(oacCalls(wire.slice(2, 4), 'oac-g8live')) === null);
+  const open2 = { itemId: 'i1', startedT: '2026-10-24T10:00:00.000Z', completedT: null };
+  const bOpen = [
+    { line: 1, t: '2026-10-24T10:00:03.000Z', mode: 'midwatch', direction: 'client->daemon', payload: { id: 1, method: 'thread/resume', params: {} } },
+    { line: 2, t: '2026-10-24T10:00:03.100Z', mode: 'midwatch', direction: 'daemon->client', payload: { id: 1, result: {} } },
+  ];
+  const ended = midTurnVerdict({ item, bEntries: b([]), bEndedAt: '2026-10-24T10:00:10.000Z' });
+  const alive = midTurnVerdict({ item, bEntries: b([]), bEndedAt: '2026-10-24T10:00:30.000Z' });
+  check('g8live mid-turn: a call that never completed, or a midwatch process that ended before the call completed, is "not-exercised"; one still alive at completion with no item/completed is "not-received"', midTurnVerdict({ item: open2, bEntries: bOpen }).verdict === 'not-exercised' && ended.verdict === 'not-exercised' && /ended before/.test(ended.why) && alive.verdict === 'not-received');
+  const empty = evaluateClaims({ pairing: null, codexSend: null, claude: null, frames: null, trials: null, mid: null, carrier: null, nonce: NONCE });
+  const nv = evaluateClaims({ pairing: { refusedThenPaired: false, refusal: null }, codexSend: null, claude: null, frames: [], trials: [], mid: null, carrier: same, nonce: NONCE, noValueRefusal: { status: 'failed' } });
+  check('g8live claims: with no data at all every claim is evaluated and none is shown; a refusal without a value answers claim 6 as "answered-negative"', empty.length === 7 && empty.every((c) => c.status === 'not-shown' && c.why) && nv[5].status === 'answered-negative' && /no pairing value/.test(nv[5].why) && nv[0].status === 'not-shown');
 
   // --- the daemon's events -----------------------------------------------------------------------------------------------------------------------
   const evs = jsonLines([
@@ -162,9 +181,12 @@ export function g8liveUnit(check) {
   check('g8live scenario: it never calls turn/steer or any method that writes into a thread, and answers no server request', !/['"](?:turn\/steer|turn\/start|turn\/interrupt|thread\/queue\/add|thread\/start|thread\/fork)['"]/.test(sc) && !/elicitation|serverRequest|resolveServerRequest/.test(sc));
   check('g8live scenario: it never runs codex mcp, nor daemon start, stop or restart (only daemon version), and never signs in', !/'mcp'|'remove'|'login'|'logout'/.test(sc) && !/'daemon',\s*'(?:start|stop|restart)'/.test(sc) && /codexCli\(\['app-server', 'daemon', 'version'\]/.test(sc));
   check('g8live scenario: it reads no credential, sqlite, rollout or Codex-home file and no OS credential store', !/auth\.json|\.sqlite|rollout|CODEX_HOME|app-server-control|\.codex\b/.test(sc) && !new RegExp(['key', 'ring'].join('')).test(sc));
-  check('g8live scenario: it never types into the Codex TUI: its panes are the daemon\'s and Claude\'s', !/agentPrompt|sendKeys|agentStart|startAgent/.test(sc) && [...sc.matchAll(/paneRun\(([^,]+),/g)].every((m) => /^(?:daemonPane|wsB\.paneId)$/.test(m[1])) && /paneRun\(daemonPane/.test(sc) && /paneRun\(wsB\.paneId/.test(sc));
+  check('g8live scenario: it has no Codex pane and types nothing into the Codex TUI: its panes are the daemon\'s and Claude\'s, and the only agent is Claude\'s', !/sendKeys|startAgent/.test(sc) && [...sc.matchAll(/paneRun\(([^,]+),/g)].every((m) => /^daemonPane$/.test(m[1])) && [...sc.matchAll(/agentStart\(([^,]+),/g)].every((m) => m[1] === 'CLAUDE_AGENT') && !/codexPane|CODEX_AGENT|agentPrompt\(/.test(sc) && (sc.match(/workspaceCreate\(/g) ?? []).length === 2);
   check('g8live scenario: thread ids, session ids, fingerprints, pairing values and the project directory are registered for redaction before any capture is written', ['<THREAD_ID>', '<SESSION_ID>', '<DEVICE_FINGERPRINT>', '<PAIRING_VALUE>', '<PROJECT_DIR>'].every((p) => sc.includes(`'${p}'`)) && sc.indexOf("'<PAIRING_VALUE>'") < sc.indexOf('ctx.capture(g.captureNames.transcript') && /sanitizeTranscript/.test(sc) && /otherThreadIds/.test(sc));
-  check('g8live scenario: the Claude session is print mode with stream-json, the development-channels flag for the oac server, a strict MCP config and a SessionStart hook (the G9 leg A recipe)', /'-p'/.test(sc) && /'stream-json'/.test(sc) && /'--dangerously-load-development-channels'/.test(sc) && /'--strict-mcp-config'/.test(sc) && /SessionStart/.test(sc));
+  check('g8live scenario: the Claude session is interactive (no -p, stream-json, verbose or max-turns) and keeps the development-channels flag, a strict MCP config, the settings hook and allowedTools; it goes through makeAgent, records dialogs before the driver answers them and exits with /exit', !/'-p'|'stream-json'|'--verbose'|'--max-turns'/.test(sc) && /'--dangerously-load-development-channels'/.test(sc) && /'--mcp-config'/.test(sc) && /'--strict-mcp-config'/.test(sc) && /'--settings'/.test(sc) && /'--allowedTools'/.test(sc) && /SessionStart/.test(sc) && /makeAgent\(/.test(sc) && /DIALOG_KINDS/.test(sc) && /classifyScreen/.test(sc) && /claude\.prompt\('\/exit'\)/.test(sc) && /claude\.settle\('startup'/.test(sc) && sc.indexOf("claude.settle('startup'") < sc.indexOf('claude.prompt(claudePrompt'));
+  check('g8live scenario: the analysis and the claims run in the finally block, on every path', /try \{\s*analyze\(\);/.test(sc) && sc.indexOf('analyze();') > sc.indexOf('} finally {') && /claude\.sections/.test(sc));
+  check('g8live scenario: a refusal with no pairing value ends the wait at once (no pairTimeoutMs wait) and records claim 6 as answered no', /refusedWithoutValue\(cs\)/.test(sc) && /noValueRefusal/.test(sc) && /stop\('the Codex whoami was refused with no pairing value/.test(sc));
+  check('g8live claude prompt: the first wait allows at least 60 sleeps', /Step 2: run the Bash command sleep 10 again and again, at most (\d+) times/.exec(claudePrompt({ nonce: NONCE, codexSessionId: CODEX_SID }))?.[1] >= 60);
   check('g8live scenario: it is named, not verdict-bearing and records its claims', scenario.name === 'g8-codex-pairing' && /LIVE_NON_VERDICT/.test(sc) && /ctx\.record\('g8live', g\)/.test(sc) && scenario.harnesses.join() === 'codex,claude');
   const refusals = [{}, { oac: 'relative', daemon: '/x', projectDir: '/y' }, { oac: '/o', daemon: '/d', projectDir: '/p', namespace: 'Bad NS' }];
   return Promise.all(refusals.map(async (params) => {
