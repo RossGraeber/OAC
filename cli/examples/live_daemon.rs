@@ -244,10 +244,7 @@ fn reporting_opener(path: PathBuf, events: Events) -> CarrierOpener {
         };
         events.emit(
             "carrier_server",
-            &format!(
-                "\"pid\":{pid},\"chain\":{chain},\"pairing_key\":{}",
-                observation.pairing_key.is_some()
-            ),
+            &format!("\"pid\":{pid},\"chain\":{chain}"),
         );
         Ok(OpenedCarrier {
             stream: blocking_stream(runtime, socket.reader, socket.writer, socket.close),

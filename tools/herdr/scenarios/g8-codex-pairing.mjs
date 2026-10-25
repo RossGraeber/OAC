@@ -132,8 +132,8 @@ export function claudePrompt({ nonce, codexSessionId, maxFirstSleeps = 60, maxLa
   return [
     `You are the Claude side of an OAC live test, nonce ${nonce}. Do these steps in order.`,
     `Step 1: call the whoami tool of the oac MCP server and print one line: CLAUDE-SID-${nonce}: followed by the session_id it returned.`,
-    `Step 2: run the Bash command sleep 10 again and again, at most ${maxFirstSleeps} times, stopping as soon as a channel message from another OAC session has reached you.`,
-    `Whenever a channel message reaches you, at any step, print one line: RECEIVED-${nonce}: followed by its oac_sender, its oac_message_id and its text. Never reply to a message.`,
+    `Step 2: run the Bash command sleep 10 again and again, at most ${maxFirstSleeps} times, stopping as soon as a channel message from another OAC session has reached you (use Start-Sleep 10 if you have no Bash tool).`,
+    `Whenever a channel message reaches you, at any step, print one line that starts with RECEIVED-${nonce}: then its text, then a vertical bar, then its oac_sender, then a vertical bar, then its oac_message_id, all on one line. Never reply to a message.`,
     `Step 3: call the send tool of the oac MCP server three times, to the session ${codexSessionId}, each time with one text part, in this order.`,
     `Text 1: ${handoffText(nonce, 1)}`,
     `Text 2: ${handoffText(nonce, 2)}`,
@@ -169,7 +169,7 @@ export function sanitizeDaemonEvents(events) {
       case 'ended':
         return { event: e.event, unix_ms: e.unix_ms, label: e.label, peer: e.peer ? { pid: e.peer.pid } : null };
       case 'carrier_server':
-        return { event: e.event, unix_ms: e.unix_ms, pid: e.pid ?? null, chain: chain(e.chain), pairing_key: e.pairing_key ?? null };
+        return { event: e.event, unix_ms: e.unix_ms, pid: e.pid ?? null, chain: chain(e.chain) };
       case 'ready':
         return { event: e.event, unix_ms: e.unix_ms, namespace: e.namespace, pid: e.pid };
       case 'log':
@@ -390,6 +390,30 @@ export function carrierAncestry({ shimChain, daemonChain = [], carrierPid, daemo
 
 // Strings of a Claude Code stream-json run, found in the pane text: every string value of every JSON
 // line, plus the raw text (a line that is not JSON, or that the pane cut).
+// The TUI wraps a long line at about 117 columns and herdr's recent-unwrapped read does not rejoin it
+// (G1 fixture pane-2026-10-07-2.1.285-herdr.txt:323). A continuation is an indented line right after a
+// `●`/`⏺` line. Two joins are returned, since a wrap may fall at a space (rejoined with one) or inside
+// a long token (rejoined with none): [with a space, with none].
+export function joinWrapped(text) {
+  const out = [[], []];
+  const lines = String(text ?? '').split(/\r?\n/);
+  let inBullet = false;
+  for (const line of lines) {
+    const isBullet = /^\s*[\u25cf\u23fa]\s/.test(line);
+    const isCont = inBullet && /^\s{2,}\S/.test(line) && !/^\s*(?:[\u25cf\u23fa\u23bf\u2190>]|\u2514)/.test(line);
+    if (isCont) {
+      out[0][out[0].length - 1] += ` ${line.trim()}`;
+      out[1][out[1].length - 1] += line.trim();
+    } else {
+      out[0].push(line);
+      out[1].push(line);
+      inBullet = isBullet;
+    }
+    if (isCont) inBullet = true;
+  }
+  return out.map((l) => l.join('\n'));
+}
+
 export function claudeStrings(paneText) {
   const out = [];
   const walk = (v) => {
@@ -399,6 +423,7 @@ export function claudeStrings(paneText) {
   };
   for (const o of jsonLines(paneText)) walk(o);
   out.push(String(paneText ?? ''));
+  out.push(...joinWrapped(paneText));
   return out;
 }
 
@@ -437,19 +462,36 @@ export function claudeEvidence(paneText, nonce) {
   const received = [];
   for (const m of all(new RegExp(`RECEIVED-${n}: ([^\\n\\\\]*)`, 'g'))) {
     const rest = m[1].trim();
-    if (!rest || /^followed by/i.test(rest)) continue;
-    if (!received.some((r) => r.line === rest)) received.push({ line: rest });
+    if (!rest || /^followed by/i.test(rest) || /^then its text/i.test(rest)) continue;
+    received.push({ line: rest });
   }
-  const sent = [];
-  for (const m of all(new RegExp(`SENT-${n}-([123]): ([^\\n\\\\ ]+)`, 'g'))) {
-    if (!sent.some((x) => x.n === Number(m[1]))) sent.push({ n: Number(m[1]), messageId: m[2] });
+  // The same report is seen unjoined and joined two ways (joinWrapped): keep one per report. Compare with the
+  // whitespace stripped; an entry that is a prefix of another is a wrapped fragment, and of two that are the
+  // same text the one with its spaces wins.
+  const key = (r) => r.line.replace(/\s+/g, '');
+  const keep = received.filter((r, i) => !received.some((o, j) => j !== i && (key(o).startsWith(key(r)) && (key(o).length > key(r).length || (key(o) === key(r) && (o.line.length > r.line.length || (o.line.length === r.line.length && j < i)))))));
+  received.length = 0;
+  received.push(...keep);
+  // A sent id is a short token; a wrap may cut it, so the longest candidate (at most 40 characters) wins.
+  const sentBy = new Map();
+  for (const m of all(new RegExp(`SENT-${n}-([123]): ([^\\n\\\\ ]{1,40})`, 'g'))) {
+    const k = Number(m[1]);
+    if (!sentBy.has(k) || m[2].length > sentBy.get(k).length) sentBy.set(k, m[2]);
   }
+  const sent = [...sentBy].map(([k, id]) => ({ n: k, messageId: id }));
   const tags = [];
   for (const m of all(/<channel\b([^>]*)>/g)) {
     const attrs = [...m[1].matchAll(/([A-Za-z_][\w-]*)=\\?"/g)].map((a) => a[1]);
     if (attrs.length && !tags.some((t) => t.join() === attrs.join())) tags.push(attrs);
   }
   return { sessionId: sid ? sid[1] : null, received, sent, done: doneAfterId(strings, n, sid), channelTags: tags };
+}
+
+// Did the Claude session report `text`? Compared with the whitespace stripped, since a wrap may have added or
+// dropped a space at the cut.
+export function receivedHas(claude, text) {
+  const want = String(text).replace(/\s+/g, '');
+  return (claude?.received ?? []).some((r) => r.line.replace(/\s+/g, '').includes(want));
 }
 
 // --- the claims ------------------------------------------------------------------------------------------------
@@ -477,7 +519,7 @@ export function evaluateClaims({ pairing, codexSend, claude, frames, trials, mid
   else out.push(notShown(1, !pairing?.refusal ? 'no refused whoami call with a pairing value was seen' : 'no whoami call returned a session id after the refusal', []));
   // 2
   const sendOk = !!codexSend && codexSend.status === 'completed' && /accepted-by-adapter/.test(codexSend.resultText ?? '');
-  const recvOk = (claude?.received ?? []).some((r) => new RegExp(`G8LIVE ${regexLiteral(nonce)} FROM-CODEX`).test(r.line));
+  const recvOk = receivedHas(claude, `G8LIVE ${nonce} FROM-CODEX`);
   if (sendOk && recvOk) out.push(shown(2, ['Codex send result: accepted-by-adapter', 'the Claude session reported the message (RECEIVED line with the test text)', `channel tag attributes seen: ${JSON.stringify(claude.channelTags)}`]));
   else out.push(notShown(2, !sendOk ? 'the Codex send call did not complete with accepted-by-adapter' : 'the Claude session did not report the message', [`send result ok: ${sendOk}`, `claude reported it: ${recvOk}`]));
   // 3
@@ -497,10 +539,8 @@ export function evaluateClaims({ pairing, codexSend, claude, frames, trials, mid
   else if (mid?.verdict === 'not-received') out.push(open(5, mid.why, [`resume answered ${mid.resumeMsAfterStart} ms after the call started and ${mid.resumeMsBeforeCompleted} ms before it completed`]));
   else out.push(notShown(5, mid?.why ?? 'no midwatch result', []));
   // 6
-  if (noValueRefusal) {
-    out.push(open(6, 'the call was refused with no pairing value: the daemon issued none, so no operating-system key paired this shim with the carrier', [`refused item status ${noValueRefusal.status}, no pairing value in its text`, carrier ? `nearest codex ancestor pid ${carrier.nearestCodexAncestorPid}, carrier server pid ${carrier.carrierServerPid}, same process ${carrier.sameProcess}` : 'no process tree was taken']));
-  } else if (carrier && carrier.sameProcess !== null && carrier.carrierServerPid !== null) {
-    const witness = `daemon: nearest harness ancestor pid ${carrier.daemonHarnessPid}, paired ${carrier.daemonPaired}`;
+  if (carrier && carrier.sameProcess !== null && carrier.carrierServerPid !== null) {
+    const witness = `daemon: nearest harness ancestor pid ${carrier.daemonHarnessPid}, paired ${carrier.daemonPaired}${noValueRefusal ? '; the call was refused with no pairing value (a separate finding)' : ''}`;
     if (carrier.sameProcess) out.push(shown(6, [`nearest codex ancestor pid ${carrier.nearestCodexAncestorPid} equals the carrier server pid ${carrier.carrierServerPid}`, witness]));
     else out.push(open(6, `the nearest codex ancestor (pid ${carrier.nearestCodexAncestorPid}) is not the carrier server (pid ${carrier.carrierServerPid})`, [witness]));
   } else out.push(notShown(6, carrier?.carrierServerPid == null ? 'the opener reported no server pid' : 'no codex ancestor was found for the shim', []));
@@ -846,7 +886,6 @@ export default {
         });
         g.carrier.codexProcesses = snap.available ? snap.codexProcesses : null;
         g.carrier.carrierServerIsListedCodex = snap.available && carrier?.pid != null ? snap.codexProcesses.some((c) => c.pid === carrier.pid) : null;
-        g.carrier.carrierServerPairingKey = carrier?.pairing_key ?? null;
       };
       const startMidwatch = (call) => {
         if (midProc || midStartedFor) return;
@@ -908,7 +947,7 @@ export default {
         '--dangerously-load-development-channels',
         'server:oac',
         '--allowedTools',
-        'mcp__oac__whoami,mcp__oac__send,mcp__oac__list_sessions,Bash(sleep:*)',
+        'mcp__oac__whoami,mcp__oac__send,mcp__oac__list_sessions,Bash(sleep:*),PowerShell(Start-Sleep:*)',
         '--mcp-config',
         mcpPath,
         '--strict-mcp-config',
@@ -939,7 +978,7 @@ export default {
       const codexSendCall = () => calls().find((c) => c.tool === 'send' && c.completedLine !== null) ?? null;
       await waitFor('the Codex send call completing and the Claude session reporting the message', async () => {
         await readClaude();
-        const got = claudeEv.received.some((r) => r.line.includes(`G8LIVE ${nonce} FROM-CODEX`));
+        const got = receivedHas(claudeEv, `G8LIVE ${nonce} FROM-CODEX`);
         return codexSendCall() && got ? true : null;
       }, num('codexSendTimeoutMs'), { pollMs: 2000, agent: claude, onTimeout: () => { ctx.finding('the Codex send and the Claude report of it were not both seen in time; later steps depend on Claude having received it before it sends the hand-offs'); return false; } });
       stage('codex-send-done');
@@ -972,11 +1011,14 @@ export default {
       // --- 8. Claude finishes (its CLAUDE-DONE line), then exits; the daemon stops ------------------------------------------
       await waitFor('the Claude session printing CLAUDE-DONE', async () => ((await readClaude()).done ? true : null), num('claudeDoneMs'), { pollMs: 3000, agent: claude, onTimeout: () => { ctx.finding('the Claude session had not printed its CLAUDE-DONE line when the wait ran out; its pane report so far is kept'); return false; } });
       await readClaude();
-      try {
-        await claude.prompt('/exit');
-      } catch (err) {
-        ctx.finding(`the Claude session could not be asked to exit (${String(err.message).slice(0, 120)}); the driver's teardown ends its pane`);
-      }
+      const preExit = claudeEv?.done ? await claude.read('pre-exit', { source: 'visible' }) : null;
+      if (preExit && !preExit.screen.dialog && !preExit.screen.busy) {
+        try {
+          await claude.prompt('/exit');
+        } catch (err) {
+          ctx.finding(`the Claude session could not be asked to exit (${String(err.message).slice(0, 120)}); the driver's teardown ends its pane`);
+        }
+      } else ctx.finding('no CLAUDE-DONE line was seen, or the Claude screen was busy or showed a dialog, so /exit was not typed into a possibly running turn (#253); the driver\'s teardown ends the pane');
       await herdr.paneProcessInfo(wsB.paneId);
       await herdr.paneRun(daemonPane, 'stop');
       try {

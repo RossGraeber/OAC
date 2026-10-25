@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 
 import scenario, {
   liveNames, claudePrompt, handoffText, pairingPrompt, sendPrompt, parseFrame, oacCalls, pairingSequence, handoffFrames, echoTrials, testNumberOf,
-  midTurnVerdict, refusedWithoutValue, carrierAncestry, claudeEvidence, claudeEvidenceText, evaluateClaims, sanitizeDaemonEvents, jsonLines, PAIRING_VALUE,
+  midTurnVerdict, refusedWithoutValue, receivedHas, carrierAncestry, claudeEvidence, claudeEvidenceText, evaluateClaims, sanitizeDaemonEvents, jsonLines, PAIRING_VALUE,
 } from '../scenarios/g8-codex-pairing.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -48,7 +48,7 @@ export function g8liveUnit(check) {
   // --- names, prompts --------------------------------------------------------------------------------
   check('g8live names: verified versions give fixture names, otherwise unverified-*', liveNames('2026-10-24', '0.163.0').transcript === 'transcript-g8live-2026-10-24-0.163.0-herdr.jsonl' && liveNames('2026-10-24', null).events === 'events-g8live-unverified-2026-10-24.jsonl');
   const prompt = claudePrompt({ nonce: NONCE, codexSessionId: CODEX_SID });
-  check('g8live claude prompt: one line with no quote, backtick, dollar sign, pipe or redirection, so a pane shell cannot change it', !/["'`$|<>\n\r]/.test(prompt) && prompt.includes(CODEX_SID) && prompt.includes(`CLAUDE-DONE-${NONCE}`) && prompt.includes(`Never reply to a message`));
+  check('g8live claude prompt: one line with no quote, backtick, dollar sign, angle bracket or line break (the Claude TUI is typed into, but the text stays shell-safe)', !/["'`$<>\n\r]/.test(prompt) && prompt.includes(CODEX_SID) && prompt.includes(`CLAUDE-DONE-${NONCE}`) && prompt.includes(`Never reply to a message`));
   check('g8live claude prompt: it carries the three hand-off texts, whose instructions differ (named, to only, unspecified)', [1, 2, 3].every((n) => prompt.includes(handoffText(NONCE, n))) && /in_reply_to/.test(handoffText(NONCE, 1)) && /give no in_reply_to/.test(handoffText(NONCE, 2)) && !/in_reply_to/.test(handoffText(NONCE, 3)));
   check('g8live operator prompts: the pairing prompt allows one retry and names the server; the send prompt carries the Claude id and the nonce', /once more/.test(pairingPrompt('oac-g8live')) && /oac-g8live/.test(pairingPrompt('oac-g8live')) && sendPrompt('oac-g8live', CLAUDE_SID, NONCE).includes(CLAUDE_SID) && sendPrompt('oac-g8live', CLAUDE_SID, NONCE).includes(`G8LIVE ${NONCE} FROM-CODEX`));
 
@@ -125,7 +125,7 @@ export function g8liveUnit(check) {
   const tui = [
     `● CLAUDE-SID-${NONCE}: ${CLAUDE_SID}`,
     '  ← oac: <channel source="oac" oac_sender="S" oac_message_id="M">G8LIVE x</channel>',
-    `● RECEIVED-${NONCE}: oac_sender=S oac_message_id=M G8LIVE ${NONCE} FROM-CODEX`,
+    `● RECEIVED-${NONCE}: G8LIVE ${NONCE} FROM-CODEX | S | M`,
     `● SENT-${NONCE}-1: id1`,
     `● SENT-${NONCE}-2: id2`,
     `● CLAUDE-DONE-${NONCE}`,
@@ -137,6 +137,18 @@ export function g8liveUnit(check) {
   check('g8live claude report: the session id, the received line, the sent ids, the channel tag attributes and the done line (after the id line, behind a bullet) are read from the TUI text', ev.sessionId === CLAUDE_SID && ev.received.length === 1 && ev.received[0].line.includes('FROM-CODEX') && ev.sent.map((s) => s.n).join() === '1,2' && ev.done === true && ev.channelTags.some((t) => t.join() === 'source,oac_sender,oac_message_id'));
   const ct = claudeEvidenceText(`${promptEcho}\n${tui}`, NONCE);
   check('g8live claude capture: only the report lines are kept', /^CLAUDE-SID-/.test(ct) && !/You are the Claude side/.test(ct) && ct.split('\n').length <= 8);
+
+  // The TUI wraps a long line at about 117 columns and herdr does not rejoin it: a wrap at a space and a wrap inside a token.
+  const pad = 'x'.repeat(60);
+  const wrapSpace = [`> prompt echo`, `● RECEIVED-${NONCE}: G8LIVE ${NONCE}`, `  FROM-CODEX | S | M`, `● CLAUDE-SID-${NONCE}: ${CLAUDE_SID.slice(0, 10)}`, `  ${CLAUDE_SID.slice(10)}`, `● SENT-${NONCE}-1: id`, '  1234', `● CLAUDE-DONE-${NONCE}`].join('\n');
+  const wrapToken = [`● CLAUDE-SID-${NONCE}: ${CLAUDE_SID}`, `● RECEIVED-${NONCE}: G8LIVE ${NONCE} FROM-`, `  CODEX | S | M`, `  ⎿ done`, `● CLAUDE-DONE-${NONCE}`].join('\n');
+  const w1 = claudeEvidence(wrapSpace, NONCE);
+  const w2 = claudeEvidence(wrapToken, NONCE);
+  const longLine = `● RECEIVED-${NONCE}: ${pad} G8LIVE ${NONCE} FROM-CODEX | S | M`;
+  const cut = longLine.slice(0, 117);
+  const w3 = claudeEvidence([`● CLAUDE-SID-${NONCE}: ${CLAUDE_SID}`, cut, `  ${longLine.slice(117)}`].join('\n'), NONCE);
+  check('g8live claude report: a line the TUI wrapped at about 117 columns (at a space, inside a token, or cut at exactly 117) is rejoined: the received text, the session id and the sent id come out whole, and an indented non-continuation line (a tool result) is not joined', w1.received.length === 1 && w1.received[0].line.includes(`G8LIVE ${NONCE} FROM-CODEX`) && w1.sessionId === CLAUDE_SID && w1.sent[0].messageId === 'id1234' && receivedHas(w2, `G8LIVE ${NONCE} FROM-CODEX`) && w2.done === true && receivedHas(w3, `G8LIVE ${NONCE} FROM-CODEX`));
+  check('g8live claude prompt: the report line is text first, then the sender and id (RECEIVED-n: text | sender | id), so a wrap can only cut the tail', /RECEIVED-\w+: then its text, then a vertical bar, then its oac_sender, then a vertical bar, then its oac_message_id/.test(claudePrompt({ nonce: NONCE, codexSessionId: CODEX_SID })) && /PowerShell\(Start-Sleep:\*\)/.test(SCENARIO) && /Bash\(sleep:\*\)/.test(SCENARIO));
 
   // --- a refusal with no pairing value; the mid-turn verdict's two new guards ---------------------------------------------------------------------
   const plainCall = oacCalls([call(11, '2026-10-24T10:00:24.000Z', 'item/completed', 'p1', 'whoami', 'failed', { arguments: null, result: { content: [{ type: 'text', text: 'unauthorized' }] } })], 'oac-g8live');
@@ -151,7 +163,9 @@ export function g8liveUnit(check) {
   check('g8live mid-turn: a call that never completed, or a midwatch process that ended before the call completed, is "not-exercised"; one still alive at completion with no item/completed is "not-received"', midTurnVerdict({ item: open2, bEntries: bOpen }).verdict === 'not-exercised' && ended.verdict === 'not-exercised' && /ended before/.test(ended.why) && alive.verdict === 'not-received');
   const empty = evaluateClaims({ pairing: null, codexSend: null, claude: null, frames: null, trials: null, mid: null, carrier: null, nonce: NONCE });
   const nv = evaluateClaims({ pairing: { refusedThenPaired: false, refusal: null }, codexSend: null, claude: null, frames: [], trials: [], mid: null, carrier: same, nonce: NONCE, noValueRefusal: { status: 'failed' } });
-  check('g8live claims: with no data at all every claim is evaluated and none is shown; a refusal without a value answers claim 6 as "answered-negative"', empty.length === 7 && empty.every((c) => c.status === 'not-shown' && c.why) && nv[5].status === 'answered-negative' && /no pairing value/.test(nv[5].why) && nv[0].status === 'not-shown');
+  const nvDiffer = evaluateClaims({ pairing: { refusedThenPaired: false, refusal: null }, codexSend: null, claude: null, frames: [], trials: [], mid: null, carrier: differ, nonce: NONCE, noValueRefusal: { status: 'failed' } });
+  const nvNone = evaluateClaims({ pairing: { refusedThenPaired: false, refusal: null }, codexSend: null, claude: null, frames: [], trials: [], mid: null, carrier: null, nonce: NONCE, noValueRefusal: { status: 'failed' } });
+  check('g8live claims: with no data at all every claim is evaluated and none is shown; on the no-value path claim 6 takes its answer from the process-tree result (same process: shown with the no-value note; different: answered-negative; no tree: not-shown), never always no', empty.length === 7 && empty.every((c) => c.status === 'not-shown' && c.why) && nv[5].status === 'shown' && nv[5].evidence.some((e) => /no pairing value/.test(e)) && nvDiffer[5].status === 'answered-negative' && nvNone[5].status === 'not-shown' && nv[0].status === 'not-shown');
 
   // --- the daemon's events -----------------------------------------------------------------------------------------------------------------------
   const evs = jsonLines([
