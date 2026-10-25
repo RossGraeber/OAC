@@ -41,6 +41,7 @@ use std::time::{Duration, Instant};
 use oac_adapter_claude::UNNEGOTIATED_DETAIL;
 use oac_core::json::{Json, JsonObject};
 
+use crate::codex::SocketProbe;
 use crate::control::{self, StatusOutcome, canonical_text, json_string};
 use crate::ipc::{CONTROL_LABEL, Scope, scope_name_is_valid};
 use crate::keystore::CredentialProbe;
@@ -150,6 +151,9 @@ pub struct Probes<'a> {
     pub fallback_file: Option<bool>,
     /// `claude --version`.
     pub claude: &'a dyn Fn() -> ClaudeVersion,
+    /// The Codex control socket, connected to and closed at once (`crate::codex`): nothing is
+    /// sent or read, and nothing else under the Codex home is looked at.
+    pub control_socket: &'a dyn Fn() -> SocketProbe,
 }
 
 /// The credential-store service the probe uses: OAC's own, or, in a test namespace
@@ -215,12 +219,47 @@ pub fn run(scope: &io::Result<Scope>, probes: &Probes<'_>) -> Vec<Check> {
         revision_check(probes, report),
         pairing_check(report),
         claude_check(probes),
-        check(
-            "codex",
-            CheckResult::Skip,
-            "not wired into the daemon (#433)",
-        ),
+        codex_check(probes),
     ]
+}
+
+fn codex_check(probes: &Probes<'_>) -> Check {
+    use CheckResult::{Fail, Pass, Skip, Warn};
+    match (probes.control_socket)() {
+        SocketProbe::NoPath => check(
+            "codex",
+            Skip,
+            "no home directory to look for the Codex control socket in",
+        ),
+        SocketProbe::Absent => check(
+            "codex",
+            Skip,
+            "no Codex control socket: Codex's app-server daemon is not running (OAC never starts it)",
+        ),
+        SocketProbe::Reachable => check(
+            "codex",
+            Pass,
+            "the Codex control socket accepted a connection and its server is a process of this user",
+        ),
+        SocketProbe::OtherUser => check(
+            "codex",
+            Fail,
+            "the Codex control socket is not served by a process of this user",
+        ),
+        SocketProbe::Unverified => check(
+            "codex",
+            Warn,
+            "the Codex control socket accepted a connection and the owner of its server could not be verified",
+        ),
+        SocketProbe::Unreachable(why) => check(
+            "codex",
+            Warn,
+            format!(
+                "the Codex control socket is there and did not accept a connection ({}): a stale socket, or a server that is not accepting",
+                clean(&why)
+            ),
+        ),
+    }
 }
 
 fn daemon_check(outcome: Option<&StatusOutcome>) -> Check {
@@ -653,7 +692,12 @@ mod tests {
             credential,
             fallback_file: None,
             claude,
+            control_socket: &absent,
         }
+    }
+
+    fn absent() -> SocketProbe {
+        SocketProbe::Absent
     }
 
     fn by_name<'a>(checks: &'a [Check], name: &str) -> &'a Check {

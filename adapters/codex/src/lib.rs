@@ -52,7 +52,7 @@ pub mod shim;
 pub mod threads;
 pub mod ws;
 
-pub use adapter::CodexAdapter;
+pub use adapter::{CarrierState, CodexAdapter};
 pub use client::{ClientError, CodexClient, Diagnostics, EventHandler, Options};
 pub use events::{CodexEvent, CompletedItem, McpCallStart};
 pub use pairing::{Answer, CallPort, CodexPairing, Config, PairingDiagnostics, Reveal};

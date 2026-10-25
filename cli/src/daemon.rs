@@ -59,6 +59,7 @@ use tokio::runtime::Handle;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
+use crate::codex::{CarrierDriver, CarrierWiring};
 use crate::control::Control;
 use crate::ipc::{
     Accept, Accepted, BindError, CONTROL_LABEL, DaemonLock, Endpoint, Listener, Scope,
@@ -332,6 +333,10 @@ pub struct Parts {
     pub harnesses: Vec<(String, Arc<dyn ProviderAdapter>)>,
     /// Where findings and decisions go.
     pub log: LogSink,
+    /// The Codex adapter's carrier opener (`crate::codex`, G8 S5): given, so that a test opens
+    /// a carrier to a fake. `None` serves the `codex` endpoint (if there is one) with no
+    /// carrier, which closes every shim connection. The adapter must be one of `harnesses`.
+    pub codex: Option<CarrierWiring>,
 }
 
 /// Knobs of a daemon that a test turns; `oac start` uses the defaults.
@@ -441,6 +446,7 @@ impl Daemon {
             config,
             harnesses,
             log,
+            codex,
         } = parts;
 
         // A harness cannot take the label of the control endpoint (or the lock's).
@@ -488,8 +494,30 @@ impl Daemon {
         let mut tasks: Vec<JoinHandle<()>> = Vec::new();
         let mut endpoints = Vec::new();
         let mut labelled: Vec<(AdapterId, String)> = Vec::new();
+        let mut carriers: Vec<Arc<CarrierDriver>> = Vec::new();
         for (label, adapter) in harnesses {
-            let id = pipelines.add_adapter(adapter);
+            let id = pipelines.add_adapter(adapter.clone());
+            // The Codex adapter, when its carrier opener was given: the driver connects its
+            // carrier before a Codex shim is handed over (`crate::codex`).
+            let carrier = codex
+                .as_ref()
+                .filter(|w| {
+                    std::ptr::eq(
+                        Arc::as_ptr(&w.adapter).cast::<()>(),
+                        Arc::as_ptr(&adapter).cast::<()>(),
+                    )
+                })
+                .map(|w| {
+                    CarrierDriver::new(
+                        w.clone(),
+                        id,
+                        pipelines.clone(),
+                        runtime.clone(),
+                        log.clone(),
+                        stopped.clone(),
+                    )
+                });
+            carriers.extend(carrier.clone());
             labelled.push((id, label.clone()));
             let endpoint = scope.endpoint(&label);
             let listener = match endpoint.serve(&lock).await {
@@ -508,6 +536,7 @@ impl Daemon {
                 endpoint,
                 listener,
                 adapter: id,
+                carrier,
                 pipelines: pipelines.clone(),
                 runtime: runtime.clone(),
                 stopped: stopped.clone(),
@@ -543,6 +572,13 @@ impl Daemon {
         }
         tasks.push(runtime.spawn(timers(pipelines.clone(), stopped, log.clone())));
         log.line(&format!("serving {}", endpoints.join(", ")));
+        // The Codex carrier at start, if the control socket is there: once, then only when a
+        // Codex shim connects, never on a timer.
+        for driver in carriers {
+            tasks.push(runtime.spawn(async move {
+                driver.ensure().await;
+            }));
+        }
         Ok(Daemon {
             pipelines,
             stop,
@@ -606,6 +642,8 @@ struct Serving {
     endpoint: Endpoint,
     listener: Listener,
     adapter: AdapterId,
+    /// The Codex endpoint's carrier driver.
+    carrier: Option<Arc<CarrierDriver>>,
     pipelines: Arc<Pipelines>,
     runtime: Handle,
     stopped: watch::Receiver<bool>,
@@ -621,13 +659,19 @@ async fn accept_loop(mut s: Serving) {
         match accepted {
             Ok(Accept::Connection(connection)) => {
                 let label = s.endpoint.label().to_owned();
-                let (adapter, pipelines, runtime, log) = (
+                let (adapter, pipelines, runtime, log, carrier) = (
                     s.adapter,
                     s.pipelines.clone(),
                     s.runtime.clone(),
                     s.log.clone(),
+                    s.carrier.clone(),
                 );
                 s.runtime.spawn(async move {
+                    // The Codex carrier first, so that a shim is never handed to an adapter
+                    // with no carrier when one can be had (a shim under no carrier is closed).
+                    if let Some(carrier) = carrier {
+                        carrier.ensure().await;
+                    }
                     serve_connection(&label, adapter, connection, pipelines, runtime, log).await;
                 });
             }

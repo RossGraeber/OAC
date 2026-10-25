@@ -182,6 +182,7 @@ impl Rig {
             config: PipelineConfig::default(),
             harnesses: vec![("claude".to_owned(), Arc::new(ClaudeAdapter::new()))],
             log: LogSink::new(Captured::default()),
+            codex: None,
         };
         let rt = Rt::new();
         let daemon = rt
@@ -210,6 +211,11 @@ impl Rig {
     }
 }
 
+/// No Codex control socket: a test never looks at the user's own.
+fn absent() -> oac_cli::codex::SocketProbe {
+    oac_cli::codex::SocketProbe::Absent
+}
+
 fn checks_in(scope: &std::io::Result<Scope>, negotiation: Option<&str>) -> Vec<doctor::Check> {
     let credential = || CredentialOutcome::Probed(CredentialProbe::Works);
     let claude = || ClaudeVersion::Output("2.1.285 (Claude Code)".to_owned());
@@ -219,6 +225,7 @@ fn checks_in(scope: &std::io::Result<Scope>, negotiation: Option<&str>) -> Vec<d
         credential: &credential,
         fallback_file: None,
         claude: &claude,
+        control_socket: &absent,
     };
     doctor::run(scope, &probes)
 }
@@ -292,6 +299,11 @@ fn run_doctor(
         .args(args)
         .env_remove(doctor::NEGOTIATION_VARIABLE)
         .env(doctor::NO_CREDENTIAL_PROBE_VARIABLE, "1")
+        // Never the user's own Codex control socket: a path with nothing at it.
+        .env(
+            oac_cli::codex::SOCKET_OVERRIDE_VARIABLE,
+            std::env::temp_dir().join("oac-doctor-test-no-such-socket.sock"),
+        )
         .env("PATH", path)
         .stdin(Stdio::null());
     match namespace {
@@ -511,6 +523,7 @@ fn a_running_daemon_passes_the_checks_that_can_pass_and_pairing_warns_with_no_ke
         credential: &credential,
         fallback_file: None,
         claude: &claude,
+        control_socket: &absent,
     };
     let mut out = Vec::new();
     let code = oac_cli::commands::doctor_with(&Ok(rig.scope.clone()), &probes, true, &mut out);

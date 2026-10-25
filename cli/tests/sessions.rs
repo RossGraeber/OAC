@@ -208,6 +208,7 @@ impl Rig {
                 adapter as Arc<dyn oac_core::adapter::ProviderAdapter>,
             )],
             log: sink,
+            codex: None,
         };
         let rt = Rt::new();
         let daemon = rt

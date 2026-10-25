@@ -133,6 +133,10 @@ enum Phase {
 }
 
 struct Att {
+    /// The carrier generation this connection was taken under ([`State::generation`]). An
+    /// attachment of an older generation was served through a carrier that is gone: it
+    /// never reaches the current pairing, and nothing is handed to it.
+    generation: u64,
     phase: Phase,
     /// The connection's server, once the carrier is up.
     server: Option<ServerHandle>,
@@ -190,8 +194,9 @@ impl Att {
         self.pending.clear();
     }
 
-    fn new() -> Att {
+    fn new(generation: u64) -> Att {
         Att {
+            generation,
             phase: Phase::Opening,
             server: None,
             pending: Vec::new(),
@@ -203,6 +208,19 @@ impl Att {
     }
 }
 
+/// Where the adapter's carrier stands ([`CodexAdapter::carrier_state`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CarrierState {
+    /// No carrier was designated and taken yet.
+    None,
+    /// The designated connection is being upgraded and initialized.
+    Connecting,
+    /// The carrier is open.
+    Up,
+    /// The carrier failed to start, or its connection ended: a new one may be designated.
+    Lost,
+}
+
 enum Carrier {
     /// No carrier connection yet.
     None,
@@ -210,7 +228,7 @@ enum Carrier {
     Connecting,
     /// Up.
     Up(CodexPairing<Attachment>),
-    /// Failed to start, or the daemon refused a second one: not replaced in this life.
+    /// Failed to start, or its connection ended: a new designation replaces it.
     Lost,
 }
 
@@ -221,6 +239,8 @@ struct State {
     sink: Option<Arc<dyn RequestSink>>,
     designated: Option<ConnectionHandle>,
     carrier: Carrier,
+    /// Counts the carrier designations accepted; the current carrier's generation.
+    generation: u64,
     carrier_handle: Option<ConnectionHandle>,
     carrier_thread: Option<JoinHandle<()>>,
     attachments: HashMap<Attachment, Att>,
@@ -646,6 +666,7 @@ impl CodexAdapter {
                     sink: None,
                     designated: None,
                     carrier: Carrier::None,
+                    generation: 0,
                     carrier_handle: None,
                     carrier_thread: None,
                     attachments: HashMap::new(),
@@ -667,16 +688,66 @@ impl CodexAdapter {
     /// `take_connection`. Nothing a message, a signal or a tool call says designates one
     /// ([MCPB-ATT-006]).
     ///
-    /// One carrier serves the adapter's life: a designation after one was taken, or after
-    /// the adapter shut down, is refused (`false`). A designation replaces an earlier one
-    /// that was never taken.
+    /// One carrier serves the adapter at a time. A designation is refused (`false`) while a
+    /// carrier is connecting or open, and after the adapter shut down. It is accepted when no
+    /// carrier was taken yet, and **again after the carrier was lost** ([`CarrierState::Lost`]:
+    /// its start failed, or its connection ended), so that the daemon can connect a new one the
+    /// next time a Codex shim connects (`docs/planning/v0.1/11-risks.md` row 90). A designation
+    /// replaces an earlier one that was never taken. The lost carrier's pairing and client are
+    /// shut down; the attachments that were served through it keep their place until their own
+    /// connections end, but cannot hand anything off (their threads are not served by the new
+    /// carrier) and pair nothing.
     pub fn designate_carrier(&self, handle: &ConnectionHandle) -> bool {
-        let mut st = lock(&self.inner.state);
-        if self.inner.down.load(Ordering::SeqCst) || !matches!(st.carrier, Carrier::None) {
-            return false;
+        let (old_pairing, old_handle) = {
+            let mut st = lock(&self.inner.state);
+            if self.inner.down.load(Ordering::SeqCst) {
+                return false;
+            }
+            let lost_pairing = match &st.carrier {
+                Carrier::None => None,
+                Carrier::Lost => None,
+                Carrier::Up(p) if !p.client().is_open() => Some(p.clone()),
+                Carrier::Connecting | Carrier::Up(_) => return false,
+            };
+            let old_handle = if matches!(st.carrier, Carrier::None) {
+                None
+            } else {
+                st.carrier_handle.take()
+            };
+            st.carrier = Carrier::None;
+            st.generation += 1;
+            st.designated = Some(handle.clone());
+            (lost_pairing, old_handle)
+        };
+        if let Some(p) = old_pairing {
+            p.shutdown();
+            p.client().shutdown();
         }
-        st.designated = Some(handle.clone());
+        if let Some(h) = old_handle {
+            h.close();
+        }
         true
+    }
+
+    /// The session the core's latest `set_binding` named for `attachment`, if it is still
+    /// bound. For diagnostics and tests.
+    pub fn bound_session(&self, attachment: &Attachment) -> Option<SessionId> {
+        lock(&self.inner.state)
+            .attachments
+            .get(attachment)
+            .and_then(|a| a.bound.clone())
+    }
+
+    /// Where the carrier stands. [`CarrierState::Lost`] is a carrier that failed to start and
+    /// one whose connection ended after it was up; the daemon designates a new one then, on the
+    /// next Codex shim connection (never on a timer).
+    pub fn carrier_state(&self) -> CarrierState {
+        match &lock(&self.inner.state).carrier {
+            Carrier::None => CarrierState::None,
+            Carrier::Connecting => CarrierState::Connecting,
+            Carrier::Up(p) if p.client().is_open() => CarrierState::Up,
+            Carrier::Up(_) | Carrier::Lost => CarrierState::Lost,
+        }
     }
 
     /// How many threads the carrier serves for pairing and how many it has unsubscribed
@@ -792,12 +863,14 @@ impl ProviderAdapter for CodexAdapter {
         match &st.carrier {
             Carrier::Up(p) => {
                 let p = p.clone();
-                st.attachments.insert(handle.clone(), Att::new());
+                let generation = st.generation;
+                st.attachments.insert(handle.clone(), Att::new(generation));
                 drop(st);
                 inner.serve_shim(&handle, (reader, writer), p);
             }
             Carrier::Connecting => {
-                st.attachments.insert(handle.clone(), Att::new());
+                let generation = st.generation;
+                st.attachments.insert(handle.clone(), Att::new(generation));
                 st.pending.push((handle, (reader, writer)));
             }
             // No carrier, or a lost one: nothing could confirm or pair a call, so the
@@ -820,9 +893,18 @@ impl ProviderAdapter for CodexAdapter {
                 Carrier::Up(p) => Some(p.clone()),
                 _ => None,
             };
+            let generation = st.generation;
             let Some(att) = st.attachments.get_mut(attachment) else {
                 return;
             };
+            // An attachment served through a carrier that was lost is fenced off from the
+            // current pairing: it may be unbound, never bound, and the pairing is not told.
+            if att.generation != generation {
+                if session.is_none() {
+                    att.end_binding();
+                }
+                return;
+            }
             let bound = session.is_some();
             match session {
                 Some(session) => att.commit_binding(session),
@@ -875,6 +957,9 @@ impl ProviderAdapter for CodexAdapter {
             };
             // [IFC-ADP-030]: never to an attachment the core's latest binding left unbound.
             if att.phase != Phase::Open || att.bound.is_none() {
+                return HandOffOutcome::Failed;
+            }
+            if att.generation != st.generation {
                 return HandOffOutcome::Failed;
             }
             match (&st.carrier, &att.thread) {
@@ -1033,7 +1118,7 @@ mod tests {
     /// no reveal leaves the committed thread, and an ended binding needs a new reveal.
     #[test]
     fn the_core_decision_commits_only_an_unambiguous_thread() {
-        let mut a = Att::new();
+        let mut a = Att::new(0);
         a.revealed("t1");
         a.revealed("t1");
         a.commit_binding(session(1));

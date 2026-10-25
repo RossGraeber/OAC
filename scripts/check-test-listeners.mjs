@@ -385,6 +385,9 @@ export const REVIEWED = [
   // that keyed on the name.
   { path: "cli/src/ipc/unix.rs", rule: "rust-bind", line: P("match UnixListener::bi", "nd(&path) {"), why: "tokio UnixListener bound at the daemon's socket path in its private 0700 run directory; AF_UNIX, no network socket" },
   { path: "cli/tests/ipc_unix.rs", rule: "rust-bind", line: P("drop(UnixListener::bi", "nd(&socket).unwrap());"), why: "std UnixListener bound at a test socket path to leave a stale socket file; AF_UNIX, no network socket" },
+  { path: "cli/tests/codex_socket.rs", rule: "rust-bind", line: P('let listener = UnixListener::bi', 'nd(path).expect("bind the fake control socket");'), why: "std UnixListener at a test socket path under the temp directory, the fake Codex control socket (G8 S5); AF_UNIX, no network socket" },
+  { path: "cli/tests/codex_socket.rs", rule: "rust-bind", line: P('bi', 'nd('), why: "Winsock bind of an AF_UNIX socket at a test path (the fake Codex control socket, G8 S5; the call's arguments are on the next lines); AF_UNIX, no network socket" },
+  { path: "cli/tests/codex_socket.rs", rule: "rust-bind", line: P('assert_eq!(lis', 'ten(s, 8), 0);'), why: "Winsock listen on that AF_UNIX test socket (G8 S5); AF_UNIX, no network socket" },
   { path: "adapters/claude/tests/channel.rs", rule: "rust-bind", line: P("while pipes.bind(&attachment, &re", "cord, None).is_err() {"), why: "Pipelines attachment binding in the final-closure contention regression; no socket" },
   { path: "core/src/session_binding.rs", rule: "rust-bind", line: P("Some(StartKind::Transition", ") => bind(if any_differs {"), why: "Local BindingDecision closure; only constructs a session-binding decision, no socket" },
   { path: "core/src/session_binding.rs", rule: "rust-bind", line: P("bind(Vec", "::new())"), why: "Local BindingDecision closure; no socket" },

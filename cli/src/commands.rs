@@ -16,6 +16,7 @@ use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant};
 
 use oac_adapter_claude::ClaudeAdapter;
+use oac_adapter_codex::CodexAdapter;
 use oac_core::adapter::ProviderAdapter;
 use oac_core::clock::{Clock, SystemClock};
 use oac_core::ids::Token;
@@ -628,12 +629,15 @@ pub fn doctor(args: &[String]) -> i32 {
     };
     let path = std::env::var_os("PATH");
     let claude = move || doctor::probe_claude(path.as_deref(), doctor::CLAUDE_WAIT);
+    let socket_path = crate::codex::default_control_socket_path();
+    let control_socket = move || crate::codex::probe_control_socket(socket_path.as_deref());
     let probes = doctor::Probes {
         status_wait: STATUS_WAIT,
         negotiation: std::env::var_os(doctor::NEGOTIATION_VARIABLE),
         credential: &credential,
         fallback_file: keystore::fallback_key_file_exists(),
         claude: &claude,
+        control_socket: &control_socket,
     };
     doctor_with(&scope, &probes, json, &mut stdout)
 }
@@ -811,6 +815,15 @@ fn serve_in_foreground(
     let clock: Arc<dyn Clock> = Arc::new(SystemClock);
     let monotonic: MonotonicClock = Arc::new(Instant::now);
     let claude: Arc<dyn ProviderAdapter> = Arc::new(ClaudeAdapter::new());
+    // The Codex adapter and what opens its carrier, Codex's app-server control socket (G8 S5,
+    // #433). The daemon connects it when it starts, if the socket is there, and when a Codex
+    // shim connects; it never starts, stops or restarts Codex's app-server (Q11).
+    let codex_adapter = Arc::new(CodexAdapter::new());
+    let codex =
+        crate::codex::default_control_socket_path().map(|path| crate::codex::CarrierWiring {
+            adapter: codex_adapter.clone(),
+            opener: crate::codex::control_socket_opener(path),
+        });
     // The log file: the lines also go where a crash does not take them (G10, #71). It is
     // opened by `Daemon::start` once it holds the lock (a start that loses the race never
     // touches the running daemon's file); one that cannot be opened is one warning on
@@ -829,8 +842,15 @@ fn serve_in_foreground(
         clock,
         monotonic,
         config: PipelineConfig::default(),
-        harnesses: vec![("claude".to_owned(), claude)],
+        harnesses: vec![
+            ("claude".to_owned(), claude),
+            (
+                "codex".to_owned(),
+                codex_adapter as Arc<dyn ProviderAdapter>,
+            ),
+        ],
         log: log.clone(),
+        codex,
     };
     runtime.block_on(async {
         match Daemon::start(parts).await {

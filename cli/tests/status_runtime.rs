@@ -140,6 +140,7 @@ fn oac_status_reports_the_real_transport_healthy() {
         config: PipelineConfig::default(),
         harnesses: vec![("claude".to_owned(), Arc::new(ClaudeAdapter::new()) as _)],
         log: LogSink::discard(),
+        codex: None,
     };
     let runtime = daemon_runtime().expect("the runtime");
     let (status, stdout, stderr) = runtime.block_on(async {
