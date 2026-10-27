@@ -324,6 +324,10 @@ impl<V> Bounded<V> {
         Some(v)
     }
 
+    pub(crate) fn contains(&self, k: &(ThreadKey, String)) -> bool {
+        self.map.contains_key(k)
+    }
+
     #[cfg(test)]
     pub(crate) fn len(&self) -> usize {
         self.map.len()

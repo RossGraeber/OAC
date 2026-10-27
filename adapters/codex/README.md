@@ -18,6 +18,14 @@ implements `pairing::CallPort`, the one seam between the pairing internals and t
 | `confirm` | The confirmation engine: live `item/started` entries keyed by thread and item id, a bounded wait (5 s) in either order, single use ([MCPB-ATT-014]), end on `item/completed`, `turn/completed` or 600 s ([MCPB-ATT-021]); argument matching. |
 | `serving` | `thread/loaded/list` (ids only; `thread/list` is never called) and `thread/resume` for each new loaded thread before a pairing refusal goes out; unsubscribes the unpaired ones when the window ends. |
 
+The registered name is a setting, not a constant: `Config::new(name)` (`Config::try_new`
+checks it with `validate_registered_name`), `DEFAULT_REGISTERED_NAME` (`oac`) when nothing
+else is said. It must equal the name given to `codex mcp add <name>`, because Codex reports
+it as the `server` of each call and a report under another name pairs nothing. The daemon sets
+it with `OAC_CODEX_REGISTERED_NAME` (`docs/planning/v0.1/08-cli-and-deployment.md` §9). Such
+a report is counted (`PairingDiagnostics::other_server`) and, with `Config::with_log`, named
+once per distinct name in the log (the names only, never a thread id or a pairing value).
+
 The core issues the values, ends the windows, uses each value once and caps the windows at
 three ([IFC-ADP-090] to [IFC-ADP-093], `oac_core::issued_pairing`). This crate does what only
 the adapter can: it sees Codex's own reports on the carrier.

@@ -59,7 +59,11 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use oac_adapter_codex::{CarrierState, CodexAdapter};
+use oac_adapter_codex::pairing::{Config, LogFn};
+use oac_adapter_codex::{
+    CarrierState, CodexAdapter, DEFAULT_REGISTERED_NAME, Options, RegisteredNameError,
+    validate_registered_name,
+};
 use oac_core::pipeline::{AdapterId, Pipelines};
 use oac_core::session_binding::PeerObservation;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -77,6 +81,15 @@ pub const LABEL: &str = "codex";
 /// host whose Codex keeps its socket elsewhere. Only where to connect changes; the server is
 /// still authenticated.
 pub const SOCKET_OVERRIDE_VARIABLE: &str = "OAC_CODEX_CONTROL_SOCKET";
+
+/// The environment variable that sets the registered name: the name the operator gave `codex mcp
+/// add <name> -- oac mcp-shim --harness codex`, which Codex reports as the `server` of each of
+/// the shim's calls. The Codex pairing recognises a call only by it
+/// (`spec/bindings/mcp.md` §4.5.2), so the two must be equal. Unset or empty: the default,
+/// [`DEFAULT_REGISTERED_NAME`] (`oac`). Like [`SOCKET_OVERRIDE_VARIABLE`], an environment
+/// variable (`08-cli-and-deployment.md` §4: flag > env > file > default; `oac start` has no
+/// flag for it).
+pub const REGISTERED_NAME_VARIABLE: &str = "OAC_CODEX_REGISTERED_NAME";
 
 const HOME_VARIABLE: &str = "CODEX_HOME";
 const HOME_DIRECTORY: &str = ".codex";
@@ -113,6 +126,72 @@ pub fn default_control_socket_path() -> Option<PathBuf> {
         std::env::var_os(HOME_VARIABLE).as_deref(),
         std::env::home_dir().as_deref(),
     )
+}
+
+/// Why the registered name setting was refused.
+#[derive(Debug, PartialEq, Eq)]
+pub enum RegisteredNameSettingError {
+    /// The value is not text.
+    NotText,
+    /// The value is not a name Codex accepts for an MCP server.
+    Invalid(RegisteredNameError),
+}
+
+impl std::fmt::Display for RegisteredNameSettingError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RegisteredNameSettingError::NotText => {
+                write!(f, "{REGISTERED_NAME_VARIABLE} is not valid text")
+            }
+            RegisteredNameSettingError::Invalid(why) => {
+                write!(f, "{REGISTERED_NAME_VARIABLE}: {why}")
+            }
+        }
+    }
+}
+
+/// The registered name for the given value of [`REGISTERED_NAME_VARIABLE`]: the default when it
+/// is unset or empty, else the value if it is a name Codex accepts for an MCP server.
+///
+/// # Errors
+///
+/// The value is not text, is longer than `oac_adapter_codex::MAX_REGISTERED_NAME`, or holds a
+/// character Codex does not accept in a server name. The error text does not repeat the value.
+pub fn registered_name(value: Option<&OsStr>) -> Result<String, RegisteredNameSettingError> {
+    let Some(value) = value.filter(|v| !v.is_empty()) else {
+        return Ok(DEFAULT_REGISTERED_NAME.to_owned());
+    };
+    let name = value.to_str().ok_or(RegisteredNameSettingError::NotText)?;
+    validate_registered_name(name).map_err(RegisteredNameSettingError::Invalid)?;
+    Ok(name.to_owned())
+}
+
+/// [`registered_name`] for this process's environment.
+///
+/// # Errors
+///
+/// As [`registered_name`].
+pub fn registered_name_from_environment() -> Result<String, RegisteredNameSettingError> {
+    registered_name(std::env::var_os(REGISTERED_NAME_VARIABLE).as_deref())
+}
+
+/// The Codex adapter for the server registered with Codex as `registered_name`, whose pairing
+/// diagnostics go to the daemon's `log`. Both daemon wirings (`oac start` and the live-leg
+/// example daemon) build it here.
+///
+/// # Errors
+///
+/// `registered_name` is not a name Codex accepts.
+pub fn adapter(
+    registered_name: &str,
+    log: &LogSink,
+) -> Result<CodexAdapter, RegisteredNameSettingError> {
+    let sink = log.clone();
+    let line: LogFn = Arc::new(move |text: &str| sink.line(text));
+    let config = Config::try_new(registered_name)
+        .map_err(RegisteredNameSettingError::Invalid)?
+        .with_log(line);
+    Ok(CodexAdapter::with_config(config, Options::default()))
 }
 
 /// Why the control socket was not opened. The text holds no path and nothing the server sent.
@@ -435,10 +514,14 @@ impl CarrierDriver {
         .await;
         match given {
             Ok(Ok(())) => {
-                self.log.line(if had_key {
-                    "the Codex carrier is connected"
+                let name = self.adapter.registered_name();
+                self.log.line(&if had_key {
+                    format!("the Codex carrier is connected (registered name {name})")
                 } else {
-                    "the Codex carrier is connected without a pairing key: no shim can pair"
+                    format!(
+                        "the Codex carrier is connected without a pairing key: no shim can \
+                         pair (registered name {name})"
+                    )
                 });
                 Ensured::Connected
             }
@@ -973,6 +1056,51 @@ mod tests {
 
     fn tail() -> PathBuf {
         Path::new(SOCKET_DIRECTORY).join(SOCKET_FILE)
+    }
+
+    #[test]
+    fn the_registered_name_is_the_default_unless_set_and_a_set_value_is_checked() {
+        assert_eq!(registered_name(None), Ok("oac".to_owned()));
+        assert_eq!(registered_name(Some(&os(""))), Ok("oac".to_owned()));
+        assert_eq!(
+            registered_name(Some(&os("oac-g8live"))),
+            Ok("oac-g8live".to_owned())
+        );
+        for bad in ["a b", "a\nb", "caf\u{e9}", "a=b"] {
+            assert_eq!(
+                registered_name(Some(&os(bad))),
+                Err(RegisteredNameSettingError::Invalid(
+                    RegisteredNameError::BadCharacter
+                )),
+                "{bad:?}"
+            );
+        }
+        let long = "n".repeat(65);
+        assert_eq!(
+            registered_name(Some(&os(&long))),
+            Err(RegisteredNameSettingError::Invalid(
+                RegisteredNameError::TooLong
+            ))
+        );
+        // The words name the variable and never repeat the value.
+        let e = registered_name(Some(&os("bad name")))
+            .unwrap_err()
+            .to_string();
+        assert!(
+            e.contains(REGISTERED_NAME_VARIABLE) && !e.contains("bad name"),
+            "{e}"
+        );
+    }
+
+    #[test]
+    fn the_adapter_is_built_for_a_checked_name_only() {
+        let log = LogSink::new(std::io::sink());
+        assert_eq!(
+            adapter("oac-g8live", &log).unwrap().registered_name(),
+            "oac-g8live"
+        );
+        assert!(adapter("", &log).is_err());
+        assert!(adapter("a b", &log).is_err());
     }
 
     #[test]

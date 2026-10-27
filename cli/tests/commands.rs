@@ -194,6 +194,48 @@ fn start_refuses_a_test_namespace_before_it_reads_any_key() {
 }
 
 #[test]
+fn start_refuses_an_invalid_codex_registered_name_before_anything_else() {
+    // `OAC_CODEX_REGISTERED_NAME` must be a name `codex mcp add` accepts. The check comes
+    // first (before the namespace refusal and before any key or endpoint is touched), also
+    // for `--detach`, so a bad value starts nothing and says why. The words do not repeat
+    // the value.
+    let long = "n".repeat(65);
+    for bad in ["bad name", "caf\u{e9}", "a=b", long.as_str()] {
+        for args in [&["start"][..], &["start", "--detach"][..]] {
+            let mut command = Command::new(env!("CARGO_BIN_EXE_oac"));
+            let out = command
+                .args(args)
+                .stdin(Stdio::null())
+                .env("OAC_SCOPE", "commandstest")
+                .env("OAC_CODEX_REGISTERED_NAME", bad)
+                .output()
+                .unwrap();
+            assert_eq!(out.status.code(), Some(1), "{args:?} {bad:?}");
+            assert!(out.stdout.is_empty(), "{args:?} {bad:?}");
+            let e = stderr(&out);
+            assert!(
+                e.contains("OAC_CODEX_REGISTERED_NAME")
+                    && !e.contains("OAC_SCOPE is set")
+                    && !e.contains(bad),
+                "{args:?} {bad:?}: {e}"
+            );
+        }
+    }
+    // With `--json` the same refusal is the error object.
+    let out = Command::new(env!("CARGO_BIN_EXE_oac"))
+        .args(["start", "--json"])
+        .stdin(Stdio::null())
+        .env("OAC_SCOPE", "commandstest")
+        .env("OAC_CODEX_REGISTERED_NAME", "bad name")
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    let said = String::from_utf8_lossy(&out.stdout).into_owned();
+    assert_eq!(said.lines().count(), 1, "{said:?}");
+    assert!(said.contains("\"error\":\"failed\"") && said.contains("OAC_CODEX_REGISTERED_NAME"));
+}
+
+#[test]
 fn start_with_json_still_refuses_a_test_namespace_and_says_so_as_the_error_object() {
     // `--json` changes what standard output holds, never the refusal or the exit status.
     for args in [

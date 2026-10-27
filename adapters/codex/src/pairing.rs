@@ -36,7 +36,7 @@
 //! (no thread to serve) carries no value ([MCPB-ATT-022]); a report that does not equal the
 //! refusal is not a reveal.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::hash::Hash;
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
@@ -68,6 +68,87 @@ pub const MAX_WINDOW: Duration = Duration::from_secs(60);
 /// The most claimed confirmations kept for the content check after the call was served.
 pub const MAX_CLAIMS: usize = 1024;
 
+/// The longest registered name this crate accepts. Codex sets no length limit on the name of
+/// an MCP server; this is OAC's bound, so that a name that cannot be a real registration is
+/// refused at start and a name in a log line is short.
+pub const MAX_REGISTERED_NAME: usize = 64;
+
+/// The most distinct other-server names whose first sight is logged; later ones are only
+/// counted.
+const MAX_LOGGED_OTHER_SERVERS: usize = 16;
+
+/// Where the pairing writes its few diagnostic lines (the daemon's log). A line names no
+/// thread, no pairing value and nothing a call carries.
+pub type LogFn = Arc<dyn Fn(&str) + Send + Sync>;
+
+/// Why a registered name was refused.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RegisteredNameError {
+    /// The name is empty.
+    Empty,
+    /// The name is longer than [`MAX_REGISTERED_NAME`] bytes.
+    TooLong,
+    /// The name holds a character outside ASCII letters, digits and `-`, `_`, `:`, `@`, `/`,
+    /// `.` (what `codex mcp add` accepts in a server name).
+    BadCharacter,
+}
+
+impl fmt::Display for RegisteredNameError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Empty => f.write_str("the registered name is empty"),
+            Self::TooLong => write!(
+                f,
+                "the registered name is longer than {MAX_REGISTERED_NAME} characters"
+            ),
+            Self::BadCharacter => f.write_str(
+                "the registered name may hold only ASCII letters, digits and '-', '_', ':', '@', '/', '.'",
+            ),
+        }
+    }
+}
+
+impl std::error::Error for RegisteredNameError {}
+
+fn name_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | ':' | '@' | '/' | '.')
+}
+
+/// Check a registered name: non-empty, at most [`MAX_REGISTERED_NAME`] bytes, and only the
+/// characters `codex mcp add` accepts in an MCP server name (ASCII letters and digits, and
+/// `-`, `_`, `:`, `@`, `/`, `.`; first-party source `codex-rs/cli/src/mcp_cmd.rs`
+/// `validate_server_name`, read 2026-10-26 on the main branch: UNVERIFIED against a Codex
+/// build, and this check is only an early refusal of a name that cannot be a registration).
+///
+/// # Errors
+///
+/// The first rule the name breaks.
+pub fn validate_registered_name(name: &str) -> Result<(), RegisteredNameError> {
+    if name.is_empty() {
+        Err(RegisteredNameError::Empty)
+    } else if name.len() > MAX_REGISTERED_NAME {
+        Err(RegisteredNameError::TooLong)
+    } else if !name.chars().all(name_char) {
+        Err(RegisteredNameError::BadCharacter)
+    } else {
+        Ok(())
+    }
+}
+
+/// A name Codex reported, made safe and short for a log line: characters outside the allowed
+/// set become `?`, and it is cut to [`MAX_REGISTERED_NAME`] characters.
+fn sanitised(name: &str) -> String {
+    let mut out: String = name
+        .chars()
+        .take(MAX_REGISTERED_NAME)
+        .map(|c| if name_char(c) { c } else { '?' })
+        .collect();
+    if name.chars().count() > MAX_REGISTERED_NAME {
+        out.push_str("...");
+    }
+    out
+}
+
 /// How the pairing is set. [`Config::new`] gives the reference values of the spec's
 /// reference implementation note: a 30 s window, a 5 s wait and a 600 s confirmation life.
 #[derive(Clone)]
@@ -85,6 +166,7 @@ pub struct Config {
     pub confirm_life: Duration,
     clock: Clock,
     serving_thread: bool,
+    log: Option<LogFn>,
 }
 
 impl Config {
@@ -97,7 +179,28 @@ impl Config {
             confirm_life: CONFIRM_LIFE,
             clock: Arc::new(Instant::now),
             serving_thread: true,
+            log: None,
         }
+    }
+
+    /// [`Config::new`] for a name checked with [`validate_registered_name`].
+    ///
+    /// # Errors
+    ///
+    /// The first rule the name breaks.
+    pub fn try_new(registered_name: &str) -> Result<Config, RegisteredNameError> {
+        validate_registered_name(registered_name)?;
+        Ok(Config::new(registered_name))
+    }
+
+    /// Write the pairing's few diagnostic lines (a window opened or not, a call from a server
+    /// that is not the registered one, a reveal for a thread the carrier does not serve) to
+    /// `log`. Without it they are not written; the counts ([`PairingDiagnostics`]) are kept
+    /// either way. A line holds no thread id and no pairing value.
+    #[must_use]
+    pub fn with_log(mut self, log: LogFn) -> Config {
+        self.log = Some(log);
+        self
     }
 
     /// Do not start the thread that ends pairing windows by itself: they end only on
@@ -205,6 +308,16 @@ pub struct PairingDiagnostics {
     pub unconfirmed: u64,
     /// Served calls whose reported content differed from what was returned ([MCPB-ATT-017]).
     pub content_mismatches: u64,
+    /// `mcpToolCall` items Codex reported complete whose `server` is not the registered name:
+    /// none of them is a reveal or a confirmation. A count that grows while the operator's
+    /// calls are never paired means the name given to `codex mcp add` differs from the
+    /// registered name this adapter was set with.
+    pub other_server: u64,
+    /// Completed calls of the registered server whose result matched no refused call and no
+    /// served call: not a reveal, and not explained by a confirmation either.
+    pub unmatched_reports: u64,
+    /// Reveals dropped because the thread they came from is not served by the carrier.
+    pub unknown_threads: u64,
 }
 
 #[derive(Default)]
@@ -243,6 +356,8 @@ struct Inner<K> {
     refusals: Mutex<Refusals<K>>,
     claims: Mutex<Bounded<Claimed<K>>>,
     diag: Mutex<PairingDiagnostics>,
+    /// The other-server names already logged.
+    other_servers: Mutex<HashSet<String>>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -295,6 +410,7 @@ impl<K: Clone + Eq + Hash + Send + Sync + 'static> CodexPairing<K> {
             serving: OnceLock::new(),
             conns: Mutex::default(),
             diag: Mutex::default(),
+            other_servers: Mutex::default(),
         });
         let weak = Arc::downgrade(&inner);
         let handler: EventHandler = Arc::new(move |e| {
@@ -400,6 +516,35 @@ impl<K: Clone + Eq + Hash + Send + Sync + 'static> Inner<K> {
         (self.cfg.clock)()
     }
 
+    /// One diagnostic line, when the configuration has somewhere to write it. Never called
+    /// with a lock of this module held.
+    fn log(&self, line: &str) {
+        if let Some(log) = &self.cfg.log {
+            log(line);
+        }
+    }
+
+    /// Codex reported an `mcpToolCall` of a server that is not the registered one: it is
+    /// neither a reveal nor a confirmation. Counted once per completed item (`count`), and
+    /// logged once per distinct name.
+    fn other_server(&self, server: &str, count: bool) {
+        if count {
+            lock(&self.diag).other_server += 1;
+        }
+        let first = {
+            let mut seen = lock(&self.other_servers);
+            seen.len() < MAX_LOGGED_OTHER_SERVERS && seen.insert(server.to_owned())
+        };
+        if first {
+            self.log(&format!(
+                "an mcpToolCall from server {}, not the registered name {}: it pairs nothing \
+                 (the name given to `codex mcp add` must equal the registered name)",
+                sanitised(server),
+                sanitised(&self.cfg.registered_name)
+            ));
+        }
+    }
+
     fn client(&self) -> &CodexClient {
         self.client.get().expect("the client is set before any use")
     }
@@ -463,12 +608,27 @@ impl<K: Clone + Eq + Hash + Send + Sync + 'static> Inner<K> {
                         c.window_until = Some(now + self.cfg.window);
                     }
                     lock(&self.diag).windows += 1;
+                    self.log(&format!(
+                        "a Codex pairing window opened: {} threads subscribed, {} served, {} failed",
+                        o.subscribed, o.served, o.failed
+                    ));
                 }
                 // No thread to pair with, or the listing failed: the pairing cannot complete,
                 // so the refusal carries no value and the core opens no window
                 // ([MCPB-ATT-022]).
-                Ok(_) | Err(_) => {
+                other => {
                     lock(&self.diag).unpairable += 1;
+                    match other {
+                        Ok(o) => self.log(&format!(
+                            "a Codex call is unpairable, no pairing window: no thread served \
+                             ({} subscribed, {} failed)",
+                            o.subscribed, o.failed
+                        )),
+                        Err(_) => self.log(
+                            "a Codex call is unpairable, no pairing window: the loaded-thread \
+                             listing failed",
+                        ),
+                    }
                     return oac_mcp_tools::refusal(oac_core::delivery::ErrorCode::Unauthorized);
                 }
             }
@@ -585,6 +745,10 @@ impl<K: Clone + Eq + Hash + Send + Sync + 'static> Inner<K> {
                 self.confirmations.turn_completed(thread, &turn);
             }
             CodexEvent::Closed => self.port.carrier_closed(),
+            // A call of some other server: no reveal and no confirmation. Named in the log,
+            // since a registration under another name than the registered one otherwise
+            // fails without a sign. Counted once per item, when it completes.
+            CodexEvent::ItemStarted { call: Some(c), .. } => self.other_server(&c.server, false),
             CodexEvent::ItemCompleted {
                 thread,
                 item:
@@ -599,6 +763,10 @@ impl<K: Clone + Eq + Hash + Send + Sync + 'static> Inner<K> {
             } if server == name => {
                 self.call_completed(thread, &id, &tool, arguments.as_ref(), result.as_ref(), now);
             }
+            CodexEvent::ItemCompleted {
+                item: CompletedItem::McpToolCall { server, .. },
+                ..
+            } => self.other_server(&server, true),
             _ => {}
         }
     }
@@ -621,7 +789,13 @@ impl<K: Clone + Eq + Hash + Send + Sync + 'static> Inner<K> {
             match found {
                 Found::Reveal { key, value } => self.reveal(&key, thread, value),
                 Found::Late => lock(&self.diag).late_reveals += 1,
-                Found::None => {}
+                // The report of a served call has a claim and matches no refusal; one with
+                // neither is a report of a call this adapter did not refuse or serve.
+                Found::None => {
+                    if !lock(&self.claims).contains(&(thread, id.native().to_owned())) {
+                        lock(&self.diag).unmatched_reports += 1;
+                    }
+                }
             }
         }
         let claimed = lock(&self.claims).remove(&(thread, id.native().to_owned()));
@@ -645,6 +819,8 @@ impl<K: Clone + Eq + Hash + Send + Sync + 'static> Inner<K> {
     /// Report a reveal of `value` for `key`, naming `thread`.
     fn reveal(&self, key: &K, thread: ThreadKey, value: String) {
         let Some(native_id) = self.client().native_of(thread) else {
+            lock(&self.diag).unknown_threads += 1;
+            self.log("a Codex reveal was dropped: its thread is not served by the carrier");
             return;
         };
         {

@@ -40,7 +40,6 @@ use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use oac_adapter_claude::ClaudeAdapter;
-use oac_adapter_codex::CodexAdapter;
 use oac_cli::codex::{CarrierWiring, control_socket_opener, default_control_socket_path};
 use oac_cli::daemon::{Daemon, Diagnostic, LogSink, Parts};
 use oac_cli::ipc::Scope;
@@ -242,6 +241,15 @@ fn main() {
         Arc::new(Mutex::new(file))
     });
     let events = Events { file };
+    // The name the Codex server is registered under (`OAC_CODEX_REGISTERED_NAME`, default
+    // `oac`), as for `oac start`.
+    let codex_name = match oac_cli::codex::registered_name_from_environment() {
+        Ok(name) => name,
+        Err(e) => {
+            eprintln!("live_daemon: {e}");
+            std::process::exit(1);
+        }
+    };
     let scope = match Scope::for_user_in(Some(&args.namespace)) {
         Ok(s) => s,
         Err(e) => {
@@ -271,10 +279,17 @@ fn main() {
     });
     let failure_log = log.clone();
     // The Codex adapter, with the real control socket as its carrier (the path of
-    // `OAC_CODEX_CONTROL_SOCKET`, else the Codex home default): the same wiring as `oac start`.
+    // `OAC_CODEX_CONTROL_SOCKET`, else the Codex home default) and the registered name set by
+    // `OAC_CODEX_REGISTERED_NAME`: the same wiring as `oac start`.
     // The carrier is connected at start if the socket is there and when a Codex shim connects;
     // this never starts or stops Codex's app-server.
-    let codex_adapter = Arc::new(CodexAdapter::new());
+    let codex_adapter = match oac_cli::codex::adapter(&codex_name, &log) {
+        Ok(a) => Arc::new(a),
+        Err(e) => {
+            eprintln!("live_daemon: {e}");
+            std::process::exit(1);
+        }
+    };
     let codex = default_control_socket_path().map(|path| CarrierWiring {
         adapter: codex_adapter.clone(),
         opener: control_socket_opener(path),

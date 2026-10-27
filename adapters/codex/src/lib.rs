@@ -52,8 +52,11 @@ pub mod shim;
 pub mod threads;
 pub mod ws;
 
-pub use adapter::{CarrierState, CodexAdapter};
+pub use adapter::{CarrierState, CodexAdapter, DEFAULT_REGISTERED_NAME};
 pub use client::{ClientError, CodexClient, Diagnostics, EventHandler, Options};
 pub use events::{CodexEvent, CompletedItem, McpCallStart};
-pub use pairing::{Answer, CallPort, CodexPairing, Config, PairingDiagnostics, Reveal};
+pub use pairing::{
+    Answer, CallPort, CodexPairing, Config, LogFn, MAX_REGISTERED_NAME, PairingDiagnostics,
+    RegisteredNameError, Reveal, validate_registered_name,
+};
 pub use threads::{ThreadKey, ThreadState, ThreadView, TurnEnd};
