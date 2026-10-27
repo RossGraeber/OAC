@@ -16,7 +16,6 @@ use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant};
 
 use oac_adapter_claude::ClaudeAdapter;
-use oac_adapter_codex::CodexAdapter;
 use oac_core::adapter::ProviderAdapter;
 use oac_core::clock::{Clock, SystemClock};
 use oac_core::ids::Token;
@@ -337,6 +336,13 @@ pub fn start(args: &[String]) -> i32 {
         }
         1
     };
+    // The name the Codex server is registered under (`OAC_CODEX_REGISTERED_NAME`): refused
+    // first, before anything else is read and before a detached daemon is spawned, so that a
+    // bad value is seen at the command and starts nothing.
+    let codex_name = match crate::codex::registered_name_from_environment() {
+        Ok(name) => name,
+        Err(e) => return fail(&mut stdout, &mut stderr, "failed", &e.to_string()),
+    };
     // The test namespace is for the in-process daemon of a test (`Scope::for_user_in`), never
     // for the binary: the device key is the user's one in every namespace, so a second daemon
     // in another namespace beside the real one would be a second peer with the same
@@ -356,7 +362,7 @@ pub fn start(args: &[String]) -> i32 {
     if detach {
         return start_detached(&scope, json, &mut stdout, &mut stderr);
     }
-    serve_in_foreground(scope, json, &mut stdout, &mut stderr)
+    serve_in_foreground(scope, &codex_name, json, &mut stdout, &mut stderr)
 }
 
 /// `oac start --help`: what the verb does and where its log is.
@@ -374,6 +380,9 @@ fn start_help() -> String {
          With --json, standard output holds one JSON object (\"oac_cli\":1): once the daemon
          serves (ok, already_running, detached, pid and log), or, when the start fails, an
          error object. Diagnostics stay on standard error.
+
+         Codex: OAC_CODEX_REGISTERED_NAME must equal the name given to `codex mcp add <name>`
+         (default: oac); a different name never pairs.
 
          The daemon's log lines go to standard error and also to a file that survives a crash:
            {log}
@@ -795,6 +804,7 @@ fn running_pid(scope: &Scope) -> Option<u32> {
 
 fn serve_in_foreground(
     scope: Scope,
+    codex_name: &str,
     json: bool,
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
@@ -818,12 +828,6 @@ fn serve_in_foreground(
     // The Codex adapter and what opens its carrier, Codex's app-server control socket (G8 S5,
     // #433). The daemon connects it when it starts, if the socket is there, and when a Codex
     // shim connects; it never starts, stops or restarts Codex's app-server (Q11).
-    let codex_adapter = Arc::new(CodexAdapter::new());
-    let codex =
-        crate::codex::default_control_socket_path().map(|path| crate::codex::CarrierWiring {
-            adapter: codex_adapter.clone(),
-            opener: crate::codex::control_socket_opener(path),
-        });
     // The log file: the lines also go where a crash does not take them (G10, #71). It is
     // opened by `Daemon::start` once it holds the lock (a start that loses the race never
     // touches the running daemon's file); one that cannot be opened is one warning on
@@ -831,6 +835,24 @@ fn serve_in_foreground(
     let log = LogSink::new(io::stderr()).with_default_file_after_lock(None);
     log.install_panic_hook();
     let log_path = logfile::default_log_path(None);
+    // The name Codex was told for the server (`codex mcp add <name>`, setting
+    // `OAC_CODEX_REGISTERED_NAME`, default `oac`): Codex reports it as an item's `server`, and
+    // a call under another name never pairs.
+    let codex_adapter = match crate::codex::adapter(codex_name, &log) {
+        Ok(a) => Arc::new(a),
+        Err(e) => {
+            let _ = writeln!(stderr, "oac start: {e}");
+            if json {
+                print_json(stdout, &start_error_json("failed", &e.to_string()));
+            }
+            return 1;
+        }
+    };
+    let codex =
+        crate::codex::default_control_socket_path().map(|path| crate::codex::CarrierWiring {
+            adapter: codex_adapter.clone(),
+            opener: crate::codex::control_socket_opener(path),
+        });
     let parts = Parts {
         scope,
         key_store,

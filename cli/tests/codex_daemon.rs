@@ -305,13 +305,14 @@ impl Fake {
         );
     }
 
-    fn mcp_start(&self, thread: &str, tool: &str, arguments: &str) -> String {
+    /// Codex reports a call as started, made on `server`; returns the item id.
+    fn mcp_start_as(&self, server: &str, thread: &str, tool: &str, arguments: &str) -> String {
         let r = self.control(
             "oacFake/mcp/start",
             &format!(
                 "{{\"threadId\":{},\"server\":{},\"tool\":{},\"arguments\":{arguments}}}",
                 js(thread),
-                js(REGISTERED),
+                js(server),
                 js(tool)
             ),
         );
@@ -479,6 +480,8 @@ struct Scene {
     daemon: Option<Daemon>,
     rt: Rt,
     adapter: Arc<CodexAdapter>,
+    /// The name the adapter was set with, and the `server` Codex reports for the shim's calls.
+    registered: String,
     carrier: Arc<Carrier>,
     fake: Fake,
     log: Captured,
@@ -491,6 +494,12 @@ struct Scene {
 
 impl Scene {
     fn new(tag: &str) -> Scene {
+        Scene::named(tag, REGISTERED)
+    }
+
+    /// A scene whose adapter is built as the daemon builds it, for the server registered with
+    /// Codex as `registered`.
+    fn named(tag: &str, registered: &str) -> Scene {
         let namespace = format!("cx{}{tag}", std::process::id());
         let dir =
             std::env::temp_dir().join(format!("oac-codex-daemon-{}-{tag}", std::process::id()));
@@ -511,7 +520,12 @@ impl Scene {
                 .parent()
                 .map(Path::to_path_buf),
         );
-        let adapter = Arc::new(CodexAdapter::new());
+        let sink = LogSink::new(log.clone()).with_tap(Arc::new(move |d| {
+            tap_sink.lock().unwrap().push(d.clone());
+        }));
+        let adapter = Arc::new(
+            oac_cli::codex::adapter(registered, &sink).expect("a registered name Codex accepts"),
+        );
         let net = network.clone();
         let clock: Arc<dyn Clock> = Arc::new(SystemClock);
         let parts = Parts {
@@ -526,9 +540,7 @@ impl Scene {
             monotonic: Arc::new(move || net.now()),
             config: PipelineConfig::default(),
             harnesses: vec![("codex".to_owned(), adapter.clone() as _)],
-            log: LogSink::new(log.clone()).with_tap(Arc::new(move |d| {
-                tap_sink.lock().unwrap().push(d.clone());
-            })),
+            log: sink,
             codex: Some(CarrierWiring {
                 adapter: adapter.clone(),
                 opener: carrier.opener(),
@@ -542,6 +554,7 @@ impl Scene {
             daemon: Some(daemon),
             rt,
             adapter,
+            registered: registered.to_owned(),
             carrier,
             fake,
             log,
@@ -585,7 +598,7 @@ impl Scene {
     /// A tool call as Codex makes it in `thread`: reported started, called on shim `n`,
     /// reported completed with what the shim returned. `(is_error, text)`.
     fn codex_call(&mut self, n: u32, thread: &str, tool: &str, args: &str) -> (bool, String) {
-        let item = self.fake.mcp_start(thread, tool, args);
+        let item = self.fake.mcp_start_as(&self.registered, thread, tool, args);
         let (err, text) = self.host().call(n, tool, args);
         self.fake.mcp_complete(thread, &item, err, &text);
         (err, text)
@@ -1127,4 +1140,51 @@ fn codex_sessions_pair_receive_reply_with_correlation_and_survive_a_lost_carrier
     assert_eq!(s.adapter.carrier_state(), CarrierState::Up);
     assert!(![a, b].contains(&c));
     s.wait_log("the Codex carrier is connected");
+}
+
+/// An operator who registered the shim under another name than the default (`codex mcp add
+/// oac-g8live ...`) and set the daemon to match: Codex reports that name as the `server` of
+/// the shim's calls, and the connection pairs. A report under any other name pairs nothing,
+/// and the daemon's log says so, naming both names (#69; the live leg that registered
+/// `oac-g8live` against a daemon that expected `oac` never paired and logged nothing).
+#[test]
+fn a_registered_name_other_than_the_default_pairs_codex_sessions() {
+    if is_host() {
+        return host();
+    }
+    let mut s = Scene::named("d", "oac-g8live");
+    assert_eq!(s.adapter.registered_name(), "oac-g8live");
+    let observation = s.observe_host();
+    eventually("the start-up attempt", || {
+        (s.carrier.opens() == 1).then_some(())
+    });
+    s.carrier.serve(observation);
+    let thread = s.fake.busy_thread();
+    s.host().open(1);
+    s.wait_log("the Codex carrier is connected (registered name oac-g8live)");
+
+    // The call, reported under the default name: not this daemon's server.
+    let args = format!(
+        "{{\"to\":\"{}\",\"content\":[{{\"type\":\"text\",\"text\":\"hello\"}}]}}",
+        SessionId::from_random_octets([0xee; 16]).as_str()
+    );
+    let item = s.fake.mcp_start_as("oac", &thread, "send", &args);
+    let (err, text) = s.host().call(1, "send", &args);
+    assert!(err && text.contains("oac-pair-"), "{text}");
+    s.fake.mcp_complete(&thread, &item, err, &text);
+    s.wait_log("not the registered name oac-g8live");
+    assert!(s.sessions().is_empty(), "{}", s.log.text());
+    assert!(
+        !s.log.text().contains(&thread),
+        "no thread id in the log: {}",
+        s.log.text()
+    );
+
+    // The same call, reported under the registered name: the reveal.
+    let before = s.sessions();
+    let (err, text) = s.codex_call(1, &thread, "send", &args);
+    assert!(err && text.contains("oac-pair-"), "{text}");
+    eventually("a binding", || {
+        s.sessions().into_iter().find(|id| !before.contains(id))
+    });
 }
