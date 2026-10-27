@@ -82,7 +82,9 @@ export const LIVE_NON_VERDICT = '#69/#433 G8 slice S6: a live leg of the Codex p
 export const LIVE_CLIENT_FILES = Object.freeze(['g8-capture.mjs']);
 export const DEFAULT_SERVER_NAME = 'oac-g8live';
 export const CLAUDE_AGENT = 'g8liveclaude';
-export const DEFAULT_MARKER = 'G8 live leg marker: reply with the single word ready.';
+// A run tag in the marker keeps a stale TUI thread of an earlier run, still loaded in the daemon with the
+// same text, from matching (run 2 attached to one).
+export const defaultMarker = (tag) => `G8 live leg marker ${tag}: reply with the single word ready.`;
 // The text of the three Claude-to-Codex hand-offs, by test number. Each says how the reply is to be made;
 // the third gives no instruction, to see whether Codex names the message by itself (risk row 17).
 export const HANDOFF_INSTRUCTION = Object.freeze({
@@ -159,6 +161,35 @@ export function jsonLines(text) {
   return out;
 }
 
+// A daemon log line as it may be captured: no pairing value and no thread id (a UUID) in it. The adapter's
+// own lines name neither; this is the backstop.
+export function scrubLogLine(line) {
+  return String(line ?? '')
+    .replace(new RegExp(PAIRING_VALUE.source, 'g'), '<PAIRING_VALUE>')
+    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, '<THREAD_ID>');
+}
+
+// What the daemon's adapter lines say (PR #459): the carrier's connect line with the registered name, pairing
+// windows opened, calls unpairable, and calls of another server than the registered one. Counts and names
+// only. `registeredByOperatorNamedAsOther` is true when an other-server line names the server the operator
+// registered, i.e. the daemon's registered name is not the operator's.
+export function adapterLogSummary(events, serverName) {
+  const lines = events.filter((e) => e.event === 'log').map((e) => String(e.line ?? ''));
+  const carrier = lines.map((l) => /the Codex carrier is connected \(registered name ([^)]*)\)/.exec(l)).find(Boolean);
+  const others = [];
+  for (const l of lines) {
+    const m = /an mcpToolCall from server (\S+), not the registered name (\S+?):/.exec(l);
+    if (m) others.push({ server: m[1], registeredName: m[2] });
+  }
+  return {
+    carrierConnectedRegisteredName: carrier ? carrier[1] : null,
+    windowsOpened: lines.filter((l) => /a Codex pairing window opened/.test(l)).length,
+    unpairable: lines.filter((l) => /a Codex call is unpairable/.test(l)).length,
+    otherServers: others,
+    registeredByOperatorNamedAsOther: others.some((o) => o.server === serverName),
+  };
+}
+
 // The daemon's events as they may be captured: pid, parent-free chains by image name, no resolved path.
 export function sanitizeDaemonEvents(events) {
   const chain = (c) => (Array.isArray(c) ? c.map((x) => ({ pid: x?.pid ?? null, image: typeof x?.image === 'string' ? basename(x.image.replace(/\\/g, '/')) : null })) : []);
@@ -173,7 +204,7 @@ export function sanitizeDaemonEvents(events) {
       case 'ready':
         return { event: e.event, unix_ms: e.unix_ms, namespace: e.namespace, pid: e.pid };
       case 'log':
-        return { event: e.event, unix_ms: e.unix_ms, line: e.line };
+        return { event: e.event, unix_ms: e.unix_ms, line: scrubLogLine(e.line) };
       default:
         return { event: e.event, unix_ms: e.unix_ms };
     }
@@ -566,7 +597,7 @@ export default {
       projectDir: '',
       namespace: 'g8live',
       serverName: DEFAULT_SERVER_NAME,
-      operatorPrompt: DEFAULT_MARKER,
+      operatorPrompt: '', // empty: the default marker with this run's random tag
       explicitEnv: '0',
       daemonWaitMs: '60000',
       attachTimeoutMs: '900000',
@@ -607,7 +638,8 @@ export default {
     if (!/^[a-z0-9]{1,24}$/.test(ns)) throw new DriverError('namespace must be 1 to 24 lower-case letters and digits');
     const serverName = params.serverName;
     if (!/^[A-Za-z0-9_-]{1,40}$/.test(serverName)) throw new DriverError('serverName must be letters, digits, - and _');
-    const operatorPrompt = params.operatorPrompt || DEFAULT_MARKER;
+    const runTag = randomBytes(2).toString('hex');
+    const operatorPrompt = params.operatorPrompt || defaultMarker(runTag);
     const abortSignal = herdr.abortSignal;
     const nonce = randomBytes(4).toString('hex');
     const slash = (p) => p.replace(/\\/g, '/');
@@ -616,6 +648,8 @@ export default {
       nonVerdictBearing: LIVE_NON_VERDICT,
       params: { ...params, oac: '<oac>', daemon: '<daemon>', projectDir: '<projectDir>' },
       nonce,
+      registeredName: serverName,
+      marker: { runTag, override: !!params.operatorPrompt, text: operatorPrompt },
       date: new Date().toISOString().slice(0, 10),
       versions: null,
       client: null,
@@ -755,6 +789,9 @@ export default {
       for (const e of all) if (e.mode === 'watch' && e.direction === 'daemon->client' && e.payload?.method) methods[e.payload.method] = (methods[e.payload.method] ?? 0) + 1;
       g.methodsSeen = methods;
       const dev = daemonEvents();
+      g.adapterLog = adapterLogSummary(dev, serverName);
+      if (g.adapterLog.registeredByOperatorNamedAsOther) ctx.finding(`claim 1: the daemon logged an mcpToolCall from server ${serverName}, not its registered name ${g.adapterLog.otherServers.find((o) => o.server === serverName)?.registeredName}: the daemon's registered name is not the one the operator registered, so nothing can pair (OAC_CODEX_REGISTERED_NAME was ${serverName} in the daemon pane)`);
+      if (g.adapterLog.carrierConnectedRegisteredName !== null && g.adapterLog.carrierConnectedRegisteredName !== serverName) ctx.finding(`the daemon's carrier line says registered name ${g.adapterLog.carrierConnectedRegisteredName}, not ${serverName}`);
       g.daemonSummary = {
         accepted: dev.filter((e) => e.event === 'accepted').map((e) => ({ label: e.label, paired: e.paired, peer: e.peer?.pid ?? null, harness: e.harness?.pid ?? null })),
         stopped: dev.some((e) => e.event === 'stopped'),
@@ -817,7 +854,7 @@ export default {
       // --- 1. the live daemon, in a pane -----------------------------------------------------------------
       const work = ctx.dir('g8live');
       eventsPath = join(work, 'events.jsonl');
-      const wsA = await herdr.workspaceCreate({ cwd: work, label: 'oac-g8live-daemon', env: { OAC_SCOPE: ns } });
+      const wsA = await herdr.workspaceCreate({ cwd: work, label: 'oac-g8live-daemon', env: { OAC_SCOPE: ns, OAC_CODEX_REGISTERED_NAME: serverName } });
       daemonPane = wsA.paneId;
       ctx.record('daemonPane', wsA);
       await herdr.paneRun(daemonPane, ctx.quoteForPane([params.daemon, '--namespace', ns, '--events', eventsPath]));

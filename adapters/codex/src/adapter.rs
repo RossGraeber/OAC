@@ -729,6 +729,13 @@ impl CodexAdapter {
         true
     }
 
+    /// The name this adapter takes as the one the operator registered the OAC server under
+    /// with Codex (`codex mcp add <name> ...`): the only `server` of Codex's `mcpToolCall`
+    /// items that pairs or confirms a call.
+    pub fn registered_name(&self) -> &str {
+        &self.inner.config.registered_name
+    }
+
     /// The session the core's latest `set_binding` named for `attachment`, if it is still
     /// bound. For diagnostics and tests.
     pub fn bound_session(&self, attachment: &Attachment) -> Option<SessionId> {

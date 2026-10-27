@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 
 import scenario, {
   liveNames, claudePrompt, handoffText, pairingPrompt, sendPrompt, parseFrame, oacCalls, pairingSequence, handoffFrames, echoTrials, testNumberOf,
-  midTurnVerdict, refusedWithoutValue, receivedHas, carrierAncestry, claudeEvidence, claudeEvidenceText, evaluateClaims, sanitizeDaemonEvents, jsonLines, PAIRING_VALUE,
+  midTurnVerdict, refusedWithoutValue, receivedHas, defaultMarker, scrubLogLine, adapterLogSummary, carrierAncestry, claudeEvidence, claudeEvidenceText, evaluateClaims, sanitizeDaemonEvents, jsonLines, PAIRING_VALUE,
 } from '../scenarios/g8-codex-pairing.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -186,6 +186,22 @@ export function g8liveUnit(check) {
   check('g8live claims: missing evidence is "not-shown" with a reason; an open question answered no is "answered-negative" (an answer), not "not-shown"; none is shown on a hunch', weak[0].status === 'not-shown' && weak[1].status === 'not-shown' && weak[2].status === 'not-shown' && weak[3].status === 'not-shown' && weak[4].status === 'answered-negative' && weak[5].status === 'answered-negative' && weak[6].status === 'not-shown' && weak.every((c) => c.status === 'shown' || c.why));
   const badFrame = evaluateClaims({ pairing: seq, codexSend: sendCall, claude: claudeEv, frames: [{ ...frames[0], frame: { ...frames[0].frame, ok: false, problems: ['x'] } }], trials, mid: rcv, carrier: same, nonce: NONCE });
   check('g8live claims: one hand-off frame that is not ok keeps claim 3 from being shown', badFrame[2].status === 'not-shown');
+
+  // --- the marker, the registered name and the adapter's log lines (PR #459) ---------------------------------------------------------------
+  check('g8live marker: the default marker carries a run tag, so two runs never share one and a stale thread cannot match; an override replaces it', defaultMarker('ab12') !== defaultMarker('cd34') && /marker ab12:/.test(defaultMarker('ab12')) && /const runTag = randomBytes\(2\)/.test(SCENARIO) && /params\.operatorPrompt \|\| defaultMarker\(runTag\)/.test(SCENARIO) && /operatorPrompt: ''/.test(SCENARIO));
+  check('g8live registered name: the daemon pane is started with OAC_CODEX_REGISTERED_NAME set to the server name the operator registers, and the name is recorded', /OAC_SCOPE: ns, OAC_CODEX_REGISTERED_NAME: serverName/.test(SCENARIO) && /registeredName: serverName/.test(SCENARIO));
+  const logEv = (line) => ({ event: 'log', unix_ms: 1, line });
+  const adapterLines = [
+    logEv('the Codex carrier is connected (registered name oac-g8live)'),
+    logEv('a Codex pairing window opened: 2 threads subscribed, 2 served, 0 failed'),
+    logEv('a Codex call is unpairable, no pairing window: no thread served'),
+    logEv('an mcpToolCall from server oac-g8live, not the registered name oac: it pairs nothing (the registration name must equal the registered name)'),
+  ];
+  const sum = adapterLogSummary(adapterLines, 'oac-g8live');
+  const ok = adapterLogSummary(adapterLines.slice(0, 3), 'oac-g8live');
+  check('g8live adapter log: the carrier line\'s registered name, windows opened, unpairable calls and other-server lines are counted; an other-server line that names the operator\'s server is flagged', sum.carrierConnectedRegisteredName === 'oac-g8live' && sum.windowsOpened === 1 && sum.unpairable === 1 && sum.otherServers.length === 1 && sum.registeredByOperatorNamedAsOther === true && ok.registeredByOperatorNamedAsOther === false && /claim 1: the daemon logged an mcpToolCall/.test(SCENARIO));
+  const dirty = sanitizeDaemonEvents([logEv(`a Codex reveal ${V} for thread 0198f2c4-1111-7222-8333-444455556666 was dropped`)]);
+  check('g8live adapter log: the captured log lines carry no pairing value and no thread id (a UUID)', !dirty[0].line.includes(V) && !/0198f2c4/.test(dirty[0].line) && dirty[0].line.includes('<PAIRING_VALUE>') && dirty[0].line.includes('<THREAD_ID>') && scrubLogLine('plain line') === 'plain line');
 
   // --- the capture client's third mode ---------------------------------------------------------------------------------------------------------------
   check('g8live client: midwatch is a mode of the passive capture client and shares watch\'s code (thread/resume with only threadId and excludeTurns); it sends no method that changes a thread', /'midwatch'/.test(code(CLIENT)) && /mode !== 'list' && !threadId/.test(CLIENT) && !/'(?:turn\/start|turn\/steer|thread\/queue\/add|turn\/interrupt|thread\/start|thread\/fork)'/.test(code(CLIENT)));

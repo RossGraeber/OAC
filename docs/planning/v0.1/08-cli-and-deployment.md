@@ -314,6 +314,34 @@ codex mcp add oac -- oac mcp-shim --harness codex
 
 (Dated note, 2026-10-22, #69: this line read `codex mcp add oac -- oac mcp-shim` until now. `oac mcp-shim` without `--harness <claude or codex>` exits `2` (usage, §5), so the registration as written could not work. The Codex registration names its harness. The part after `--` is what Codex runs; `codex mcp add` itself is as quoted above. A registered stdio MCP server was also seen to start when a Codex session opened, not at its first tool call (once, for one server): the G8 S1 capture saw `initialize` and `tools/list` arrive 57.6 s before the first prompt, on Codex `0.163.0` (`docs/planning/gates/fixtures/g8-codex-tools/README.md`).)
 
+**The registered name (`oac` above) is a daemon setting.** Codex reports the name given to
+`codex mcp add <name>` as the `server` of each of the shim's tool calls, and the Codex
+pairing (`spec/bindings/mcp.md` §4.5.2, "Registered name") recognises a call only by it. So
+the name must equal the daemon's **`OAC_CODEX_REGISTERED_NAME`** environment variable, read by
+`oac start` (and by the live-leg example daemon) at start. Unset or empty, it is `oac`. It follows
+the same pattern as `OAC_CODEX_CONTROL_SOCKET` (environment; `oac start` has no flag for it,
+§4's precedence being flag, then environment). To register under another name, for example
+`oac-work`:
+
+```
+codex mcp add oac-work -- oac mcp-shim --harness codex
+OAC_CODEX_REGISTERED_NAME=oac-work oac start
+```
+
+A value is refused at start, with exit `1` (the error object under `--json`) and nothing
+started, if it is longer than 64 characters or holds a character outside ASCII letters, digits
+and `-`, `_`, `:`, `@`, `/`, `.` (the characters `codex mcp add` accepts in a server name,
+read in Codex's source on 2026-10-26: UNVERIFIED against a Codex build; the 64-character bound
+is OAC's, Codex sets none). A mismatch is not an error Codex or the shim can see: the shim
+connects and gets the pairing window and its value, but Codex's report of the call names
+another server, so nothing binds. The daemon's log says so: once per distinct name, "an
+mcpToolCall from server X, not the registered name Y" (the names only: no thread id and no pairing value),
+and the line that reports the carrier connected names the registered name in force. The
+adapter keeps the counts (`other_server`, `unmatched_reports` and the others of
+`PairingDiagnostics`). (Dated note, 2026-10-26, #69: the name was fixed at `oac` in the
+product until now, and a registration under any other name, as a live run made, was dropped
+silently.)
+
 This is the **supported outbound tool-registration** path
 (`docs/planning/decisions/C2-process-model.md` §6) — distinct from the live-inject path
 §10 below names, which is app-server runtime behaviour, not a CLI command a user types.

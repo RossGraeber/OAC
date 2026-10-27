@@ -22,7 +22,10 @@ use std::time::{Duration, Instant};
 
 use oac_adapter_codex::client::{CodexClient, Options};
 use oac_adapter_codex::mcp::{ServerHandle, serve_connection};
-use oac_adapter_codex::pairing::{Answer, CallPort, CodexPairing, Config, Reveal};
+use oac_adapter_codex::pairing::{
+    Answer, CallPort, CodexPairing, Config, LogFn, MAX_REGISTERED_NAME, RegisteredNameError,
+    Reveal, validate_registered_name,
+};
 use oac_adapter_codex::serving::Clock;
 use oac_core::delivery::ErrorCode;
 use oac_core::ids::EXTENSION_ID_V0;
@@ -362,6 +365,14 @@ fn pairing_value_of(text: &str) -> Option<String> {
     Some(text[i..i + "oac-pair-".len() + 32].to_owned())
 }
 
+/// The diagnostic lines the pairing wrote.
+type Lines = Arc<Mutex<Vec<String>>>;
+
+fn collecting(lines: &Lines) -> LogFn {
+    let lines = lines.clone();
+    Arc::new(move |l: &str| lock(&lines).push(l.to_owned()))
+}
+
 // ---- the scene -----------------------------------------------------------------------------
 
 struct Scene {
@@ -418,7 +429,20 @@ impl Scene {
     /// Codex reports a call of the registered server, started and completed, in a thread's
     /// running turn (`oacFake/mcp/start`, `oacFake/mcp/complete`).
     fn report(&self, thread: &str, tool: &str, args: &str, failed: bool, text: &str) {
-        let item = self.fake.mcp_start(thread, NAME, tool, args);
+        self.report_as(NAME, thread, tool, args, failed, text);
+    }
+
+    /// [`Scene::report`] with the `server` Codex names for the call.
+    fn report_as(
+        &self,
+        server: &str,
+        thread: &str,
+        tool: &str,
+        args: &str,
+        failed: bool,
+        text: &str,
+    ) {
+        let item = self.fake.mcp_start(thread, server, tool, args);
         self.fake.mcp_complete(thread, &item, failed, text);
         self.barrier();
     }
@@ -1156,4 +1180,164 @@ fn the_pairing_never_steers_and_never_lists_threads_with_previews() {
         }
     }
     mcp.stop();
+}
+
+// ---- the registered name ---------------------------------------------------------------------
+
+#[test]
+fn a_report_under_another_name_than_the_registered_one_pairs_nothing_and_is_counted() {
+    let lines = Lines::default();
+    let s = Scene::with(|c| c.with_log(collecting(&lines)));
+    let thread = s.fake.busy_thread();
+    let (_mcp, text) = s.refused_whoami(&thread, "{}");
+    // The operator registered the shim under another name than the one this adapter was set
+    // with: Codex reports the refused call, with the refusal as its result, as that server's.
+    s.report_as("oac-g8live", &thread, "whoami", "{}", true, &text);
+    s.report_as("oac-g8live", &thread, "whoami", "{}", true, &text);
+    assert!(!s.port.is_bound(1));
+    let d = s.pairing.diagnostics();
+    assert_eq!((d.reveals, d.other_server), (0, 2));
+    assert_eq!(s.port.log(), ["listed", "request"]);
+    // One line for the name, not one per call; it names both names and holds no thread id
+    // and no pairing value.
+    let named: Vec<String> = lock(&lines)
+        .iter()
+        .filter(|l| l.contains("not the registered name"))
+        .cloned()
+        .collect();
+    assert_eq!(named.len(), 1, "{named:?}");
+    assert!(
+        named[0].contains("oac-g8live") && named[0].contains(NAME),
+        "{named:?}"
+    );
+    assert!(!named[0].contains(&thread), "{named:?}");
+    assert!(!named[0].contains("oac-pair-"), "{named:?}");
+    // A second name is a second line.
+    s.report_as("another", &thread, "whoami", "{}", true, &text);
+    let count = lock(&lines)
+        .iter()
+        .filter(|l| l.contains("not the registered name"))
+        .count();
+    assert_eq!(count, 2);
+    assert_eq!(s.pairing.diagnostics().other_server, 3);
+}
+
+#[test]
+fn an_unsafe_other_name_is_sanitised_and_bounded_in_the_log() {
+    let lines = Lines::default();
+    let s = Scene::with(|c| c.with_log(collecting(&lines)));
+    let thread = s.fake.busy_thread();
+    let (_mcp, _text) = s.refused_whoami(&thread, "{}");
+    let nasty = format!("a b\n\u{1b}[31m{}", "x".repeat(500));
+    let item = s.fake.mcp_start(&thread, &nasty, "whoami", "{}");
+    s.fake.mcp_complete(&thread, &item, true, "x");
+    s.barrier();
+    let all = lock(&lines).join("\n");
+    let line = all
+        .lines()
+        .find(|l| l.contains("not the registered name"))
+        .unwrap_or_else(|| panic!("no line: {all}"));
+    assert!(line.len() < 400, "{}", line.len());
+    assert!(!line.contains('\u{1b}') && line.contains("a?b?"), "{line}");
+    // The name is one line: its newline became a character of the name.
+    assert_eq!(
+        all.lines()
+            .filter(|l| l.contains("not the registered name"))
+            .count(),
+        1,
+        "{all}"
+    );
+}
+
+#[test]
+fn a_registered_name_other_than_the_default_pairs_the_connection() {
+    let lines = Lines::default();
+    let s = Scene::with(|mut c| {
+        c.registered_name = "oac-g8live".to_owned();
+        c.with_log(collecting(&lines))
+    });
+    assert_eq!(s.pairing.config().registered_name, "oac-g8live");
+    let thread = s.fake.busy_thread();
+    let (_mcp, text) = s.refused_whoami(&thread, "{}");
+    // The name the default would use is another server's now.
+    s.report_as("oac", &thread, "whoami", "{}", true, &text);
+    assert!(!s.port.is_bound(1));
+    assert_eq!(s.pairing.diagnostics().other_server, 1);
+    // The configured name reveals.
+    s.report_as("oac-g8live", &thread, "whoami", "{}", true, &text);
+    s.port.wait_for("the binding", |c| c.bound.contains_key(&1));
+    let d = s.pairing.diagnostics();
+    assert_eq!((d.reveals, d.other_server, d.unmatched_reports), (1, 1, 0));
+    assert_eq!(lock(&s.port.core).bound.get(&1), Some(&thread));
+}
+
+#[test]
+fn the_window_and_the_unpairable_call_are_logged_with_counts_only() {
+    let lines = Lines::default();
+    let s = Scene::with(|c| c.with_log(collecting(&lines)));
+    // Nothing loaded: unpairable.
+    let mut mcp = Mcp::connect(&s.pairing, 1);
+    mcp.open();
+    let r = mcp.call("whoami", Some("{}"), "x");
+    assert!(is_error(&r));
+    // A busy thread: a window.
+    let thread = s.fake.busy_thread();
+    let r = mcp.call("whoami", Some("{}"), &thread);
+    assert!(pairing_value_of(&result_text(&r)).is_some());
+    let all = lock(&lines).join("\n");
+    assert!(all.contains("unpairable"), "{all}");
+    assert!(
+        all.contains("window opened: 1 threads subscribed, 1 served, 0 failed"),
+        "{all}"
+    );
+    assert!(
+        !all.contains(&thread) && !all.contains("oac-pair-"),
+        "{all}"
+    );
+    mcp.stop();
+}
+
+#[test]
+fn a_report_of_the_registered_server_that_matches_no_refusal_is_counted() {
+    let s = Scene::new();
+    let thread = s.fake.busy_thread();
+    let (_mcp, text) = s.refused_whoami(&thread, "{}");
+    // Not the refusal this adapter returned: nothing to reveal, nothing it served.
+    s.report(&thread, "whoami", "{}", true, "unauthorized: not the text");
+    assert_eq!(s.pairing.diagnostics().unmatched_reports, 1);
+    // The refusal itself is a reveal, not an unmatched report.
+    s.report(&thread, "whoami", "{}", true, &text);
+    s.port.wait_for("the binding", |c| c.bound.contains_key(&1));
+    let d = s.pairing.diagnostics();
+    assert_eq!((d.reveals, d.unmatched_reports), (1, 1));
+}
+
+#[test]
+fn a_registered_name_is_checked() {
+    assert_eq!(validate_registered_name("oac"), Ok(()));
+    assert_eq!(validate_registered_name("oac-g8live_2.a:b@c/d"), Ok(()));
+    assert_eq!(
+        validate_registered_name(&"n".repeat(MAX_REGISTERED_NAME)),
+        Ok(())
+    );
+    assert_eq!(
+        validate_registered_name(""),
+        Err(RegisteredNameError::Empty)
+    );
+    assert_eq!(
+        validate_registered_name(&"n".repeat(MAX_REGISTERED_NAME + 1)),
+        Err(RegisteredNameError::TooLong)
+    );
+    for bad in ["a b", "a\nb", "a=b", "oac\"", "caf\u{e9}", "a;b", "a\\b"] {
+        assert_eq!(
+            validate_registered_name(bad),
+            Err(RegisteredNameError::BadCharacter),
+            "{bad:?}"
+        );
+        assert!(Config::try_new(bad).is_err());
+    }
+    assert_eq!(
+        Config::try_new("oac-g8live").unwrap().registered_name,
+        "oac-g8live"
+    );
 }
