@@ -76,7 +76,7 @@ import { NotRunError, DriverError } from '../lib/herdr.mjs';
 import { parseCodexVersions, pinsReadWarning, parseCodexCliVersion, parseCodexDaemonVersion, codexVersionWarning, CODEX_PIN_ROW, CODEX_DAEMON_VERSION_FIELDS } from '../lib/pins.mjs';
 import { runBounded, spawnLongRunning, killTree, within, processTable, descendants } from '../lib/proc.mjs';
 import { CODEX_DAEMON_SCRATCH_HOLDER } from '../lib/scratch.mjs';
-import { committedFile, classifyScreen, driverMayAcceptExpecting, DIALOG_KINDS } from '../lib/g1.mjs';
+import { committedFile, classifyScreen, driverMayAcceptExpecting, DIALOG_KINDS, settingsWarningRules } from '../lib/g1.mjs';
 import { stageGateFiles, makeAgent, refuseRunningTurn } from '../lib/gate-common.mjs';
 import { regexLiteral } from '../lib/pane-shell.mjs';
 import { PINS_PATH, parseG2Transcript, g2Facts, identifyTuiThread, sanitizeTranscript, CODEX_DIALOG_KINDS, waitCodexReady, loadedSince, codexReadyTimeoutFinding, multipleNewThreadsFinding, paneArgv } from '../lib/g2.mjs';
@@ -753,7 +753,27 @@ export default {
     const driverCodex = codexMode === 'driver';
     // The Claude session's agent: its dialogs are recorded and answered by the kind table of lib/g1.mjs.
     // Only the Claude pane has one; there is no Codex pane.
-    const claude = makeAgent({ ctx, g, name: CLAUDE_AGENT, label: 'claude', classify: (t) => classifyScreen(t), dialogKinds: DIALOG_KINDS, driverMayAccept: driverMayAcceptExpecting(() => ['oac']), accept, num, stop });
+    // Claude's Settings Warning about the operator's own settings file: Continue only (lib/g1.mjs); each skipped rule
+    // is a finding once, when the driver accepts the screen.
+    const mayAcceptClaude = driverMayAcceptExpecting(() => ['oac']);
+    const skippedNoted = new Set();
+    const claude = makeAgent({
+      ctx, g, name: CLAUDE_AGENT, label: 'claude',
+      classify: (t) => ({ ...classifyScreen(t), text: String(t ?? '') }),
+      dialogKinds: DIALOG_KINDS,
+      driverMayAccept: (c) => {
+        const plan = mayAcceptClaude(c);
+        if (plan.ok && c?.dialog === 'settings-warning') {
+          for (const rule of settingsWarningRules(c.text)) {
+            if (skippedNoted.has(rule)) continue;
+            skippedNoted.add(rule);
+            ctx.finding(`operator settings: ${rule} (Claude Code skipped it; the run continues)`);
+          }
+        }
+        return plan;
+      },
+      accept, num, stop,
+    });
 
     // The Codex side (driver mode): registration with the Codex CLI, and the TUI as an agent whose dialogs go
     // through the kind table of lib/g2.mjs bound to this run's server (lib/codex-driver.mjs).
@@ -1191,6 +1211,16 @@ export default {
           /* the pane is gone */
         }
       }
+      let stopLineSent = daemonStopped;
+      if (daemonPane && !daemonStopped) {
+        try {
+          await herdr.paneRun(daemonPane, 'stop');
+          stopLineSent = true;
+        } catch {
+          /* input is halted after a NOT RUN stop (herdr refuses it): the driver's teardown ends the pane */
+        }
+      }
+      const stoppedEventSeen = daemonEvents().some((e) => e.event === 'stopped');
       // Cleanup (lead decision 2026-10-29): the registration is removed on every path, then summarised. Panes,
       // scratch and the herdr server are ended by the driver's own teardown (manifest teardown, scratch).
       if (registration) {
@@ -1200,7 +1230,8 @@ export default {
       g.cleanup = {
         registrationRemoved: registration ? registration.removed : null,
         capturesClientsStopped: true,
-        liveDaemonStopped: daemonStopped,
+        liveDaemonStopped: stoppedEventSeen,
+        liveDaemonEndedBy: stoppedEventSeen ? 'its own clean shutdown after a stop line (a stopped event)' : stopLineSent ? 'a stop line was sent but no stopped event was seen; the driver teardown ends the pane' : 'the driver teardown (herdr closes the pane): input is halted after a NOT RUN stop, so no stop line could be sent',
         codexPane: codexPaneId ? 'left to the driver teardown (herdr closes it)' : null,
         sharedCodexDaemon: 'never started, stopped or restarted by the driver',
         folderTrust: driverCodex ? 'a folder-trust accept is persisted by Codex in its own configuration; the driver does not edit that file' : null,
@@ -1211,13 +1242,6 @@ export default {
       }
       g.claudeScreens = claude.sections.length;
       if (claude.sections.length) ctx.capture(g.captureNames?.screens ?? liveNames(g.date, null).screens, claude.sections.join('\n'));
-      if (daemonPane && !daemonStopped) {
-        try {
-          await herdr.paneRun(daemonPane, 'stop');
-        } catch {
-          /* the driver's teardown ends the pane */
-        }
-      }
       const rawTranscript = clientDir && existsSync(transcriptPath()) ? readFileSync(transcriptPath(), 'utf8') : '';
       const rawEvents = eventsPath && existsSync(eventsPath) ? readFileSync(eventsPath, 'utf8') : '';
       // Pairing values wherever they appear; session ids named in the daemon's binding lines.

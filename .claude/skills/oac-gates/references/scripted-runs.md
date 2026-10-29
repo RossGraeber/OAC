@@ -324,7 +324,11 @@ codex=driver`; `codex=operator` keeps the old operator-typed mode) the driver:
   nothing sent. A `Hook failed` line is a finding. It types the scenario's own prompts and leaves with `/quit`;
 - still never starts or stops the shared app-server daemon, never calls `turn/steer`, never answers a server
   request itself and never signs in. `scripts/check-herdr-containment.mjs` check 10 allows the two registration
-  commands in that one file only.
+  commands in that one file (and its unit tests) only.
+- Also 2026-10-29, Claude Code's start-up "Settings Warning" about the operator's own settings file (an
+  "Invalid permission rule" warning; seen in G8 S6 run 4): the driver answers Enter on the preselected "1.
+  Continue" only (nothing is written), never "Fix with Claude" or "Exit and fix manually", and records each
+  skipped rule as a finding (`settings-warning` in `lib/g1.mjs`).
 
 **Amended 2026-10-08 (#303): Codex's start-up update prompt.** Lead decision on #303: the
 driver answers Codex's start-up update prompt "2. Skip" (this launch only), recorded as

@@ -9,6 +9,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { NotRunError } from '../lib/herdr.mjs';
+import { classifyScreen, driverMayAccept, settingsWarningRules } from '../lib/g1.mjs';
 import { classifyForLive, driverMayAcceptLive, liveToolApproval, makeRegistration, OAC_TOOL_INPUTS } from '../lib/codex-driver.mjs';
 
 import scenario, {
@@ -310,6 +311,31 @@ export async function g8liveUnit(check) {
   const scNoComments = code(SCENARIO);
   check('g8live registration: the scenario removes it in its finally block before recording, with no abort signal on the codex command, through the config checkpoint', scNoComments.indexOf('registration.unregister()') > scNoComments.indexOf('} finally {') && scNoComments.indexOf('registration.unregister()') < scNoComments.indexOf("ctx.record('g8live', g)") && !/runBounded\(file, a, \{[^}]*abortSignal/.test(scNoComments.slice(scNoComments.indexOf('const codexMcp'), scNoComments.indexOf('const registration'))) && /driverChangesHarnessConfig/.test(scNoComments) && /checkpointFailures/.test(read(join(REPO, 'tools', 'herdr', 'run.mjs'))) && /driverChangesHarnessConfig/.test(read(join(REPO, 'tools', 'herdr', 'run.mjs'))));
   check('g8live codex mode: driver is the default; operator keeps the old mode (the driver prints the prompts)', scenario.defaults.params.codex === 'driver' && /codexMode === 'driver'/.test(scNoComments) && /else say\(`The live daemon is ready/.test(scNoComments) && /if \(!codex\) \{\s*say\(operatorText\)/.test(scNoComments));
+
+  // --- Claude Code's Settings Warning (G8 S6 run 4, 2026-10-29) -------------------------------------------------------------------------------
+  const SETTINGS_WARNING = [
+    '',
+    '  Settings Warning',
+    '',
+    '  C:\\Users\\someone\\.claude\\settings.json',
+    '  └ permissions.allow: Invalid permission rule "codex exec" was skipped: Tool names must start with uppercase. Use',
+    '    "Codex exec"',
+    '',
+    '  The values listed above were skipped; the rest of the file is in effect.',
+    '',
+    '  ❯ 1. Continue',
+    '    2. Fix with Claude',
+    '    3. Exit and fix manually',
+    '',
+    '  Enter to confirm · Esc to cancel',
+  ].join('\n');
+  const swPlan = (t) => driverMayAccept(classifyScreen(t));
+  const sw = swPlan(SETTINGS_WARNING);
+  check('g8live claude settings-warning: the recorded screen is a known kind and is accepted with Enter on the preselected "1. Continue", no selection move', classifyScreen(SETTINGS_WARNING).dialog === 'settings-warning' && sw.ok && sw.keys.join() === 'enter' && sw.moves.length === 0);
+  const swRefused = (t) => { const p = swPlan(t); return !p.ok && p.keys.length === 0; };
+  check('g8live claude settings-warning: "Fix with Claude" or "Exit" preselected, an extra option, a missing option, another warning or a changed sentence is refused with no key', swRefused(SETTINGS_WARNING.replace('❯ 1. Continue', '  1. Continue').replace('    2. Fix with Claude', '  ❯ 2. Fix with Claude')) && swRefused(SETTINGS_WARNING.replace('❯ 1. Continue', '  1. Continue').replace('    3. Exit and fix manually', '  ❯ 3. Exit and fix manually')) && swRefused(SETTINGS_WARNING.replace('    3. Exit and fix manually', '    3. Exit and fix manually\n    4. Open the file')) && swRefused(SETTINGS_WARNING.replace('    2. Fix with Claude\n', '')) && swRefused(SETTINGS_WARNING.replace('Invalid permission rule', 'Unknown setting')) && swRefused(SETTINGS_WARNING.replace('the rest of the file is in effect', 'the whole file was dropped')) && swRefused(SETTINGS_WARNING.replace('Continue\n', 'Continue anyway\n')));
+  const rules = settingsWarningRules(SETTINGS_WARNING);
+  check('g8live claude settings-warning: the skipped rule is read, its wrapped line joined, for the finding; a screen without the list gives none', rules.length === 1 && rules[0] === 'permissions.allow: Invalid permission rule "codex exec" was skipped: Tool names must start with uppercase. Use "Codex exec"' && settingsWarningRules('nothing').length === 0 && /operator settings: \$\{rule\} \(Claude Code skipped it; the run continues\)/.test(SCENARIO));
 
   // --- the capture client's third mode ---------------------------------------------------------------------------------------------------------------
   check('g8live client: midwatch is a mode of the passive capture client and shares watch\'s code (thread/resume with only threadId and excludeTurns); it sends no method that changes a thread', /'midwatch'/.test(code(CLIENT)) && /mode !== 'list' && !threadId/.test(CLIENT) && !/'(?:turn\/start|turn\/steer|thread\/queue\/add|turn\/interrupt|thread\/start|thread\/fork)'/.test(code(CLIENT)));
