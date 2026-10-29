@@ -362,7 +362,7 @@ runtime behaviour, consumed by the daemon's own Codex app-server client
 (`docs/planning/decisions/C2-process-model.md` §1 item 4), not invoked from a shell.
 
 G2's recorded fallback, per `docs/planning/STATUS.md`'s Gate verdicts table: "OAC-owned
-app-server with `codex --remote`."
+app-server with `codex --remote`." That fallback is explicitly deferred with a reason: `adapters/codex/README.md`, section "Deferred: the `codex --remote` fallback (G7, #68)".
 
 **Items carried from** `docs/planning/decisions/C2-process-model.md` §2 leg 4, §10:
 

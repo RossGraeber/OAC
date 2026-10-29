@@ -2307,7 +2307,7 @@ requirement whose fixtures exercise it.
 | SEC-AUZ-018 | MUST | 9.5 | `sec-auz/SEC-AUZ-018.n01` |
 | SEC-AUZ-020 | MUST NOT | 9.6 | TODO(fixture): behaviour across the implementation; F11 |
 | SEC-AUZ-021 | MUST NOT | 9.6 | TODO(fixture): needs a live harness; G4, F11, H2 |
-| SEC-AUZ-022 | MUST NOT | 9.6 | TODO(fixture): needs a harness input surface; G7 (#68) against the F9 fake. Adapter half tested, not fixtured: the row 12 tests `delivery_to_a_busy_thread_waits_in_the_queue_and_never_joins_the_turn` and `a_steering_call_or_a_setting_member_is_reported_nonconformant` (`tests/security/tests/never_steer.rs`) |
+| SEC-AUZ-022 | MUST NOT | 9.6 | TODO(fixture): needs a harness input surface; G7 (#68) against the F9 fake. Adapter half tested, not fixtured: the five row 12 tests of `tests/security/tests/never_steer.rs` that drive the adapter, `delivery_to_an_idle_thread_is_one_queue_add`, `delivery_to_a_busy_thread_waits_in_the_queue_and_never_joins_the_turn`, `delivery_when_a_turn_starts_just_after_an_idle_status_still_only_queues`, `delivery_to_an_idle_thread_after_an_interrupted_turn_only_queues` and `a_turned_away_add_is_not_followed_by_any_other_hand_off`, each applying the members check through `assert_queue_only`; the checker's negative self-test `a_steering_call_or_a_setting_member_is_reported_nonconformant` is not adapter evidence |
 | SEC-AUZ-023 | MUST NOT | 9.6 | TODO(fixture): review of launch code; H2 |
 | SEC-AUZ-024 | MUST NOT | 9.6 | TODO(fixture): behaviour across the implementation; the fixture stages carry no content into an authorization decision; F11 |
 | SEC-AUZ-025 | MUST | 9.6 | TODO(fixture): needs a harness input surface with a running turn; G7 (#68) against the F9 fake. Adapter half tested, not fixtured: the row 12 test `delivery_to_a_busy_thread_waits_in_the_queue_and_never_joins_the_turn` (`tests/security/tests/never_steer.rs`) |
@@ -2340,7 +2340,7 @@ requirement whose fixtures exercise it.
 | SEC-PRV-004 | MUST NOT | 12.2 | covered by SEC-PRV-003 (`sec-prv/SEC-PRV-003.n01`, `.n02` expect `refused`, never a rendered altered value) |
 | SEC-PRV-005 | MUST NOT | 12.2 | TODO(fixture): needs an adapter; F11 |
 | SEC-PRV-006 | MUST | 12.3 | TODO(fixture): needs a harness surface; F10 contract suite, G4 |
-| SEC-PRV-007 | MUST | 12.3 | TODO(fixture): delimiter randomness; G7, F11. Framing tested against the F9 fake, not fixtured: the row 17 test `a_forged_frame_and_a_guessed_delimiter_in_the_body_stay_quoted_body` (`tests/security/tests/provenance.rs`) |
+| SEC-PRV-007 | MUST | 12.3 | TODO(fixture): delimiter randomness; G7, F11. Tested against the F9 fake, not fixtured, by the row 17 test `a_forged_frame_and_a_guessed_delimiter_in_the_body_stay_quoted_body` (`tests/security/tests/provenance.rs`): a delimiter new per hand-off, absent from the body, not one of the guessed values, and differing across deliveries. Not shown by any test: the length (128 bits or more) and the CSPRNG source, which stand on `fresh_delimiter` (`core/src/ids.rs`) by inspection |
 | SEC-PRV-008 | MUST | 12.3 | `sec-prv/SEC-PRV-008.p01`, `.n01` |
 | SEC-PRV-009 | MUST | 12.3 | `sec-prv/SEC-PRV-009.p01` |
 | SEC-PRV-010 | MUST | 12.3 | `sec-prv/SEC-PRV-010.p01` |

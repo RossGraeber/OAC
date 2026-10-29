@@ -494,7 +494,7 @@ interactive session **launched OAC-enabled**:
 - Codex: attached via the shared local app-server daemon, or, on the documented
   fallback, `codex --remote` (`docs/planning/v0.1/08-cli-and-deployment.md` §9-§10 —
   surface label **experimental (per-method gating)**, version floating per
-  `docs/planning/PINS.md`).
+  `docs/planning/PINS.md`). The `codex --remote` fallback is explicitly deferred with a reason: `adapters/codex/README.md`, section "Deferred: the `codex --remote` fallback (G7, #68)".
 
 (Note, 2026-10-01, issue #186: these two bullets previously read "pinned `v2.1.274`" and
 "pinned `@openai/codex@0.154.0`"; those `docs/planning/PINS.md` rows went floating
