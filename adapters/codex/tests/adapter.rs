@@ -1303,3 +1303,50 @@ fn the_adapter_sends_only_allowlisted_methods() {
     }
     assert!(methods.iter().any(|m| m == "thread/queue/add"));
 }
+
+/// [IFC-ADP-040] (no polling, `oac-testing` §4), the time-window half that the allowlist test
+/// above cannot show (it sorts and deduplicates the methods): between two deliveries, across
+/// an idle window, the adapter sends the app-server no request at all. A repeated
+/// `thread/loaded/list`, `thread/read` or `thread/turns/list` would be the adapter asking
+/// "is there anything new". The window is an hour on the adapter's clock plus a real pause for
+/// its own threads; the assertion does not poll: the fake's call log is read once, after the
+/// second delivery, and the two `thread/queue/add` frames must be adjacent in it.
+#[test]
+fn no_app_server_request_is_sent_while_idle_between_two_deliveries() {
+    let s = Scene::new();
+    let mut sess = s.session();
+    s.pair(&mut sess);
+    s.fake.complete_turn(&sess.thread, "ok");
+    assert_eq!(
+        s.adapter.deliver(s.hand_off(&sess, "first")),
+        HandOffOutcome::Completed
+    );
+    // The idle window: nothing arrives, and the adapter is left alone.
+    s.clock.advance(Duration::from_secs(3600));
+    std::thread::sleep(Duration::from_millis(300));
+    s.fake.complete_turn(&sess.thread, "ok again");
+    assert_eq!(
+        s.adapter.deliver(s.hand_off(&sess, "second")),
+        HandOffOutcome::Completed
+    );
+    // One read, after the event: the carrier is one ordered stream, so this log is complete.
+    let methods: Vec<String> = s
+        .fake
+        .client_calls()
+        .iter()
+        .map(|c| get_str(c, "method").unwrap_or("?").to_owned())
+        .collect();
+    let adds: Vec<usize> = methods
+        .iter()
+        .enumerate()
+        .filter(|(_, m)| *m == "thread/queue/add")
+        .map(|(i, _)| i)
+        .collect();
+    assert_eq!(adds.len(), 2, "{methods:?}");
+    assert_eq!(
+        adds[1],
+        adds[0] + 1,
+        "a request was sent between the two deliveries: {methods:?}"
+    );
+    assert_eq!(adds[1] + 1, methods.len(), "{methods:?}");
+}
