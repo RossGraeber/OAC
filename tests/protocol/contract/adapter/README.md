@@ -281,7 +281,10 @@ suite follows the new rule, with no sleep, retry or grace period before any verd
   the 50 ms exposure window that follows the resume, and again after the 200 ms wait of the
   last stage; `IFC-ADP-109` and `IFC-ADP-110` row `no-late-effect-after-the-exposure-window`
   fail on any entry in the second read, so a report that comes later than the first read (the
-  `ReportsOnceLate` plant, about 100 ms) is still caught.
+  `ReportsOnceLate` plant, about 100 ms) is still caught. The exposure has an upper limit: the
+  record is read a second time and not again, and the measured reach is roughly 300 to 600 ms
+  after the return (a report at 300 ms was caught, one at 600 ms was not). A report later than
+  that is not seen.
 - Hand-offs are not in that record. They are judged by the closure of the connection, as the
   spec paragraph after `IFC-ADP-111` says: the core's closure barrier
   (`core/src/connection.rs`, `ConnectionWriter::transfer`) admits no transfer once the
@@ -320,5 +323,6 @@ Residual window. The core notes an effect and the shutdown thread sets the mark,
 same lock, so there is no scheduler race on which came first. The mark is taken by the thread
 that called `shutdown`, at or after the return, so an effect that falls between the return and
 the mark counts as before it. That can only make the suite pass an adapter that reported in
-that gap, never fail a conformant one. It is the width of the few instructions between the two
-statements, and it is the only such gap.
+that gap, never fail a conformant one. The gap runs from `shutdown()` returning, through the
+`is_closed` scan of the supplied connections, to the mark. It is short, but the suite does not
+bound it. The other limit is the exposure above: effects later than the second read are not seen.
