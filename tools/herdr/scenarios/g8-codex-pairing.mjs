@@ -15,24 +15,32 @@
 //     screens are recorded verbatim before any keystroke and then answered by the driver under the
 //     #196 precedent, by lib/g1.mjs's kind table only (`--param accept=human` leaves them to the
 //     operator). The driver types the one prompt, detects its CLAUDE-DONE line and exits Claude;
-//   - the operator's own Codex TUI, in the project directory: the driver has no Codex pane, launches
-//     no Codex, types nothing into it, accepts no Codex dialog and never answers a server request. The operator
-//     registers OAC as an MCP server named oac-g8live with the Codex CLI (OAC_SCOPE=<ns> in its
-//     environment; command: the absolute path of oac with `mcp-shim --harness codex`) before the run
-//     and removes it afterwards, accepts every dialog
-//     (this once, never "Always") and types the prompts the driver prints. The steps are in the
-//     operator script (g8-live-operator-steps.md). The driver never registers or removes an MCP
-//     server, never runs the daemon's start or stop verbs (it runs only `codex app-server daemon
-//     version`), never starts or stops Codex, and never signs in. It does not call turn/steer or
-//     any other method that writes into a thread: its Codex-facing clients are the passive
-//     `watch` and `midwatch` modes of gate-servers/g8-capture.mjs (thread/resume only).
+//   - the Codex TUI, plain `codex` in the project directory. Since the lead's decision of 2026-10-29
+//     the DRIVER runs it too (default `--param codex=driver`): it registers the OAC MCP server with
+//     the Codex CLI at setup (a removal first, tolerating "not found", then the registration,
+//     verified with the CLI's own `get`) and removes it in teardown on every path, records each command
+//     and its output, runs the TUI in a herdr pane (lib/g2.mjs launch, readiness and kind table),
+//     records every screen verbatim before any key, and answers only: the folder-trust screen of the
+//     project directory ("Trust and continue"), the update prompt ("Skip"), and the MCP tool-approval
+//     prompt for the registered server and OAC's four tools ("1. Allow", this call only, never "for
+//     this session" or "Always"). Anything else (hook review, sign-in, elicitation, sandbox or exec
+//     approval, an approval naming another server) ends the run NOT RUN with the screen recorded;
+//     a `Hook failed` line is a finding. It types the marker and the pairing and send prompts,
+//     and exits the TUI with /quit when idle (lib/codex-driver.mjs). It never reads config.toml (the
+//     run's config hashes are hashes), never starts or stops the shared app-server daemon, never
+//     calls turn/steer, never answers a server request (an `mcpServer/elicitation/request` reaches
+//     it only as the TUI's own approval prompt, answered in the TUI) and never signs in. Its
+//     Codex-facing wire clients are the passive `watch` and `midwatch` modes of
+//     gate-servers/g8-capture.mjs (thread/resume only). `--param codex=operator` is the old mode: the
+//     operator registers OAC, runs the TUI, types the prompts the driver prints and accepts the
+//     dialogs (g8-live-operator-steps.md).
 //
-// Operator command:
+// Command (driver mode, the default):
 //
 //   node tools/herdr/run.mjs --scenario g8-codex-pairing --out <run dir> \
 //     --param oac=<abs path to oac.exe> --param daemon=<abs path to the live_daemon example> \
 //     --param projectDir=<abs path of the directory the operator's TUI runs in> \
-//     [--param namespace=g8live]
+//     [--param namespace=g8live] [--param codex=driver|operator] [--param accept=driver|human]
 //
 // What it shows, each with its evidence in the run manifest (scenarioData.g8live.claims):
 //   1. The Codex refusal, then the pairing, then `whoami` returning a session id (mcpToolCall
@@ -59,19 +67,20 @@
 // credential store for anything; the rollout files are never opened. The control socket path is
 // read by the daemon, not by this driver.
 
-import { existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomBytes } from 'node:crypto';
 
 import { NotRunError, DriverError } from '../lib/herdr.mjs';
 import { parseCodexVersions, pinsReadWarning, parseCodexCliVersion, parseCodexDaemonVersion, codexVersionWarning, CODEX_PIN_ROW, CODEX_DAEMON_VERSION_FIELDS } from '../lib/pins.mjs';
-import { runBounded, spawnLongRunning, killTree, within, processTable } from '../lib/proc.mjs';
+import { runBounded, spawnLongRunning, killTree, within, processTable, descendants } from '../lib/proc.mjs';
 import { CODEX_DAEMON_SCRATCH_HOLDER } from '../lib/scratch.mjs';
 import { committedFile, classifyScreen, driverMayAcceptExpecting, DIALOG_KINDS } from '../lib/g1.mjs';
-import { stageGateFiles, makeAgent } from '../lib/gate-common.mjs';
+import { stageGateFiles, makeAgent, refuseRunningTurn } from '../lib/gate-common.mjs';
 import { regexLiteral } from '../lib/pane-shell.mjs';
-import { PINS_PATH, parseG2Transcript, g2Facts, identifyTuiThread, sanitizeTranscript } from '../lib/g2.mjs';
+import { PINS_PATH, parseG2Transcript, g2Facts, identifyTuiThread, sanitizeTranscript, CODEX_DIALOG_KINDS, waitCodexReady, loadedSince, codexReadyTimeoutFinding, multipleNewThreadsFinding, paneArgv } from '../lib/g2.mjs';
+import { classifyForLive, driverMayAcceptLive, liveToolApproval, makeRegistration } from '../lib/codex-driver.mjs';
 import { mcpItems, otherThreadIds, processTreeSnapshot } from './g8-codex-tools.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -82,6 +91,7 @@ export const LIVE_NON_VERDICT = '#69/#433 G8 slice S6: a live leg of the Codex p
 export const LIVE_CLIENT_FILES = Object.freeze(['g8-capture.mjs']);
 export const DEFAULT_SERVER_NAME = 'oac-g8live';
 export const CLAUDE_AGENT = 'g8liveclaude';
+export const CODEX_AGENT = 'g8livecodex';
 // A run tag in the marker keeps a stale TUI thread of an earlier run, still loaded in the daemon with the
 // same text, from matching (run 2 attached to one).
 export const defaultMarker = (tag) => `G8 live leg marker ${tag}: reply with the single word ready.`;
@@ -106,6 +116,7 @@ export function liveNames(date, version) {
     events: `events-g8live-${tail}.jsonl`,
     claude: `claude-g8live-${tail}.txt`,
     screens: `pane-claude-g8live-${tail}-herdr.txt`,
+    codexScreens: `pane-codex-g8live-${tail}-herdr.txt`,
     proc: `transcript-g8live-proc-${tail}.jsonl`,
   };
 }
@@ -615,6 +626,8 @@ export default {
       listPollMs: '3000',
       claudeLines: '3000',
       accept: 'driver',
+      codex: 'driver', // driver: the driver registers OAC, runs the Codex TUI and answers its fixed dialogs; operator: the old mode
+      readyTimeoutMs: '300000',
       startupTimeoutMs: '180000',
       humanAcceptTimeoutMs: '300000',
       pollMs: '1000',
@@ -735,23 +748,60 @@ export default {
 
     const accept = params.accept;
     if (!['human', 'driver'].includes(accept)) throw new DriverError('--param accept must be human or driver');
+    const { codex: codexMode } = params; // --param codex=driver|operator
+    if (!['driver', 'operator'].includes(codexMode)) throw new DriverError('--param codex must be driver or operator');
+    const driverCodex = codexMode === 'driver';
     // The Claude session's agent: its dialogs are recorded and answered by the kind table of lib/g1.mjs.
     // Only the Claude pane has one; there is no Codex pane.
     const claude = makeAgent({ ctx, g, name: CLAUDE_AGENT, label: 'claude', classify: (t) => classifyScreen(t), dialogKinds: DIALOG_KINDS, driverMayAccept: driverMayAcceptExpecting(() => ['oac']), accept, num, stop });
+
+    // The Codex side (driver mode): registration with the Codex CLI, and the TUI as an agent whose dialogs go
+    // through the kind table of lib/g2.mjs bound to this run's server (lib/codex-driver.mjs).
+    let hookFailedNoted = false;
+    const codex = driverCodex
+      ? makeAgent({
+        ctx, g, name: CODEX_AGENT, label: 'codex',
+        classify: (t) => classifyForLive(t, { onHookFailed: () => { if (!hookFailedNoted) { hookFailedNoted = true; ctx.finding('the Codex TUI showed a "Hook failed" line (a hook in the Codex configuration; not a dialog, nothing answered)'); } } }),
+        dialogKinds: CODEX_DIALOG_KINDS,
+        driverMayAccept: driverMayAcceptLive(() => liveToolApproval(serverName), params.projectDir),
+        accept, num, stop,
+      })
+      : null;
+    const codexMcp = (argv) => {
+      const [file, a] = process.platform === 'win32' ? ['cmd.exe', ['/d', '/s', '/c', 'codex', ...argv]] : ['codex', argv];
+      return runBounded(file, a, { deadlineMs: Math.max(1, num('cliTimeoutMs')), env: process.env }); // no abort signal: the removal must run on an abort too
+    };
+    const registration = driverCodex ? makeRegistration({ run: codexMcp, serverName, ns, oac: params.oac, finding: (t) => ctx.finding(t), changesConfig: (why, fn) => ctx.driverChangesHarnessConfig(why, fn) }) : null;
+    let codexPaneId = null;
+    const liveAgents = () => [claude, codex].filter(Boolean);
+    // A prompt for the Codex TUI: typed by the driver into an idle composer, or (operator mode) printed.
+    const codexInput = async (what, text, operatorText) => {
+      if (!codex) {
+        say(operatorText);
+        return;
+      }
+      await codex.settle(`before-${what}`, num('turnTimeoutMs'));
+      await refuseRunningTurn({ herdr, name: CODEX_AGENT, g, agent: 'codex', context: `prompt-${what}`, ctx, stop });
+      const res = await codex.prompt(text);
+      (g.codexInputs ??= []).push({ what, seq: res.seq, at: res.startedAt, chars: text.length });
+    };
 
     // Poll `predicate` until it returns a truthy value; `onTimeout` decides (default: stop the run, NOT RUN).
     // With `agent`, the agent's screen is read every pollMs and any dialog on it is handled (recorded,
     // then answered by the kind table) while waiting.
     const waitFor = async (label, predicate, timeoutMs, { pollMs = 500, onTimeout = null, agent = null } = {}) => {
+      const watched = [].concat(agent ?? []);
       const deadline = deadlineFor(timeoutMs);
       let nextRead = 0;
       for (;;) {
         aborted();
         const v = await predicate();
         if (v) return v;
-        if (agent && Date.now() >= nextRead) {
-          const r = await agent.read(`wait:${label.slice(0, 40)}`, { keep: 'on-change' });
-          if (r.screen.dialog) await agent.handleDialog(r, label);
+        if (watched.length && Date.now() >= nextRead) {
+          for (const a of watched) {
+            const r = await a.read(`wait:${label.slice(0, 40)}`, { keep: 'on-change' });
+            if (r.screen.dialog) await a.handleDialog(r, label);
+          }
           nextRead = Date.now() + num('pollMs');
         }
         if (ctx.remainingMs() <= 0 || Date.now() >= deadline) {
@@ -849,6 +899,13 @@ export default {
       g.versions.matchesLastTested = same ? cli === pin.lastTested : null;
       if (!same) ctx.finding(`the Codex CLI (${cliRaw}), daemon (${JSON.stringify(daemonV)}) and wire (${g.versions.wire ?? 'none'}) do not report one and the same version; the run continues, but its captures stay unverified-*`);
       g.captureNames = liveNames(g.date, same ? cli : null);
+      if (registration) {
+        // The driver's own registration (lead decision 2026-10-29); removed in the finally block on every path.
+        g.registration = { serverName, commands: registration.commands };
+        mkdirSync(params.projectDir, { recursive: true });
+        await registration.register();
+        stage('registered');
+      }
       stage('preflight');
 
       // --- 1. the live daemon, in a pane -----------------------------------------------------------------
@@ -868,9 +925,37 @@ export default {
       if (carrierEv === 'failed') stop('the live daemon could not open the Codex control socket as a carrier (see its log lines); is the Codex app-server daemon running for this user? Nothing was started');
       stage('daemon-ready', { carrierServerPid: carrierEv.pid ?? null });
 
-      // --- 2. the operator's Codex TUI: the marker ------------------------------------------------------------
+      // --- 2. the Codex TUI: the marker ------------------------------------------------------------
       const projectDirs = [...new Set([params.projectDir, existsSync(params.projectDir) ? realpathSync(params.projectDir) : params.projectDir])];
-      say(`The live daemon is ready (namespace ${ns}). Start plain \`codex\` in ${basename(params.projectDir)} (see the operator steps), then type exactly this and press Enter:\n  ${operatorPrompt}`);
+      const preLoaded = loadedSince(facts().loadedLists, pre.linesBefore);
+      if (codex) {
+        const wsC = await herdr.workspaceCreate({ cwd: params.projectDir, label: 'oac-g8live-codex' });
+        ctx.record('codexPane', wsC);
+        codexPaneId = wsC.paneId;
+        await herdr.paneProcessInfo(wsC.paneId);
+        await ctx.probeEnv(wsC.paneId, { timeoutMs: num('daemonWaitMs') });
+        const cstart = await herdr.agentStart(CODEX_AGENT, { launchArgv: ['codex'], paneId: wsC.paneId, timeoutMs: num('startupTimeoutMs'), allowErrorCodes: ['agent_not_ready'] });
+        g.codexStart = { seq: herdr.commands.at(-1).seq, errorCode: cstart.errorCode, herdrReportedArgv: cstart.argv };
+        const { info, table: procTable } = await herdr.paneProcessSnapshot(wsC.paneId);
+        const fg = (info.foreground_processes ?? []).map((x) => x.pid).filter(Number.isInteger);
+        const tree = [...new Set([...fg, ...fg.flatMap((x) => descendants(x, procTable) ?? []), ...(descendants(info.shell_pid, procTable) ?? [])])];
+        const pa = paneArgv(tree, procTable);
+        g.codexStart.paneArgv = pa;
+        if (pa.proof.found && !pa.proof.plain) throw new DriverError('the pane\'s codex process runs with arguments or config overrides; the live leg needs plain `codex`');
+        await codex.settle('startup', num('startupTimeoutMs'));
+        const ready = await waitCodexReady({
+          read: codex.read, handleDialog: codex.handleDialog,
+          listLoaded: async () => { const { linesBefore } = await runClient('list', []); return loadedSince(facts().loadedLists, linesBefore); },
+          preLoaded, timeoutMs: num('readyTimeoutMs'), pollMs: num('listPollMs'), remainingMs: () => ctx.remainingMs(), stop,
+          onTimeout: (v) => { const f = codexReadyTimeoutFinding(v); if (f) ctx.finding(f); },
+        });
+        g.codexReady = { readSeq: ready.readSeq, newThreads: ready.newThreads.length, polls: ready.polls, waitedMs: ready.waitedMs, observations: ready.observations };
+        if (ready.newThreads.length > 1) ctx.finding(multipleNewThreadsFinding(ready.newThreads.length));
+        g.codexStartupSettle = await codex.startupSettle('codex-ready-settle', `the Codex session loaded in the daemon (pane read #${ready.readSeq})`, num('turnTimeoutMs'));
+        await refuseRunningTurn({ herdr, name: CODEX_AGENT, g, agent: 'codex', context: 'marker', ctx, stop });
+        const mk = await codex.prompt(operatorPrompt);
+        g.codexInputs = [{ what: 'marker', seq: mk.seq, at: mk.startedAt, chars: operatorPrompt.length }];
+      } else say(`The live daemon is ready (namespace ${ns}). Start plain \`codex\` in ${basename(params.projectDir)} (see the operator steps), then type exactly this and press Enter:\n  ${operatorPrompt}`);
       const attachDeadline = deadlineFor(num('attachTimeoutMs'));
       let found = null;
       for (;;) {
@@ -883,6 +968,10 @@ export default {
           stop(`no loaded thread matched the operator's TUI thread within ${num('attachTimeoutMs')} ms (${found.why})`);
         }
         await sleep(num('listPollMs'));
+        if (codex) {
+          const rr = await codex.read('attach-wait', { keep: 'on-change' });
+          if (rr.screen.dialog) await codex.handleDialog(rr, 'attach-wait');
+        }
       }
       const threadId = found.threadId;
       ownThreadId = threadId;
@@ -904,7 +993,7 @@ export default {
       stage('watching');
 
       // --- 4. the pairing (claim 1), the mid-turn resume (claim 5), the process tree (claim 6) ----------------------
-      say(`Subscribed to the TUI thread. In the Codex TUI, type this and press Enter, then follow the operator steps for each dialog (copy its text first, then Allow this once):\n  ${pairingPrompt(serverName)}`);
+      await codexInput('pairing', pairingPrompt(serverName), `Subscribed to the TUI thread. In the Codex TUI, type this and press Enter, then follow the operator steps for each dialog (copy its text first, then Allow this once):\n  ${pairingPrompt(serverName)}`);
       let treeTaken = false;
       const takeTree = () => {
         if (treeTaken) return;
@@ -946,7 +1035,7 @@ export default {
         const nv = seq.refusal ? null : refusedWithoutValue(cs);
         if (nv) return { noValue: nv };
         return exited(watchProc) ? 'exited' : null;
-      }, num('pairTimeoutMs'), { pollMs: 300 });
+      }, num('pairTimeoutMs'), { pollMs: 300, agent: codex });
       if (pairedSeq.noValue) {
         noValueRefusal = pairedSeq.noValue;
         takeTree();
@@ -1005,29 +1094,29 @@ export default {
       };
       await claude.prompt(claudePrompt({ nonce, codexSessionId }));
       stage('claude-prompted');
-      const ev0 = await waitFor('the Claude session printing its own session id (CLAUDE-SID line)', async () => (await readClaude()).sessionId, num('claudeStartMs'), { pollMs: 2000, agent: claude });
+      const ev0 = await waitFor('the Claude session printing its own session id (CLAUDE-SID line)', async () => (await readClaude()).sessionId, num('claudeStartMs'), { pollMs: 2000, agent: liveAgents() });
       claudeSessionId = ev0;
       secrets.sessionIds.add(claudeSessionId);
       stage('claude-bound');
 
       // --- 6. Codex send -> Claude (claim 2) ------------------------------------------------------------------
-      say(`Claude is bound. In the Codex TUI, type this and press Enter (one send; copy any dialog's text first, then Allow this once):\n  ${sendPrompt(serverName, claudeSessionId, nonce)}`);
+      await codexInput('send', sendPrompt(serverName, claudeSessionId, nonce), `Claude is bound. In the Codex TUI, type this and press Enter (one send; copy any dialog's text first, then Allow this once):\n  ${sendPrompt(serverName, claudeSessionId, nonce)}`);
       const codexSendCall = () => calls().find((c) => c.tool === 'send' && c.completedLine !== null) ?? null;
       await waitFor('the Codex send call completing and the Claude session reporting the message', async () => {
         await readClaude();
         const got = receivedHas(claudeEv, `G8LIVE ${nonce} FROM-CODEX`);
         return codexSendCall() && got ? true : null;
-      }, num('codexSendTimeoutMs'), { pollMs: 2000, agent: claude, onTimeout: () => { ctx.finding('the Codex send and the Claude report of it were not both seen in time; later steps depend on Claude having received it before it sends the hand-offs'); return false; } });
+      }, num('codexSendTimeoutMs'), { pollMs: 2000, agent: liveAgents(), onTimeout: () => { ctx.finding('the Codex send and the Claude report of it were not both seen in time; later steps depend on Claude having received it before it sends the hand-offs'); return false; } });
       stage('codex-send-done');
 
       // --- 7. Claude -> Codex hand-offs (claim 3), Codex replies (claims 4 and 7) --------------------------------------
-      say('Claude now sends three hand-offs. They arrive in the Codex thread by themselves; do not type anything. Each Codex reply raises a dialog: copy its full text and options here first, THEN choose Allow (this once; never Always).');
+      if (!codex) say('Claude now sends three hand-offs. They arrive in the Codex thread by themselves; do not type anything. Each Codex reply raises a dialog: copy its full text and options here first, THEN choose Allow (this once; never Always).');
       const frames = () => handoffFrames(entries()).filter((f) => testNumberOf(f.text, nonce) !== null);
       await waitFor('the three hand-offs arriving in the Codex thread', async () => {
         if (frames().length >= 3) return true;
         await readClaude();
         return claudeEv.done ? true : null;
-      }, num('handoffTimeoutMs'), { pollMs: 1500, agent: claude, onTimeout: () => { ctx.finding(`only ${frames().length} of 3 hand-offs arrived in the Codex thread`); return false; } });
+      }, num('handoffTimeoutMs'), { pollMs: 1500, agent: liveAgents(), onTimeout: () => { ctx.finding(`only ${frames().length} of 3 hand-offs arrived in the Codex thread`); return false; } });
       let lastCount = '';
       let lastChange = Date.now();
       await waitFor('the Codex replies', async () => {
@@ -1042,11 +1131,11 @@ export default {
         if (frames().length >= 3 && done >= 3 && Date.now() - lastChange >= num('quietMs')) return true;
         if (frames().length > 0 && Date.now() - lastChange >= num('replyIdleMs')) return true;
         return null;
-      }, num('replyTimeoutMs'), { pollMs: 1500, agent: claude, onTimeout: () => { ctx.finding('the wait for the Codex replies ran out; what arrived is kept'); return false; } });
+      }, num('replyTimeoutMs'), { pollMs: 1500, agent: liveAgents(), onTimeout: () => { ctx.finding('the wait for the Codex replies ran out; what arrived is kept'); return false; } });
       stage('handoffs-done');
 
       // --- 8. Claude finishes (its CLAUDE-DONE line), then exits; the daemon stops ------------------------------------------
-      await waitFor('the Claude session printing CLAUDE-DONE', async () => ((await readClaude()).done ? true : null), num('claudeDoneMs'), { pollMs: 3000, agent: claude, onTimeout: () => { ctx.finding('the Claude session had not printed its CLAUDE-DONE line when the wait ran out; its pane report so far is kept'); return false; } });
+      await waitFor('the Claude session printing CLAUDE-DONE', async () => ((await readClaude()).done ? true : null), num('claudeDoneMs'), { pollMs: 3000, agent: liveAgents(), onTimeout: () => { ctx.finding('the Claude session had not printed its CLAUDE-DONE line when the wait ran out; its pane report so far is kept'); return false; } });
       await readClaude();
       const preExit = claudeEv?.done ? await claude.read('pre-exit', { source: 'visible' }) : null;
       if (preExit && !preExit.screen.dialog && !preExit.screen.busy) {
@@ -1056,6 +1145,18 @@ export default {
           ctx.finding(`the Claude session could not be asked to exit (${String(err.message).slice(0, 120)}); the driver's teardown ends its pane`);
         }
       } else ctx.finding('no CLAUDE-DONE line was seen, or the Claude screen was busy or showed a dialog, so /exit was not typed into a possibly running turn (#253); the driver\'s teardown ends the pane');
+      if (codex) {
+        // Leave the TUI with /quit when it is idle; otherwise the driver's teardown ends the pane. The shared
+        // app-server daemon is never touched.
+        const preQuit = await codex.read('pre-quit', { source: 'visible' });
+        if (!preQuit.screen.dialog && !preQuit.screen.busy) {
+          try {
+            await codex.prompt('/quit');
+          } catch (err) {
+            ctx.finding(`the Codex TUI could not be asked to quit (${String(err.message).slice(0, 120)}); the driver's teardown ends its pane`);
+          }
+        } else ctx.finding('the Codex screen was busy or showed a dialog at the end, so /quit was not typed; the driver\'s teardown ends its pane');
+      }
       await herdr.paneProcessInfo(wsB.paneId);
       await herdr.paneRun(daemonPane, 'stop');
       try {
@@ -1089,6 +1190,24 @@ export default {
         } catch {
           /* the pane is gone */
         }
+      }
+      // Cleanup (lead decision 2026-10-29): the registration is removed on every path, then summarised. Panes,
+      // scratch and the herdr server are ended by the driver's own teardown (manifest teardown, scratch).
+      if (registration) {
+        await registration.unregister();
+        g.registration = { serverName, commands: registration.commands, removed: registration.removed };
+      }
+      g.cleanup = {
+        registrationRemoved: registration ? registration.removed : null,
+        capturesClientsStopped: true,
+        liveDaemonStopped: daemonStopped,
+        codexPane: codexPaneId ? 'left to the driver teardown (herdr closes it)' : null,
+        sharedCodexDaemon: 'never started, stopped or restarted by the driver',
+        folderTrust: driverCodex ? 'a folder-trust accept is persisted by Codex in its own configuration; the driver does not edit that file' : null,
+      };
+      if (codex) {
+        g.codexScreens = codex.sections.length;
+        if (codex.sections.length) ctx.capture(g.captureNames?.codexScreens ?? liveNames(g.date, null).codexScreens, codex.sections.join('\n'));
       }
       g.claudeScreens = claude.sections.length;
       if (claude.sections.length) ctx.capture(g.captureNames?.screens ?? liveNames(g.date, null).screens, claude.sections.join('\n'));

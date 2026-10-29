@@ -8,6 +8,9 @@ import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { NotRunError } from '../lib/herdr.mjs';
+import { classifyForLive, driverMayAcceptLive, liveToolApproval, makeRegistration, OAC_TOOL_INPUTS } from '../lib/codex-driver.mjs';
+
 import scenario, {
   liveNames, claudePrompt, handoffText, pairingPrompt, sendPrompt, parseFrame, oacCalls, pairingSequence, handoffFrames, echoTrials, testNumberOf,
   midTurnVerdict, refusedWithoutValue, receivedHas, defaultMarker, scrubLogLine, adapterLogSummary, carrierAncestry, claudeEvidence, claudeEvidenceText, evaluateClaims, sanitizeDaemonEvents, jsonLines, PAIRING_VALUE,
@@ -44,7 +47,7 @@ const call = (line, t, method, id, tool, status, extra = {}, turnId = 'U1') =>
   entry(line, t, method, { threadId: 'T', turnId, item: { type: 'mcpToolCall', id, server: 'oac-g8live', tool, status, ...extra } });
 const msg = (line, t, method, text, turnId, id = 'um') => entry(line, t, method, { threadId: 'T', turnId, item: { type: 'userMessage', id, content: [{ type: 'text', text }] } });
 
-export function g8liveUnit(check) {
+export async function g8liveUnit(check) {
   // --- names, prompts --------------------------------------------------------------------------------
   check('g8live names: verified versions give fixture names, otherwise unverified-*', liveNames('2026-10-24', '0.163.0').transcript === 'transcript-g8live-2026-10-24-0.163.0-herdr.jsonl' && liveNames('2026-10-24', null).events === 'events-g8live-unverified-2026-10-24.jsonl');
   const prompt = claudePrompt({ nonce: NONCE, codexSessionId: CODEX_SID });
@@ -203,6 +206,111 @@ export function g8liveUnit(check) {
   const dirty = sanitizeDaemonEvents([logEv(`a Codex reveal ${V} for thread 0198f2c4-1111-7222-8333-444455556666 was dropped`)]);
   check('g8live adapter log: the captured log lines carry no pairing value and no thread id (a UUID)', !dirty[0].line.includes(V) && !/0198f2c4/.test(dirty[0].line) && dirty[0].line.includes('<PAIRING_VALUE>') && dirty[0].line.includes('<THREAD_ID>') && scrubLogLine('plain line') === 'plain line');
 
+  // --- the Codex side is the driver's (lead decision 2026-10-29): the dialog table, the registration -----------------------------------------
+  const LIVE = 'oac-g8live';
+  const PROJECT = 'C:\\Users\\someone\\g8live-project';
+  const livePlan = (t, project = PROJECT) => driverMayAcceptLive(() => liveToolApproval(LIVE), project)(classifyForLive(t));
+  const TRUST_LIVE = [
+    `  ${PROJECT}`,
+    '',
+    '  Trust this folder? Codex can read, edit, and run files here, subject to your permission settings. Folder settings',
+    '  can run code automatically, even without a model request. Continue only if you trust these files. Your trust',
+    '  …',
+    '› 1. Trust and continue',
+    '  2. Back to Agent Command Center',
+    '',
+    '  enter continue · esc back',
+  ].join('\n');
+  const UPDATE_LIVE = ['', '  Update available · 0.164.0 → 0.164.1', `  Release notes: https://github.com/open${'a'}i/codex/releases/latest`, '', "› 1. Update now (runs `powershell -ExecutionPolicy Bypass -c 'irm x | iex'`)", '  2. Skip', '  3. Skip until next version', '', '  enter continue · esc skip'].join('\n');
+  const approval = (server, tool, args = [], sel = 1) => [
+    '• Calling', '', '  Field 1/1', `  Allow the ${server} MCP server to run tool "${tool}"?`, '', ...args.map(([k, v]) => `  ${k}: ${v}`), ...(args.length ? [''] : []),
+    ...['Allow                   Run the tool and continue', 'Allow for this session  Run the tool and remember this choice for this session', 'Always allow            Run the tool and remember this choice for future tool calls', 'Cancel                  Cancel this tool call'].map((o, i) => `  ${i + 1 === sel ? '›' : ' '} ${i + 1}. ${o}`),
+    '  enter to submit | esc to cancel',
+  ].join('\n');
+  const t1 = livePlan(TRUST_LIVE);
+  check('g8live codex dialogs: the folder-trust screen of the project directory is accepted with Enter on the preselected "Trust and continue"; one naming another directory, or none, is refused', t1.ok && t1.keys.join() === 'enter' && t1.moves.length === 0 && !livePlan(TRUST_LIVE, 'C:\\Users\\someone\\other-project').ok && /does not name the project directory/.test(livePlan(TRUST_LIVE, 'C:\\Users\\someone\\other-project').why) && !livePlan(TRUST_LIVE, '').ok);
+  const u1 = livePlan(UPDATE_LIVE);
+  check('g8live codex dialogs: the update prompt is answered "2. Skip" (one down, verified, then Enter) and never "Update now" or "Skip until next version"', u1.ok && u1.answer === '2. Skip' && u1.keys.join() === 'down,enter' && !livePlan(UPDATE_LIVE.replace('› 1. Update', '  1. Update').replace('  3. Skip until', '› 3. Skip until')).ok);
+  const a1 = livePlan(approval(LIVE, 'whoami'));
+  const a2 = livePlan(approval(LIVE, 'send', [['to', CODEX_SID], ['content', '[{"type":"text","text":"x"}]']]));
+  check('g8live codex dialogs: the tool-approval prompt of the registered server\'s OAC tools is answered "1. Allow" (this call only), with Enter on the preselected option and no selection move', a1.ok && a1.answer === '1. Allow' && a1.keys.join() === 'enter' && a1.moves.length === 0 && a2.ok && a2.toolApproval.tool === 'send' && ['whoami', 'send', 'reply', 'list_sessions'].every((t) => livePlan(approval(LIVE, t)).ok));
+  const refused = (t) => { const p = livePlan(t); return !p.ok && p.keys.length === 0; };
+  check('g8live codex dialogs: "Allow for this session" or "Always allow" preselected, another server, another tool, an undeclared argument and a reworded question are refused (never moved to the allow-once option)', refused(approval(LIVE, 'whoami', [], 2)) && refused(approval(LIVE, 'whoami', [], 3)) && refused(approval('some-other-server', 'whoami')) && refused(approval(LIVE, 'delete_everything')) && refused(approval(LIVE, 'whoami', [['rm', '-rf']])) && refused(approval(LIVE, 'whoami').replace('to run tool', 'to execute tool')));
+  const HOOKS = ['', '  Hooks need review', '  1 hook is new or changed.', '  Hooks can run outside the sandbox after you trust them.', '', '', '› 1. Review hooks', '  2. Trust all and continue', "  3. Continue without trusting (hooks won't run)", '', '  enter confirm · esc skip'].join('\n');
+  const EXEC = ['', '  Would you like to run the following command?', '', '    $ rm -rf build', '', '› 1. Yes, proceed (y)', '  2. No, and tell Codex what to do differently (esc)', '', '  Press enter to confirm or esc to cancel'].join('\n');
+  const SIGNIN = ['', '  Welcome to Codex', '', '› 1. Sign in with ChatGPT', '  2. Provide your own API key', '', '  Press enter to continue'].join('\n');
+  const SANDBOX = ['', '  Allow command? sandbox escalation requested', '', '› 1. Allow once', '  2. Deny', '', '  Esc to cancel'].join('\n');
+  const ELICIT = ['', '  Field 1/2', '  Please enter your API key for the oac-g8live server', '', '  key: ', '', '  enter to submit | esc to cancel'].join('\n');
+  check('g8live codex dialogs: the startup hook review, a sandbox or exec approval, a sign-in, a permission prompt and a free-form elicitation are all refused with no key (the run would end NOT RUN); a "Hook failed" line is not a dialog', [HOOKS, EXEC, SIGNIN, SANDBOX, ELICIT].every(refused) && classifyForLive('Hook failed - hook exited with code 1\n› Ask Codex to do anything').dialog === null);
+  let hookCalls = 0;
+  classifyForLive('Hook failed - hook exited with code 1', { onHookFailed: () => { hookCalls += 1; } });
+  classifyForLive('nothing', { onHookFailed: () => { hookCalls += 10; } });
+  check('g8live codex dialogs: a screen with a Hook failed line calls the finding hook; one without does not', hookCalls === 1);
+  const rs = readFileSync(join(REPO, 'adapters', 'mcp-tools', 'src', 'lib.rs'), 'utf8');
+  check('g8live codex dialogs: the tool inputs the driver may allow are the OAC tools\' declared inputs (adapters/mcp-tools/src/lib.rs names every one)', Object.keys(OAC_TOOL_INPUTS).join() === 'send,reply,list_sessions,whoami' && Object.entries(OAC_TOOL_INPUTS).every(([t, a]) => rs.includes(`"${t}"`) || rs.includes(t.toUpperCase()) ) && Object.values(OAC_TOOL_INPUTS).flat().every((n) => rs.includes(`"${n}"`)));
+
+  // The registration: remove a leftover (a finding), add, verify; remove in teardown on every path.
+  const fakeCli = (state, { addFails = false, removeThrows = false } = {}) => async (argv) => {
+    const [, sub, name] = argv;
+    const reply = (exitCode, stdout = '', stderr = '') => ({ exitCode, stdout, stderr, timedOut: false, spawnError: null });
+    if (sub === 'get') return state.has(name) ? reply(0, `${name}\n  enabled: true\n  env: OAC_SCOPE=*****`) : reply(1, '', `No MCP server named '${name}' found.`);
+    if (sub === 'remove') {
+      if (removeThrows) throw new Error('spawn blew up');
+      return state.delete(name) ? reply(0, `Removed global MCP server '${name}'.`) : reply(1, '', `No MCP server named '${name}' found.`);
+    }
+    if (sub === 'add') {
+      if (addFails) return reply(1, '', 'add failed');
+      state.add(name);
+      return reply(0, `Added global MCP server '${name}'.`);
+    }
+    return reply(2);
+  };
+  const mk = (state, opts = {}, extra = {}) => {
+    const findings = [];
+    const changes = [];
+    const reg = makeRegistration({ run: fakeCli(state, opts), serverName: LIVE, ns: 'g8live', oac: 'C:\\x\\oac.exe', finding: (t) => findings.push(t), changesConfig: async (why, fn) => { changes.push(why); return fn(); }, ...extra });
+    return { reg, findings, changes };
+  };
+  const s1 = new Set();
+  const r1 = mk(s1);
+  await r1.reg.register();
+  const added = r1.reg.commands.find((c) => c.label === 'add');
+  check('g8live registration: get, remove (tolerating not found), add and get run in that order; the add names the server, OAC_SCOPE and the shim argv; every command and its output is recorded; a fresh machine has no leftover finding', r1.reg.commands.map((c) => c.label).join() === 'get (before),remove (before),add,get (after)' && added.argv.join(' ') === `codex mcp add ${LIVE} --env OAC_SCOPE=g8live -- C:\\x\\oac.exe mcp-shim --harness codex` && r1.reg.commands.every((c) => 'stdout' in c && 'stderr' in c && 'exitCode' in c) && r1.reg.commands[1].exitCode === 1 && s1.has(LIVE) && r1.findings.length === 0);
+  check('g8live registration: only the commands that change the Codex configuration go through the config checkpoint (remove, add, teardown remove), never get', r1.changes.length === 2 && r1.changes.every((c) => /remove|add/.test(c)));
+  const s2 = new Set([LIVE]);
+  const r2 = mk(s2);
+  await r2.reg.register();
+  check('g8live registration: a server of the same name that already exists is removed first and recorded as a finding (a leftover of an earlier run)', r2.findings.some((f) => /already registered/.test(f)) && r2.reg.commands[1].exitCode === 0 && s2.has(LIVE));
+  await r1.reg.unregister();
+  const again = await r1.reg.unregister();
+  check('g8live registration: teardown removes the server, checks it is gone, and a second call does nothing', !s1.has(LIVE) && r1.reg.removed === true && again === null && r1.reg.commands.filter((c) => c.label === 'remove (teardown)').length === 1);
+
+  // Every path: an error, a NOT RUN stop, a failed add, a runner that throws, a driver that never registered.
+  const onPath = async (body, opts = {}) => {
+    const state = new Set();
+    const m = mk(state, opts);
+    try {
+      await m.reg.register();
+      await body();
+    } catch {
+      /* the scenario's own error */
+    } finally {
+      await m.reg.unregister();
+    }
+    return { state, m };
+  };
+  const p1 = await onPath(async () => { throw new Error('boom'); });
+  const p2 = await onPath(async () => { throw new NotRunError('stopped on a dialog'); });
+  const p3 = await onPath(async () => {}, { addFails: true });
+  check('g8live registration: after an error, a NOT RUN stop, or a failed add (a partial registration) the server is not left registered', !p1.state.has(LIVE) && !p2.state.has(LIVE) && !p3.state.has(LIVE) && p1.m.reg.removed && p2.m.reg.removed && p3.m.reg.commands.some((c) => c.label === 'remove (teardown)'));
+  const p4 = await onPath(async () => {}, { removeThrows: true });
+  const never = mk(new Set());
+  const nothing = await never.reg.unregister();
+  check('g8live registration: a teardown whose removal fails does not throw and says so, with the command to run by hand; one that never registered runs nothing', p4.m.findings.some((f) => /remove it by hand: codex mcp remove oac-g8live/.test(f)) && nothing === null && never.reg.commands.length === 0);
+  const scNoComments = code(SCENARIO);
+  check('g8live registration: the scenario removes it in its finally block before recording, with no abort signal on the codex command, through the config checkpoint', scNoComments.indexOf('registration.unregister()') > scNoComments.indexOf('} finally {') && scNoComments.indexOf('registration.unregister()') < scNoComments.indexOf("ctx.record('g8live', g)") && !/runBounded\(file, a, \{[^}]*abortSignal/.test(scNoComments.slice(scNoComments.indexOf('const codexMcp'), scNoComments.indexOf('const registration'))) && /driverChangesHarnessConfig/.test(scNoComments) && /checkpointFailures/.test(read(join(REPO, 'tools', 'herdr', 'run.mjs'))) && /driverChangesHarnessConfig/.test(read(join(REPO, 'tools', 'herdr', 'run.mjs'))));
+  check('g8live codex mode: driver is the default; operator keeps the old mode (the driver prints the prompts)', scenario.defaults.params.codex === 'driver' && /codexMode === 'driver'/.test(scNoComments) && /else say\(`The live daemon is ready/.test(scNoComments) && /if \(!codex\) \{\s*say\(operatorText\)/.test(scNoComments));
+
   // --- the capture client's third mode ---------------------------------------------------------------------------------------------------------------
   check('g8live client: midwatch is a mode of the passive capture client and shares watch\'s code (thread/resume with only threadId and excludeTurns); it sends no method that changes a thread', /'midwatch'/.test(code(CLIENT)) && /mode !== 'list' && !threadId/.test(CLIENT) && !/'(?:turn\/start|turn\/steer|thread\/queue\/add|turn\/interrupt|thread\/start|thread\/fork)'/.test(code(CLIENT)));
 
@@ -211,7 +319,7 @@ export function g8liveUnit(check) {
   check('g8live scenario: it never calls turn/steer or any method that writes into a thread, and answers no server request', !/['"](?:turn\/steer|turn\/start|turn\/interrupt|thread\/queue\/add|thread\/start|thread\/fork)['"]/.test(sc) && !/elicitation|serverRequest|resolveServerRequest/.test(sc));
   check('g8live scenario: it never runs codex mcp, nor daemon start, stop or restart (only daemon version), and never signs in', !/'mcp'|'remove'|'login'|'logout'/.test(sc) && !/'daemon',\s*'(?:start|stop|restart)'/.test(sc) && /codexCli\(\['app-server', 'daemon', 'version'\]/.test(sc));
   check('g8live scenario: it reads no credential, sqlite, rollout or Codex-home file and no OS credential store', !/auth\.json|\.sqlite|rollout|CODEX_HOME|app-server-control|\.codex\b/.test(sc) && !new RegExp(['key', 'ring'].join('')).test(sc));
-  check('g8live scenario: it has no Codex pane and types nothing into the Codex TUI: its panes are the daemon\'s and Claude\'s, and the only agent is Claude\'s', !/sendKeys|startAgent/.test(sc) && [...sc.matchAll(/paneRun\(([^,]+),/g)].every((m) => /^daemonPane$/.test(m[1])) && [...sc.matchAll(/agentStart\(([^,]+),/g)].every((m) => m[1] === 'CLAUDE_AGENT') && !/codexPane|CODEX_AGENT|agentPrompt\(/.test(sc) && (sc.match(/workspaceCreate\(/g) ?? []).length === 2);
+  check('g8live scenario: its panes are the daemon\'s, Claude\'s and (driver mode) Codex\'s; the only agents are CLAUDE_AGENT and CODEX_AGENT; the Codex TUI is typed into only through codex.prompt (codexInput), by the driver; the only paneRun target is the daemon pane', !/sendKeys|startAgent/.test(sc) && [...sc.matchAll(/paneRun\(([^,]+),/g)].every((m) => /^daemonPane$/.test(m[1])) && [...sc.matchAll(/agentStart\(([^,]+),/g)].every((m) => /^(?:CLAUDE_AGENT|CODEX_AGENT)$/.test(m[1])) && !/agentPrompt\(/.test(sc) && (sc.match(/workspaceCreate\(/g) ?? []).length === 3 && /launchArgv: \['codex'\]/.test(sc));
   check('g8live scenario: thread ids, session ids, fingerprints, pairing values and the project directory are registered for redaction before any capture is written', ['<THREAD_ID>', '<SESSION_ID>', '<DEVICE_FINGERPRINT>', '<PAIRING_VALUE>', '<PROJECT_DIR>'].every((p) => sc.includes(`'${p}'`)) && sc.indexOf("'<PAIRING_VALUE>'") < sc.indexOf('ctx.capture(g.captureNames.transcript') && /sanitizeTranscript/.test(sc) && /otherThreadIds/.test(sc));
   check('g8live scenario: the Claude session is interactive (no -p, stream-json, verbose or max-turns) and keeps the development-channels flag, a strict MCP config, the settings hook and allowedTools; it goes through makeAgent, records dialogs before the driver answers them and exits with /exit', !/'-p'|'stream-json'|'--verbose'|'--max-turns'/.test(sc) && /'--dangerously-load-development-channels'/.test(sc) && /'--mcp-config'/.test(sc) && /'--strict-mcp-config'/.test(sc) && /'--settings'/.test(sc) && /'--allowedTools'/.test(sc) && /SessionStart/.test(sc) && /makeAgent\(/.test(sc) && /DIALOG_KINDS/.test(sc) && /classifyScreen/.test(sc) && /claude\.prompt\('\/exit'\)/.test(sc) && /claude\.settle\('startup'/.test(sc) && sc.indexOf("claude.settle('startup'") < sc.indexOf('claude.prompt(claudePrompt'));
   check('g8live scenario: the analysis and the claims run in the finally block, on every path', /try \{\s*analyze\(\);/.test(sc) && sc.indexOf('analyze();') > sc.indexOf('} finally {') && /claude\.sections/.test(sc));

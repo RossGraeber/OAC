@@ -19,7 +19,7 @@ any live leg, and the point of herdr (operator decision, #187). The human attend
 sign in to the harnesses and grant elevation. Since 2026-09-30 (#196) the driver accepts
 Claude Code's trust, MCP-approval and dev-channels dialogs itself in dev/test runs, G1
 included, and refuses every other dialog. One narrow exception (#271): in the G4 scenario
-only, it answers Codex's MCP tool-approval prompt "1. Allow" for G4's own server and tools. And (#303) it answers Codex's start-up update prompt "2. Skip", never an update. A human accepts a dialog only in a run meant to
+only, it answers Codex's MCP tool-approval prompt "1. Allow" for G4's own server and tools; the lead's decision of 2026-10-29 extends that to the G8 S6 live leg (below). And (#303) it answers Codex's start-up update prompt "2. Skip", never an update. A human accepts a dialog only in a run meant to
 meet a consent-step criterion (G1 criterion 5 under `accept=human`, G11; see
 "Operator-consent dialogs"). No live leg is "operator-typed only". Live runs are not in the default CI suite
 (`oac-testing` §2). The agent verifies the run from its evidence; the human signs only for
@@ -306,6 +306,26 @@ becomes FAIL. An earlier write, such as a Codex trust accept at startup, is outs
 The start-to-teardown comparison (`harnessConfig.unchanged`) stays a separate recorded fact.
 Decision record: `K-196-driver-accepts-dialogs.md` §7.
 
+**Amended 2026-10-29 (lead decision): the Codex side of the G8 S6 live leg is the driver's.** Verbatim: "Can
+you run things like this yourself via PS, Herdr, and/or possibly computer use? I give you permission to allow
+these servers for testing. Just clean up after yourself." In `g8-codex-pairing` (default `--param
+codex=driver`; `codex=operator` keeps the old operator-typed mode) the driver:
+
+- registers the OAC MCP server with the Codex CLI at setup (a removal first, tolerating "not found", a finding
+  if the name already existed, then the add, verified with the CLI's own `get`) and removes it in teardown on
+  every path; each command and its output is recorded (`registration`); the driver never reads `config.toml`
+  (the run's config hashing is unchanged; `ctx.driverChangesHarnessConfig` checkpoints the #271 snapshot before
+  the removal and rebases it after, `harnessConfig.driverChanges`/`checkpointFailures`);
+- runs plain `codex` in a herdr pane, records every screen verbatim before any key, and answers only the
+  trust screen of the project directory ("Trust and continue"), the update prompt ("2. Skip"), and the MCP
+  tool-approval prompt for exactly the registered server and OAC's four tools ("1. Allow", this call only;
+  `liveToolApproval`, `driverMayAcceptLive` in `tools/herdr/lib/codex-driver.mjs`). Everything else (hook review,
+  sign-in, an elicitation, a sandbox or exec approval, an approval naming another server) is refused: NOT RUN,
+  nothing sent. A `Hook failed` line is a finding. It types the scenario's own prompts and leaves with `/quit`;
+- still never starts or stops the shared app-server daemon, never calls `turn/steer`, never answers a server
+  request itself and never signs in. `scripts/check-herdr-containment.mjs` check 10 allows the two registration
+  commands in that one file only.
+
 **Amended 2026-10-08 (#303): Codex's start-up update prompt.** Lead decision on #303: the
 driver answers Codex's start-up update prompt "2. Skip" (this launch only), recorded as
 `driver`, in every scenario that launches Codex, or stops at once; it never waits out a
@@ -348,8 +368,8 @@ record: `K-196-driver-accepts-dialogs.md` §8.
 - **Every other dialog is refused (#197 review).** A kind with no option text on record is
   never driver-accepted, whatever is preselected: Claude Code's tool-permission prompt ("Do
   you want to proceed?"), and every Codex dialog other than the trust dialog on record
-  (#199), the G4 tool-approval exception (#271) and the start-up update prompt's "2. Skip"
-  (#303).
+  (#199), the G4 tool-approval exception (#271), its 2026-10-29 extension to the G8 S6 live leg and the
+  start-up update prompt's "2. Skip" (#303).
   The run ends `NOT RUN` with no key sent. A run that may meet one uses `accept=human`.
   Tool approval is not in #196's scope. Driver-approving it would need its own recorded
   decision and a security note (`oac-security-work`, permission relay). #271 is that
