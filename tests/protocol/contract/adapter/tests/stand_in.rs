@@ -163,8 +163,15 @@ enum ChannelBreach {
     WaitsBeforeClose,
     /// Reports shutdown complete but leaves an admitted write able to finish.
     LateHandOff,
-    /// The reviewer's mutation: fail truthfully, but settle 40 ms after closing.
+    /// Fails truthfully, but ends its `deliver` only after the composed shutdown bound:
+    /// the call is stalled (revision 0.12; a result that is merely 40 ms late, with no
+    /// effect, is conformant).
     LateSettlement,
+    /// NOT a breach (revision 0.12): its `deliver` fails truthfully and returns 40 ms after
+    /// closing, long after `shutdown` has returned, with no effect and within the bound.
+    SlowTailNoEffect,
+    /// Reports an event after `shutdown` has returned ([IFC-ADP-109], [IFC-ADP-110]).
+    ReportsAfterShutdown,
     /// Declares an MCP `resources` capability, an inbox the session could read
     /// ([IFC-ADP-040]; [MCPB-DLV-002]).
     DeclaresResources,
@@ -466,8 +473,12 @@ impl ProviderAdapter for ChannelStandIn {
         for _ in 0..calls {
             sent &= send_line(&self.writers, a, &frame);
         }
-        if !sent && self.breach == ChannelBreach::LateSettlement {
+        if !sent && self.breach == ChannelBreach::SlowTailNoEffect {
             std::thread::sleep(std::time::Duration::from_millis(40));
+        }
+        if !sent && self.breach == ChannelBreach::LateSettlement {
+            // Past `shutdown_bound_ms` below: the adapter's `deliver` is stalled.
+            std::thread::sleep(std::time::Duration::from_millis(900));
         }
         if sent {
             HandOffOutcome::Completed
@@ -491,7 +502,34 @@ impl ProviderAdapter for ChannelStandIn {
         HealthStatus::new(HealthState::Healthy)
     }
 
+    fn shutdown_bound_ms(&self) -> u64 {
+        if self.breach == ChannelBreach::LateSettlement {
+            300
+        } else {
+            1000
+        }
+    }
+
     fn shutdown(&self) {
+        if self.breach == ChannelBreach::ReportsAfterShutdown {
+            // A detached reporter: it keeps reporting for 200 ms, so some report follows
+            // the return of `shutdown` whenever the caller marks it within that time.
+            let common = self.common.clone();
+            let a = common.lock().unwrap().open.first().cloned();
+            if let Some(a) = a {
+                std::thread::spawn(move || {
+                    for _ in 0..40 {
+                        std::thread::sleep(std::time::Duration::from_millis(5));
+                        Common::emit(
+                            &common,
+                            AdapterEvent::AttachmentClosed {
+                                attachment: a.clone(),
+                            },
+                        );
+                    }
+                });
+            }
+        }
         if self.breach == ChannelBreach::WaitsBeforeClose {
             // Planted inversion: acquiring this waits on the stalled transfer.
             drop(self.writers.lock().unwrap());
@@ -518,7 +556,10 @@ impl ProviderAdapter for ChannelStandIn {
             // Closing cancels a blocked write, but the deliver thread still has to be
             // scheduled to return its result. Settle it before returning ([IFC-ADP-109]);
             // the planted late settlement is the one that does not.
-            if self.breach != ChannelBreach::LateSettlement {
+            if !matches!(
+                self.breach,
+                ChannelBreach::LateSettlement | ChannelBreach::SlowTailNoEffect
+            ) {
                 let (count, idle) = &*self.in_flight;
                 let mut running = count.lock().unwrap();
                 while *running != 0 {
@@ -1468,6 +1509,30 @@ fn the_suite_still_catches_stalled_shutdown_and_late_hand_off_after_factory_migr
         "admitted write completes after shutdown",
         &["IFC-ADP-073", "IFC-ADP-070"],
     );
+    // Revision 0.12: judged by effects. A deliver that ends only after the composed bound
+    // is stalled, and a detached reporter has an effect after the shutdown mark.
     let settlement = channel_report(ChannelBreach::LateSettlement, MidTurnRelease::default());
-    assert_caught(&settlement, "40 ms late failed result", &["IFC-ADP-109"]);
+    assert_caught(
+        &settlement,
+        "deliver ends after the composed bound",
+        &["IFC-ADP-109", "IFC-ADP-119"],
+    );
+    let reporter = channel_report(
+        ChannelBreach::ReportsAfterShutdown,
+        MidTurnRelease::default(),
+    );
+    assert_caught(
+        &reporter,
+        "event report after shutdown returned",
+        &["IFC-ADP-109", "IFC-ADP-070"],
+    );
+    let writer = channel_report(ChannelBreach::WorksAfterShutdown, MidTurnRelease::default());
+    assert_caught(
+        &writer,
+        "hand-off still pending after shutdown returned",
+        &["IFC-ADP-109", "IFC-ADP-070"],
+    );
+    // A deliver that is still returning at the mark, with no effect, is conformant
+    // (this is what the earlier 40 ms LateSettlement plant was).
+    channel_report(ChannelBreach::SlowTailNoEffect, MidTurnRelease::default()).assert_conformant();
 }

@@ -443,6 +443,17 @@ pub struct RecordedRequest {
     pub id: Option<String>,
 }
 
+/// What the core side records about the moment an adapter's `shutdown` returned
+/// (`spec/interfaces.md` [IFC-ADP-109]): how many events and requests it had received, and
+/// every effect received after it. Effects are recorded under this lock, in the same step
+/// as the event or request itself, so "after the mark" is a fact of the record and not of
+/// which thread ran first.
+#[derive(Default)]
+struct Ledger {
+    mark: Option<(usize, usize)>,
+    late: Vec<String>,
+}
+
 /// The suite's stand-in for the core.
 pub struct CoreSide {
     identity: DeviceIdentity,
@@ -452,6 +463,7 @@ pub struct CoreSide {
     events: Mutex<Vec<AdapterEvent>>,
     changed: Condvar,
     requests: Mutex<Vec<RecordedRequest>>,
+    ledger: Mutex<Ledger>,
     script: Mutex<VecDeque<Scripted>>,
     next_id: AtomicU64,
     pairing_values: Mutex<Vec<String>>,
@@ -476,6 +488,7 @@ impl CoreSide {
             events: Mutex::default(),
             changed: Condvar::new(),
             requests: Mutex::default(),
+            ledger: Mutex::default(),
             script: Mutex::default(),
             next_id: AtomicU64::new(1),
         })
@@ -516,6 +529,44 @@ impl CoreSide {
         lock(&self.events).clone()
     }
 
+    /// Mark the moment the adapter's `shutdown` returned ([IFC-ADP-109]). The first mark
+    /// stands. Call it right after `shutdown` returns, on the thread that called it.
+    pub fn mark_shutdown_returned(&self) {
+        let mut ledger = lock(&self.ledger);
+        if ledger.mark.is_none() {
+            ledger.mark = Some((lock(&self.events).len(), lock(&self.requests).len()));
+        }
+    }
+
+    /// The events received up to the shutdown mark; all of them when there is no mark.
+    pub fn events_at_mark(&self) -> Vec<AdapterEvent> {
+        let ledger = lock(&self.ledger);
+        let events = lock(&self.events);
+        let n = ledger.mark.map_or(events.len(), |m| m.0);
+        events[..n].to_vec()
+    }
+
+    /// The number of requests received up to the shutdown mark; all of them when there is
+    /// no mark.
+    pub fn requests_at_mark(&self) -> usize {
+        let ledger = lock(&self.ledger);
+        ledger
+            .mark
+            .map_or_else(|| lock(&self.requests).len(), |m| m.1)
+    }
+
+    /// Every event report and request the core side received after the shutdown mark.
+    pub fn effects_after_mark(&self) -> Vec<String> {
+        lock(&self.ledger).late.clone()
+    }
+
+    /// Record one effect received now: after the mark, it is a late effect.
+    fn note(ledger: &mut Ledger, what: impl FnOnce() -> String) {
+        if ledger.mark.is_some() {
+            ledger.late.push(what());
+        }
+    }
+
     /// Wait up to [`WAIT`] for `pred` to hold over the events.
     pub fn wait_for(&self, pred: impl Fn(&[AdapterEvent]) -> bool) -> bool {
         let end = Instant::now() + WAIT;
@@ -550,7 +601,10 @@ impl CoreSide {
     pub fn handler(self: &Arc<Self>) -> AdapterEventHandler {
         let me = self.clone();
         Arc::new(move |e| {
+            let mut ledger = lock(&me.ledger);
+            CoreSide::note(&mut ledger, || format!("event report {e:?}"));
             lock(&me.events).push(e);
+            drop(ledger);
             me.changed.notify_all();
         })
     }
@@ -667,22 +721,28 @@ impl RequestSink for Sink {
                 }
             }
         };
+        let mut ledger = lock(&me.ledger);
+        CoreSide::note(&mut ledger, || "send request".to_owned());
         lock(&me.requests).push(RecordedRequest {
             request: Request::Send(request),
             outcome: result.outcome(),
             error: result.error(),
             id: result.id().map(|t| t.as_str().to_owned()),
         });
+        drop(ledger);
         result
     }
 
     fn discover(&self, request: DiscoveryRequest) -> DiscoveryRequestResult {
+        let mut ledger = lock(&self.0.ledger);
+        CoreSide::note(&mut ledger, || "discovery request".to_owned());
         lock(&self.0.requests).push(RecordedRequest {
             request: Request::Discovery(request),
             outcome: "discovery-result",
             error: None,
             id: None,
         });
+        drop(ledger);
         DiscoveryRequestResult::DiscoveryResult(Vec::new())
     }
 }
@@ -1819,10 +1879,20 @@ fn scenarios(ctx: &mut Ctx<'_>) -> Result<(), String> {
 
     let mut shutdown_events = None;
     let mut shutdown_requests = None;
-    // Revision 0.4 factory probe: old checks below remain unchanged. A cancellable
-    // backend must not conceal an adapter that waits before closing, or leaves a
-    // timed-out write able to hand off later. Only Claude writes on these connections;
+    // Revision 0.4 factory probe, judged since revision 0.12 by effects ([IFC-ADP-109]): a
+    // cancellable backend must not conceal an adapter that waits before closing, or leaves
+    // a timed-out write able to hand off later. Only Claude writes on these connections;
     // the Codex fake's input uses its separate app-server link.
+    //
+    // Settlement is not judged by which of `deliver` and `shutdown` returned first: that is
+    // a scheduler race, not a fact a core can observe. The core side records every event
+    // report and request it receives, under one lock, and `shutdown`'s thread marks that
+    // record right after `shutdown` returns. The adapter fails if the record shows an
+    // effect after the mark, or if the pending `deliver` does not end within the composed
+    // bound while the stalled peer is still paused (it would be waiting on the core). A
+    // `deliver` that is merely still returning at the mark is not a violation. There is no
+    // grace period and no retry before any verdict; the only wait after the resume is the
+    // exposure window below, which gives a detached writer time to show itself.
     if profile.name == claude::PROFILE.name {
         let controls = lock(&ctx.core.controls).clone();
         for (_, control) in &controls {
@@ -1848,34 +1918,51 @@ fn scenarios(ctx: &mut Ctx<'_>) -> Result<(), String> {
         let adapter = ctx.adapter.clone();
         let bound = adapter.shutdown_bound_ms();
         let (done, done_rx) = std::sync::mpsc::channel();
-        let stopping = std::thread::spawn(move || {
-            adapter.shutdown();
-            let _ = done.send(());
-        });
-        let returned = bound != 0
-            && done_rx
+        let stopping = {
+            let core = ctx.core.clone();
+            let controls = controls.clone();
+            std::thread::spawn(move || {
+                adapter.shutdown();
+                // The connections are judged closed at the instant `shutdown` returned.
+                let closed = controls.iter().all(|(h, _)| h.is_closed());
+                core.mark_shutdown_returned();
+                let _ = done.send(closed);
+            })
+        };
+        let returned_closed = if bound == 0 {
+            None
+        } else {
+            done_rx
                 .recv_timeout(Duration::from_millis(bound.min(10_000)))
-                .is_ok();
-        // Keep the existing shutdown assertions at the first return barrier, before
-        // resuming the peer can produce any late event or request.
-        shutdown_events = Some(ctx.core.events());
-        shutdown_requests = Some(ctx.core.requests().len());
-        let closed = controls.iter().all(|(h, _)| h.is_closed());
-        let terminal_at_return = settle_rx.try_recv().ok();
-        // Resume only after observing the barrier, so a detached late writer is exposed.
+                .ok()
+        };
+        let returned = returned_closed.is_some();
+        // A shutdown that overran its bound is judged at the moment its bound expired
+        // ([IFC-ADP-119] fails it separately).
+        let closed = returned_closed.unwrap_or_else(|| controls.iter().all(|(h, _)| h.is_closed()));
+        ctx.core.mark_shutdown_returned();
+        shutdown_events = Some(ctx.core.events_at_mark());
+        shutdown_requests = Some(ctx.core.requests_at_mark());
+        // The pending `deliver` must end within the composed bound without the core doing
+        // anything for it: the peer is still paused. In this suite the core and the
+        // transport add nothing to the adapter's own bound (§5.3.2).
+        let ended = settle_rx
+            .recv_timeout(Duration::from_millis(bound.min(10_000)))
+            .ok();
+        // Resume only after that, so a detached late writer is exposed.
         for (_, c) in &controls {
             c.pause(false);
         }
-        // Cleanup may wait; evidence may not. A late failed/indeterminate result is
-        // still a settlement-barrier violation, even when no bytes reached the peer.
-        let terminal = terminal_at_return;
         if !returned {
             let _ = done_rx.recv_timeout(WAIT);
         }
         let _ = stopping.join();
         let _ = delivering.join();
+        // Exposure window for a detached writer, not a settlement allowance: nothing above
+        // is judged by it.
         std::thread::sleep(Duration::from_millis(50));
         let observed = ctx.h.observe(s1.index);
+        let late = ctx.core.effects_after_mark();
         check!(ctx, "IFC-ADP-119", "stalled-shutdown-is-bounded", {
             if stalled && returned {
                 Verdict::Pass(format!("stalled peer: shutdown returned within {bound} ms"))
@@ -1885,6 +1972,22 @@ fn scenarios(ctx: &mut Ctx<'_>) -> Result<(), String> {
                 ))
             }
         });
+        check!(
+            ctx,
+            "IFC-ADP-119",
+            "stalled-deliver-returns-within-composed-bound",
+            {
+                if ended.is_some() {
+                    Verdict::Pass(format!(
+                        "pending deliver ended within {bound} ms of the shutdown mark, peer paused"
+                    ))
+                } else {
+                    Verdict::Fail(format!(
+                        "pending deliver had not returned within {bound} ms with the peer paused"
+                    ))
+                }
+            }
+        );
         check!(ctx, "IFC-ADP-073", "closes-all-core-connections", {
             if closed {
                 Verdict::Pass("every supplied connection closed before return".into())
@@ -1895,26 +1998,42 @@ fn scenarios(ctx: &mut Ctx<'_>) -> Result<(), String> {
         check!(ctx, "IFC-ADP-070", "stalled-write-has-no-late-hand-off", {
             if calls_with(&observed, &text).is_empty()
                 && !took(&observed, &text)
-                && terminal.is_some_and(|x| x != HandOffOutcome::Completed)
-                && ctx.core.events() == *shutdown_events.as_ref().unwrap()
-                && ctx.core.requests().len() == shutdown_requests.unwrap()
+                && ended.is_some_and(|x| x != HandOffOutcome::Completed)
+                && late.is_empty()
             {
                 Verdict::Pass("resuming the peer after return transferred no pending input".into())
             } else {
                 Verdict::Fail(format!(
-                    "late hand-off or successful stalled input: {terminal:?}"
+                    "late hand-off or successful stalled input: {ended:?}; effects after the mark: {late:?}"
                 ))
             }
         });
-        check!(ctx, "IFC-ADP-109", "settlement-at-first-shutdown-return", {
-            if terminal_at_return.is_some() {
+        check!(ctx, "IFC-ADP-109", "no-effect-after-shutdown-return", {
+            if late.is_empty() {
                 Verdict::Pass(
-                    "pending deliver result present at first return; no grace period".into(),
+                    "the core's record shows no event report or request after the shutdown mark"
+                        .into(),
                 )
             } else {
-                Verdict::Fail("pending deliver returned an outcome after shutdown returned".into())
+                Verdict::Fail(format!("effect(s) after shutdown returned: {late:?}"))
             }
         });
+        check!(
+            ctx,
+            "IFC-ADP-109",
+            "pending-deliver-ends-without-the-core",
+            {
+                match ended {
+                    Some(o) => Verdict::Pass(format!(
+                        "pending deliver ended with {} while the peer stayed paused",
+                        o.as_str()
+                    )),
+                    None => Verdict::Fail(
+                        "pending deliver did not end without the core resuming the peer".into(),
+                    ),
+                }
+            }
+        );
     }
 
     // ---- shutdown ([IFC-ADP-071], [IFC-ADP-070]) -------------------------------------------
