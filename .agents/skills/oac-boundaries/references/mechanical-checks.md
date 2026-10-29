@@ -1,11 +1,12 @@
 # Mechanical boundary checks
 
 The boundary lint scripts are `scripts/check-herdr-containment.mjs` (checks 9 and 10) and
-`scripts/check-containment.mjs` (checks 12 and 13, #61).
-Checks 1-8 have no script: this file **is** the check — run the whole list as part of every
+`scripts/check-containment.mjs` (checks 12 and 13, #61), and `scripts/check-doctor-boundary.mjs`
+(check 15, wired; overlaps manual checks 5 and 7; #71, #68).
+Checks 1-8 have no script of their own: this file **is** the check — run the whole list as part of every
 `type:code` / `type:spec` work item, not just once. (`scripts/check-skills.mjs` checks skill
 budgets, not ADR-001 boundaries.) `node scripts/local-ci.mjs` runs checks 1, 2, 3, 8, 9,
-10, 11, 12, 13 and 14, client-side, before every PR and merge (no GitHub-hosted CI since
+10, 11, 12, 13, 14 and 15, client-side, before every PR and merge (no GitHub-hosted CI since
 2026-10-08; the `rg` commands of checks 1-3, 8, 11 and 14 sit verbatim in `.github/local-ci.sh`,
 copied from the deleted `boundary-lint.yml`). Checks 1-2 run over `spec/`, which is mandatory
 (a missing `spec/` fails), and over `core/` once it exists, together with the zero-hits group
@@ -16,8 +17,10 @@ exempts nothing. `--hidden` keeps dot-files in scope, and `--no-ignore` stops a 
 too). In `local-ci.mjs` the spec checks run on an explicit `find` list of every regular file under
 `spec/` (and `core/`), so the exemption is that one regular file and nothing else: a
 non-regular `spec/bindings/mcp.md`, or any symlink under `spec/`, fails the step. The
-commands below are the manual equivalents. Checks 4-7 are not wired to `local-ci.mjs` and
-stay manual. Known quirk of check 3 as written (kept verbatim; `local-ci.mjs --self-test`
+commands below are the manual equivalents. Checks 4-7 are not wired to `local-ci.mjs`
+themselves and stay manual, each with a wired neighbour that overlaps but does not replace it:
+check 14 covers the `mcp-server` part of check 4 (skipping Markdown), and check 15 overlaps
+checks 5 and 7 (see the notes on them). Known quirk of check 3 as written (kept verbatim; `local-ci.mjs --self-test`
 pins it): ripgrep lets the last matching glob win, so the later `--glob '*.json'` etc.
 override `!docs/**` and `!target`, and a docs/ or target/ file of a scanned type is scanned.
 
@@ -76,7 +79,9 @@ rg -n --no-ignore --glob '!target' --glob '!docs/**' -i \
 rg -n --glob '!target' --glob '!docs/**' --glob '!*.json' \
   'codex mcp-server|codex-rs/mcp-server' adapters/ core/ cli/ transports/
 
-# 5. Rollout-file manipulation instead of the app-server API.
+# 5. Rollout-file manipulation instead of the app-server API. Check 15 overlaps it: wider in
+#    crates (cli/, transports/ too) and in content (`*.sqlite`, the Codex home), narrower in
+#    that it skips comments and tests/. This manual grep is not superseded.
 rg -n --glob '!target' 'CODEX_HOME.*sessions|rollout.*\.jsonl' adapters/ core/
 
 # 6. Polling loops inside an adapter (heuristic — read the hit, don't trust the grep alone;
@@ -84,7 +89,8 @@ rg -n --glob '!target' 'CODEX_HOME.*sessions|rollout.*\.jsonl' adapters/ core/
 #    while claiming active-inbound support is not).
 rg -n --glob '!target' -A3 'loop\s*\{|while\s+true|while true|sleep\(|poll' adapters/
 
-# 7. Credential file/store access from an adapter (should be zero hits outside
+# 7. Credential file/store access from an adapter. Check 15 overlaps it, with the
+#    same scope note as check 5. (Should be zero hits outside
 #    auth-delegation code explicitly reviewed under oac-security-work).
 rg -n --glob '!target' 'auth\.json|Keychain|CredentialManager|Secret Service' adapters/
 
@@ -220,6 +226,14 @@ node scripts/check-containment.mjs --self-test
 pattern='(^|[^A-Za-z0-9_-])mcp-server($|[^A-Za-z0-9_-])'
 git ls-files -- adapters core cli transports ':(exclude)*.md' | rg -n -i -e "$pattern"
 git grep --cached -I -n -i -E -e "$pattern" -- adapters core cli transports ':(exclude)*.md'
+# 15. No product source path names a harness's credential file, database, rollout file or
+#    configuration directory (boundaries 3, 4, 13; #68 acceptance 4; #71). Scans the .rs
+#    files of adapters/*/src, cli/src, core/src and transports/*/src; the rules, the cli/src
+#    allowance, comment handling and what it cannot catch are in the header of
+#    scripts/check-doctor-boundary.mjs. Run by `local-ci.mjs` steps `doctor-boundary` and
+#    `doctor-boundary-self-test`.
+node scripts/check-doctor-boundary.mjs
+node scripts/check-doctor-boundary.mjs --self-test
 ```
 
 A clean run, as of the F1 scaffold (#50, 2026-10-05), is zero hits on checks 1 and 2 (on
