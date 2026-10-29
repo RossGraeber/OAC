@@ -17,11 +17,18 @@
 //! 2. [`SpawnRetrying::spawn_retrying`] retries a spawn that fails with `ExecutableFileBusy`,
 //!    a bounded number of times with a short backoff, which covers the copy fallback.
 //!
+//! [`Existing`] says what happens when the destination is already there: `Reuse` keeps it
+//! (`codex_daemon.rs`, `daemon.rs`: one directory per scene, several starts under one name),
+//! `Replace` removes it first and installs afresh (`sessions.rs`, `status.rs`: a directory
+//! named after a pid can be left behind by a panicked run, and its binary may be from an old
+//! build). A `Replace` whose removal fails is an error, never a silent reuse.
+//!
 //! Hard links work on NTFS and the extension of `dest` is the caller's (`.exe` on Windows).
 //!
 //! This file is mounted with `#[path = "support/exec_copy.rs"] mod exec_copy;` by each
 //! integration test that needs it (the pattern of `transports/zenoh/tests/support/ports.rs`).
 //! Do not copy its logic into a test; mount it.
+#![allow(dead_code)] // each test mounts the file and uses one of the two `Existing` modes
 
 use std::io;
 use std::path::Path;
@@ -33,11 +40,31 @@ use std::time::Duration;
 const SPAWN_ATTEMPTS: u32 = 8;
 const SPAWN_FIRST_BACKOFF: Duration = Duration::from_millis(10);
 
-/// Makes `dest` a copy of this test binary, unless it already exists. Prefers a hard link (no
-/// write descriptor, see the module documentation) and falls back to a copy.
-pub fn install_exe_copy(dest: &Path) {
-    if dest.exists() {
-        return;
+/// What [`install_exe_copy`] does when `dest` already exists.
+#[derive(Clone, Copy)]
+pub enum Existing {
+    /// Keep it and install nothing. For a scene that starts several processes under one name in
+    /// a directory of its own (a second start finds the first one's binary, possibly running).
+    Reuse,
+    /// Remove it first (a missing file is fine) and install afresh. For a directory whose name
+    /// can be left over from an earlier run (a pid reused after a panic): the binary there may
+    /// come from an old build and must not be run. A removal that fails, such as a still
+    /// running executable on Windows, is an error and never falls back to reusing the file.
+    Replace,
+}
+
+/// Makes `dest` a copy of this test binary, as `existing` says when `dest` is already there.
+/// Prefers a hard link (no write descriptor, see the module documentation) and falls back to a
+/// copy.
+pub fn install_exe_copy(dest: &Path, existing: Existing) {
+    match existing {
+        Existing::Reuse if dest.exists() => return,
+        Existing::Reuse => {}
+        Existing::Replace => match std::fs::remove_file(dest) {
+            Ok(()) => {}
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+            Err(e) => panic!("cannot replace {}: {e}", dest.display()),
+        },
     }
     let exe = std::env::current_exe().unwrap();
     if std::fs::hard_link(&exe, dest).is_err() {

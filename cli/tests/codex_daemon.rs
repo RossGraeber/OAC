@@ -671,7 +671,7 @@ impl Host {
         std::fs::create_dir_all(&bin).unwrap();
         std::fs::create_dir_all(&work).unwrap();
         let codex = bin.join(if cfg!(windows) { "codex.exe" } else { "codex" });
-        exec_copy::install_exe_copy(&codex);
+        exec_copy::install_exe_copy(&codex, exec_copy::Existing::Reuse);
         let mut child = Command::new(&codex)
             .args(["--exact", HOST_TEST, "--nocapture", "--test-threads=1"])
             .env(ROLE, "host")

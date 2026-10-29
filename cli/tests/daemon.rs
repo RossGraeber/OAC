@@ -182,7 +182,7 @@ impl Session {
         } else {
             "claude"
         });
-        exec_copy::install_exe_copy(&claude);
+        exec_copy::install_exe_copy(&claude, exec_copy::Existing::Reuse);
         let mut child = Command::new(&claude)
             .args(["--exact", TEST, "--nocapture", "--test-threads=1"])
             .env(ROLE, "session")
