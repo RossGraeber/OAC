@@ -9,7 +9,9 @@
 //! touch that key, so it runs this instead: the same `Daemon::start` (same lock, same
 //! endpoints, same peer authentication and observation, same relay, same Claude and Codex adapters), but
 //!
-//! - the key is made in memory for this run and kept nowhere;
+//! - the key is made in memory for this run and kept nowhere, and the one grant the sessions need to reach
+//!   each other (this device's own key may write to every session of this device, [SEC-AUZ-007]) is held
+//!   in memory too, reported as a `local_grant` event;
 //! - the transport is the in-memory one, with nothing to announce to;
 //! - the endpoints are in the test namespace given on the command line, which is the
 //!   `OAC_SCOPE` the harness and its hook command are launched with;
@@ -51,10 +53,11 @@ use oac_cli::daemon::{Daemon, Diagnostic, LogSink, Parts};
 use oac_cli::ipc::Scope;
 use oac_cli::logfile::{LogFile, MAX_LOG_BYTES};
 use oac_cli::peer::{self, ProcessId, ProcessTable};
+use oac_core::authorization::{Grant, LocalSide, PeerSide};
 use oac_core::clock::{Clock, SystemClock};
 use oac_core::ids::Token;
-use oac_core::keys::MemoryKeyStore;
-use oac_core::pairing::MemoryPairingStore;
+use oac_core::keys::{DeviceKey, KeyStore, MemoryKeyStore, SecretSeed};
+use oac_core::pairing::{MemoryPairingStore, PairingSnapshot, PairingStore};
 use oac_core::pipeline::PipelineConfig;
 use oac_core::sealing::MemoryAgreementKeyStore;
 use oac_core::session_binding::PeerObservation;
@@ -353,10 +356,35 @@ fn main() {
         adapter: codex_adapter.clone(),
         opener: reporting_opener(path, events.clone()),
     });
+    // The device's key is made here, so that the one grant a live leg needs can name it. Two sessions of
+    // one device still need an explicit grant to reach each other ([SEC-AUZ-007], [SEC-AUZ-010]: with
+    // none, a send to the other session is `unknown-destination`, the run-7 failure of 2026-10-29).
+    // This test daemon stands in for the operator who adds it: this device's own key may write to
+    // every session of this device. It is in this namespace's memory only and ends with the process.
+    let seed = SecretSeed::generate();
+    let own_key_id = DeviceKey::from_seed(&seed).key_id();
+    let key_store = MemoryKeyStore::new();
+    key_store
+        .save(&seed)
+        .expect("an empty in-memory key store takes the seed");
+    let pairing_store = MemoryPairingStore::new();
+    pairing_store
+        .save(&PairingSnapshot {
+            grants: vec![Grant::Inbound {
+                writer: PeerSide::device(own_key_id),
+                target: LocalSide::Device,
+            }],
+            ..PairingSnapshot::default()
+        })
+        .expect("an in-memory pairing store takes the snapshot");
+    events.emit(
+        "local_grant",
+        "\"writer\":\"own device key\",\"target\":\"every session of this device\"",
+    );
     let parts = Parts {
         scope,
-        key_store: Box::new(MemoryKeyStore::new()),
-        pairing_store: Box::new(MemoryPairingStore::new()),
+        key_store: Box::new(key_store),
+        pairing_store: Box::new(pairing_store),
         agreement_store: Box::new(MemoryAgreementKeyStore::new()),
         principal: Token::parse("livedaemon").expect("a token"),
         transport: Arc::new(MemoryTransport::new()),

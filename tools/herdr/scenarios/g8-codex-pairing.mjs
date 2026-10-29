@@ -630,6 +630,14 @@ export function evaluateClaims({ pairing, codexSend, claude, frames, trials, mid
   return out;
 }
 
+// The claims that decide whether a completed run is a PASS: the pairing and the traffic it exists to show. Claims 5 and
+// 6 are open questions: an answer either way is a result, never a failure. -> the required claims not `shown`.
+export const REQUIRED_CLAIMS = Object.freeze([1, 2, 3, 4, 7]);
+export function unmetRequiredClaims(claims) {
+  if (!Array.isArray(claims)) return REQUIRED_CLAIMS.map((n) => ({ n, status: 'not-evaluated', why: 'the claims could not be evaluated' }));
+  return REQUIRED_CLAIMS.map((n) => claims.find((c) => c.n === n) ?? { n, status: 'not-evaluated', why: 'no such claim was evaluated' }).filter((c) => c.status !== 'shown');
+}
+
 // --- the scenario ------------------------------------------------------------------------------------------------
 
 export default {
@@ -1303,6 +1311,12 @@ export default {
         if (g.processTree) ctx.capture(g.captureNames.proc, JSON.stringify({ t: new Date().toISOString(), mode: 'proc', direction: 'event', payload: g.processTree }), { format: 'jsonl' });
       }
     }
+    // The run completed (no stop, no error): it is a PASS only if the claims it exists to show were shown. The
+    // precedent is g9-claude-pairing and g10-cli-verbs, which throw "expectations not met" on a completed run
+    // that did not show what it was for; the captures and the claims are recorded above either way. The two
+    // open questions (5, 6) are answers either way and never fail the run.
+    const unmet = unmetRequiredClaims(g.claims);
+    if (unmet.length) throw new DriverError(`G8 S6 live leg expectations not met: claim(s) ${unmet.map((c) => c.n).join(', ')} not shown (${unmet.map((c) => `${c.n}: ${c.why}`).join('; ')}); see g8live.claims, the findings and the captures`);
   },
 };
 

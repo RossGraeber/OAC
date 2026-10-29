@@ -14,7 +14,7 @@ import { classifyForLive, driverMayAcceptLive, liveToolApproval, makeRegistratio
 
 import scenario, {
   liveNames, claudePrompt, handoffText, pairingPrompt, sendPrompt, parseFrame, oacCalls, pairingSequence, handoffFrames, echoTrials, testNumberOf,
-  claudeLaunchPlan, CLAUDE_SERVER_KEY, CLAUDE_NOT_LOGGED_IN, CLAUDE_NOT_LOGGED_IN_STOP, midTurnVerdict, refusedWithoutValue, receivedHas, defaultMarker, scrubLogLine, adapterLogSummary, carrierAncestry, claudeEvidence, claudeEvidenceText, evaluateClaims, sanitizeDaemonEvents, jsonLines, PAIRING_VALUE,
+  claudeLaunchPlan, unmetRequiredClaims, CLAUDE_SERVER_KEY, CLAUDE_NOT_LOGGED_IN, CLAUDE_NOT_LOGGED_IN_STOP, midTurnVerdict, refusedWithoutValue, receivedHas, defaultMarker, scrubLogLine, adapterLogSummary, carrierAncestry, claudeEvidence, claudeEvidenceText, evaluateClaims, sanitizeDaemonEvents, jsonLines, PAIRING_VALUE,
 } from '../scenarios/g8-codex-pairing.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -311,6 +311,16 @@ export async function g8liveUnit(check) {
   const scNoComments = code(SCENARIO);
   check('g8live registration: the scenario removes it in its finally block before recording, with no abort signal on the codex command, through the config checkpoint', scNoComments.indexOf('registration.unregister()') > scNoComments.indexOf('} finally {') && scNoComments.indexOf('registration.unregister()') < scNoComments.indexOf("ctx.record('g8live', g)") && !/runBounded\(file, a, \{[^}]*abortSignal/.test(scNoComments.slice(scNoComments.indexOf('const codexMcp'), scNoComments.indexOf('const registration'))) && /driverChangesHarnessConfig/.test(scNoComments) && /checkpointFailures/.test(read(join(REPO, 'tools', 'herdr', 'run.mjs'))) && /driverChangesHarnessConfig/.test(read(join(REPO, 'tools', 'herdr', 'run.mjs'))));
   check('g8live codex mode: driver is the default; operator keeps the old mode (the driver prints the prompts)', scenario.defaults.params.codex === 'driver' && /codexMode === 'driver'/.test(scNoComments) && /else say\(`The live daemon is ready/.test(scNoComments) && /if \(!codex\) \{\s*say\(operatorText\)/.test(scNoComments));
+
+  // --- the outcome follows the claims (run 7, 2026-10-29: PASS with claims 2, 3, 4 and 7 not shown) ----------------------------------------------
+  const st = (n, status) => ({ n, status, why: status === 'shown' ? undefined : 'x' });
+  const run7 = [st(1, 'shown'), st(2, 'not-shown'), st(3, 'not-shown'), st(4, 'not-shown'), st(5, 'shown'), st(6, 'shown'), st(7, 'not-shown')];
+  const allShown = [1, 2, 3, 4, 5, 6, 7].map((n) => st(n, 'shown'));
+  const answeredNo = allShown.map((c) => (c.n === 5 || c.n === 6 ? st(c.n, 'answered-negative') : c));
+  const openUnanswered = allShown.map((c) => (c.n === 5 ? st(5, 'not-shown') : c));
+  check('g8live outcome: claims 1, 2, 3, 4 and 7 not shown make a completed run unmet (run 7\'s shape: 2, 3, 4, 7); all shown, or the open questions 5 and 6 answered no or unanswered, do not', unmetRequiredClaims(run7).map((c) => c.n).join() === '2,3,4,7' && unmetRequiredClaims(allShown).length === 0 && unmetRequiredClaims(answeredNo).length === 0 && unmetRequiredClaims(openUnanswered).length === 0 && unmetRequiredClaims(null).map((c) => c.n).join() === '1,2,3,4,7' && unmetRequiredClaims([st(2, 'not-shown')]).length === 5);
+  check('g8live outcome: the scenario throws a DriverError (outcome FAIL, as g9-claude-pairing and g10-cli-verbs do on "expectations not met") after its finally block, so a stop or error keeps its own outcome and a completed run with unmet claims is not a PASS', /\} finally \{[\s\S]*unmetRequiredClaims\(g\.claims\)[\s\S]*throw new DriverError\(`G8 S6 live leg expectations not met/.test(code(SCENARIO)) && /throw new Error\('G9 leg A expectations not met/.test(read(join(REPO, 'tools', 'herdr', 'scenarios', 'g9-claude-pairing.mjs'))) && /expectations not met/.test(read(join(REPO, 'tools', 'herdr', 'scenarios', 'g10-cli-verbs.mjs'))) && /manifest\.outcome = 'FAIL'/.test(read(join(REPO, 'tools', 'herdr', 'run.mjs'))));
+  check('g8live live daemon: the example holds the one local grant (this device\'s own key may write to every session of this device) and reports it, because sessions of one device need an explicit grant (SEC-AUZ-007, SEC-AUZ-010) and without it a send is unknown-destination', /Grant::Inbound/.test(read(join(REPO, 'cli', 'examples', 'live_daemon.rs'))) && /PeerSide::device\(own_key_id\)/.test(read(join(REPO, 'cli', 'examples', 'live_daemon.rs'))) && /LocalSide::Device/.test(read(join(REPO, 'cli', 'examples', 'live_daemon.rs'))) && /"local_grant"/.test(read(join(REPO, 'cli', 'examples', 'live_daemon.rs'))));
 
   // --- Claude's launch: one server name in .mcp.json, the channels flag and the allowed tools (run 5, 2026-10-29) ---------------------------------
   const lp = claudeLaunchPlan({ oac: 'C:\\x\\oac.exe', ns: 'g8live', explicitEnv: false, settingsPath: 'C:\\x\\settings.json' });
