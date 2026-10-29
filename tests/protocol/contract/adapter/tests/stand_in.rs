@@ -19,7 +19,7 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 
 use oac_contract_adapter::claude::{ClaudeHarness, PipeWriter, json_string, pipe};
 use oac_contract_adapter::codex::{self, CodexFake, TUI_CLIENT};
@@ -176,6 +176,9 @@ struct ChannelStandIn {
     common: Arc<Mutex<Common>>,
     writers: Arc<Mutex<HashMap<Attachment, Box<dyn Write + Send>>>>,
     breach: ChannelBreach,
+    /// The `deliver` calls still running. A conformant `shutdown` waits for them
+    /// ([IFC-ADP-109]) after closing the connections that would otherwise block them.
+    in_flight: Arc<(Mutex<usize>, Condvar)>,
 }
 
 impl ChannelStandIn {
@@ -184,7 +187,25 @@ impl ChannelStandIn {
             common: Arc::default(),
             writers: Arc::default(),
             breach,
+            in_flight: Arc::default(),
         }
+    }
+}
+
+/// Counts a running `deliver` until it is dropped.
+struct InFlight(Arc<(Mutex<usize>, Condvar)>);
+
+impl InFlight {
+    fn enter(cell: &Arc<(Mutex<usize>, Condvar)>) -> InFlight {
+        *cell.0.lock().unwrap() += 1;
+        InFlight(cell.clone())
+    }
+}
+
+impl Drop for InFlight {
+    fn drop(&mut self) {
+        *self.0.0.lock().unwrap() -= 1;
+        self.0.1.notify_all();
     }
 }
 
@@ -409,6 +430,7 @@ impl ProviderAdapter for ChannelStandIn {
     }
 
     fn deliver(&self, hand_off: HandOff) -> HandOffOutcome {
+        let _running = InFlight::enter(&self.in_flight);
         let a = hand_off.attachment();
         let ok = Common::may_hand_off(
             &self.common,
@@ -492,6 +514,16 @@ impl ProviderAdapter for ChannelStandIn {
             }
             for h in handles {
                 h.close();
+            }
+            // Closing cancels a blocked write, but the deliver thread still has to be
+            // scheduled to return its result. Settle it before returning ([IFC-ADP-109]);
+            // the planted late settlement is the one that does not.
+            if self.breach != ChannelBreach::LateSettlement {
+                let (count, idle) = &*self.in_flight;
+                let mut running = count.lock().unwrap();
+                while *running != 0 {
+                    running = idle.wait(running).unwrap();
+                }
             }
         }
     }
