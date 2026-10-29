@@ -32,8 +32,10 @@
 // rule set. An entry that no longer matches fails (stale). Its entries are a struct field
 // access that is not a path and, in cli/src/codex.rs alone, the two constants that build the
 // Codex control socket's path. Not caught: a path assembled at run time from pieces, or a
-// name hidden by a macro or an escape; read the diff for those. Only src/ is scanned; a
-// crate's tests/ directory is not product code.
+// name hidden by a macro or an escape; read the diff for those. Only src/ is scanned. A crate's
+// tests/ and examples/ (cli/examples/live_daemon.rs, transports/zenoh/examples/loopback.rs) are
+// not product code: they are test harnesses, built only for tests and demonstrations and
+// never part of the shipped binary or library.
 //
 // Exit codes: 0 = clean; 1 = a violation (or a failed self-test case); 2 = usage or
 // environment error. Node built-ins and git only.
@@ -69,8 +71,10 @@ export const CODE_SCOPES = [
   { name: 'core/src', re: /^core\/src\// },
   { name: 'transports/*/src', re: /^transports\/[^/]+\/src\// },
 ];
-// A `.codex` path segment, not a field access (`inner.codex_version`, `x().codex`).
-const DOT = String.raw`(?:^|[^A-Za-z0-9_)\]])`;
+// A `.codex` path segment, not a field access (`inner.codex_version`, `x().codex`,
+// `probe()?.codex`) and not a method call continued on a new line (`\n    .codex()`, removed
+// by the rule's `strip` first). Prose inside a string ("see .codex docs") still counts.
+const DOT = String.raw`(?<![A-Za-z0-9_)\]?])`;
 const END = String.raw`(?![A-Za-z0-9_])`;
 export const CODE_RULES = [
   { label: 'a rollout file', re: /rollout/i },
@@ -80,14 +84,14 @@ export const CODE_RULES = [
   { label: 'a .sqlite database', re: /\.sqlite/i },
   { label: 'CODEX_HOME', re: /codex_home/i },
   { label: 'CLAUDE_CONFIG_DIR', re: /claude_config_dir/i },
-  { label: 'a .codex path', re: new RegExp(DOT + String.raw`\.codex` + END, 'i') },
+  { label: 'a .codex path', re: new RegExp(DOT + String.raw`\.codex` + END, 'i'), strip: /^\s*\.codex(?=\s*\()/i },
   { label: 'a sessions directory join', re: /\.join\(\s*"(?:archived_)?sessions"/i },
   { label: 'an OS credential store', re: /keyring|keychain|credential[ _-]?manager|secret[ _-]?service|libsecret|wincred|find-generic-password/i, notIn: 'ownKeyStore' },
 ];
 
 // `text` with every Rust comment replaced by spaces (newlines kept, so line numbers hold).
 // Line comments (`//`, `///`, `//!`), nested block comments, "..." strings with escapes, raw
-// strings (r".." r#".."# br#".."#) and char literals ('"') are tracked, so a comment marker
+// strings (r".." r#".."# br#".."# cr#".."#) and char literals ('"') are tracked, so a comment marker
 // inside a literal does not count and a quote inside a char literal does not open a string.
 export function stripComments(text) {
   let out = '';
@@ -97,7 +101,7 @@ export function stripComments(text) {
   while (i < n) {
     const c = text[i];
     const d = text[i + 1];
-    const raw = /^b?r(#*)"/.exec(text.slice(i, i + 40));
+    const raw = /^[bc]?r(#*)"/.exec(text.slice(i, i + 40));
     if (c === '/' && d === '/') {
       while (i < n && text[i] !== '\n') { out += ' '; i += 1; }
     } else if (c === '/' && d === '*') {
@@ -151,7 +155,8 @@ export function scan(root, allow = ALLOW, { requireScopes = false } = {}) {
       }
       for (const rule of CODE_RULES) {
         if (rule.notIn && scope[rule.notIn]) continue;
-        if (rule.re.test(code[i] ?? '')) names.push(rule.label);
+        const line = code[i] ?? '';
+        if (rule.re.test(rule.strip ? line.replace(rule.strip, '') : line)) names.push(rule.label);
       }
       if (!names.length) return;
       const idx = allow.findIndex((a) => a.file === file && a.line === text.trim());
@@ -284,6 +289,10 @@ function selfTest() {
       'let p = "a \\" // b"; let q = home.join("auth.json");',
       'let p = br"//"; let q = home.join("rollout-1");',
       '#[doc = "x"] let p = home.join("auth.json"); // trailing',
+      'let a = cr"C:\\"; let b = "http://x"; let p = home.join("auth.json");',
+      'let a = cr#"x"#; let b = "http://x"; let p = home.join("rollout-1");',
+      // a chained call on a new line is exempt, a path on that line is not
+      'let v = chain\n    .codex().join(".codex");',
       // a lifetime is not a char literal
       "fn f<'a>(x: &'a str) { let p = home.join(\"auth.json\"); }",
     ]) {
@@ -300,6 +309,9 @@ function selfTest() {
       'let v = self.inner.codex_version();',
       'let v = f().codex;',
       'let v = x[0].codex;',
+      'let v = probe()?.codex;',
+      'let v = probe()?\n    .codex();',
+      'let v = chain\n    .codex()\n    .next();',
       'let v = codex_version;',
       'let sessions = list.join(",");',
       'fn on_session_start() {}',

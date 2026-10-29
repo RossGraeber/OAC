@@ -1308,9 +1308,16 @@ fn the_adapter_sends_only_allowlisted_methods() {
 /// above cannot show (it sorts and deduplicates the methods): between two deliveries, across
 /// an idle window, the adapter sends the app-server no request at all. A repeated
 /// `thread/loaded/list`, `thread/read` or `thread/turns/list` would be the adapter asking
-/// "is there anything new". The window is an hour on the adapter's clock plus a real pause for
-/// its own threads; the assertion does not poll: the fake's call log is read once, after the
-/// second delivery, and the two `thread/queue/add` frames must be adjacent in it.
+/// "is there anything new". The assertion does not poll: the fake's call log is read once,
+/// after the second delivery, and the two `thread/queue/add` frames must be adjacent in it.
+///
+/// What this does not reach. The scene runs `.without_serving_thread()` on a test clock, so
+/// the hour on the adapter's clock moves nothing and a timer-driven request from the serving
+/// thread (`serving.rs`, `spawn_sweeper`) is not exercised. The only real time is a 300 ms
+/// pause, so a background poll on a real-time interval longer than that passes. It catches
+/// a request the adapter makes on its own in the course of a delivery or in a thread that
+/// runs on real time within 300 ms; the contract suite's `contract/adapter/no-polling`
+/// counts the fetch methods, and the allowlist test above pins the method set.
 #[test]
 fn no_app_server_request_is_sent_while_idle_between_two_deliveries() {
     let s = Scene::new();
