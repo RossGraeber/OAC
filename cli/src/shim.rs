@@ -179,12 +179,18 @@ pub async fn relay(
             }
         }
     };
-    tokio::pin!(to_daemon);
-    tokio::pin!(from_daemon);
+    let mut to_daemon = Box::pin(to_daemon);
+    let mut from_daemon = Box::pin(from_daemon);
     let ended = tokio::select! {
         ended = &mut to_daemon => ended,
         ended = &mut from_daemon => ended,
     };
+    // Drop both ends now: `from_daemon` holds the only sender of the output queue, and the
+    // output thread ends only when that queue closes. Left alive until this function
+    // returns, a write that failed while the daemon's read side was still open would leave
+    // the join below waiting for a sender this function itself holds.
+    drop(to_daemon);
+    drop(from_daemon);
     // What the daemon had already sent reaches the harness before the shim exits.
     if ended == Ended::DaemonClosed
         && let Ok(w) = writer
@@ -282,6 +288,62 @@ mod tests {
             assert_eq!(ended, Ended::DaemonClosed);
             assert_eq!(exit_status(ended), 1);
         });
+    }
+
+    /// A daemon end that never answers and never closes its read side, yet refuses every
+    /// write: the daemon's write side is gone while its read side is still open (a half-dead
+    /// connection). The only way the relay can end is the failed write.
+    struct WriteDead;
+
+    impl tokio::io::AsyncRead for WriteDead {
+        fn poll_read(
+            self: std::pin::Pin<&mut Self>,
+            _: &mut std::task::Context<'_>,
+            _: &mut tokio::io::ReadBuf<'_>,
+        ) -> std::task::Poll<std::io::Result<()>> {
+            std::task::Poll::Pending
+        }
+    }
+
+    impl tokio::io::AsyncWrite for WriteDead {
+        fn poll_write(
+            self: std::pin::Pin<&mut Self>,
+            _: &mut std::task::Context<'_>,
+            _: &[u8],
+        ) -> std::task::Poll<std::io::Result<usize>> {
+            std::task::Poll::Ready(Err(std::io::ErrorKind::BrokenPipe.into()))
+        }
+        fn poll_flush(
+            self: std::pin::Pin<&mut Self>,
+            _: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<std::io::Result<()>> {
+            std::task::Poll::Ready(Ok(()))
+        }
+        fn poll_shutdown(
+            self: std::pin::Pin<&mut Self>,
+            _: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<std::io::Result<()>> {
+            std::task::Poll::Ready(Ok(()))
+        }
+    }
+
+    /// Regression: when the write to the daemon failed first while the read side had not
+    /// ended, the relay waited for the harness-output thread, which waits for the read
+    /// future's sender, which the relay itself still held: the shim never exited.
+    #[test]
+    fn a_write_that_fails_while_the_daemon_read_side_is_open_still_ends_the_relay() {
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let ended = rt().block_on(async {
+                let input = std::io::Cursor::new(SAMPLE.to_vec());
+                relay(Box::new(WriteDead), None, input, Shared::default()).await
+            });
+            let _ = done_tx.send(ended);
+        });
+        let ended = done_rx
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .expect("the relay must end when the write to the daemon fails");
+        assert_eq!(ended, Ended::DaemonClosed);
     }
 
     #[test]
