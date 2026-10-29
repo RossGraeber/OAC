@@ -101,7 +101,9 @@ export const CLAUDE_SERVER_KEY = 'oac';
 // name against the servers Claude Code has configured, and run 5 (2026-10-29) showed "no MCP server configured
 // with that name" for a server given only through `--mcp-config` / `--strict-mcp-config`. Claude Code then asks
 // to approve the new project server (the multi-select form of the mcp-server-approval kind, answered only when
-// it lists exactly this server). -> { serverKey, mcpJson, settingsJson, launchArgv }
+// it lists exactly this server). `--no-chrome` (documented in `claude --help`) keeps the Claude in Chrome
+// integration off, so its "Claude in Chrome extension detected" dialog (run 6, 2026-10-29) never appears and
+// the session gets no browser tools. -> { serverKey, mcpJson, settingsJson, launchArgv }
 export function claudeLaunchPlan({ oac, ns, explicitEnv = false, settingsPath }) {
   const slash = (p) => p.replace(/\\/g, '/');
   const server = { command: oac, args: ['mcp-shim', '--harness', 'claude'] };
@@ -114,6 +116,7 @@ export function claudeLaunchPlan({ oac, ns, explicitEnv = false, settingsPath })
       'claude',
       '--dangerously-load-development-channels',
       `server:${CLAUDE_SERVER_KEY}`,
+      '--no-chrome',
       '--allowedTools',
       `mcp__${CLAUDE_SERVER_KEY}__whoami,mcp__${CLAUDE_SERVER_KEY}__send,mcp__${CLAUDE_SERVER_KEY}__list_sessions,Bash(sleep:*),PowerShell(Start-Sleep:*)`,
       '--settings',
