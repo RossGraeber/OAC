@@ -622,7 +622,9 @@ const H2: &str = "#74";
 /// Un-gating a G7 or G8 placeholder means running it against a real adapter. The crate rule
 /// (`scripts/check-crate-deps.mjs` rule 5, `tests/security` kind) admits `adapters/*` as a
 /// dev-dependency of this suite since G4 (#65), whose three placeholders (rows 11, 15 and
-/// 16) now run against the Claude adapter in `tests/provenance.rs`.
+/// 16) now run against the Claude adapter in `tests/provenance.rs`. G7's row 12 placeholder
+/// (#68) runs against the Codex adapter and the fake Codex app-server in
+/// `tests/never_steer.rs`.
 pub const THREATS: &[Threat] = &[
     Threat {
         row: "06-1",
@@ -803,15 +805,17 @@ pub const THREATS: &[Threat] = &[
         tests: &[
             "row12_hand_off_is_made_at_most_once_and_no_outcome_steers",
             "row12_no_decision_kind_enables_steering",
-            "gated_row12_codex_hand_off_is_queue_only",
+            "row12_codex_delivery_to_an_idle_thread_is_one_queue_add",
+            "row12_codex_delivery_to_a_busy_thread_waits_in_the_queue_and_never_joins_the_turn",
+            "row12_codex_delivery_when_a_turn_starts_just_after_an_idle_status_still_only_queues",
+            "row12_codex_delivery_to_an_idle_thread_after_an_interrupted_turn_only_queues",
+            "row12_codex_a_turned_away_add_is_not_followed_by_any_other_hand_off",
+            "row12_codex_a_steering_call_or_a_setting_member_is_reported_nonconformant",
         ],
         facts: &[],
         core_tests: &[],
         status: Status::Proven,
-        gated: &[Gate {
-            issue: G7,
-            what: "the Codex adapter hands off queue-only and never calls a steering method (gated_row12_codex_hand_off_is_queue_only)",
-        }],
+        gated: &[],
     },
     Threat {
         row: "06-13",
