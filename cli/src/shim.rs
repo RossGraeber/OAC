@@ -191,7 +191,9 @@ pub async fn relay(
     // the join below waiting for a sender this function itself holds.
     drop(to_daemon);
     drop(from_daemon);
-    // What the daemon had already sent reaches the harness before the shim exits.
+    // What the daemon had sent and the shim had already queued for the harness reaches it
+    // before the shim exits. When the write to the daemon failed first, a chunk not yet
+    // queued, or not yet read from the daemon, is dropped: the daemon is gone.
     if ended == Ended::DaemonClosed
         && let Ok(w) = writer
     {
