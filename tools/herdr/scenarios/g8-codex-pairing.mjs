@@ -92,6 +92,40 @@ export const LIVE_CLIENT_FILES = Object.freeze(['g8-capture.mjs']);
 export const DEFAULT_SERVER_NAME = 'oac-g8live';
 export const CLAUDE_AGENT = 'g8liveclaude';
 export const CODEX_AGENT = 'g8livecodex';
+// The name the OAC MCP server has in Claude Code's project .mcp.json, in the development-channels flag
+// (`server:<name>`) and in the allowed tools (`mcp__<name>__*`): one value, so they cannot disagree.
+export const CLAUDE_SERVER_KEY = 'oac';
+
+// Claude Code's launch for the live leg. The server is a project-scope .mcp.json entry in the session's working
+// directory, as G1, G4 and G5 ran live: `--dangerously-load-development-channels server:<name>` resolves its
+// name against the servers Claude Code has configured, and run 5 (2026-10-29) showed "no MCP server configured
+// with that name" for a server given only through `--mcp-config` / `--strict-mcp-config`. Claude Code then asks
+// to approve the new project server (the multi-select form of the mcp-server-approval kind, answered only when
+// it lists exactly this server). -> { serverKey, mcpJson, settingsJson, launchArgv }
+export function claudeLaunchPlan({ oac, ns, explicitEnv = false, settingsPath }) {
+  const slash = (p) => p.replace(/\\/g, '/');
+  const server = { command: oac, args: ['mcp-shim', '--harness', 'claude'] };
+  if (explicitEnv) server.env = { OAC_SCOPE: ns };
+  return {
+    serverKey: CLAUDE_SERVER_KEY,
+    mcpJson: { mcpServers: { [CLAUDE_SERVER_KEY]: server } },
+    settingsJson: { hooks: { SessionStart: [{ hooks: [{ type: 'command', command: `"${slash(oac)}" hook` }] }] } },
+    launchArgv: [
+      'claude',
+      '--dangerously-load-development-channels',
+      `server:${CLAUDE_SERVER_KEY}`,
+      '--allowedTools',
+      `mcp__${CLAUDE_SERVER_KEY}__whoami,mcp__${CLAUDE_SERVER_KEY}__send,mcp__${CLAUDE_SERVER_KEY}__list_sessions,Bash(sleep:*),PowerShell(Start-Sleep:*)`,
+      '--settings',
+      settingsPath,
+    ],
+  };
+}
+
+// Claude Code's own report that its login is gone (run 5, 2026-10-29: "Login expired · Please run /login" and
+// "Not logged in · Run /login" on the pane). The driver never signs in.
+export const CLAUDE_NOT_LOGGED_IN = /Login expired|Not logged in\b|Please run \/login/i;
+export const CLAUDE_NOT_LOGGED_IN_STOP = 'Claude Code is not logged in (the operator must log in; the driver never signs in)';
 // A run tag in the marker keeps a stale TUI thread of an earlier run, still loaded in the daemon with the
 // same text, from matching (run 2 attached to one).
 export const defaultMarker = (tag) => `G8 live leg marker ${tag}: reply with the single word ready.`;
@@ -755,11 +789,17 @@ export default {
     // Only the Claude pane has one; there is no Codex pane.
     // Claude's Settings Warning about the operator's own settings file: Continue only (lib/g1.mjs); each skipped rule
     // is a finding once, when the driver accepts the screen.
-    const mayAcceptClaude = driverMayAcceptExpecting(() => ['oac']);
+    const mayAcceptClaude = driverMayAcceptExpecting(() => [CLAUDE_SERVER_KEY]);
     const skippedNoted = new Set();
     const claude = makeAgent({
       ctx, g, name: CLAUDE_AGENT, label: 'claude',
-      classify: (t) => ({ ...classifyScreen(t), text: String(t ?? '') }),
+      classify: (t) => {
+        if (CLAUDE_NOT_LOGGED_IN.test(String(t ?? ''))) {
+          ctx.finding('Claude Code showed that its login is gone ("Login expired" or "Not logged in"); the driver never signs in and stops at once');
+          stop(CLAUDE_NOT_LOGGED_IN_STOP);
+        }
+        return { ...classifyScreen(t), text: String(t ?? '') };
+      },
       dialogKinds: DIALOG_KINDS,
       driverMayAccept: (c) => {
         const plan = mayAcceptClaude(c);
@@ -1077,29 +1117,17 @@ export default {
       // verbatim BEFORE any keystroke (makeAgent's handleDialog keeps the read first), then answered by
       // the driver under the #196 precedent, by the kind table of lib/g1.mjs only (--param accept=human
       // leaves them to the operator).
-      const mcpPath = join(work, 'mcp.json');
       const settingsPath = join(work, 'settings.json');
-      const server = { command: params.oac, args: ['mcp-shim', '--harness', 'claude'] };
-      if (params.explicitEnv === '1') server.env = { OAC_SCOPE: ns };
-      writeFileSync(mcpPath, JSON.stringify({ mcpServers: { oac: server } }));
-      writeFileSync(settingsPath, JSON.stringify({ hooks: { SessionStart: [{ hooks: [{ type: 'command', command: `"${slash(params.oac)}" hook` }] }] } }));
-      const wsB = await herdr.workspaceCreate({ cwd: ctx.dir('claude-cwd'), label: 'oac-g8live-claude', env: { OAC_SCOPE: ns } });
+      const plan = claudeLaunchPlan({ oac: params.oac, ns, explicitEnv: params.explicitEnv === '1', settingsPath });
+      const claudeCwd = ctx.dir('claude-cwd');
+      writeFileSync(join(claudeCwd, '.mcp.json'), JSON.stringify(plan.mcpJson));
+      writeFileSync(settingsPath, JSON.stringify(plan.settingsJson));
+      const wsB = await herdr.workspaceCreate({ cwd: claudeCwd, label: 'oac-g8live-claude', env: { OAC_SCOPE: ns } });
       ctx.record('claudePane', wsB);
       claudePaneId = wsB.paneId;
       await herdr.paneProcessInfo(wsB.paneId);
       await ctx.probeEnv(wsB.paneId, { timeoutMs: num('daemonWaitMs') });
-      const launchArgv = [
-        'claude',
-        '--dangerously-load-development-channels',
-        'server:oac',
-        '--allowedTools',
-        'mcp__oac__whoami,mcp__oac__send,mcp__oac__list_sessions,Bash(sleep:*),PowerShell(Start-Sleep:*)',
-        '--mcp-config',
-        mcpPath,
-        '--strict-mcp-config',
-        '--settings',
-        settingsPath,
-      ];
+      const { launchArgv } = plan;
       const started = await herdr.agentStart(CLAUDE_AGENT, { launchArgv, paneId: wsB.paneId, timeoutMs: num('startupTimeoutMs'), allowErrorCodes: ['agent_not_ready'] });
       ctx.recordLaunchArgv(started.argv);
       g.claudeStart = { seq: herdr.commands.at(-1).seq, errorCode: started.errorCode, herdrReportedArgv: started.argv };
@@ -1234,6 +1262,7 @@ export default {
         liveDaemonEndedBy: stoppedEventSeen ? 'its own clean shutdown after a stop line (a stopped event)' : stopLineSent ? 'a stop line was sent but no stopped event was seen; the driver teardown ends the pane' : 'the driver teardown (herdr closes the pane): input is halted after a NOT RUN stop, so no stop line could be sent',
         codexPane: codexPaneId ? 'left to the driver teardown (herdr closes it)' : null,
         sharedCodexDaemon: 'never started, stopped or restarted by the driver',
+        claudeProjectState: 'Claude Code records its folder trust and the project MCP server approval for the scratch working directory in its own user state; the driver does not edit that file',
         folderTrust: driverCodex ? 'a folder-trust accept is persisted by Codex in its own configuration; the driver does not edit that file' : null,
       };
       if (codex) {
