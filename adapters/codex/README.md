@@ -94,7 +94,7 @@ which is when Codex makes it.
   legacy surface, which the pipeline accepts, is). **Mid-turn subscription (UNVERIFIED until S6):**
   whether a `thread/resume` issued while the thread's MCP call is in flight still gets that
   item's `item/completed` was shown by no capture until the S6 live leg (S1 subscribed before the call). *Answered 2026-10-29
-  (G8 S6, Codex `0.165.0`, once): yes.* A second connection's `thread/resume`, answered 493 ms after the call started and 373 ms before it
+  (G8 S6, Codex `0.165.0`, once): yes.* A second connection's `thread/resume`, answered 422 ms after the call started and 328 ms before it
   completed, received that item's `item/completed`, and the adapter's own mid-turn resume paired
   (the G8 S6 run record under `docs/planning/gates/`, claim 5). If a Codex version stops doing so, pairing costs availability only.
   The S6 live leg also ran the harness's sequence against a real Codex and a real Claude Code

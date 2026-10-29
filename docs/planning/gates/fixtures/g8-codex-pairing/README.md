@@ -3,7 +3,7 @@
 > **Not a gate run and not verdict-bearing.** Issues #69 and #433 (G8 slice S6), with #68. Record:
 > `docs/planning/gates/herdr-runs/G8-S6-2026-10-29.md`; run manifest
 > `docs/planning/gates/herdr-runs/G8-S6-2026-10-29.run-manifest.json` (run
-> `20261029T123556Z-9173d9`, outcome PASS, driver commit `c45796a`, herdr `0.9.1`). The six
+> `20261029T133337Z-3dec95`, outcome PASS, run 10, driver commit `7dbc26f`, herdr `0.9.1`). The six
 > files are exactly what the driver wrote: their sha256 values are the run manifest's
 > `captures[].sha256`.
 
@@ -15,7 +15,7 @@ tool call was in flight (`midwatch`).
 
 | File | What it holds |
 |---|---|
-| `transcript-g8live-2026-10-29-0.165.0-herdr.jsonl` | The capture clients' wire transcript (`list`, `watch`, `midwatch` connections). Pairing L76-L120; the mid-turn `thread/resume` and its `item/completed` L85-L102; the Codex `send` L224-L235; the three hand-off `userMessage` frames L270, L340, L408; the driver-typed reply prompts and the three `reply` calls L472-L653. |
+| `transcript-g8live-2026-10-29-0.165.0-herdr.jsonl` | The capture clients' wire transcript (`list`, `watch`, `midwatch` connections). Pairing L72-L112; the mid-turn `thread/resume` and its `item/completed` L81-L94; the Codex `send` L213-L224; the three hand-off `userMessage` frames L257, L327, L395; the driver-typed reply prompts and the three `reply` calls L466-L666. |
 | `pane-codex-g8live-2026-10-29-0.165.0-herdr.txt` | Verbatim reads of the Codex TUI before each driver key: six MCP tool-approval prompts (`1. Allow` answered), including the one-line array argument `content: [{"type": "text", "text": "..."}]`. |
 | `pane-claude-g8live-2026-10-29-0.165.0-herdr.txt` | Verbatim reads of the Claude Code TUI: folder trust, the project MCP server approval, the development-channels warning, a Settings Warning about the operator's own settings file. |
 | `events-g8live-2026-10-29-0.165.0.jsonl` | The example daemon's events, sanitized (pid and image only): `local_grant`, `carrier_server`, `accepted` per connection with the nearest harness ancestor, and its log lines. |
@@ -39,8 +39,8 @@ See the claims table in the record. In short, at Codex `0.165.0` and Claude Code
 refusal, the pairing and a session id (claim 1); a Codex `send` received by Claude (2); three C6 frames in the
 Codex thread (3); a correlated and an uncorrelated reply (4); a `thread/resume` made mid-turn still received the
 in-flight call's `item/completed` (5); the shim's nearest `codex` ancestor is the control-socket server (6);
-Codex set `in_reply_to` to the last hand-off's `oac_message_id` when asked to answer it without the id (7: **confounded, not evidence**; the body of that hand-off named the field and an earlier prompt had shown it, see the record's claim 7);
-Codex made no call after a hand-off whose body asked for a reply (8).
+Codex set `in_reply_to` to hand-off 2's `oac_message_id` when asked, before any prompt had named the field, to answer the last OAC message it received without the id (7: one valid observation, n = 1; the tool's own schema documents the field, so this is "given the tool", not "from nothing"; run 9's observation was confounded and is superseded);
+Codex made no call after a hand-off whose body asked for a reply, and said it was untrusted (8).
 
 **Third-party text.** The only thread items are `userMessage`, `agentMessage` and `mcpToolCall`; no file,
 command or other tool item. Codex's `agentMessage` texts in the transcript are model output on OAC test

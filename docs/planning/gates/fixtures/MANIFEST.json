@@ -7404,16 +7404,16 @@
         "client_visible_user_agent": "oac-codex-adapter/0.165.0 (Windows 10.0.26300; x86_64) unknown (oac_g8_capture; 0.0.1) (initialize result of the capture client)"
       },
       "pins_row": "Codex CLI / app-server",
-      "pins_as_of": "PINS.md as committed at driver commit c45796ac7ca04e539546ea6ef2cf7a8a4236cc15 records last tested 0.163.0; the run used 0.165.0, so it recorded VERSION WARNING findings (warn, never gate, #216)",
-      "version_matches_pin": false,
-      "capture_utc_range": "2026-10-29T12:36:01.744Z-2026-10-29T12:38:09.117Z",
+      "pins_as_of": "PINS.md as committed at driver commit 7dbc26f7ee1c122a81359408621fd56ed18d98d8 records last tested 0.165.0, the version the run used; the run recorded no version warning (warn, never gate, #216)",
+      "version_matches_pin": true,
+      "capture_utc_range": "2026-10-29T13:33:44.173Z-2026-10-29T13:35:53.737Z",
       "driver": {
         "herdr_version": "herdr 0.9.1",
-        "driver_commit": "c45796ac7ca04e539546ea6ef2cf7a8a4236cc15",
+        "driver_commit": "7dbc26f7ee1c122a81359408621fd56ed18d98d8",
         "run_manifest": "docs/planning/gates/herdr-runs/G8-S6-2026-10-29.run-manifest.json"
       },
       "notes": [
-        "The capture clients' wire transcript: `list` connections, the passive `watch` connection on the operator-less driver-run TUI thread and the `midwatch` connection (a `thread/resume` made while the first OAC call was in flight). G8 slice S6 live leg (#69, #433), scenario tools/herdr/scenarios/g8-codex-pairing.mjs, run 9 of 9 (the others are not committed; history in the record). NOT a gate run and NOT verdict-bearing. Record: docs/planning/gates/herdr-runs/G8-S6-2026-10-29.md; findings: docs/planning/gates/fixtures/g8-codex-pairing/README.md. The file is exactly what the driver wrote; its sha256 is the run manifest's."
+        "The capture clients' wire transcript: `list` connections, the passive `watch` connection on the operator-less driver-run TUI thread and the `midwatch` connection (a `thread/resume` made while the first OAC call was in flight). G8 slice S6 live leg (#69, #433), scenario tools/herdr/scenarios/g8-codex-pairing.mjs, run 10 of 10 (the others are not committed; history in the record). NOT a gate run and NOT verdict-bearing. Record: docs/planning/gates/herdr-runs/G8-S6-2026-10-29.md; findings: docs/planning/gates/fixtures/g8-codex-pairing/README.md. The file is exactly what the driver wrote; its sha256 is the run manifest's."
       ],
       "redaction": {
         "script": "tools/herdr/lib/redact.mjs",
@@ -7421,12 +7421,12 @@
         "residual_scan_result": "tools/herdr/lib/redact.mjs (run.mjs): droppedHazardLines=0, hazardProtocolFrames=0, residualLeaks=0, residualGenericHits=0 (captures[].redaction in the run manifest). The TUI thread id, session ids, device fingerprint and pairing value are run literals (<THREAD_ID>, <SESSION_ID>, <DEVICE_FINGERPRINT>, <PAIRING_VALUE>); other threads' list entries and readStates are dropped by the shared sanitizer. Tool-result bodies, approval request bodies and harness instruction text are elided by #130 (<ELIDED ...>); the hand-off frames (userMessage items) are OAC's own text and are kept."
       },
       "coverage": {
-        "first oac-g8live whoami: refused with a pairing value (item/started, item/completed failed)": "76, 101",
-        "second whoami: paired (completed)": "108, 120",
-        "midwatch thread/resume made while the first call was in flight, and its item/completed": "85, 88, 102",
-        "Codex send to the Claude session": "195, 224, 235",
-        "three Claude-to-Codex hand-offs as userMessage items (C6 frames); no call in their turns": "270, 340, 408",
-        "driver-typed reply prompts and the three reply calls": "472-512, 542-576, 606-653"
+        "first oac-g8live whoami: refused with a pairing value (item/started, item/completed failed)": "72, 93",
+        "second whoami: paired (completed)": "99, 112",
+        "midwatch thread/resume made while the first call was in flight, and its item/completed": "81, 83, 94",
+        "Codex send to the Claude session": "171, 213, 224",
+        "three Claude-to-Codex hand-offs as userMessage items (C6 frames); no call in their turns": "257, 327, 395",
+        "driver-typed reply prompts (unspecified, in_reply_to, to-only) and the three reply calls": "466-521, 551-591, 621-666"
       },
       "schema": {
         "commit": "360319d8dee62d87e2d59fc0c21805d79519cfed",
@@ -7452,16 +7452,16 @@
         "client_visible_user_agent": "oac-codex-adapter/0.165.0 (Windows 10.0.26300; x86_64) unknown (oac_g8_capture; 0.0.1) (initialize result of the capture client)"
       },
       "pins_row": "Codex CLI / app-server",
-      "pins_as_of": "PINS.md as committed at driver commit c45796ac7ca04e539546ea6ef2cf7a8a4236cc15 records last tested 0.163.0; the run used 0.165.0, so it recorded VERSION WARNING findings (warn, never gate, #216)",
-      "version_matches_pin": false,
+      "pins_as_of": "PINS.md as committed at driver commit 7dbc26f7ee1c122a81359408621fd56ed18d98d8 records last tested 0.165.0, the version the run used; the run recorded no version warning (warn, never gate, #216)",
+      "version_matches_pin": true,
       "capture_utc_range": null,
       "driver": {
         "herdr_version": "herdr 0.9.1",
-        "driver_commit": "c45796ac7ca04e539546ea6ef2cf7a8a4236cc15",
+        "driver_commit": "7dbc26f7ee1c122a81359408621fd56ed18d98d8",
         "run_manifest": "docs/planning/gates/herdr-runs/G8-S6-2026-10-29.run-manifest.json"
       },
       "notes": [
-        "Verbatim herdr reads of the Codex TUI before each key the driver sent: the trust screen of the project directory, and the MCP tool-approval prompt for each OAC call (first seen on 0.165.0 for `send` with a `content` array argument: `content: [{\"type\": \"text\", \"text\": \"...\"}]` on one line, `to: <id>`). G8 slice S6 live leg (#69, #433), scenario tools/herdr/scenarios/g8-codex-pairing.mjs, run 9 of 9 (the others are not committed; history in the record). NOT a gate run and NOT verdict-bearing. Record: docs/planning/gates/herdr-runs/G8-S6-2026-10-29.md; findings: docs/planning/gates/fixtures/g8-codex-pairing/README.md. The file is exactly what the driver wrote; its sha256 is the run manifest's."
+        "Verbatim herdr reads of the Codex TUI before each key the driver sent: the trust screen of the project directory, and the MCP tool-approval prompt for each OAC call (first seen on 0.165.0 for `send` with a `content` array argument: `content: [{\"type\": \"text\", \"text\": \"...\"}]` on one line, `to: <id>`). G8 slice S6 live leg (#69, #433), scenario tools/herdr/scenarios/g8-codex-pairing.mjs, run 10 of 10 (the others are not committed; history in the record). NOT a gate run and NOT verdict-bearing. Record: docs/planning/gates/herdr-runs/G8-S6-2026-10-29.md; findings: docs/planning/gates/fixtures/g8-codex-pairing/README.md. The file is exactly what the driver wrote; its sha256 is the run manifest's."
       ],
       "redaction": {
         "script": "tools/herdr/lib/redact.mjs",
@@ -7487,16 +7487,16 @@
         "node": null
       },
       "pins_row": "Claude Code (Channels)",
-      "pins_as_of": "PINS.md as committed at driver commit c45796ac7ca04e539546ea6ef2cf7a8a4236cc15 records last tested v2.1.287; the run used 2.1.312, a version warning only (#216)",
-      "version_matches_pin": false,
+      "pins_as_of": "PINS.md as committed at driver commit 7dbc26f7ee1c122a81359408621fd56ed18d98d8 records last tested v2.1.312, the version the run used; the run recorded no version warning (#216)",
+      "version_matches_pin": true,
       "capture_utc_range": null,
       "driver": {
         "herdr_version": "herdr 0.9.1",
-        "driver_commit": "c45796ac7ca04e539546ea6ef2cf7a8a4236cc15",
+        "driver_commit": "7dbc26f7ee1c122a81359408621fd56ed18d98d8",
         "run_manifest": "docs/planning/gates/herdr-runs/G8-S6-2026-10-29.run-manifest.json"
       },
       "notes": [
-        "Verbatim herdr reads of the Claude Code TUI: its start-up screens (folder trust, the project MCP server approval, the development-channels warning, a Settings Warning about the operator's own settings file) each recorded before the key the driver sent. G8 slice S6 live leg (#69, #433), scenario tools/herdr/scenarios/g8-codex-pairing.mjs, run 9 of 9 (the others are not committed; history in the record). NOT a gate run and NOT verdict-bearing. Record: docs/planning/gates/herdr-runs/G8-S6-2026-10-29.md; findings: docs/planning/gates/fixtures/g8-codex-pairing/README.md. The file is exactly what the driver wrote; its sha256 is the run manifest's."
+        "Verbatim herdr reads of the Claude Code TUI: its start-up screens (folder trust, the project MCP server approval, the development-channels warning, a Settings Warning about the operator's own settings file) each recorded before the key the driver sent. G8 slice S6 live leg (#69, #433), scenario tools/herdr/scenarios/g8-codex-pairing.mjs, run 10 of 10 (the others are not committed; history in the record). NOT a gate run and NOT verdict-bearing. Record: docs/planning/gates/herdr-runs/G8-S6-2026-10-29.md; findings: docs/planning/gates/fixtures/g8-codex-pairing/README.md. The file is exactly what the driver wrote; its sha256 is the run manifest's."
       ],
       "redaction": {
         "script": "tools/herdr/lib/redact.mjs",
@@ -7521,11 +7521,11 @@
         "client_visible_user_agent": "oac-codex-adapter/0.165.0 (Windows 10.0.26300; x86_64) unknown (oac_g8_capture; 0.0.1) (initialize result of the capture client)"
       },
       "pins_row": "Codex CLI / app-server",
-      "pins_as_of": "PINS.md as committed at driver commit c45796ac7ca04e539546ea6ef2cf7a8a4236cc15 records last tested 0.163.0; the run used 0.165.0, so it recorded VERSION WARNING findings (warn, never gate, #216)",
-      "version_matches_pin": false,
-      "capture_utc_range": "2026-10-29T12:36:04.156Z-2026-10-29T12:38:29.842Z",
+      "pins_as_of": "PINS.md as committed at driver commit 7dbc26f7ee1c122a81359408621fd56ed18d98d8 records last tested 0.165.0, the version the run used; the run recorded no version warning (warn, never gate, #216)",
+      "version_matches_pin": true,
+      "capture_utc_range": "2026-10-29T13:33:46.865Z-2026-10-29T13:36:16.494Z",
       "notes": [
-        "The example daemon's events: ready, the local_grant, carrier_server (pid and image chain of the control-socket server), accepted/ended per connection (peer pid, process chain by image, nearest harness ancestor, paired), and its log lines (carrier connected with its registered name, pairing window, decisions). Not a herdr-suffixed capture; written by the scenario from the daemon's events file. G8 slice S6 live leg (#69, #433), scenario tools/herdr/scenarios/g8-codex-pairing.mjs, run 9 of 9 (the others are not committed; history in the record). NOT a gate run and NOT verdict-bearing. Record: docs/planning/gates/herdr-runs/G8-S6-2026-10-29.md; findings: docs/planning/gates/fixtures/g8-codex-pairing/README.md. The file is exactly what the driver wrote; its sha256 is the run manifest's."
+        "The example daemon's events: ready, the local_grant, carrier_server (pid and image chain of the control-socket server), accepted/ended per connection (peer pid, process chain by image, nearest harness ancestor, paired), and its log lines (carrier connected with its registered name, pairing window, decisions). Not a herdr-suffixed capture; written by the scenario from the daemon's events file. G8 slice S6 live leg (#69, #433), scenario tools/herdr/scenarios/g8-codex-pairing.mjs, run 10 of 10 (the others are not committed; history in the record). NOT a gate run and NOT verdict-bearing. Record: docs/planning/gates/herdr-runs/G8-S6-2026-10-29.md; findings: docs/planning/gates/fixtures/g8-codex-pairing/README.md. The file is exactly what the driver wrote; its sha256 is the run manifest's."
       ],
       "redaction": {
         "script": "tools/herdr/lib/redact.mjs",
@@ -7552,11 +7552,11 @@
         "node": null
       },
       "pins_row": "Claude Code (Channels)",
-      "pins_as_of": "PINS.md as committed at driver commit c45796ac7ca04e539546ea6ef2cf7a8a4236cc15 records last tested v2.1.287; the run used 2.1.312, a version warning only (#216)",
-      "version_matches_pin": false,
+      "pins_as_of": "PINS.md as committed at driver commit 7dbc26f7ee1c122a81359408621fd56ed18d98d8 records last tested v2.1.312, the version the run used; the run recorded no version warning (#216)",
+      "version_matches_pin": true,
       "capture_utc_range": null,
       "notes": [
-        "Only the lines Claude was asked to print: the ids of its three sends and the four messages it received from Codex (FROM-CODEX, ACK1, ACK2, ACK3). The channel tag attributes are not shown by the TUI, so none are recorded. G8 slice S6 live leg (#69, #433), scenario tools/herdr/scenarios/g8-codex-pairing.mjs, run 9 of 9 (the others are not committed; history in the record). NOT a gate run and NOT verdict-bearing. Record: docs/planning/gates/herdr-runs/G8-S6-2026-10-29.md; findings: docs/planning/gates/fixtures/g8-codex-pairing/README.md. The file is exactly what the driver wrote; its sha256 is the run manifest's."
+        "Only the lines Claude was asked to print: the ids of its three sends and the four messages it received from Codex (FROM-CODEX, ACK1, ACK2, ACK3). The channel tag attributes are not shown by the TUI, so none are recorded. G8 slice S6 live leg (#69, #433), scenario tools/herdr/scenarios/g8-codex-pairing.mjs, run 10 of 10 (the others are not committed; history in the record). NOT a gate run and NOT verdict-bearing. Record: docs/planning/gates/herdr-runs/G8-S6-2026-10-29.md; findings: docs/planning/gates/fixtures/g8-codex-pairing/README.md. The file is exactly what the driver wrote; its sha256 is the run manifest's."
       ],
       "redaction": {
         "script": "tools/herdr/lib/redact.mjs",
@@ -7581,11 +7581,11 @@
         "client_visible_user_agent": "oac-codex-adapter/0.165.0 (Windows 10.0.26300; x86_64) unknown (oac_g8_capture; 0.0.1) (initialize result of the capture client)"
       },
       "pins_row": "Codex CLI / app-server",
-      "pins_as_of": "PINS.md as committed at driver commit c45796ac7ca04e539546ea6ef2cf7a8a4236cc15 records last tested 0.163.0; the run used 0.165.0, so it recorded VERSION WARNING findings (warn, never gate, #216)",
-      "version_matches_pin": false,
+      "pins_as_of": "PINS.md as committed at driver commit 7dbc26f7ee1c122a81359408621fd56ed18d98d8 records last tested 0.165.0, the version the run used; the run recorded no version warning (warn, never gate, #216)",
+      "version_matches_pin": true,
       "capture_utc_range": null,
       "notes": [
-        "One record: pid, parent pid and image name only, of the Codex shim and its ancestors and of every codex process, taken when the daemon accepted the Codex shim. G8 slice S6 live leg (#69, #433), scenario tools/herdr/scenarios/g8-codex-pairing.mjs, run 9 of 9 (the others are not committed; history in the record). NOT a gate run and NOT verdict-bearing. Record: docs/planning/gates/herdr-runs/G8-S6-2026-10-29.md; findings: docs/planning/gates/fixtures/g8-codex-pairing/README.md. The file is exactly what the driver wrote; its sha256 is the run manifest's."
+        "One record: pid, parent pid and image name only, of the Codex shim and its ancestors and of every codex process, taken when the daemon accepted the Codex shim. G8 slice S6 live leg (#69, #433), scenario tools/herdr/scenarios/g8-codex-pairing.mjs, run 10 of 10 (the others are not committed; history in the record). NOT a gate run and NOT verdict-bearing. Record: docs/planning/gates/herdr-runs/G8-S6-2026-10-29.md; findings: docs/planning/gates/fixtures/g8-codex-pairing/README.md. The file is exactly what the driver wrote; its sha256 is the run manifest's."
       ],
       "redaction": {
         "script": "tools/herdr/lib/redact.mjs",
