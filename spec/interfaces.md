@@ -853,18 +853,24 @@ returns.
 [IFC-ADP-111] The core MUST NOT invoke a callback into an adapter after that adapter's
 `shutdown` returns.
 
+[IFC-ADP-126] An adapter MUST return each `deliver` call that is in flight when its `shutdown`
+returns within the composed bound of §5.3.2, measured from that return.
+
 Settlement is judged by effects the core records, not by which of two returns came first.
-An **effect** is a hand-off of content to the harness (a transfer on a connection the core
-supplied), a request passed to the core, an event report, or a callback invocation. The core
-records each effect it receives, in order, and marks the moment `shutdown` returns on the same
-record. An adapter has settled if that record shows no effect after the mark, and if every
-`deliver` in flight at the mark returns, within the composed bound of §5.3.2 and without
-anything the core must do for it (such as resuming a stalled peer), with one terminal outcome.
+An **effect** is an event report, a request passed to the core, a callback invocation, or a
+hand-off of content to the harness. The core records each event report, request and callback
+it receives, in order, and marks the moment `shutdown` returns on the same record. A hand-off
+is a transfer on a connection the core supplied; the core's own closure barrier admits no
+transfer once the connection is closed, and [IFC-ADP-073] requires every such connection to be
+closed before `shutdown` returns, so the closure of the connection is the core's record of
+hand-offs. An adapter has settled if the record shows no effect after the mark, no transfer
+reaches the harness after the return, and every `deliver` in flight at the mark returns with
+one terminal outcome within the composed bound of §5.3.2, measured from the return
+([IFC-ADP-126]), without anything the core must do for it (such as resuming a stalled peer).
 A `deliver` still returning at the mark is not a violation: whether the thread that runs it
 has been scheduled again by then is not observable by a core, and is not judged. A `deliver`
-that has not returned within the composed bound is stalled and violates [IFC-ADP-109] and
-[IFC-ADP-119]. There is no later grace period: an effect after the mark is a violation however
-soon it follows it. Previously completed harness input remains with the harness. Together with
+that has not returned within the bound is stalled and violates [IFC-ADP-126]. There is no later
+grace period: an effect after the mark is a violation however soon it follows it. Previously completed harness input remains with the harness. Together with
 [IFC-ADP-070] this leaves no post-return hand-off, request, report or callback. Core-owned
 peer publication may finish later only without any further interaction with that adapter.
 
@@ -1158,7 +1164,7 @@ returns.
 
 [IFC-ADP-075] An adapter MUST settle every in-flight hand-off call as [IFC-ADP-109] defines:
 none takes effect after its `shutdown` returns, and each ends with one terminal outcome
-without waiting on anything the core must do.
+without waiting on anything the core must do ([IFC-ADP-126] gives the time limit).
 
 [IFC-ADP-076] An adapter binding document MUST state the finite positive
 `shutdown_bound_ms` defined above.
@@ -2050,18 +2056,22 @@ Implementation work after lead approval, with no code changes in the revision PR
 Lead decision, 2026-10-29 (Refs #457): the settlement barrier of 0.4 to 0.6 is judged by
 effects, not by the order of two thread returns. Revision 0.12 is **minor under E7 §7 item 2's
 no-wire-form rule**, with the same major version and extension identifier; no wire form,
-delivery state, error code or ownership boundary changes ([IFC-ADP-109], [IFC-ADP-075]).
+delivery state, error code or ownership boundary changes ([IFC-ADP-109], [IFC-ADP-075]). It
+adds [IFC-ADP-126], which states in a keyworded requirement the time limit that the return
+barrier implied for a `deliver` in flight.
 It changes the local contract only where the order of two returns was the rule: a core cannot
 observe, without a scheduler race, that a `deliver` returned before `shutdown` did, so the rule
 is now what the core can record. **What an adapter still owes is unchanged:** no hand-off,
 request, report or callback after `shutdown` returns ([IFC-ADP-070], [IFC-ADP-110]), a
-terminal outcome for every `deliver` that does not wait on the core, and a return within
-the composed bound ([IFC-ADP-119]).
+terminal outcome for every `deliver` that does not wait on the core, a return of `shutdown`
+within the composed bound ([IFC-ADP-119]), and a return of each pending `deliver` within the
+composed bound, measured from the return of `shutdown` ([IFC-ADP-126]).
 
 **What this relaxes:** a `deliver` that is returning, with no further effect, when `shutdown`
 returns is conformant; before 0.12 it was not. The 40 ms late failed result of the earlier
 `LateSettlement` plant is such a case. A `deliver` that returns only after the composed bound,
-or only after the core resumes a stalled peer, is still a breach, and the suite plants it.
+or only after the core resumes a stalled peer, is still a breach ([IFC-ADP-126]), and the suite
+plants it.
 Implementation work: the adapter contract suite (F10, #59) judges by a core-side record with a
 shutdown mark; the channel stand-in's `shutdown` waits for its running `deliver` calls. No
 adapter code changes.
@@ -2222,12 +2232,12 @@ the requirement whose fixtures exercise it. Appendix C gives each requirement's 
 | IFC-ADP-057 | MUST | 5.5 | TODO(fixture): F10 adapter suite against the F9 fake; G7 (#68) |
 | IFC-ADP-060 | MUST | 5.6 | TODO(fixture): F10 adapter suite |
 | IFC-ADP-062 | MAY | 5.6 | none (MAY) |
-| IFC-ADP-070 | MUST NOT | 5.7 | tested, no wire fixture: shared adapter suite `nothing-after-shutdown` and `stalled-write-has-no-late-hand-off` (the core's record has no event or request after the shutdown mark, and a resumed peer receives no stalled input), with `LateHandOff`, `HandsOffAfterShutdown` and `LateSettlement` planted failures |
+| IFC-ADP-070 | MUST NOT | 5.7 | tested, no wire fixture: shared adapter suite `nothing-after-shutdown` and `stalled-write-has-no-late-hand-off` (the core's record has no event or request after the shutdown mark, and a resumed peer receives no stalled input), with `LateHandOff`, `ReportsAfterShutdown` and `ReportsOnceLate` planted failures |
 | IFC-ADP-071 | MUST | 5.7 | tested, no wire fixture: shared adapter suite `closes-every-attachment-on-shutdown`, using the core's record up to the shutdown mark |
 | IFC-ADP-072 | MUST | 5.7 | TODO(fixture): owner F10 (#59) with G4 (#65), race shutdown with new delivery and harness requests; no new hand-off begins |
 | IFC-ADP-073 | MUST | 5.7 | tested, no wire fixture: shared adapter suite `closes-all-core-connections`; channel `shutdown_closes_opening_connections_and_double_shutdown_returns` covers unfinished openings |
 | IFC-ADP-074 | RETIRED | 5.7 | Retired in revision 0.6; replaced by [IFC-ADP-119] |
-| IFC-ADP-075 | MUST | 5.7 | tested, no wire fixture: shared adapter suite `no-effect-after-shutdown-return` and `pending-deliver-ends-without-the-core` (revision 0.12, judged by effects) and channel test `shutdown_settles_an_inflight_deliver_before_return`; the `LateSettlement` plant (a `deliver` that ends only after the composed bound) and `LateHandOff` fail |
+| IFC-ADP-075 | MUST | 5.7 | tested, no wire fixture: shared adapter suite `no-effect-after-shutdown-return` and `stalled-deliver-returns-within-composed-bound` (revision 0.12, judged by effects) and channel test `shutdown_settles_an_inflight_deliver_before_return`; the `LateSettlement` plant (a `deliver` that ends only after the composed bound) and `LateHandOff` fail |
 | IFC-ADP-076 | MUST | 5.7 | binding declaration and test: reference adapter documents its positive local shutdown budget, callback budgets, admission limits and the separate core/optional publication contributions; budget rejection test |
 | IFC-ADP-077 | MUST | 5.7 | tested, no wire fixture: core pipeline `a_connection_cannot_exceed_the_adapter_shutdown_budget` |
 | IFC-ADP-078 | MUST | 5.7 | TODO(fixture): owner F10 (#59) with G4 (#65), race shutdown with new harness requests; no new request is accepted |
@@ -2250,7 +2260,7 @@ the requirement whose fixtures exercise it. Appendix C gives each requirement's 
 | IFC-ADP-106 | MUST | 5.3.1 | tested, no wire fixture: core `final_local_closure_returns_before_blocked_withdrawal_and_never_calls_the_stopped_adapter`; local cessation completes before the separately owned peer withdrawal |
 | IFC-ADP-107 | RETIRED | 5.3.1 | Retired in revision 0.6; replaced by [IFC-ADP-124] |
 | IFC-ADP-108 | RETIRED | 5.3.1 | Retired in revision 0.6; replaced by [IFC-ADP-125] |
-| IFC-ADP-109 | MUST | 5.3.1 | tested, no wire fixture: shared suite `no-effect-after-shutdown-return` and `pending-deliver-ends-without-the-core` (revision 0.12: the core's record has no effect after the shutdown mark, and a pending `deliver` ends within the composed bound with the peer still paused), channel blocked-request/blocked-handler tests and committed-request test; `LateSettlement`, `HandsOffAfterShutdown` and `LateHandOff` fail without a grace period |
+| IFC-ADP-109 | MUST | 5.3.1 | tested, no wire fixture: shared suite `no-effect-after-shutdown-return` and `no-late-effect-after-the-exposure-window` (revision 0.12: the core's record has no effect after the shutdown mark, read at two points), channel blocked-request/blocked-handler tests and committed-request test; `ReportsAfterShutdown` and `ReportsOnceLate` fail without a grace period |
 | IFC-ADP-110 | MUST NOT | 5.3.1 | tested, no wire fixture: channel `shutdown_settles_a_blocked_precommit_request_without_releasing_its_blocker` and `shutdown_settles_a_blocked_handler_and_records_final_closure_at_return`; releasing blockers after return produces no result, report or input |
 | IFC-ADP-111 | MUST NOT | 5.3.1 | tested, no wire fixture: core `blocked_callback_settles_before_shutdown_and_no_callback_is_invoked_after_return` and `final_local_closure_returns_before_blocked_withdrawal_and_never_calls_the_stopped_adapter` |
 | IFC-ADP-112 | MUST | 5.3.1 | tested, no wire fixture: core `commit_and_shutdown_races_have_exactly_one_truthful_value`, `closure_commit_and_first_cancellation_transition_are_preserved` and `local_core_send_waits_for_ownership_after_commit_and_keeps_the_original_id` |
@@ -2260,13 +2270,14 @@ the requirement whose fixtures exercise it. Appendix C gives each requirement's 
 | IFC-ADP-116 | MUST | 5.6 | TODO(fixture): owner G5 (#66) with F10 (#59) and G4 (#65), each pre-commit local failure maps to existing internal-error refusal with no identity/id/state; completed RequestResult unchanged; closed connection records result without a late write |
 | IFC-ADP-117 | MUST | 5.3.2 | tested, no wire fixture: core `local_core_send_waits_for_ownership_after_commit_and_keeps_the_original_id`; channel `committed_request_keeps_shutdown_pending_and_preserves_the_single_truthful_result` keeps shutdown pending beyond the local bound for both ownership results; once ownership is settled, the core post-publication contention tests (`a_committed_send_returns_taken_while_the_core_lock_is_held_after_publication`, `a_committed_send_returns_not_taken_while_the_core_lock_is_held_after_publication`, `a_refused_announcement_returns_while_the_core_lock_is_held_after_publication` and the three `shutdown_gets_a_..._result_while_the_core_lock_is_held_after_publication` counterparts) show the single truthful result arrives within the local budget while the core lock is held, with transport paused under a declared `publish_bound_ms` of 500, for taken, not-taken and refused announcement, with and without closure begun |
 | IFC-ADP-118 | MUST | 5.3.2 | tested, no wire fixture: core `undeclared_publication_is_explicitly_unbounded_and_limits_are_finite` checks finite composition and zero awaited contribution; `local_core_send_waits_for_ownership_after_commit_and_keeps_the_original_id` checks the local guarantee report while publication is pending and after settlement; the post-publication contention tests check the settled result is not delayed by core bookkeeping |
-| IFC-ADP-119 | MUST | 5.7 | tested, no wire fixture: shared suite `stalled-shutdown-is-bounded` and `stalled-deliver-returns-within-composed-bound` (IFC-ADP-119); channel `invalid_local_budgets_and_excess_connections_are_rejected_before_admission` and committed-request test cover finite local admission and the conditional publication contribution |
+| IFC-ADP-119 | MUST | 5.7 | tested, no wire fixture: shared suite `stalled-shutdown-is-bounded` (IFC-ADP-119); channel `invalid_local_budgets_and_excess_connections_are_rejected_before_admission` and committed-request test cover finite local admission and the conditional publication contribution |
 | IFC-ADP-120 | MUST | 5.3.1 | tested, no wire fixture: core `all_local_request_methods_time_out_on_a_blocked_core_lock_without_late_work` covers send/discovery/identity; channel blocked-handler test covers event reporting; committed publication, including core contention after ownership is settled, is covered by IFC-ADP-117 |
 | IFC-ADP-121 | MUST | 5.3.1 | tested, no wire fixture: core `ordinary_callback_timeout_has_no_completed_capability_value`; channel `a_stalled_write_is_indeterminate`; callback budgets are declared by the reference adapter binding |
 | IFC-ADP-122 | MUST | 5.3.1 | tested, no wire fixture: channel blocked-request/blocked-handler tests; core `ordinary_timeout_and_connection_scoping_and_reserved_final_reports` and committed ownership test cover cancellation scoping and publication settlement; the post-publication contention tests cover shutdown begun while the core lock is held |
 | IFC-ADP-123 | MUST | 5.3.1 | tested, no wire fixture: core `blocked_callback_settles_before_shutdown_and_no_callback_is_invoked_after_return`; channel `shutdown_settles_an_inflight_deliver_before_return` and multiple-opening shutdown test |
 | IFC-ADP-124 | MUST | 5.3.1 | tested, no wire fixture: reference adapter/core boundary reject local costs outside declared budgets before admission; channel `invalid_local_budgets_and_excess_connections_are_rejected_before_admission`; core admission-limit and composition test |
 | IFC-ADP-125 | MUST | 5.3.1 | tested, no wire fixture: channel `invalid_local_budgets_and_excess_connections_are_rejected_before_admission`, concurrent/double shutdown and blocked-call tests; core composition test and IFC-ADP-117 cover the separate transport contribution |
+| IFC-ADP-126 | MUST | 5.3.1 | tested, no wire fixture: shared suite `stalled-deliver-returns-within-composed-bound` (revision 0.12: a pending `deliver` returns within `shutdown_bound_ms` of the shutdown return, the stalled peer still paused); channel test `shutdown_settles_an_inflight_deliver_before_return`; the `LateSettlement` plant fails |
 | IFC-TRN-001 | MUST | 6.1 | TODO(fixture): F10 transport suite against F7, then G1-G2 |
 | IFC-TRN-002 | MAY | 6.1 | none (MAY) |
 | IFC-TRN-003 | MUST | 3.3 | TODO(fixture): each assigned requirement's own tests, run against a transport; F10 |
@@ -2361,7 +2372,7 @@ a frame, so the id was reused for the rule it holds now and is not retired.
 | 0.9 (in force from the merge of PR #408) | 2026-10-14 | Refs #396, #389, #391, #375. §6.4 adds IFC-TRN-118 (a transport does not refuse a payload for its size when it has at most its declared `max_payload_octets` octets; a sealed payload is measured as its frame) and IFC-TRN-119 (a transport that declares `reliability` delivers each payload for which it returns `taken`, unless its `Deadline` passes first, the destination is not reachable, or the transport is shut down or restarted first); a transport without `reliability` is required only to meet IFC-TRN-118, and not to alter a delivered payload (IFC-TRN-030). §6.6 adds the `carrier-appeared` event (a link, or a transport peer reached over it, that a carrier handle names has become usable): IFC-TRN-120 (MAY report it), IFC-TRN-121 (hand it to the `watch_presence` handler on the transport's own initiative), IFC-TRN-122 (carry only the carrier handle), IFC-TRN-123 (the core begins, within 2 seconds after the first event not yet covered, a set of announcements through that transport: one new announcement per session it is announcing and per device SEC-AUZ-011 allows, each carrying a `seq` that meets SC-DLV-050), IFC-TRN-124 (no treatment as a presence record, session or evidence) and IFC-TRN-125 (the core begins no second set from one transport less than 1 second after it began the previous set; per transport, not per carrier handle). The timing values are confirmed by the lead on 2026-10-14 (hold-off 1 s, bound 2 s). §8 gains a threat row. The explanations under IFC-TRN-100 and IFC-TRN-108 name the event; IFC-TRN-090 states carrier appearance in the binding document; Table 6.3 ties `max_payload_octets` to IFC-TRN-118 and `reliability` to IFC-TRN-119. Appendix A: the IFC-TRN-060 and IFC-TRN-108 cells cite the tests of PR #386 (#391); the record half of IFC-TRN-060 binds only a transport that does not declare `sealing` and stays open under F10 (#59). Appendix C gives owners to IFC-TRN-118, -119, -121 and -122 (transport) and to IFC-TRN-123, -124 and -125 (core). Minor revision under E7 §7 and §7.5, with no wire form, no extension identifier and no new fixture. The companion revisions for #375 items 2 to 4 are `spec/security.md` 0.5 and `spec/session-channels.md` 0.3. |
 | 0.10 (in force from the merge of PR #424) | 2026-10-15 | #70, with `spec/bindings/mcp.md` 0.4 (the shim's hello line, §8.1): Appendix C gives the six new `MUST` and `MUST NOT` requirements of MCPB-CLD-011 to MCPB-CLD-016 one owner each, adapter (the `oac mcp-shim` command that sends the line and the adapter's classification and reporting of it). No requirement of this document changes, and no wire form or member changes; the cross-check value the adapter reports in `attachment-opened` is the one this document already defines (§5.4, the `attachment-opened` event). Minor revision under E7 §7: the owner index is an index of who carries out a requirement, as in 0.8. |
 | 0.11 (in force from the merge of PR #427) | 2026-10-15 | Refs #409, split from #375 item 1, with `spec/security.md` 0.6 (pairing confirms each device's agreement statement; a breaking change to the unreleased 0.3 sealing, published as a minor revision by the lead's decision, #409 option c, as a one-off exception to E7 §7 item 2 and `spec/session-channels.md` §5.3, which `spec/session-channels.md` 0.4 records). Appendix C gives owner core to SEC-SEL-044 to SEC-SEL-050, the pairing comparison and the admission, durability and removal rules that follow from it, so that the owner index lists every `MUST` of `spec/security.md` once. No requirement of this document, and no wire form, changes. Appendix A: the IFC-TRN-118 cell now cites the F10 transport suite row `declared-size-is-not-refused` and its planted breaches (PR #428); IFC-TRN-119 stays `TODO(fixture)`, since its stop cases are not exercised yet. Apart from that cell, this revision only extends the owner index, which is a change to a frozen document and takes a version bump under `docs/planning/decisions/E7-interface-freeze.md` §7, as in 0.8. |
-| 0.12 (proposed; lead approval pending) | 2026-10-29 | Refs #457; lead decision 2026-10-29 (option 1). The settlement barrier of §5.3.1 is judged by effects the core records, not by which of `deliver` and `shutdown` returned first, which a core cannot observe without a scheduler race: [IFC-ADP-109] now requires that no in-flight call, report or callback takes effect after `shutdown` returns and that each ends with one definite result (for `deliver`, one terminal outcome) without waiting on anything the core must do; the paragraph after [IFC-ADP-111] says how the record and the shutdown mark judge it, with no later grace period and a stalled `deliver` still a breach of [IFC-ADP-109] and [IFC-ADP-119]; [IFC-ADP-075] follows [IFC-ADP-109]. What an adapter owes after `shutdown` returns ([IFC-ADP-070], [IFC-ADP-110]) is unchanged. Relaxed: a `deliver` still returning, with no effect, at the mark is conformant (§7.6). Appendix A rows 070, 071, 075, 109 and 119 name the revised suite rows. No wire form, delivery state, error code or other requirement changes. Minor revision under `docs/planning/decisions/E7-interface-freeze.md` §7. |
+| 0.12 (proposed; lead approval pending) | 2026-10-29 | Refs #457; lead decision 2026-10-29 (option 1). The settlement barrier of §5.3.1 is judged by effects the core records, not by which of `deliver` and `shutdown` returned first, which a core cannot observe without a scheduler race: [IFC-ADP-109] now requires that no in-flight call, report or callback takes effect after `shutdown` returns and that each ends with one definite result (for `deliver`, one terminal outcome) without waiting on anything the core must do; the new [IFC-ADP-126] (`MUST`, owner adapter) requires each `deliver` in flight at that return to return within the composed bound of §5.3.2, measured from it; the paragraph after [IFC-ADP-111] says how the record, the closure of the supplied connections (hand-offs) and the shutdown mark judge it, with no later grace period; [IFC-ADP-075] follows [IFC-ADP-109]. What an adapter owes after `shutdown` returns ([IFC-ADP-070], [IFC-ADP-110]) is unchanged. Relaxed: a `deliver` still returning, with no effect, at the mark is conformant (§7.6). Appendix A rows 070, 071, 075, 109 and the new 126 name the revised suite rows; Appendix C gives [IFC-ADP-126] to the adapter. No wire form, delivery state, error code or other requirement changes. Minor revision under `docs/planning/decisions/E7-interface-freeze.md` §7. |
 
 ## Appendix C. Owner index
 
@@ -2406,7 +2417,7 @@ carries the requirement out.
 | MCPB-FBK | adapter | 001 |
 | MCPB-CLD | adapter | 001, 002, 003, 004, 005, 006, 007, 008, 009, 010, 011, 012, 013, 014, 015, 016 |
 | MCPB-CDX | adapter | 001, 002, 003, 004, 005, 006 |
-| IFC-ADP | adapter | 001, 002, 003, 004, 005, 006, 007, 010, 013, 020, 022, 030, 031, 040, 041, 043, 050, 051, 052, 053, 054, 056, 057, 060, 070, 071, 072, 073, 075, 078, 091, 094, 109, 110, 116, 119, 121, 123, 125 |
+| IFC-ADP | adapter | 001, 002, 003, 004, 005, 006, 007, 010, 013, 020, 022, 030, 031, 040, 041, 043, 050, 051, 052, 053, 054, 056, 057, 060, 070, 071, 072, 073, 075, 078, 091, 094, 109, 110, 116, 119, 121, 123, 125, 126 |
 | IFC-ADP | core | 011, 012, 014, 015, 016, 017, 018, 019, 042, 055, 077, 090, 092, 093, 095, 096, 097, 098, 104, 106, 111, 112, 113, 114, 115, 117, 118, 120, 122, 124 |
 | IFC-ADP | binding | 076, 080, 105 |
 | IFC-TRN | core | 010, 011, 012, 013, 022, 024, 025, 032, 037, 041, 042, 051, 062, 081, 100, 101, 102, 103, 104, 123, 124, 125 |
