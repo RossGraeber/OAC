@@ -200,7 +200,7 @@ export const DIALOG_KINDS = Object.freeze({
   },
   'settings-warning': {
     // Claude Code's start-up warning about the operator's own settings file. Seen live (G8 S6 driver
-    // run 4, 2026-10-29, C:\Users\rossg\g8live-run4, pane capture seq 58; Claude Code as recorded in
+    // run 4 (20261029T074336Z-f72853), 2026-10-29, pane capture seq 58; Claude Code as recorded in
     // that run manifest's harnessVersions.claude, Windows), verbatim:
     //
     //   Settings Warning

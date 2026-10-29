@@ -59,6 +59,7 @@ import { redactCaptures } from './lib/elide.mjs';
 import { defaultPaneShell, quoteCommand } from './lib/pane-shell.mjs';
 import { killTree, within } from './lib/proc.mjs';
 import { removeScratch } from './lib/scratch.mjs';
+import { makeCleanups } from './lib/cleanup.mjs';
 import { isMainModule, canonicallyWithin, rootGuardProblem } from './lib/canonical-path.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -173,6 +174,7 @@ async function runScenarioInner(opts, state) {
   let leftover = null;
   const commands = [];
   const captures = [];
+  const cleanups = makeCleanups(); // hooks a scenario registers (ctx.addCleanup), run in teardown
   const extraLiterals = [...(opts.redactLiterals ?? [])];
   const abort = new AbortController();
   const timeboxStart = Date.now();
@@ -336,6 +338,13 @@ async function runScenarioInner(opts, state) {
           if (hc.beforeFirstAllow) hc.beforeFirstAllow = { ...hc.beforeFirstAllow, hashes: after, rebasedFor: String(why) };
         }
       },
+      // 2026-10-29 (lead decision): a scenario that changes something outside its scratch directory (Codex: the MCP server
+      // it registers) registers the undo here. run.mjs runs it in teardown, once, after the scenario body has had its two
+      // seconds and before the harness configuration is hashed for the last time, so an abort or an expired timebox that
+      // cuts the scenario's own finally block short still leaves the machine as it was (lib/cleanup.mjs).
+      addCleanup(name, fn) {
+        cleanups.add(name, fn);
+      },
       // A process outside the driver's control (e.g. the operator's shared Codex app-server
       // daemon, which the driver never stops) may keep a handle under scratch past the run.
       // Recorded; named in the finding if scratch removal then fails (#202).
@@ -489,6 +498,11 @@ async function runScenarioInner(opts, state) {
     // call now refuses (aborted), so this settles quickly.
     if (!abort.signal.aborted) abort.abort('run over; tearing down');
     await within(bodyPromise.catch(() => {}), 2000);
+    // The scenario's registered undo steps, before anything else is hashed or torn down.
+    if (cleanups.size) {
+      manifest.cleanups = await cleanups.runAll();
+      for (const c of manifest.cleanups) if (!c.ok) manifest.findings.push(`cleanup hook ${c.name} failed (${c.error}); undo it by hand`);
+    }
 
     if (serverStarted) {
       try {

@@ -39,7 +39,7 @@ See the claims table in the record. In short, at Codex `0.165.0` and Claude Code
 refusal, the pairing and a session id (claim 1); a Codex `send` received by Claude (2); three C6 frames in the
 Codex thread (3); a correlated and an uncorrelated reply (4); a `thread/resume` made mid-turn still received the
 in-flight call's `item/completed` (5); the shim's nearest `codex` ancestor is the control-socket server (6);
-Codex set `in_reply_to` to the last hand-off's `oac_message_id` when asked to answer it without the id (7);
+Codex set `in_reply_to` to the last hand-off's `oac_message_id` when asked to answer it without the id (7: **confounded, not evidence**; the body of that hand-off named the field and an earlier prompt had shown it, see the record's claim 7);
 Codex made no call after a hand-off whose body asked for a reply (8).
 
 **Third-party text.** The only thread items are `userMessage`, `agentMessage` and `mcpToolCall`; no file,
