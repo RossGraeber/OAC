@@ -129,6 +129,11 @@ fn the_live_daemon_reports_what_it_observed_and_stops_cleanly() {
             .parent()
             .map(std::path::Path::to_path_buf);
     }
+    // The one grant the live leg's sessions need to reach each other (SEC-AUZ-007: sessions of one
+    // device still need an explicit grant; without it a send is `unknown-destination`), reported
+    // before the daemon is ready.
+    let grant = daemon.wait_for("local_grant");
+    assert!(grant.contains("own device key"), "{grant}");
     let ready = daemon.wait_for("ready");
     assert!(ready.contains(&namespace), "{ready}");
 

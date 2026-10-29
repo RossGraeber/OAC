@@ -198,6 +198,41 @@ export const DIALOG_KINDS = Object.freeze({
     // MCP_MULTISELECT above for its recorded text and the rules the driver applies to it.
     variants: Object.freeze({ 'multi-select': MCP_MULTISELECT }),
   },
+  'settings-warning': {
+    // Claude Code's start-up warning about the operator's own settings file. Seen live (G8 S6 driver
+    // run 4 (20261029T074336Z-f72853), 2026-10-29, pane capture seq 58; Claude Code as recorded in
+    // that run manifest's harnessVersions.claude, Windows), verbatim:
+    //
+    //   Settings Warning
+    //
+    //   <USER_HOME>\.claude\settings.json
+    //   └ permissions.allow: Invalid permission rule "codex exec" was skipped: Tool names must start with uppercase. Use
+    //     "Codex exec"
+    //
+    //   The values listed above were skipped; the rest of the file is in effect.
+    //
+    //   ❯ 1. Continue
+    //     2. Fix with Claude
+    //     3. Exit and fix manually
+    //
+    //   Enter to confirm · Esc to cancel
+    //
+    // The driver answers Enter on the preselected "1. Continue": it only proceeds. Nothing is written and the
+    // skipped rule stays skipped. It never selects "Fix with Claude" (which edits the file) or "Exit". Only this
+    // form is on record: an "Invalid permission rule" warning for a settings file, the recorded sentence, exactly the
+    // three numbered options, `❯` on 1. Another warning, more or other options, or another selection is refused.
+    // The skipped rules are the caller's to record (settingsWarningRules).
+    detect: /^[ \t]*Settings Warning[ \t]*\r?$/m,
+    acceptOption: /^Continue$/,
+    options: Object.freeze(['Continue', 'Fix with Claude', 'Exit and fix manually']),
+    numbered: true,
+    marker: '❯',
+    footer: /^[ \t]*Enter to confirm · Esc to cancel[ \t]*\r?$/m,
+    body: /^Settings Warning \S*settings\S*\.json .*\bInvalid permission rule\b.* The values listed above were skipped; the rest of the file is in effect\.$/,
+    preselected: 0,
+    accept: 0,
+    verified: 'G8 S6 driver run 4 (2026-10-29), Claude Code as in that run manifest (harnessVersions.claude), Windows; "1. Continue" preselected',
+  },
   'tool-permission': {
     detect: /Do you want to (?:proceed|allow|make this edit)|Allow (?:this )?tool/i,
     acceptOption: /^Yes\b/i,
@@ -206,6 +241,27 @@ export const DIALOG_KINDS = Object.freeze({
     // the driver (#197 review; tool approval is outside #196).
   },
 });
+
+// The rules a Settings Warning lists as skipped ("└ <rule text>", wrapped lines joined), for a finding.
+// -> string[]
+export function settingsWarningRules(text) {
+  const lines = String(text ?? '').replace(/\r/g, '').split('\n');
+  const out = [];
+  let cur = null;
+  for (const raw of lines) {
+    const m = /^\s*└\s+(\S.*?)\s*$/.exec(raw);
+    if (m) {
+      if (cur) out.push(cur);
+      cur = m[1];
+    } else if (cur && /^\s{2,}\S/.test(raw) && !/^\s*(?:[❯›>]|\d+\.|The values listed above)/.test(raw)) cur = `${cur} ${raw.trim()}`;
+    else if (cur) {
+      out.push(cur);
+      cur = null;
+    }
+  }
+  if (cur) out.push(cur);
+  return out;
+}
 
 // A blocking prompt whose wording matches none of the kinds above.
 const GENERIC_DIALOG = /Enter to confirm|Esc to cancel|Esc to exit|\(y\/n\)/i;

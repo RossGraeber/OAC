@@ -80,6 +80,7 @@ import { g1Unit, g1Cases, installFakeClaudeCli, cloneWithPins } from './g1-tests
 import { g2Unit, g2Cases, fakeCodexEnv, stopFakeCodexDaemon } from './g2-tests.mjs';
 import { s3Unit } from './s3-tests.mjs';
 import { g8Unit } from './g8-tests.mjs';
+import { g8liveUnit } from './g8live-tests.mjs';
 import { ciUnit, ciLifecycle } from './ci-tests.mjs';
 import { g4Unit, g4Cases } from './g4-tests.mjs';
 import { g5Unit, g5Cases } from './g5-tests.mjs';
@@ -893,6 +894,15 @@ async function lifecycle() {
     const m = r.manifest;
     check('fix1: expired timebox ends NOT RUN even though the scenario returned', r.status === 3 && /the timebox expired/.test(m.outcomeReason) && m.timebox.expired === true, `${r.status} ${m.outcomeReason}`);
   });
+  // M2 (G8 S6 review): a cleanup hook the scenario registered runs from run.mjs's teardown even though the scenario was cut
+  // off in the middle of an await, so its own finally block never ran; a hook that throws is a finding, not a crash.
+  const cleanupMarker = join(tmpdir(), `oac-cleanup-hook-${process.pid}.txt`);
+  run('cleanup hook: a timebox that cuts the scenario off still runs its registered undo', { scenario: T('cleanup-hook.mjs'), args: ['--timebox-ms', '1000', '--param', 'sleepMs=120000', '--param', `marker=${cleanupMarker}`] }, (r) => {
+    const m = r.manifest;
+    const ran = existsSync(cleanupMarker);
+    rmSync(cleanupMarker, { force: true });
+    check('cleanup hook: the hook ran from teardown after the timebox cut the scenario off (marker written), is recorded ok, the failing hook is recorded and a finding, and the run is NOT RUN', ran && m.cleanups?.length === 2 && m.cleanups[0].ok === true && m.cleanups[1].ok === false && /fails on purpose/.test(m.cleanups[1].error) && m.findings.some((f) => /cleanup hook a hook that throws failed/.test(f)) && r.status === 3 && m.outcome === 'NOT RUN', `${r.status} ${m.outcome} ${JSON.stringify(m.cleanups)}`);
+  });
   run('fix7: non-herdr await past the timebox', { scenario: T('slow.mjs'), args: ['--timebox-ms', '1000', '--param', 'sleepMs=120000'] }, (r) => {
     const m = r.manifest;
     const wall = Date.parse(m.timebox.teardownEnd) - Date.parse(m.timebox.start);
@@ -1117,6 +1127,7 @@ export async function runSelfTest() {
   g2Unit(check);
   s3Unit(check);
   await g8Unit(check);
+  await g8liveUnit(check);
   await g4Unit(check);
   await g5Unit(check);
   l3Unit(check);

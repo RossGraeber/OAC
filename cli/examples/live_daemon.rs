@@ -9,7 +9,9 @@
 //! touch that key, so it runs this instead: the same `Daemon::start` (same lock, same
 //! endpoints, same peer authentication and observation, same relay, same Claude and Codex adapters), but
 //!
-//! - the key is made in memory for this run and kept nowhere;
+//! - the key is made in memory for this run and kept nowhere, and the one grant the sessions need to reach
+//!   each other (this device's own key may write to every session of this device, [SEC-AUZ-007]) is held
+//!   in memory too, reported as a `local_grant` event;
 //! - the transport is the in-memory one, with nothing to announce to;
 //! - the endpoints are in the test namespace given on the command line, which is the
 //!   `OAC_SCOPE` the harness and its hook command are launched with;
@@ -24,6 +26,9 @@
 //! Its log lines also go to the daemon log file of the namespace (`oac_cli::logfile`, G10 #71):
 //! under `<dir>/OAC/logs/ns-<namespace>/` with `--state-dir`, else in the user's state
 //! directory. A start that fails says why on standard error and exits 1.
+//!
+//! With a Codex control socket present, it also reports the server it authenticated as the Codex
+//! carrier (a `carrier_server` event: process id and process chain, id and image name only).
 //!
 //! It stops on Ctrl-C, when a line `stop` is read on its standard input, or when `oac stop`
 //! asks over the control endpoint (G10, #71; a `stop_requested` event), and writes a
@@ -40,17 +45,22 @@ use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use oac_adapter_claude::ClaudeAdapter;
-use oac_cli::codex::{CarrierWiring, control_socket_opener, default_control_socket_path};
+use oac_cli::codex::{
+    CarrierOpener, CarrierWiring, OpenedCarrier, blocking_stream, default_control_socket_path,
+    open_blocking,
+};
 use oac_cli::daemon::{Daemon, Diagnostic, LogSink, Parts};
 use oac_cli::ipc::Scope;
 use oac_cli::logfile::{LogFile, MAX_LOG_BYTES};
 use oac_cli::peer::{self, ProcessId, ProcessTable};
+use oac_core::authorization::{Grant, LocalSide, PeerSide};
 use oac_core::clock::{Clock, SystemClock};
 use oac_core::ids::Token;
-use oac_core::keys::MemoryKeyStore;
-use oac_core::pairing::MemoryPairingStore;
+use oac_core::keys::{DeviceKey, KeyStore, MemoryKeyStore, SecretSeed};
+use oac_core::pairing::{MemoryPairingStore, PairingSnapshot, PairingStore};
 use oac_core::pipeline::PipelineConfig;
 use oac_core::sealing::MemoryAgreementKeyStore;
+use oac_core::session_binding::PeerObservation;
 use oac_transport_memory::{MemoryConfiguration, MemoryNetwork, MemoryTransport};
 
 /// The JSON lines of a run: to the events file when one is given, and to standard output.
@@ -144,6 +154,25 @@ fn chain_json(table: &dyn ProcessTable, pid: u32) -> String {
     format!("[{}]", parts.join(","))
 }
 
+/// The processes from `pid` up to the root as JSON with the process id and the image name only
+/// (no start time, no resolved path): what the `carrier_server` event carries.
+fn image_chain_json(table: &dyn ProcessTable, pid: u32) -> String {
+    let mut parts = Vec::new();
+    let mut next = Some(pid);
+    for _ in 0..peer::MAX_ANCESTRY {
+        let Some(info) = next.and_then(|p| table.lookup(p)) else {
+            break;
+        };
+        parts.push(format!(
+            "{{\"pid\":{},\"image\":{}}}",
+            info.id.pid,
+            json_string(&info.image)
+        ));
+        next = info.parent.filter(|p| *p != 0 && *p != info.id.pid);
+    }
+    format!("[{}]", parts.join(","))
+}
+
 fn process_json(id: Option<ProcessId>) -> String {
     id.map_or("null".to_owned(), |p| {
         format!("{{\"pid\":{},\"started\":{}}}", p.pid, p.started)
@@ -190,6 +219,39 @@ fn tap(events: Events) -> oac_cli::daemon::Tap {
                 process_json(*process)
             ),
         ),
+    })
+}
+
+/// The opener of the real control socket, as `oac_cli::codex::control_socket_opener` makes it,
+/// that also reports the server it authenticated (a `carrier_server` event: the server's
+/// process id and its chain of processes, id and image name only). The G8 live leg compares
+/// that process with the nearest `codex` ancestor of each Codex shim (`11-risks.md` row 89).
+/// It reads what the product's opener reads (the socket's path and the connection) and
+/// nothing else under the Codex home.
+fn reporting_opener(path: PathBuf, events: Events) -> CarrierOpener {
+    Arc::new(move |runtime| {
+        let socket = open_blocking(&path)?;
+        let table = peer::SystemTable::new().ok();
+        let (pid, chain) = match (&table, socket.process) {
+            (Some(table), Some(p)) => (p.pid.to_string(), image_chain_json(table, p.pid)),
+            (_, Some(p)) => (p.pid.to_string(), "[]".to_owned()),
+            _ => ("null".to_owned(), "[]".to_owned()),
+        };
+        let observation = match (&table, socket.process.as_ref()) {
+            (Some(table), Some(p)) => peer::observe_process(table, oac_cli::codex::LABEL, p),
+            _ => PeerObservation {
+                harness_label: Token::parse(oac_cli::codex::LABEL),
+                ..PeerObservation::none()
+            },
+        };
+        events.emit(
+            "carrier_server",
+            &format!("\"pid\":{pid},\"chain\":{chain}"),
+        );
+        Ok(OpenedCarrier {
+            stream: blocking_stream(runtime, socket.reader, socket.writer, socket.close),
+            observation,
+        })
     })
 }
 
@@ -292,12 +354,37 @@ fn main() {
     };
     let codex = default_control_socket_path().map(|path| CarrierWiring {
         adapter: codex_adapter.clone(),
-        opener: control_socket_opener(path),
+        opener: reporting_opener(path, events.clone()),
     });
+    // The device's key is made here, so that the one grant a live leg needs can name it. Two sessions of
+    // one device still need an explicit grant to reach each other ([SEC-AUZ-007], [SEC-AUZ-010]: with
+    // none, a send to the other session is `unknown-destination`, the run-7 failure of 2026-10-29).
+    // This test daemon stands in for the operator who adds it: this device's own key may write to
+    // every session of this device. It is in this namespace's memory only and ends with the process.
+    let seed = SecretSeed::generate();
+    let own_key_id = DeviceKey::from_seed(&seed).key_id();
+    let key_store = MemoryKeyStore::new();
+    key_store
+        .save(&seed)
+        .expect("an empty in-memory key store takes the seed");
+    let pairing_store = MemoryPairingStore::new();
+    pairing_store
+        .save(&PairingSnapshot {
+            grants: vec![Grant::Inbound {
+                writer: PeerSide::device(own_key_id),
+                target: LocalSide::Device,
+            }],
+            ..PairingSnapshot::default()
+        })
+        .expect("an in-memory pairing store takes the snapshot");
+    events.emit(
+        "local_grant",
+        "\"writer\":\"own device key\",\"target\":\"every session of this device\"",
+    );
     let parts = Parts {
         scope,
-        key_store: Box::new(MemoryKeyStore::new()),
-        pairing_store: Box::new(MemoryPairingStore::new()),
+        key_store: Box::new(key_store),
+        pairing_store: Box::new(pairing_store),
         agreement_store: Box::new(MemoryAgreementKeyStore::new()),
         principal: Token::parse("livedaemon").expect("a token"),
         transport: Arc::new(MemoryTransport::new()),

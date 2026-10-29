@@ -119,7 +119,7 @@ with `codex --remote`").
 **deleted** 2026-09-05 — do not plan on it, and do not depend on it existing in any
 future skill or design revision without a fresh re-verification. `codex mcp add`
 still registers **external** MCP servers that Codex can call as tools; that
-remains the supported outbound tool surface and is what backlog task G8 targets.
+remains the supported outbound tool surface and is what backlog task G8 targets. The G8 S6 live leg's driver registers and removes its own test server with it, and runs the Codex TUI (lead decision 2026-10-29; `oac-gates` `references/scripted-runs.md`).
 
 ## What cannot originate a turn
 

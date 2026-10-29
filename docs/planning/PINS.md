@@ -54,7 +54,7 @@ Full policy: `docs/planning/gates/README.md`.
 This file is the single source of truth for pinned versions. `docs/planning/STATUS.md`
 carries only a summary pointer back here — see its `## Pins` section.
 
-**Last updated:** 2026-10-23 (issues #69 and #403, G8 slice S1: the `Codex CLI / app-server` row's last tested version moves from `@openai/codex@0.161.0` to `@openai/codex@0.163.0`, the version the G8 S1 capture ran on (herdr run `20261023T043548Z-b28855`). Routine record-keeping for a floating harness row (#216): not a pin move, no gate verdict or record is invalidated. The Claude Code row is unchanged.) Previously 2026-10-15 (issue #70, G9 slice 7 leg B: the Claude Code (Channels) row's last tested version
+**Last updated:** 2026-10-29 (issues #69, #433 and #68, G8 slice S6 live leg: the `Codex CLI / app-server` row's last tested version moves from `@openai/codex@0.163.0` to `@openai/codex@0.165.0`, and the `Claude Code (Channels)` row's from `v2.1.287` to `v2.1.312`, the versions herdr runs 9 and 10 ran on (run 9, `20261029T123556Z-9173d9`, moved them; run 10, `20261029T133337Z-3dec95`, is the evidence of record and ran the same versions) (`docs/planning/gates/herdr-runs/G8-S6-2026-10-29.md`). Routine record-keeping for the two floating harness rows (#216): not a pin move, no gate verdict or record is invalidated; the minimums stay `@openai/codex@0.154.0` and `v2.1.282`.) Previously 2026-10-23 (issues #69 and #403, G8 slice S1: the `Codex CLI / app-server` row's last tested version moves from `@openai/codex@0.161.0` to `@openai/codex@0.163.0`, the version the G8 S1 capture ran on (herdr run `20261023T043548Z-b28855`). Routine record-keeping for a floating harness row (#216): not a pin move, no gate verdict or record is invalidated. The Claude Code row is unchanged.) Previously 2026-10-15 (issue #70, G9 slice 7 leg B: the Claude Code (Channels) row's last tested version
 moves from `v2.1.285` to `v2.1.287`, the version the leg ran on. Routine record-keeping for the harness rows
 (#216; "Pin-move checklist" exemption): not a pin move, and no record or verdict is invalidated; the minimum
 stays `v2.1.282`.) Previously 2026-10-09 (issue #369, the lead's approval of 2026-10-09: added row
@@ -135,8 +135,8 @@ signature) and `serde_jcs` (canonical serialization) pin rows, see
 
 | Surface | Stability label | Pinned version | Release date | Observed at (URL) | Retrieved | Gates affected |
 |---|---|---|---|---|---|---|
-| Claude Code (Channels) | research preview | **floating** — minimum `v2.1.282`; last tested `v2.1.287` (G9 slice 7 leg B, 2026-10-15); warn on version, never gate; see "Version policy" below | 2026-10-01T18:00:22Z (UTC; the last tested version) | https://github.com/anthropics/claude-code/releases/tag/v2.1.287 | 2026-10-15 | G1; G4 (legacy-MCP negotiation); G5 (a version change invalidates none of them, #216) |
-| Codex CLI / app-server | experimental (per-method gating) | **floating** — minimum `@openai/codex@0.154.0` (commit `6b9826e3aa83b1a5947db50f4332cb9c65f1b340`); last tested `@openai/codex@0.163.0` (commit `83086188ae0614bd882818ff1aa23f3194962012`; G8 S1 capture herdr run, 2026-10-23, #69, #403); warn on version, never gate; see "Version policy" below | 2026-10-15T21:30:38Z (UTC; the last tested version) | https://github.com/openai/codex/releases/tag/rust-v0.163.0 | 2026-10-22 | G2, G5, G4 (Codex leg) (a version change invalidates none of them, #216) |
+| Claude Code (Channels) | research preview | **floating** — minimum `v2.1.282`; last tested `v2.1.312` (G8 S6 live leg runs 9 and 10, 2026-10-29); warn on version, never gate; see "Version policy" below | 2026-10-27T20:24:20Z (UTC; the last tested version) | https://github.com/anthropics/claude-code/releases/tag/v2.1.312 | 2026-10-29 | G1; G4 (legacy-MCP negotiation); G5 (a version change invalidates none of them, #216) |
+| Codex CLI / app-server | experimental (per-method gating) | **floating** — minimum `@openai/codex@0.154.0` (commit `6b9826e3aa83b1a5947db50f4332cb9c65f1b340`); last tested `@openai/codex@0.165.0` (commit `360319d8dee62d87e2d59fc0c21805d79519cfed`; G8 S6 live leg runs 9 and 10, 2026-10-29, #69, #433); warn on version, never gate; see "Version policy" below | 2026-10-27T20:09:38Z (UTC; the last tested version) | https://github.com/openai/codex/releases/tag/rust-v0.165.0 | 2026-10-29 | G2, G5, G4 (Codex leg) (a version change invalidates none of them, #216) |
 | MCP — current era | supported | `2026-07-28` | 2026-07-28 | https://modelcontextprotocol.io/specification/2026-07-28/ | 2026-09-16 | G4, G1 |
 | MCP — legacy era | supported | `2025-11-25` | 2025-11-25 | https://modelcontextprotocol.io/specification/2025-11-25/ | 2026-09-16 | G4, G1 |
 | Rust MCP SDK (`rmcp`) | supported | `3.4.0` | 2026-09-15 | https://github.com/modelcontextprotocol/rust-sdk/releases (tag `rmcp-v3.4.0`); https://crates.io/crates/rmcp | 2026-09-17 | G4; G1 |
@@ -184,7 +184,8 @@ anything:
   floors in the B1 record below (`>= v2.1.232` Channels, `>= v2.1.234` permission relay)
   are documentation facts about when the surface appeared. They are not this minimum.
   `v2.1.282` is above both floors.
-- **Last tested version: `v2.1.287`** (GitHub release `v2.1.287`, published
+- **Last tested version: `v2.1.312`** (GitHub release `v2.1.312`, published 2026-10-27T20:24:20Z UTC, retrieved 2026-10-29 via `gh api repos/anthropics/claude-code/releases/tags/v2.1.312`). It ran in the G8 S6 live leg herdr runs of 2026-10-29 (run 10 `20261029T133337Z-3dec95`, the evidence of record, and run 9 `20261029T123556Z-9173d9`; interactive, with the development-channels flag): `claude --version` `2.1.312 (Claude Code)` (`docs/planning/gates/herdr-runs/G8-S6-2026-10-29.md` and its run manifest, `harnessVersions`). Update this field, and the version history below, after each live run. The previous last tested version was `v2.1.287`.
+- *Previous last tested version (2026-10-15 to 2026-10-29):* `v2.1.287` (GitHub release `v2.1.287`, published
   2026-10-01T18:00:22Z UTC, retrieved 2026-10-15 via `gh api
   repos/anthropics/claude-code/releases/tags/v2.1.287`). It ran in the G9 slice 7 leg B
   check on 2026-10-15 (WSL Ubuntu, print mode): `claude --version` `2.1.287`
@@ -215,9 +216,10 @@ anything:
 - Version history (dated additions only): `v2.1.284` in a manual L3 attempt
   (2026-09-30), and `v2.1.285` in the L3 live leg (2026-10-01), both recorded in L1 §13.
   `v2.1.285` was the last tested version from 2026-10-01. `v2.1.287` in the G9 slice 7
-  leg B check (2026-10-15, `docs/planning/STATUS.md`); it is the last tested version from
-  2026-10-15. Routine record-keeping under #216: no pin moves and no verdict is
-  invalidated.
+  leg B check (2026-10-15, `docs/planning/STATUS.md`); it was the last tested version from
+  2026-10-15. `v2.1.312` in the G8 S6 live leg (runs 9 and 10, 2026-10-29, `docs/planning/gates/herdr-runs/G8-S6-2026-10-29.md`; `v2.1.285` also ran in the earlier,
+  uncommitted runs 1 to 5 of that scenario); it is the last tested version from 2026-10-29.
+  Routine record-keeping under #216: no pin moves and no verdict is invalidated.
 
 #### Floating-version policy (operator decision, 2026-09-27)
 
@@ -374,7 +376,8 @@ anything:
   `docs/planning/gates/fixtures/MANIFEST.json`, the `g2-codex-inject/transcript.jsonl`
   entry, `observed_version` `codex_cli` / `codex_daemon` `0.154.0`, `capture_date`
   2026-09-25.
-- **Last tested version: `@openai/codex@0.163.0`** (GitHub release `rust-v0.163.0`,
+- **Last tested version: `@openai/codex@0.165.0`** (GitHub release `rust-v0.165.0`, published 2026-10-27T20:09:38Z UTC; tag object `e374836b2728d9b7aa981c2902649e640a2edaa8` → commit `360319d8dee62d87e2d59fc0c21805d79519cfed`; retrieved 2026-10-29 via `gh api repos/openai/codex/releases/tags/rust-v0.165.0` and `gh api repos/openai/codex/git/ref/tags/rust-v0.165.0`, the tag object dereferenced with `gh api repos/openai/codex/git/tags/e374836b2728d9b7aa981c2902649e640a2edaa8`). Codex's own auto-updater installed it. It ran in the G8 S6 live leg herdr runs of 2026-10-29 (run 10 `20261029T133337Z-3dec95`, the evidence of record, and run 9 `20261029T123556Z-9173d9`): `codex --version` `codex-cli 0.165.0`, all three daemon version fields and the wire `initialize` `userAgent` `0.165.0` (`docs/planning/gates/herdr-runs/G8-S6-2026-10-29.md` and its run manifest, `scenarioData.g8live.versions`). Update this field, and the version history below, after each live run.
+- *Previous last tested version (2026-10-23 to 2026-10-29):* `@openai/codex@0.163.0` (GitHub release `rust-v0.163.0`,
   published 2026-10-15T21:30:38Z UTC; tag object
   `129b8ec7ee6f4511557a4856279f529025c25af4` → commit
   `83086188ae0614bd882818ff1aa23f3194962012`; retrieved 2026-10-22 via `gh api
@@ -449,7 +452,9 @@ anything:
   recorded: its captures kept `unverified-*` names, a scenario defect fixed before the next
   run) and `20261007T221317Z-1a3890` (recorded,
   `docs/planning/gates/herdr-runs/S3-codex-2026-10-07.md`). `0.161.0` is the last tested
-  version from 2026-10-07.
+  version from 2026-10-07. `0.163.0` in the G8 S1 capture (2026-10-23, `G8-S1-2026-10-23.md`) and `0.165.0` in the G8 S6
+  live leg (runs 9 and 10, 2026-10-29, `docs/planning/gates/herdr-runs/G8-S6-2026-10-29.md`; `0.164.0` also ran in its earlier, uncommitted runs 1 to 3); `0.165.0` is the last
+  tested version from 2026-10-29. Routine record-keeping under #216: no pin moves and no verdict is invalidated.
 
 #### Floating-version policy (operator decision, 2026-09-26)
 

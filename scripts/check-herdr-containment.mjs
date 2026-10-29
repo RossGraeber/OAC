@@ -32,6 +32,10 @@
 //          and harness credential variables, keyring/keychain/OS credential-store access,
 //          writes to harness config files, and harness config-mutating CLI calls
 //          (`integration install`, `claude mcp add`, ...). (ADR-001 boundaries 3, 4, 13.)
+//          One narrow allowance (lead decision, 2026-10-29): tools/herdr/lib/codex-driver.mjs and
+//          its unit tests tools/herdr/test/g8live-tests.mjs may name `codex mcp add` and `codex mcp remove` -- the driver's own registration of the OAC MCP
+//          server it tests with, removed in teardown on every path. Nothing else changes there:
+//          every other config-mutating call, and these two anywhere else, is still a hit.
 //
 // What is scanned is the git index (what CI sees), never the work tree: every entry under a
 // target, by its index mode. The tracked path itself is matched; a regular file's staged
@@ -431,6 +435,14 @@ function jsConfigWrites(text) {
 
 const ARG_SEP = String.raw`['"\x60]?[\s,[]+['"\x60]?`;
 
+// The one file that may name the Codex MCP registration commands (lead decision, 2026-10-29).
+const REGISTRATION_FILES = new Set(['tools/herdr/lib/codex-driver.mjs', 'tools/herdr/test/g8live-tests.mjs']); // the module and its unit tests
+// ...and the only files that may import the module that holds them (makeRegistration): the one scenario that uses it,
+// the module itself and its unit tests. Any other driver file importing it is a hit.
+const REGISTRATION_IMPORTERS = ['tools/herdr/lib/codex-driver.mjs', 'tools/herdr/scenarios/g8-codex-pairing.mjs', 'tools/herdr/test/g8live-tests.mjs'];
+const REGISTRATION_IMPORT = /\bimport\b[^;\n]*\bmakeRegistration\b|\bfrom\s+['"][^'"\n]*codex-driver(?:\.mjs)?['"]|\bimport\s*\(\s*['"][^'"\n]*codex-driver/;
+const REGISTRATION_ALLOWED = new RegExp(String.raw`\bcodex${ARG_SEP}mcp${ARG_SEP}(?:add|remove)(?![\w-])`, 'gi');
+
 // Each rule is either `re` (matched per line) or `scan` (whole text -> line numbers).
 // Rules report only their label; nothing a rule matches is ever printed.
 const DRIVER_RULES = [
@@ -462,6 +474,7 @@ const DRIVER_RULES = [
       'i',
     ),
   },
+  { label: 'import of the Codex registration module outside its allowlist (lead decision 2026-10-29: only the G8 S6 scenario and its tests)', re: REGISTRATION_IMPORT, exceptPaths: REGISTRATION_IMPORTERS },
   { label: 'JS write/move/delete of a harness config file', scan: jsConfigWrites },
   {
     // cp/install/ln write their LAST operand: `cp ~/.codex/config.toml backup` is a read.
@@ -610,7 +623,7 @@ function readGitmodules(ctx) {
 function scanEntry(ctx, entry, allRules, hits, { matchPath, seen = new Set() }) {
   const rel = entry.path;
   // linkOnly rules judge only where a symlink lands, never a path, blob, or target text.
-  const rules = allRules.filter((r) => !r.linkOnly);
+  const rules = allRules.filter((r) => !r.linkOnly && !r.exceptPaths?.includes(rel));
   if (matchPath) matchText(rel, () => `${rel} (tracked path)`, rules, hits);
 
   if (entry.mode === '160000') {
@@ -654,7 +667,10 @@ function scanEntry(ctx, entry, allRules, hits, { matchPath, seen = new Set() }) 
     return;
   }
 
-  if (blob) matchText(blob.toString('utf8'), (n) => `${rel}:${n}`, rules, hits);
+  if (blob) {
+    const text = blob.toString('utf8');
+    matchText(REGISTRATION_FILES.has(rel) ? text.replace(REGISTRATION_ALLOWED, 'codex-mcp-registration') : text, (n) => `${rel}:${n}`, rules, hits);
+  }
 }
 
 function runChecks(root) {
@@ -868,6 +884,10 @@ const CLEAN_BASE = {
     'test "$n" > 0 && cat "$CODEX_HOME/config.toml"',
     '',
   ].join('\n'),
+  // The one file that may name the Codex MCP registration commands (2026-10-29); present in every case.
+  'tools/herdr/lib/codex-driver.mjs': '// registers with `codex mcp add x`, removes with `codex mcp remove x`\n',
+  // The one scenario that imports the registration module (2026-10-29); present in every case.
+  'tools/herdr/scenarios/g8-codex-pairing.mjs': "import { makeRegistration } from '../lib/codex-driver.mjs';\n",
   // A manifest inside tools/herdr/ may name its own path.
   'tools/herdr/scenarios.json': '{ "root": "tools/herdr" }\n',
   'Cargo.toml': '[workspace]\nmembers = ["core", "cli"]\n',
@@ -1019,6 +1039,16 @@ const SELF_TEST_CASES = [
   violation('10 integration install (argv)', 'tools/herdr/run.mjs', "spawnSync('herdr', ['integration', 'install']);\n"),
   violation('10 claude mcp add (argv)', 'tools/herdr/run.mjs', "execFileSync('claude', ['mcp', 'add', 'oac', '--', 'node', 'x.mjs']);\n"),
   violation('10 codex mcp remove (shell)', 'tools/herdr/setup.sh', 'codex mcp remove oac\n'),
+  // The allowance is narrow: other files, other commands.
+  violation('10 codex mcp add outside the allowed file', 'tools/herdr/lib/other.mjs', '// codex mcp add oac -- x\n'),
+  violation('10 codex mcp remove (argv) outside the allowed file', 'tools/herdr/scenarios/x.mjs', "spawnSync('codex', ['mcp', 'remove', 'oac']);\n"),
+  violation('10 claude mcp add inside the allowed file', 'tools/herdr/lib/codex-driver.mjs', "execFileSync('claude', ['mcp', 'add', 'oac']);\n"),
+  violation('10 codex mcp login inside the allowed file', 'tools/herdr/lib/codex-driver.mjs', 'codex mcp login oac\n'),
+  violation('10 codex config set inside the allowed file', 'tools/herdr/lib/codex-driver.mjs', 'codex config set x y\n'),
+  violation('10 registration module imported by another scenario', 'tools/herdr/scenarios/other.mjs', "import { makeRegistration } from '../lib/codex-driver.mjs';\n"),
+  violation('10 registration module imported by another lib (multi-line import)', 'tools/herdr/lib/other.mjs', "import {\n  classifyForLive,\n} from './codex-driver.mjs';\n"),
+  violation('10 registration module imported dynamically', 'tools/herdr/run.mjs', "const m = await import('./lib/codex-driver.mjs');\n"),
+  violation('10 codex mcp add-json inside the allowed file (a longer subcommand is not the allowed one)', 'tools/herdr/lib/codex-driver.mjs', 'codex mcp add-json oac {}\n'),
   violation('10 claude plugin install (shell)', 'tools/herdr/setup.sh', 'claude plugin install oac@local\n'),
   violation('10 claude config set (shell)', 'tools/herdr/setup.sh', 'claude config set -g theme dark\n'),
   // Check 10: harness config writes.

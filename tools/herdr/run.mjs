@@ -59,6 +59,7 @@ import { redactCaptures } from './lib/elide.mjs';
 import { defaultPaneShell, quoteCommand } from './lib/pane-shell.mjs';
 import { killTree, within } from './lib/proc.mjs';
 import { removeScratch } from './lib/scratch.mjs';
+import { makeCleanups } from './lib/cleanup.mjs';
 import { isMainModule, canonicallyWithin, rootGuardProblem } from './lib/canonical-path.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -173,6 +174,7 @@ async function runScenarioInner(opts, state) {
   let leftover = null;
   const commands = [];
   const captures = [];
+  const cleanups = makeCleanups(); // hooks a scenario registers (ctx.addCleanup), run in teardown
   const extraLiterals = [...(opts.redactLiterals ?? [])];
   const abort = new AbortController();
   const timeboxStart = Date.now();
@@ -314,6 +316,34 @@ async function runScenarioInner(opts, state) {
         const hc = manifest.harnessConfig;
         if (!hc.beforeFirstAllow) hc.beforeFirstAllow = { at: iso(Date.now()), hashes: hashHarnessConfig() };
         hc.mustStayUnchanged.push({ why: String(why), at: iso(Date.now()) });
+      },
+      // 2026-10-29 (lead): a scenario may change the harness configuration itself with the commands the
+      // harness provides (Codex: its MCP server registration and removal commands, recorded by the scenario). `fn` runs
+      // the command. Before it, the config is compared with the snapshot of the first driver "Allow" (a
+      // change since then means an approval may have been persisted: a checkpoint failure, downgraded at
+      // teardown); after it, the snapshot is rebased on the new hashes, and the change is recorded in
+      // harnessConfig.driverChanges. The driver still never reads the file: it hashes it.
+      async driverChangesHarnessConfig(why, fn) {
+        const hc = manifest.harnessConfig;
+        const before = hashHarnessConfig();
+        if (hc.beforeFirstAllow) {
+          const since = compareHashes(hc.beforeFirstAllow.hashes, before);
+          if (since.unchanged !== true) (hc.checkpointFailures ??= []).push({ why: String(why), at: iso(Date.now()), changed: since.changed });
+        }
+        try {
+          return await fn();
+        } finally {
+          const after = hashHarnessConfig();
+          (hc.driverChanges ??= []).push({ why: String(why), at: iso(Date.now()), changed: compareHashes(before, after).changed });
+          if (hc.beforeFirstAllow) hc.beforeFirstAllow = { ...hc.beforeFirstAllow, hashes: after, rebasedFor: String(why) };
+        }
+      },
+      // 2026-10-29 (lead decision): a scenario that changes something outside its scratch directory (Codex: the MCP server
+      // it registers) registers the undo here. run.mjs runs it in teardown, once, after the scenario body has had its two
+      // seconds and before the harness configuration is hashed for the last time, so an abort or an expired timebox that
+      // cuts the scenario's own finally block short still leaves the machine as it was (lib/cleanup.mjs).
+      addCleanup(name, fn) {
+        cleanups.add(name, fn);
       },
       // A process outside the driver's control (e.g. the operator's shared Codex app-server
       // daemon, which the driver never stops) may keep a handle under scratch past the run.
@@ -468,6 +498,11 @@ async function runScenarioInner(opts, state) {
     // call now refuses (aborted), so this settles quickly.
     if (!abort.signal.aborted) abort.abort('run over; tearing down');
     await within(bodyPromise.catch(() => {}), 2000);
+    // The scenario's registered undo steps, before anything else is hashed or torn down.
+    if (cleanups.size) {
+      manifest.cleanups = await cleanups.runAll();
+      for (const c of manifest.cleanups) if (!c.ok) manifest.findings.push(`cleanup hook ${c.name} failed (${c.error}); undo it by hand`);
+    }
 
     if (serverStarted) {
       try {
@@ -502,7 +537,7 @@ async function runScenarioInner(opts, state) {
     manifest.harnessConfig.after = hashHarnessConfig();
     Object.assign(manifest.harnessConfig, compareHashes(manifest.harnessConfig.before, manifest.harnessConfig.after));
     if (!manifest.harnessConfig.unchanged) {
-      manifest.findings.push(`harness config hash changed during the run: ${manifest.harnessConfig.changed.join(', ')} (attribute before blaming herdr: the harness may write its own settings; K1 §6 L8)`);
+      manifest.findings.push(`harness config hash changed during the run: ${manifest.harnessConfig.changed.join(', ')} (attribute before blaming herdr: the harness may write its own settings; K1 §6 L8)${manifest.harnessConfig.driverChanges?.length ? `; the driver changed it itself ${manifest.harnessConfig.driverChanges.length} time(s) with the registration commands recorded in harnessConfig.driverChanges` : ''}`);
     }
     const downgrade = (reason) => {
       manifest.findings.push(reason);
@@ -515,6 +550,9 @@ async function runScenarioInner(opts, state) {
     // #271: the teardown hashes against the snapshot taken just before the first driver Allow.
     // The start-to-teardown comparison above stays recorded as its own fact.
     const hc = manifest.harnessConfig;
+    if (hc.checkpointFailures?.length) {
+      downgrade(`harness config changed between the first driver "Allow" and a driver registration command (${hc.checkpointFailures.map((x) => `${x.why}: ${x.changed.join(', ')}`).join('; ')}): that no persistent tool approval was written is not shown`);
+    }
     if (hc.mustStayUnchanged.length) {
       hc.sinceFirstAllow = hc.beforeFirstAllow ? compareHashes(hc.beforeFirstAllow.hashes, hc.after) : { unchanged: null, changed: [] };
       if (hc.sinceFirstAllow.unchanged !== true) {

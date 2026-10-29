@@ -150,7 +150,7 @@ export async function g8Unit(check) {
   check('g8 sanitizer: a thread/list readStates map keeps only the run\'s own thread; every other key and its revision value is gone, and the result is marked', JSON.stringify(Object.keys(got[0].payload.result.readStates)) === '["own-1"]' && got[0].payload.result.readStates['own-1'].revision === 'initial:own-1' && !/other-[2-5]/.test(san.text) && got[0].payload.result._fixtureNote === 'unrelated sessions removed for privacy' && san.report.readStatesEntriesRemoved === 3);
   const none = JSON.parse(sanitizeTranscript(rsText, { ownThreadId: null }).text.split(/\r?\n/)[1]);
   check('g8 sanitizer: with no own thread every readStates entry goes', Object.keys(none.payload.result.readStates).length === 0);
-  check('g8 sanitizer: the shared function is the one the g2, g5, l3 and s3 scenarios import', ['g2-codex-inject', 'g5-provenance', 'l3-beacon', 's3-codex-capture', 'g8-codex-tools'].every((n) => /sanitizeTranscript/.test(read(join(REPO, 'tools', 'herdr', 'scenarios', `${n}.mjs`)))));
+  check('g8 sanitizer: the shared function is the one the g2, g5, l3 and s3 scenarios import', ['g2-codex-inject', 'g5-provenance', 'l3-beacon', 's3-codex-capture', 'g8-codex-tools', 'g8-codex-pairing'].every((n) => /sanitizeTranscript/.test(read(join(REPO, 'tools', 'herdr', 'scenarios', `${n}.mjs`)))));
 
   // --- the HistoryCursor check keeps the redaction placeholder, exactly -----------------------------------------
   const cur = (id) => JSON.stringify({ requestedThreadId: id, rolloutOrdinal: 1, includeAnchor: true, scope: { kind: 'turns' } });
