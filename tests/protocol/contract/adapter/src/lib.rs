@@ -1974,17 +1974,17 @@ fn scenarios(ctx: &mut Ctx<'_>) -> Result<(), String> {
         });
         check!(
             ctx,
-            "IFC-ADP-119",
+            "IFC-ADP-126",
             "stalled-deliver-returns-within-composed-bound",
             {
-                if ended.is_some() {
-                    Verdict::Pass(format!(
-                        "pending deliver ended within {bound} ms of the shutdown mark, peer paused"
-                    ))
-                } else {
-                    Verdict::Fail(format!(
-                        "pending deliver had not returned within {bound} ms with the peer paused"
-                    ))
+                match ended {
+                    Some(o) => Verdict::Pass(format!(
+                        "pending deliver returned {} within {bound} ms of the shutdown return, peer still paused",
+                        o.as_str()
+                    )),
+                    None => Verdict::Fail(format!(
+                        "pending deliver had not returned {bound} ms after shutdown returned, the peer still paused (it ended only after the bound, or waits on the core)"
+                    )),
                 }
             }
         );
@@ -2018,22 +2018,6 @@ fn scenarios(ctx: &mut Ctx<'_>) -> Result<(), String> {
                 Verdict::Fail(format!("effect(s) after shutdown returned: {late:?}"))
             }
         });
-        check!(
-            ctx,
-            "IFC-ADP-109",
-            "pending-deliver-ends-without-the-core",
-            {
-                match ended {
-                    Some(o) => Verdict::Pass(format!(
-                        "pending deliver ended with {} while the peer stayed paused",
-                        o.as_str()
-                    )),
-                    None => Verdict::Fail(
-                        "pending deliver did not end without the core resuming the peer".into(),
-                    ),
-                }
-            }
-        );
     }
 
     // ---- shutdown ([IFC-ADP-071], [IFC-ADP-070]) -------------------------------------------
@@ -2057,6 +2041,32 @@ fn scenarios(ctx: &mut Ctx<'_>) -> Result<(), String> {
     let late_req = ctx.h.request(s1.index, &HarnessRequest::Discover);
     std::thread::sleep(Duration::from_millis(200));
     let o = ctx.h.observe(s1.index);
+    if profile.name == claude::PROFILE.name {
+        // The record read again after the exposure window above and this wait: a report or
+        // request that comes later than the first read is still after the mark
+        // ([IFC-ADP-109], [IFC-ADP-110]). It also counts what the deliver and the request
+        // made just above cause.
+        let late = ctx.core.effects_after_mark();
+        let verdict = if late.is_empty() {
+            Verdict::Pass(
+                "the core's record has no event report or request after the shutdown mark".into(),
+            )
+        } else {
+            Verdict::Fail(format!("effect(s) after shutdown returned: {late:?}"))
+        };
+        check!(
+            ctx,
+            "IFC-ADP-109",
+            "no-late-effect-after-the-exposure-window",
+            verdict.clone()
+        );
+        check!(
+            ctx,
+            "IFC-ADP-110",
+            "no-late-effect-after-the-exposure-window",
+            verdict
+        );
+    }
     check!(ctx, "IFC-ADP-070", "nothing-after-shutdown", {
         let mut bad = Vec::new();
         if !calls_with(&o, &late).is_empty() || took(&o, &late) {
