@@ -7389,6 +7389,244 @@
         "applicable": false,
         "reason": "documentation"
       }
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g8-codex-pairing/transcript-g8live-2026-10-29-0.165.0-herdr.jsonl",
+      "capture_date": "2026-10-29",
+      "superseded_by": null,
+      "provider": "codex",
+      "surface": "codex-app-server",
+      "observed_version": {
+        "codex_cli": "0.165.0 (codex --version `codex-cli 0.165.0`)",
+        "codex_daemon": "0.165.0/0.165.0/0.165.0 (cliVersion/appServerVersion/managedCodexVersion)",
+        "commit": "360319d8dee62d87e2d59fc0c21805d79519cfed",
+        "node": "25.2.1",
+        "client_visible_user_agent": "oac-codex-adapter/0.165.0 (Windows 10.0.26300; x86_64) unknown (oac_g8_capture; 0.0.1) (initialize result of the capture client)"
+      },
+      "pins_row": "Codex CLI / app-server",
+      "pins_as_of": "PINS.md as committed at driver commit c45796ac7ca04e539546ea6ef2cf7a8a4236cc15 records last tested 0.163.0; the run used 0.165.0, so it recorded VERSION WARNING findings (warn, never gate, #216)",
+      "version_matches_pin": false,
+      "capture_utc_range": "2026-10-29T12:36:01.744Z-2026-10-29T12:38:09.117Z",
+      "driver": {
+        "herdr_version": "herdr 0.9.1",
+        "driver_commit": "c45796ac7ca04e539546ea6ef2cf7a8a4236cc15",
+        "run_manifest": "docs/planning/gates/herdr-runs/G8-S6-2026-10-29.run-manifest.json"
+      },
+      "notes": [
+        "The capture clients' wire transcript: `list` connections, the passive `watch` connection on the operator-less driver-run TUI thread and the `midwatch` connection (a `thread/resume` made while the first OAC call was in flight). G8 slice S6 live leg (#69, #433), scenario tools/herdr/scenarios/g8-codex-pairing.mjs, run 9 of 9 (the others are not committed; history in the record). NOT a gate run and NOT verdict-bearing. Record: docs/planning/gates/herdr-runs/G8-S6-2026-10-29.md; findings: docs/planning/gates/fixtures/g8-codex-pairing/README.md. The file is exactly what the driver wrote; its sha256 is the run manifest's."
+      ],
+      "redaction": {
+        "script": "tools/herdr/lib/redact.mjs",
+        "script_sha256": "c950d99ac992db9db85528613923453429c75749e16b6424d8555bd6b85b6dc2",
+        "residual_scan_result": "tools/herdr/lib/redact.mjs (run.mjs): droppedHazardLines=0, hazardProtocolFrames=0, residualLeaks=0, residualGenericHits=0 (captures[].redaction in the run manifest). The TUI thread id, session ids, device fingerprint and pairing value are run literals (<THREAD_ID>, <SESSION_ID>, <DEVICE_FINGERPRINT>, <PAIRING_VALUE>); other threads' list entries and readStates are dropped by the shared sanitizer. Tool-result bodies, approval request bodies and harness instruction text are elided by #130 (<ELIDED ...>); the hand-off frames (userMessage items) are OAC's own text and are kept."
+      },
+      "coverage": {
+        "first oac-g8live whoami: refused with a pairing value (item/started, item/completed failed)": "76, 101",
+        "second whoami: paired (completed)": "108, 120",
+        "midwatch thread/resume made while the first call was in flight, and its item/completed": "85, 88, 102",
+        "Codex send to the Claude session": "195, 224, 235",
+        "three Claude-to-Codex hand-offs as userMessage items (C6 frames); no call in their turns": "270, 340, 408",
+        "driver-typed reply prompts and the three reply calls": "472-512, 542-576, 606-653"
+      },
+      "schema": {
+        "commit": "360319d8dee62d87e2d59fc0c21805d79519cfed",
+        "hash_method": "hash-tree.mjs (committed, quarantined, at docs/planning/gates/fixtures/d6-codex-protocol/hash-tree.mjs.throwaway-quarantined, sha256 73dbcb0524be80e70acdbaad95dd5d7767c2c077e5b686a2392f1bd6aa97d808): sorted relative POSIX file paths under the tree; for each, one line '<path>  <sha256-of-that-file>' (two literal spaces between path and hash); all lines '\\n'-joined with a trailing '\\n'; tree_sha256 is the sha256 of that whole listing text.",
+        "upstream": null,
+        "local_generation": null,
+        "sha256": null,
+        "note": "Schema not recorded as a tree at Codex 0.165.0 (not regenerated; the rust-v0.165.0 tag object resolves to the commit above, fetched through the GitHub API on 2026-10-29). Only the members the scenario reads (mcpToolCall items, userMessage items, thread/resume, thread/queue/add effects) were exercised; nothing was compared with a schema tree.",
+        "validated_against": "not validated against a schema tree; item members read as in the G8 S1 capture (docs/planning/gates/fixtures/g8-codex-tools/README.md) and not compared at 0.165.0"
+      }
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g8-codex-pairing/pane-codex-g8live-2026-10-29-0.165.0-herdr.txt",
+      "capture_date": "2026-10-29",
+      "superseded_by": null,
+      "provider": "codex",
+      "surface": "codex TUI pane text (herdr agent read)",
+      "observed_version": {
+        "codex_cli": "0.165.0 (codex --version `codex-cli 0.165.0`)",
+        "codex_daemon": "0.165.0/0.165.0/0.165.0 (cliVersion/appServerVersion/managedCodexVersion)",
+        "commit": "360319d8dee62d87e2d59fc0c21805d79519cfed",
+        "node": "25.2.1",
+        "client_visible_user_agent": "oac-codex-adapter/0.165.0 (Windows 10.0.26300; x86_64) unknown (oac_g8_capture; 0.0.1) (initialize result of the capture client)"
+      },
+      "pins_row": "Codex CLI / app-server",
+      "pins_as_of": "PINS.md as committed at driver commit c45796ac7ca04e539546ea6ef2cf7a8a4236cc15 records last tested 0.163.0; the run used 0.165.0, so it recorded VERSION WARNING findings (warn, never gate, #216)",
+      "version_matches_pin": false,
+      "capture_utc_range": null,
+      "driver": {
+        "herdr_version": "herdr 0.9.1",
+        "driver_commit": "c45796ac7ca04e539546ea6ef2cf7a8a4236cc15",
+        "run_manifest": "docs/planning/gates/herdr-runs/G8-S6-2026-10-29.run-manifest.json"
+      },
+      "notes": [
+        "Verbatim herdr reads of the Codex TUI before each key the driver sent: the trust screen of the project directory, and the MCP tool-approval prompt for each OAC call (first seen on 0.165.0 for `send` with a `content` array argument: `content: [{\"type\": \"text\", \"text\": \"...\"}]` on one line, `to: <id>`). G8 slice S6 live leg (#69, #433), scenario tools/herdr/scenarios/g8-codex-pairing.mjs, run 9 of 9 (the others are not committed; history in the record). NOT a gate run and NOT verdict-bearing. Record: docs/planning/gates/herdr-runs/G8-S6-2026-10-29.md; findings: docs/planning/gates/fixtures/g8-codex-pairing/README.md. The file is exactly what the driver wrote; its sha256 is the run manifest's."
+      ],
+      "redaction": {
+        "script": "tools/herdr/lib/redact.mjs",
+        "script_sha256": "c950d99ac992db9db85528613923453429c75749e16b6424d8555bd6b85b6dc2",
+        "residual_scan_result": "tools/herdr/lib/redact.mjs (run.mjs): droppedHazardLines=0, hazardProtocolFrames=0, residualLeaks=0, residualGenericHits=0 (captures[].redaction in the run manifest). Session ids and device fingerprints are run literals; the arguments line of each approval is elided by #130 (<ELIDED tool-output-line ...>) where the driver's elision applies, and kept where it is OAC's own argument text."
+      },
+      "coverage": {
+        "pane reads": "verbatim herdr agent reads, one section per kept read, each with its herdr command seq and timestamps"
+      },
+      "schema": {
+        "applicable": false,
+        "reason": "pane text: verbatim herdr agent reads of the Codex TUI screen, not app-server protocol traffic"
+      }
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g8-codex-pairing/pane-claude-g8live-2026-10-29-0.165.0-herdr.txt",
+      "capture_date": "2026-10-29",
+      "superseded_by": null,
+      "provider": "claude",
+      "surface": "claude-code TUI pane text (herdr agent read)",
+      "observed_version": {
+        "claude_code": "2.1.312",
+        "node": null
+      },
+      "pins_row": "Claude Code (Channels)",
+      "pins_as_of": "PINS.md as committed at driver commit c45796ac7ca04e539546ea6ef2cf7a8a4236cc15 records last tested v2.1.287; the run used 2.1.312, a version warning only (#216)",
+      "version_matches_pin": false,
+      "capture_utc_range": null,
+      "driver": {
+        "herdr_version": "herdr 0.9.1",
+        "driver_commit": "c45796ac7ca04e539546ea6ef2cf7a8a4236cc15",
+        "run_manifest": "docs/planning/gates/herdr-runs/G8-S6-2026-10-29.run-manifest.json"
+      },
+      "notes": [
+        "Verbatim herdr reads of the Claude Code TUI: its start-up screens (folder trust, the project MCP server approval, the development-channels warning, a Settings Warning about the operator's own settings file) each recorded before the key the driver sent. G8 slice S6 live leg (#69, #433), scenario tools/herdr/scenarios/g8-codex-pairing.mjs, run 9 of 9 (the others are not committed; history in the record). NOT a gate run and NOT verdict-bearing. Record: docs/planning/gates/herdr-runs/G8-S6-2026-10-29.md; findings: docs/planning/gates/fixtures/g8-codex-pairing/README.md. The file is exactly what the driver wrote; its sha256 is the run manifest's."
+      ],
+      "redaction": {
+        "script": "tools/herdr/lib/redact.mjs",
+        "script_sha256": "c950d99ac992db9db85528613923453429c75749e16b6424d8555bd6b85b6dc2",
+        "residual_scan_result": "tools/herdr/lib/redact.mjs (run.mjs): droppedHazardLines=0, hazardProtocolFrames=0, residualLeaks=0, residualGenericHits=0 (captures[].redaction in the run manifest). Home path, user name and session ids replaced."
+      },
+      "coverage": {
+        "pane reads": "verbatim herdr agent reads, one section per kept read, each with its herdr command seq and timestamps"
+      }
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g8-codex-pairing/events-g8live-2026-10-29-0.165.0.jsonl",
+      "capture_date": "2026-10-29",
+      "superseded_by": null,
+      "provider": "codex",
+      "surface": "OAC live daemon events (cli/examples/live_daemon.rs), sanitized by the scenario",
+      "observed_version": {
+        "codex_cli": "0.165.0 (codex --version `codex-cli 0.165.0`)",
+        "codex_daemon": "0.165.0/0.165.0/0.165.0 (cliVersion/appServerVersion/managedCodexVersion)",
+        "commit": "360319d8dee62d87e2d59fc0c21805d79519cfed",
+        "node": "25.2.1",
+        "client_visible_user_agent": "oac-codex-adapter/0.165.0 (Windows 10.0.26300; x86_64) unknown (oac_g8_capture; 0.0.1) (initialize result of the capture client)"
+      },
+      "pins_row": "Codex CLI / app-server",
+      "pins_as_of": "PINS.md as committed at driver commit c45796ac7ca04e539546ea6ef2cf7a8a4236cc15 records last tested 0.163.0; the run used 0.165.0, so it recorded VERSION WARNING findings (warn, never gate, #216)",
+      "version_matches_pin": false,
+      "capture_utc_range": "2026-10-29T12:36:04.156Z-2026-10-29T12:38:29.842Z",
+      "notes": [
+        "The example daemon's events: ready, the local_grant, carrier_server (pid and image chain of the control-socket server), accepted/ended per connection (peer pid, process chain by image, nearest harness ancestor, paired), and its log lines (carrier connected with its registered name, pairing window, decisions). Not a herdr-suffixed capture; written by the scenario from the daemon's events file. G8 slice S6 live leg (#69, #433), scenario tools/herdr/scenarios/g8-codex-pairing.mjs, run 9 of 9 (the others are not committed; history in the record). NOT a gate run and NOT verdict-bearing. Record: docs/planning/gates/herdr-runs/G8-S6-2026-10-29.md; findings: docs/planning/gates/fixtures/g8-codex-pairing/README.md. The file is exactly what the driver wrote; its sha256 is the run manifest's."
+      ],
+      "redaction": {
+        "script": "tools/herdr/lib/redact.mjs",
+        "script_sha256": "c950d99ac992db9db85528613923453429c75749e16b6424d8555bd6b85b6dc2",
+        "residual_scan_result": "tools/herdr/lib/redact.mjs (run.mjs): droppedHazardLines=0, hazardProtocolFrames=0, residualLeaks=0, residualGenericHits=0 (captures[].redaction in the run manifest). Pid and image name only in chains; no path, start time or resolved name."
+      },
+      "coverage": {
+        "carrier_server and the Codex shim's accepted event": "5 (carrier_server), 7 (accepted, label codex)",
+        "Claude connections": "accepted/ended with label claude"
+      },
+      "schema": {
+        "applicable": false,
+        "reason": "OAC example daemon events (JSON lines), not app-server protocol traffic"
+      }
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g8-codex-pairing/claude-g8live-2026-10-29-0.165.0.txt",
+      "capture_date": "2026-10-29",
+      "superseded_by": null,
+      "provider": "claude",
+      "surface": "the report lines the Claude session printed (CLAUDE-SID, SENT, RECEIVED, CLAUDE-DONE), extracted by the scenario",
+      "observed_version": {
+        "claude_code": "2.1.312",
+        "node": null
+      },
+      "pins_row": "Claude Code (Channels)",
+      "pins_as_of": "PINS.md as committed at driver commit c45796ac7ca04e539546ea6ef2cf7a8a4236cc15 records last tested v2.1.287; the run used 2.1.312, a version warning only (#216)",
+      "version_matches_pin": false,
+      "capture_utc_range": null,
+      "notes": [
+        "Only the lines Claude was asked to print: the ids of its three sends and the four messages it received from Codex (FROM-CODEX, ACK1, ACK2, ACK3). The channel tag attributes are not shown by the TUI, so none are recorded. G8 slice S6 live leg (#69, #433), scenario tools/herdr/scenarios/g8-codex-pairing.mjs, run 9 of 9 (the others are not committed; history in the record). NOT a gate run and NOT verdict-bearing. Record: docs/planning/gates/herdr-runs/G8-S6-2026-10-29.md; findings: docs/planning/gates/fixtures/g8-codex-pairing/README.md. The file is exactly what the driver wrote; its sha256 is the run manifest's."
+      ],
+      "redaction": {
+        "script": "tools/herdr/lib/redact.mjs",
+        "script_sha256": "c950d99ac992db9db85528613923453429c75749e16b6424d8555bd6b85b6dc2",
+        "residual_scan_result": "tools/herdr/lib/redact.mjs (run.mjs): droppedHazardLines=0, hazardProtocolFrames=0, residualLeaks=0, residualGenericHits=0 (captures[].redaction in the run manifest). Session ids replaced."
+      },
+      "coverage": {
+        "report lines": "1-9"
+      }
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g8-codex-pairing/transcript-g8live-proc-2026-10-29-0.165.0.jsonl",
+      "capture_date": "2026-10-29",
+      "superseded_by": null,
+      "provider": "codex",
+      "surface": "codex-app-server",
+      "observed_version": {
+        "codex_cli": "0.165.0 (codex --version `codex-cli 0.165.0`)",
+        "codex_daemon": "0.165.0/0.165.0/0.165.0 (cliVersion/appServerVersion/managedCodexVersion)",
+        "commit": "360319d8dee62d87e2d59fc0c21805d79519cfed",
+        "node": "25.2.1",
+        "client_visible_user_agent": "oac-codex-adapter/0.165.0 (Windows 10.0.26300; x86_64) unknown (oac_g8_capture; 0.0.1) (initialize result of the capture client)"
+      },
+      "pins_row": "Codex CLI / app-server",
+      "pins_as_of": "PINS.md as committed at driver commit c45796ac7ca04e539546ea6ef2cf7a8a4236cc15 records last tested 0.163.0; the run used 0.165.0, so it recorded VERSION WARNING findings (warn, never gate, #216)",
+      "version_matches_pin": false,
+      "capture_utc_range": null,
+      "notes": [
+        "One record: pid, parent pid and image name only, of the Codex shim and its ancestors and of every codex process, taken when the daemon accepted the Codex shim. G8 slice S6 live leg (#69, #433), scenario tools/herdr/scenarios/g8-codex-pairing.mjs, run 9 of 9 (the others are not committed; history in the record). NOT a gate run and NOT verdict-bearing. Record: docs/planning/gates/herdr-runs/G8-S6-2026-10-29.md; findings: docs/planning/gates/fixtures/g8-codex-pairing/README.md. The file is exactly what the driver wrote; its sha256 is the run manifest's."
+      ],
+      "redaction": {
+        "script": "tools/herdr/lib/redact.mjs",
+        "script_sha256": "c950d99ac992db9db85528613923453429c75749e16b6424d8555bd6b85b6dc2",
+        "residual_scan_result": "tools/herdr/lib/redact.mjs (run.mjs): droppedHazardLines=0, hazardProtocolFrames=0, residualLeaks=0, residualGenericHits=0 (captures[].redaction in the run manifest). No identity-bearing field is recorded by design (images, pids, parent pids and an app-server flag only)."
+      },
+      "coverage": {
+        "the shim chain and the codex processes": "1"
+      },
+      "schema": {
+        "applicable": false,
+        "reason": "OS process-table data (pid, parent pid, image), not app-server protocol traffic"
+      }
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g8-codex-pairing/README.md",
+      "provider": "codex",
+      "surface": "documentation (not a protocol fixture)",
+      "observed_version": {
+        "note": "N/A -- documentation file."
+      },
+      "pins_row": null,
+      "pins_as_of": null,
+      "version_matches_pin": null,
+      "capture_date": null,
+      "capture_utc_range": null,
+      "superseded_by": null,
+      "redaction": {
+        "script": null,
+        "script_sha256": null,
+        "residual_scan_result": "N/A -- authored documentation, not captured wire traffic."
+      },
+      "coverage": null,
+      "coverage_notes": "Documents this directory's files, the redaction applied, and what the G8 S6 live leg showed at Codex 0.165.0 and Claude Code 2.1.312. Not itself a captured protocol exchange.",
+      "notes": [
+        "Added with the G8 S6 live leg record (#69, #433, #68)."
+      ],
+      "schema": {
+        "applicable": false,
+        "reason": "documentation"
+      }
     }
   ]
 }

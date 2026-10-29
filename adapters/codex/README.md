@@ -91,12 +91,14 @@ which is when Codex makes it.
 - **Carrier lost.** `capabilities` reports `active_inbound: false` and `capabilities-changed` is
   reported for each open attachment; deliveries fail; `health` is no longer healthy.
 - **Not done.** Interfaces 0.6's cooperative local-call surface is not implemented (the
-  legacy surface, which the pipeline accepts, is). **UNVERIFIED, mid-turn subscription:**
+  legacy surface, which the pipeline accepts, is). **Mid-turn subscription (UNVERIFIED until S6):**
   whether a `thread/resume` issued while the thread's MCP call is in flight still gets that
-  item's `item/completed` is shown by no capture (S1 subscribed before the call). The reveal
-  arrives that way, so a live leg must cover it; if it fails, pairing costs availability only.
-  The same live leg owes the real-Codex runs of the harness's sequence (the fake replays the S1
-  frames; it does not run Codex).
+  item's `item/completed` was shown by no capture until the S6 live leg (S1 subscribed before the call). *Answered 2026-10-29
+  (G8 S6, Codex `0.165.0`, once): yes.* A second connection's `thread/resume`, answered 493 ms after the call started and 373 ms before it
+  completed, received that item's `item/completed`, and the adapter's own mid-turn resume paired
+  (the G8 S6 run record under `docs/planning/gates/`, claim 5). If a Codex version stops doing so, pairing costs availability only.
+  The S6 live leg also ran the harness's sequence against a real Codex and a real Claude Code
+  (pairing, a send, hand-offs, replies; the fake replays the S1 frames and does not run Codex).
 
 Tests: unit tests in each module; `tests/pairing.rs` against the real node fake app-server
 process with its `oacFake/mcp/*` frames and a stand-in core built on `PairingWindows`;
