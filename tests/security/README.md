@@ -64,11 +64,16 @@ The crate is `oac-security-suite`. It is CI-default: it runs in the plain
   crate rule (`scripts/check-crate-deps.mjs` rule 5) admits an adapter as a dev-dependency
   of this suite, never a normal or build one. G4's three placeholders (rows 11, 15 and 16)
   now drive the Claude adapter into the fake Claude Code endpoint, in
-  `tests/provenance.rs`. G7's row 12 placeholder (#68) is un-gated the same way, in
-  `tests/never_steer.rs`: the Codex adapter (a dev-dependency) delivers to the fake Codex
-  app-server (a `node` process, so the suite needs `node` on the path, as the adapter's own
-  tests do), and the tests read the fake's call log. Row 17 (the frame builder) and row 18
-  (reply correlation) are still gated.
+  `tests/provenance.rs`. The Codex placeholders are un-gated the same way: row 12 (#68, the
+  queue-only hand-off) in `tests/never_steer.rs`, row 17 (#68, the frame) and row 18 (#69,
+  reply correlation) in `tests/provenance.rs`. The Codex adapter (a dev-dependency)
+  delivers to the fake Codex app-server (a `node` process, so the suite needs `node` on the
+  path, as the adapter's own tests do), and the tests read the fake's call log. The scene
+  they share (the fake, a stand-in for the core, a carrier and a shim) is
+  `tests/codex_scene.rs`: a file that both test files take with `mod codex_scene;`, which
+  cargo also lists as a target with no test. In it, the core stand-in correlates a reply with
+  the real `oac_core::reply::reply_headers` over its own hand-off records, so row 18 runs
+  the adapter against the core's rule, not against a rule the test wrote.
 
 ## Mutation check
 

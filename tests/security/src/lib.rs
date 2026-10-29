@@ -607,7 +607,6 @@ pub struct Threat {
 }
 
 const G4: &str = "#65";
-const G7: &str = "#68";
 const G8: &str = "#69";
 const G9: &str = "#70";
 const G1_G3: &str = "#62, #64";
@@ -622,9 +621,10 @@ const H2: &str = "#74";
 /// Un-gating a G7 or G8 placeholder means running it against a real adapter. The crate rule
 /// (`scripts/check-crate-deps.mjs` rule 5, `tests/security` kind) admits `adapters/*` as a
 /// dev-dependency of this suite since G4 (#65), whose three placeholders (rows 11, 15 and
-/// 16) now run against the Claude adapter in `tests/provenance.rs`. G7's row 12 placeholder
-/// (#68) runs against the Codex adapter and the fake Codex app-server in
-/// `tests/never_steer.rs`.
+/// 16) now run against the Claude adapter in `tests/provenance.rs`. G7's row 12 and row 17
+/// placeholders (#68) and G8's row 18 placeholder (#69) run against the Codex adapter and the
+/// fake Codex app-server, in `tests/never_steer.rs` and `tests/provenance.rs` (the scene they
+/// share is `tests/codex_scene.rs`).
 pub const THREATS: &[Threat] = &[
     Threat {
         row: "06-1",
@@ -885,14 +885,15 @@ pub const THREATS: &[Threat] = &[
         row: "06-17",
         attack: "Provenance spoofing through a forged header or delimiter, Codex",
         spec13: &["Provenance forgery in the body of a shared carrier"],
-        tests: &["gated_row17_codex_frame_uses_a_receiver_generated_delimiter"],
+        tests: &[
+            "row17_codex_a_forged_frame_and_a_guessed_delimiter_in_the_body_stay_quoted_body",
+            "row17_codex_every_line_break_in_the_closed_list_is_normalized_then_quoted",
+            "row17_codex_other_controls_and_bidi_controls_are_written_visibly",
+        ],
         facts: &[],
         core_tests: &[],
-        status: Status::Gated,
-        gated: &[Gate {
-            issue: G7,
-            what: "the Codex adapter's frame builder (gated_row17_codex_frame_uses_a_receiver_generated_delimiter)",
-        }],
+        status: Status::Proven,
+        gated: &[],
     },
     Threat {
         row: "06-18",
@@ -900,15 +901,14 @@ pub const THREATS: &[Threat] = &[
         spec13: &[],
         tests: &[
             "row02_reply_right_covers_only_the_reply_to_the_one_message",
-            "gated_row18_codex_reply_correlation_is_not_trusted_alone",
+            "row18_codex_a_reply_naming_a_message_the_session_never_received_is_not_correlated",
+            "row18_codex_a_reply_naming_a_message_handed_to_another_thread_is_not_correlated",
+            "row18_codex_a_reply_naming_a_message_the_session_received_correlates",
         ],
         facts: &[],
         core_tests: &[],
         status: Status::Proven,
-        gated: &[Gate {
-            issue: G8,
-            what: "the Codex adapter's reply correlation (gated_row18_codex_reply_correlation_is_not_trusted_alone)",
-        }],
+        gated: &[],
     },
     Threat {
         row: "06-19",
