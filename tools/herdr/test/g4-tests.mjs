@@ -667,7 +667,22 @@ export async function g4Unit(check) {
 
 const today = () => new Date().toISOString().slice(0, 10);
 const FAST = ['--param', 'settleMs=300', '--param', 'pollMs=200', '--param', 'wireTimeoutMs=10000', '--param', 'turnTimeoutMs=30000', '--param', 'startupTimeoutMs=20000', '--param', 'handshakeTimeoutMs=20000'];
-const PORTS = (a, b) => ['--param', `httpPort=${a}`, '--param', `modernHttpPort=${b}`];
+
+// Lifecycle cases never use a hard-coded port (#466): 37xxx lies inside Linux's ephemeral range (32768-60999),
+// where any outbound connection can hold it as its source port, and two self-tests on one machine would
+// fight over it. Cases name the scenario's two ports with these tokens; the case's setup takes two free ports
+// from the OS immediately before the case runs and substitutes them (see run() in g4Cases).
+const HTTP_TOKEN = '@HTTP@';
+const MODERN_TOKEN = '@MODERN@';
+const PORTS = (a = HTTP_TOKEN, b = MODERN_TOKEN) => ['--param', `httpPort=${a}`, '--param', `modernHttpPort=${b}`];
+const twoFreePorts = async () => {
+  // Both held open together, so they differ; the OS assigns them (bind port 0).
+  const hold = [createServer(), createServer()];
+  const ports = await Promise.all(hold.map((s) => new Promise((res) => s.listen(0, '127.0.0.1', () => res(s.address().port)))));
+  await Promise.all(hold.map((s) => new Promise((res) => s.close(res))));
+  return { http: ports[0], modern: ports[1] };
+};
+const withPorts = (opts, p) => JSON.parse(JSON.stringify(opts).replaceAll(HTTP_TOKEN, String(p.http)).replaceAll(MODERN_TOKEN, String(p.modern)));
 const inside = (p, root) => {
   const rel = relative(root, p);
   return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
@@ -675,17 +690,31 @@ const inside = (p, root) => {
 
 export function g4Cases(check) {
   const cases = [];
-  const run = (name, opts, assert, setup) => cases.push({ name, opts: { scenario: 'g4-mcp-dual-era', mode: 'fake-claude,fake-codex', fakeClaude: {}, ...opts }, assert, setup });
+  // Each case gets its own port pair, taken from the OS right before it runs (#466). assert(r, p) and setup(p) see it.
+  const portedCase = (c) => {
+    const p = { http: 0, modern: 0 };
+    const { opts, assert, setup } = c;
+    return {
+      ...c,
+      setup: async () => {
+        Object.assign(p, await twoFreePorts());
+        return setup ? setup(p) : null;
+      },
+      opts: () => withPorts(opts, p),
+      assert: (r) => assert(r, p),
+    };
+  };
+  const run = (name, opts, assert, setup) => cases.push(portedCase({ name, opts: { scenario: 'g4-mcp-dual-era', mode: 'fake-claude,fake-codex', fakeClaude: {}, ...opts }, assert, setup }));
   const names = () => fixtureNames(today(), CPIN, XPIN);
   const { criteria: crit } = readG4Criteria(REPO);
   const evalRun = (r, operatorScores = {}) => evaluateG4({ manifest: r.manifest, transcriptText: r.capture(names().transcript), paneClaudeText: r.capture(names().paneClaude), baselineText: BASELINE, criteria: crit, operatorScores });
 
-  run('g4 human accept (traced)', { args: ['--param', 'accept=human', ...FAST, ...PORTS(37448, 37450)], fakeClaude: { FAKE_CLAUDE_SELF_ACCEPT_MS: '1000' }, fakeCodex: { FAKE_CODEX_SELF_ACCEPT_MS: '1000', trace: true } }, (r) => {
+  run('g4 human accept (traced)', { args: ['--param', 'accept=human', ...FAST, ...PORTS()], fakeClaude: { FAKE_CLAUDE_SELF_ACCEPT_MS: '1000' }, fakeCodex: { FAKE_CODEX_SELF_ACCEPT_MS: '1000', trace: true } }, (r, p) => {
     const m = r.manifest;
     const g4 = m.scenarioData.g4;
     check('g4 human: PASS (exit 0)', r.status === 0 && m.outcome === 'PASS', `${r.status} ${m.outcome} ${m.outcomeReason}`);
     check('g4 human: Claude launched with G4\'s verbatim argv, MCP_SDK_GENERATION=v2 in its pane env', r.calls.some((c) => /agent start g4claude --kind claude --pane w1:p1 --timeout \d+ -- --dangerously-load-development-channels server:g4spike server:g4modern$/.test(c.argv.join(' '))) && r.calls.some((c) => c.argv.includes('--env') && c.argv.includes('MCP_SDK_GENERATION=v2')));
-    check('g4 human: Codex launched per invocation (`-c mcp_servers.g4http.url=...`), its pane argv matching the validated overrides', r.calls.some((c) => /agent start g4codex --kind codex --pane w2:p1 --timeout \d+ -- -c mcp_servers\.g4http\.url="http:\/\/127\.0\.0\.1:37448\/mcp"$/.test(c.argv.join(' '))) && g4.codexLaunch.paneArgv.matchesLaunch === true && g4.codexLaunch.validation.ok);
+    check('g4 human: Codex launched per invocation (`-c mcp_servers.g4http.url=...`), its pane argv matching the validated overrides', r.calls.some((c) => new RegExp(`agent start g4codex --kind codex --pane w2:p1 --timeout \\d+ -- -c mcp_servers\\.g4http\\.url="http://127\\.0\\.0\\.1:${p.http}/mcp"$`).test(c.argv.join(' '))) && g4.codexLaunch.paneArgv.matchesLaunch === true && g4.codexLaunch.validation.ok);
     check('g4 human: both dialogs read verbatim and accepted outside the driver', g4.dialogs.length === 2 && g4.dialogs.every((d) => d.acceptOrigin === 'human' && d.inputBetweenReadAndAccept === 0) && !m.commands.some((x) => x.role === 'dialog-accept'));
     check('g4 human: CLI and wire versions verified for both harnesses; captures carry the K8 fixture names, written clean', g4.versions.verified && g4.versions.wire.claude === CPIN && g4.versions.wire.codex === XPIN && m.captures.map((c) => c.file).sort().join() === Object.values(names()).sort().join() && m.captures.every((c) => c.written && c.redaction.residualLeaks.length === 0 && c.redaction.residualGenericHits.length === 0));
     check('g4 human: herdr typed only the three operator prompts; no notification went through herdr', r.prompts.length === 3 && r.prompts.map((p) => p.text).join('|') === [DEFAULT_PROMPTS.claudeEchoPrompt, DEFAULT_PROMPTS.codexToolsPrompt, DEFAULT_PROMPTS.claudeEchoAfterPrompt].join('|') && m.commands.every((x) => !x.argv.some((a) => /notifications\/claude\/channel|G4 wake test|relayed from http/.test(a))));
@@ -742,7 +771,7 @@ export function g4Cases(check) {
 
   // #199: the fake Codex shows its trust dialog as seen live on 0.159.2; the driver accepts it
   // (enter) as it does Claude Code's dev-channels dialog.
-  run('g4 driver accept', { args: ['--param', 'accept=driver', ...FAST, ...PORTS(37458, 37460)], fakeCodex: {} }, (r) => {
+  run('g4 driver accept', { args: ['--param', 'accept=driver', ...FAST, ...PORTS()], fakeCodex: {} }, (r) => {
     const m = r.manifest;
     const g4 = m.scenarioData.g4;
     const cx = g4.dialogs.find((d) => d.agent === 'codex');
@@ -758,7 +787,7 @@ export function g4Cases(check) {
   // "3. Skip until next version".
   const upDialog = (g4) => g4.dialogs.find((d) => d.agent === 'codex' && d.kind === 'update-prompt');
   const upAnswers = (r) => (existsSync(join(r.env.CODEX_HOME, '..', 'fake-codex-update-answer.log')) ? read(join(r.env.CODEX_HOME, '..', 'fake-codex-update-answer.log')) : '');
-  run('g4 #303 update prompt: the driver answers "2. Skip"', { args: ['--param', 'accept=driver', ...FAST, ...PORTS(37808, 37810)], fakeCodex: { FAKE_CODEX_DIALOG: 'none', FAKE_CODEX_UPDATE_PROMPT: 'recorded' } }, (r) => {
+  run('g4 #303 update prompt: the driver answers "2. Skip"', { args: ['--param', 'accept=driver', ...FAST, ...PORTS()], fakeCodex: { FAKE_CODEX_DIALOG: 'none', FAKE_CODEX_UPDATE_PROMPT: 'recorded' } }, (r) => {
     const m = r.manifest;
     const g4 = m.scenarioData.g4;
     const d = upDialog(g4);
@@ -768,8 +797,8 @@ export function g4Cases(check) {
     const dl = (draft.stdout.match(/^- \*\*Dialogs:\*\* .*$/m) ?? [''])[0];
     check('g4 #303 Skip: the Verification section\'s Dialogs line renders the driver\'s Skip with the versions shown', draft.status === 0 && /codex update-prompt \(read #\d+; Codex update prompt \S+ → 9\.9\.9: answer "2\. Skip" \(this launch only; no update run, no updater state written\); accepted by the DRIVER \(herdr dialog-accept: down #\d+, enter #\d+\)\)/.test(dl), dl || draft.stderr);
   });
-  for (const [variant, why, port] of [['off-record', /not the ones on record/, 37818], ['dont-remind-preselected', /nor the preselection on record/, 37828]]) {
-    run(`g4 #303 update prompt ${variant}: NOT RUN at once, not a 90 s MCP wait`, { args: ['--param', 'accept=driver', ...FAST, ...PORTS(port, port + 2)], fakeCodex: { FAKE_CODEX_DIALOG: 'none', FAKE_CODEX_UPDATE_PROMPT: variant } }, (r) => {
+  for (const [variant, why] of [['off-record', /not the ones on record/], ['dont-remind-preselected', /nor the preselection on record/]]) {
+    run(`g4 #303 update prompt ${variant}: NOT RUN at once, not a 90 s MCP wait`, { args: ['--param', 'accept=driver', ...FAST, ...PORTS()], fakeCodex: { FAKE_CODEX_DIALOG: 'none', FAKE_CODEX_UPDATE_PROMPT: variant } }, (r) => {
       const m = r.manifest;
       const d = upDialog(m.scenarioData.g4);
       const sentAfter = m.commands.filter((x) => x.role === 'dialog-accept' && x.seq > (d?.readSeq ?? Infinity));
@@ -783,29 +812,29 @@ export function g4Cases(check) {
   const MS_DIALOGS = 'workspace-trust,mcp-multiselect,dev-channels';
   const msDialog = (g4) => g4.dialogs.find((d) => d.agent === 'claude' && d.variant === 'multi-select');
   const noSpace = (m) => !m.commands.some((x) => x.argv.some((a) => /^space$/i.test(a)));
-  run('g4 #267 multi-select: exact match accepted', { args: ['--param', 'accept=driver', ...FAST, ...PORTS(37558, 37560)], fakeClaude: { FAKE_CLAUDE_DIALOG: MS_DIALOGS }, fakeCodex: { FAKE_CODEX_DIALOG: 'none' } }, (r) => {
+  run('g4 #267 multi-select: exact match accepted', { args: ['--param', 'accept=driver', ...FAST, ...PORTS()], fakeClaude: { FAKE_CLAUDE_DIALOG: MS_DIALOGS }, fakeCodex: { FAKE_CODEX_DIALOG: 'none' } }, (r) => {
     const m = r.manifest;
     const d = msDialog(m.scenarioData.g4);
     check('g4 #267 multi-select: PASS; the form accepted by the DRIVER with down, down, down, enter (each move verified), listed servers recorded, never space', r.status === 0 && m.outcome === 'PASS' && d?.kind === 'mcp-server-approval' && d.acceptOrigin === 'driver' && JSON.stringify(d.acceptKeys.map((k) => k.key)) === '["down","down","down","enter"]' && d.acceptKeys.slice(0, -1).every((k) => Number.isInteger(k.verifiedSeq)) && JSON.stringify(d.listedServers) === JSON.stringify(MS_EXPECTED) && JSON.stringify(d.expectedServers) === JSON.stringify(MS_EXPECTED) && d.inputBetweenReadAndAccept === 0 && noSpace(m), `${m.outcome} ${m.outcomeReason} ${JSON.stringify(d)}`);
   });
-  const msRefused = (name, fake, re, port) => run(`g4 #267 multi-select: ${name} refused`, { args: ['--param', 'accept=driver', ...FAST, ...PORTS(port, port + 2)], fakeClaude: { FAKE_CLAUDE_DIALOG: MS_DIALOGS, ...fake }, fakeCodex: { FAKE_CODEX_DIALOG: 'none' } }, (r) => {
+  const msRefused = (name, fake, re) => run(`g4 #267 multi-select: ${name} refused`, { args: ['--param', 'accept=driver', ...FAST, ...PORTS()], fakeClaude: { FAKE_CLAUDE_DIALOG: MS_DIALOGS, ...fake }, fakeCodex: { FAKE_CODEX_DIALOG: 'none' } }, (r) => {
     const m = r.manifest;
     const d = msDialog(m.scenarioData.g4);
     const keysAfterRead = m.commands.filter((x) => x.role === 'dialog-accept' && x.seq > (d?.readSeq ?? Infinity));
     check(`g4 #267 multi-select: ${name}: NOT RUN, the driver refused it and sent it no key; listed servers recorded`, r.status === 3 && m.outcome === 'NOT RUN' && re.test(m.outcomeReason) && d?.acceptOrigin === 'none (driver refused)' && keysAfterRead.length === 0 && Array.isArray(d.listedServers) && noSpace(m), `${r.status} ${m.outcome} ${m.outcomeReason} ${JSON.stringify(d)}`);
   });
-  msRefused('an extra server', { FAKE_CLAUDE_MCP_SERVERS: 'g4spike,g4modern,g4http,g4extra' }, /extra: \["g4extra"\]/, 37568);
-  msRefused('a missing server', { FAKE_CLAUDE_MCP_SERVERS: 'g4spike,g4modern' }, /missing: \["g4http"\]/, 37578);
-  msRefused('an unticked server', { FAKE_CLAUDE_MCP_UNTICKED: 'g4modern' }, /not shown ticked/, 37588);
-  msRefused('the wrong row selected', { FAKE_CLAUDE_MCP_CURSOR: '1' }, /nor the preselection on record/, 37598);
+  msRefused('an extra server', { FAKE_CLAUDE_MCP_SERVERS: 'g4spike,g4modern,g4http,g4extra' }, /extra: \["g4extra"\]/);
+  msRefused('a missing server', { FAKE_CLAUDE_MCP_SERVERS: 'g4spike,g4modern' }, /missing: \["g4http"\]/);
+  msRefused('an unticked server', { FAKE_CLAUDE_MCP_UNTICKED: 'g4modern' }, /not shown ticked/);
+  msRefused('the wrong row selected', { FAKE_CLAUDE_MCP_CURSOR: '1' }, /nor the preselection on record/);
   // PR #269 review: the read after the last `down` shows ❯ on g4http AND "Enable selected".
-  run('g4 #267 multi-select: two markers on the last verifying read, never Enter', { args: ['--param', 'accept=driver', ...FAST, ...PORTS(37618, 37620)], fakeClaude: { FAKE_CLAUDE_DIALOG: MS_DIALOGS, FAKE_CLAUDE_MCP_DOUBLE_MARK: '1' }, fakeCodex: { FAKE_CODEX_DIALOG: 'none' } }, (r) => {
+  run('g4 #267 multi-select: two markers on the last verifying read, never Enter', { args: ['--param', 'accept=driver', ...FAST, ...PORTS()], fakeClaude: { FAKE_CLAUDE_DIALOG: MS_DIALOGS, FAKE_CLAUDE_MCP_DOUBLE_MARK: '1' }, fakeCodex: { FAKE_CODEX_DIALOG: 'none' } }, (r) => {
     const m = r.manifest;
     const d = msDialog(m.scenarioData.g4);
     const sentAfterRead = m.commands.filter((x) => x.role === 'dialog-accept' && x.seq > (d?.readSeq ?? Infinity));
     check('g4 #267 multi-select double marker: NOT RUN; down, down, down sent, the third never verified, and no enter', r.status === 3 && m.outcome === 'NOT RUN' && /did not move cleanly to "Enable selected"/.test(m.outcomeReason) && /2 selection markers/.test(m.outcomeReason) && JSON.stringify(d?.acceptKeys?.map((k) => k.key)) === '["down","down","down"]' && d.acceptKeys[2].verifiedSeq === null && d.acceptOrigin !== 'driver' && sentAfterRead.length === 3 && !sentAfterRead.some((x) => x.argv.includes('enter')) && noSpace(m), `${r.status} ${m.outcome} ${m.outcomeReason} ${JSON.stringify(d)}`);
   });
-  run('g4 #267 single-server MCP form still accepted', { args: ['--param', 'accept=driver', ...FAST, ...PORTS(37608, 37610)], fakeClaude: { FAKE_CLAUDE_DIALOG: 'workspace-trust,mcp-server-approval,dev-channels' }, fakeCodex: { FAKE_CODEX_DIALOG: 'none' } }, (r) => {
+  run('g4 #267 single-server MCP form still accepted', { args: ['--param', 'accept=driver', ...FAST, ...PORTS()], fakeClaude: { FAKE_CLAUDE_DIALOG: 'workspace-trust,mcp-server-approval,dev-channels' }, fakeCodex: { FAKE_CODEX_DIALOG: 'none' } }, (r) => {
     const m = r.manifest;
     const d = m.scenarioData.g4.dialogs.find((x) => x.agent === 'claude' && x.kind === 'mcp-server-approval');
     check('g4 #267 single form: PASS; accepted by the driver with up, up, enter; no variant recorded', r.status === 0 && m.outcome === 'PASS' && d?.acceptOrigin === 'driver' && !d.variant && JSON.stringify(d.acceptKeys.map((k) => k.key)) === '["up","up","enter"]', `${m.outcome} ${m.outcomeReason} ${JSON.stringify(d)}`);
@@ -816,7 +845,7 @@ export function g4Cases(check) {
   // and its two tools, confirmed by a fresh read before Enter; anything else is NOT RUN, no key.
   const TA = { FAKE_CODEX_DIALOG: 'none', FAKE_CODEX_TOOL_APPROVAL: '1' };
   const taDialogs = (g4) => g4.dialogs.filter((d) => d.agent === 'codex' && d.kind === 'mcp-tool-approval');
-  run('g4 #271 tool approval: exact match allowed', { args: ['--param', 'accept=driver', ...FAST, ...PORTS(37708, 37710)], fakeCodex: TA }, (r) => {
+  run('g4 #271 tool approval: exact match allowed', { args: ['--param', 'accept=driver', ...FAST, ...PORTS()], fakeCodex: TA }, (r) => {
     const m = r.manifest;
     const ds = taDialogs(m.scenarioData.g4);
     check('g4 #271 allow: PASS; both prompts (g4_echo, then g4_relay_to_claude) answered by the DRIVER with Enter alone, each after a confirming read; prompt, server, tool and answer recorded', r.status === 0 && m.outcome === 'PASS' && ds.length === 2 && JSON.stringify(ds.map((d) => d.toolApproval.tool)) === '["g4_echo","g4_relay_to_claude"]' && ds.every((d) => d.acceptOrigin === 'driver' && JSON.stringify(d.acceptKeys.map((k) => k.key)) === '["enter"]' && Number.isInteger(d.confirmReadSeq) && d.confirmReadSeq > d.readSeq && d.confirmReadSeq < d.acceptSeq && d.toolApproval.server === 'g4http' && /^Allow the g4http MCP server to run tool "g4_/.test(d.toolApproval.question) && d.toolApproval.answer === '1. Allow' && d.inputBetweenReadAndAccept === 0), `${m.outcome} ${m.outcomeReason} ${JSON.stringify(ds)}`);
@@ -831,9 +860,9 @@ export function g4Cases(check) {
   // accept at startup writes the trust entry (FAKE_CODEX_TRUST_PERSIST) BEFORE any Allow: the
   // run stays PASS, and the start-to-teardown change is still recorded as its own fact.
   // (Invariants expect the changed start-to-teardown hash, on purpose.)
-  cases.push({
+  cases.push(portedCase({
     name: 'g4 #271 tool approval: an Allow that changes the harness config is not a PASS',
-    opts: { scenario: 'g4-mcp-dual-era', mode: 'fake-claude,fake-codex', fakeClaude: {}, args: ['--param', 'accept=driver', ...FAST, ...PORTS(37718, 37720)], fakeCodex: { ...TA, FAKE_CODEX_APPROVAL_PERSIST: '1' } },
+    opts: { scenario: 'g4-mcp-dual-era', mode: 'fake-claude,fake-codex', fakeClaude: {}, args: ['--param', 'accept=driver', ...FAST, ...PORTS()], fakeCodex: { ...TA, FAKE_CODEX_APPROVAL_PERSIST: '1' } },
     invariantOpts: { configChanged: true },
     assert: (r) => {
       const m = r.manifest;
@@ -842,10 +871,10 @@ export function g4Cases(check) {
       const dl = (draft.stdout.match(/^- \*\*Dialogs:\*\* .*$/m) ?? [''])[0];
       check('g4 #271 persisted after the Allow: the Dialogs line marks the config check UNVERIFIED (a persisted approval is not ruled out)', /Harness config after 2 driver "Allow" answer\(s\) \(#271\): UNVERIFIED — `harnessConfig\.sinceFirstAllow\.unchanged` is false/.test(dl), dl || draft.stderr);
     },
-  });
-  cases.push({
+  }));
+  cases.push(portedCase({
     name: 'g4 #271 tool approval: a Codex trust write before the first Allow does not fail the run',
-    opts: { scenario: 'g4-mcp-dual-era', mode: 'fake-claude,fake-codex', fakeClaude: {}, args: ['--param', 'accept=driver', ...FAST, ...PORTS(37778, 37780)], fakeCodex: { FAKE_CODEX_TOOL_APPROVAL: '1', FAKE_CODEX_TRUST_PERSIST: '1' } },
+    opts: { scenario: 'g4-mcp-dual-era', mode: 'fake-claude,fake-codex', fakeClaude: {}, args: ['--param', 'accept=driver', ...FAST, ...PORTS()], fakeCodex: { FAKE_CODEX_TOOL_APPROVAL: '1', FAKE_CODEX_TRUST_PERSIST: '1' } },
     invariantOpts: { configChanged: true },
     assert: (r) => {
       const m = r.manifest;
@@ -855,28 +884,28 @@ export function g4Cases(check) {
       const dl = (draft.stdout.match(/^- \*\*Dialogs:\*\* .*$/m) ?? [''])[0];
       check('g4 #271 trust first: the Dialogs line shows the check VERIFIED against the pre-Allow snapshot and the start-to-teardown change as a separate fact', /VERIFIED unchanged since the snapshot before the first Allow/.test(dl) && /start to teardown: changed \([^)]*config\.toml/.test(dl), dl || draft.stderr);
     },
-  });
-  const taRefused = (name, fake, re, port) => run(`g4 #271 tool approval: ${name} refused`, { args: ['--param', 'accept=driver', ...FAST, ...PORTS(port, port + 2)], fakeCodex: { ...TA, ...fake } }, (r) => {
+  }));
+  const taRefused = (name, fake, re) => run(`g4 #271 tool approval: ${name} refused`, { args: ['--param', 'accept=driver', ...FAST, ...PORTS()], fakeCodex: { ...TA, ...fake } }, (r) => {
     const m = r.manifest;
     const d = taDialogs(m.scenarioData.g4)[0];
     const keysAfterRead = m.commands.filter((x) => x.role === 'dialog-accept' && x.seq > (d?.readSeq ?? Infinity));
     check(`g4 #271 ${name}: NOT RUN, the driver refused the prompt and sent it no key; what it asked is recorded; nothing required of the config`, r.status === 3 && m.outcome === 'NOT RUN' && re.test(m.outcomeReason) && d?.acceptOrigin === 'none (driver refused)' && keysAfterRead.length === 0 && typeof d.toolApproval?.question === 'string' && d.toolApproval.answer === null && m.harnessConfig.mustStayUnchanged.length === 0, `${r.status} ${m.outcome} ${m.outcomeReason} ${JSON.stringify(d)}`);
   });
-  taRefused('another server', { FAKE_CODEX_APPROVAL_SERVER: 'g4other' }, /server "g4other" is not the one this scenario registered/, 37728);
-  taRefused('another tool', { FAKE_CODEX_APPROVAL_TOOL: 'g4_shell' }, /tool "g4_shell" is not one this scenario registered/, 37738);
-  taRefused('"Always allow" highlighted', { FAKE_CODEX_APPROVAL_SELECTED: '2' }, /selected option is "3\. Always allow"/, 37748);
-  taRefused('"Allow for this session" highlighted', { FAKE_CODEX_APPROVAL_SELECTED: '1' }, /selected option is "2\. Allow for this session"/, 37758);
-  taRefused('altered wording', { FAKE_CODEX_APPROVAL_QUESTION: 'Allow the {server} MCP server to execute tool "{tool}"?' }, /question text off record/, 37768);
+  taRefused('another server', { FAKE_CODEX_APPROVAL_SERVER: 'g4other' }, /server "g4other" is not the one this scenario registered/);
+  taRefused('another tool', { FAKE_CODEX_APPROVAL_TOOL: 'g4_shell' }, /tool "g4_shell" is not one this scenario registered/);
+  taRefused('"Always allow" highlighted', { FAKE_CODEX_APPROVAL_SELECTED: '2' }, /selected option is "3\. Always allow"/);
+  taRefused('"Allow for this session" highlighted', { FAKE_CODEX_APPROVAL_SELECTED: '1' }, /selected option is "2\. Allow for this session"/);
+  taRefused('altered wording', { FAKE_CODEX_APPROVAL_QUESTION: 'Allow the {server} MCP server to execute tool "{tool}"?' }, /question text off record/);
 
   // #282: a slow Codex startup (fake-codex FAKE_CODEX_MCP_CONNECT_MS / POST_CONNECT_*), as live
   // run 20261004T075757Z saw on 0.160.0: idle composer, the MCP connect late, then `working`.
-  run('g4 #282 slow Codex startup: settles after the MCP connect, then prompts', { args: ['--param', 'accept=driver', ...FAST, ...PORTS(37788, 37790)], fakeCodex: { FAKE_CODEX_DIALOG: 'none', FAKE_CODEX_MCP_CONNECT_MS: '5000', FAKE_CODEX_POST_CONNECT_MS: '4000' } }, (r) => {
+  run('g4 #282 slow Codex startup: settles after the MCP connect, then prompts', { args: ['--param', 'accept=driver', ...FAST, ...PORTS()], fakeCodex: { FAKE_CODEX_DIALOG: 'none', FAKE_CODEX_MCP_CONNECT_MS: '5000', FAKE_CODEX_POST_CONNECT_MS: '4000' } }, (r) => {
     const m = r.manifest;
     const s = m.scenarioData.g4.codexStartupSettle;
     const promptSeq = m.commands.find((c) => c.role === 'operator-input' && c.argv.includes('prompt') && c.argv.includes('g4codex'))?.seq;
     check('g4 #282 slow startup: PASS; herdr reported Codex working at the MCP connect, the driver settled it (idle past that, re-checked) and only then typed the Codex prompt', r.status === 0 && m.outcome === 'PASS' && s?.outcome === 'settled' && s.observed.state === 'working' && s.settled.stateChangeSeq > s.observed.stateChangeSeq && Number.isInteger(promptSeq) && promptSeq > s.settled.recheckSeq && !m.findings.some((f) => /startup settle/.test(f)), `${r.status} ${m.outcome} ${m.outcomeReason} ${JSON.stringify(s)}`);
   });
-  run('g4 #282 Codex stays working after its MCP connect: NOT RUN naming the startup settle', { args: ['--param', 'accept=driver', ...FAST, ...PORTS(37798, 37800), '--param', 'turnTimeoutMs=6000'], fakeCodex: { FAKE_CODEX_DIALOG: 'none', FAKE_CODEX_MCP_CONNECT_MS: '5000', FAKE_CODEX_POST_CONNECT_HANG: '1' } }, (r) => {
+  run('g4 #282 Codex stays working after its MCP connect: NOT RUN naming the startup settle', { args: ['--param', 'accept=driver', ...FAST, ...PORTS(), '--param', 'turnTimeoutMs=6000'], fakeCodex: { FAKE_CODEX_DIALOG: 'none', FAKE_CODEX_MCP_CONNECT_MS: '5000', FAKE_CODEX_POST_CONNECT_HANG: '1' } }, (r) => {
     const m = r.manifest;
     const s = m.scenarioData.g4.codexStartupSettle ?? m.scenarioData.g4.startupSettles?.[0];
     check('g4 #282 stays working: NOT RUN (exit 3) with a finding and outcome naming the startup settle; nothing typed to Codex', r.status === 3 && m.outcome === 'NOT RUN' && /startup settle after Codex's MCP connect/.test(m.outcomeReason) && m.findings.some((f) => /^startup settle \(#282\): codex did not settle after Codex's MCP connect/.test(f)) && /^not settled/.test(s?.outcome ?? '') && !r.prompts.some((p) => p.target === 'g4codex'), `${r.status} ${m.outcome} ${m.outcomeReason} ${JSON.stringify(m.findings)}`);
@@ -886,15 +915,15 @@ export function g4Cases(check) {
   // run.mjs creates scratch, an output directory or a manifest: usage error (exit 2), nothing
   // recorded, and the console reason never quotes the refused text.
   const SECRET = 'S3CRETvalue42';
-  const refusedBeforeRun = (name, codexLaunchArgv, port) => cases.push({
+  const refusedBeforeRun = (name, codexLaunchArgv) => cases.push(portedCase({
     name,
-    opts: { scenario: 'g4-mcp-dual-era', mode: 'fake-claude,fake-codex', fakeClaude: {}, args: [...FAST, ...PORTS(port, port + 2), '--param', `codexLaunch=${JSON.stringify(codexLaunchArgv)}`], fakeCodex: { FAKE_CODEX_DIALOG: 'none' } },
+    opts: { scenario: 'g4-mcp-dual-era', mode: 'fake-claude,fake-codex', fakeClaude: {}, args: [...FAST, ...PORTS(), '--param', `codexLaunch=${JSON.stringify(codexLaunchArgv)}`], fakeCodex: { FAKE_CODEX_DIALOG: 'none' } },
     invariantOpts: { noManifest: true },
     assert: (r) => check(`${name}: usage error (exit 2) naming the rule, the refused text on no output`, r.status === 2 && /codexLaunch refused: .*refused before anything was created, nothing recorded/.test(r.stderr) && !`${r.stdout}${r.stderr}`.includes(SECRET), `${r.status} ${r.stderr}`),
-  });
-  refusedBeforeRun('g4 codex launch with a non-MCP override', ['codex', '-c', `model="${SECRET}"`, '-c', 'mcp_servers.g4http.url="http://127.0.0.1:37468/mcp"'], 37468);
-  refusedBeforeRun('g4 codex launch #244: userinfo URL', ['codex', '-c', `mcp_servers.g4http.url="http://op:${SECRET}@127.0.0.1:37528/mcp"`], 37528);
-  refusedBeforeRun('g4 codex launch #244: non-loopback URL', ['codex', '-c', `mcp_servers.g4http.url="http://${SECRET}.example.net:37538/mcp"`], 37538);
+  }));
+  refusedBeforeRun('g4 codex launch with a non-MCP override', ['codex', '-c', `model="${SECRET}"`, '-c', 'mcp_servers.g4http.url="http://127.0.0.1:@HTTP@/mcp"']);
+  refusedBeforeRun('g4 codex launch #244: userinfo URL', ['codex', '-c', `mcp_servers.g4http.url="http://op:${SECRET}@127.0.0.1:@HTTP@/mcp"`]);
+  refusedBeforeRun('g4 codex launch #244: non-loopback URL', ['codex', '-c', `mcp_servers.g4http.url="http://${SECRET}.example.net:@HTTP@/mcp"`]);
 
   run('g4 launch not verbatim', { args: [...FAST, '--launch', '["claude","--dangerously-load-development-channels","server:g4spike"]'], fakeCodex: { FAKE_CODEX_DIALOG: 'none' } }, (r) => {
     check('g4 launch: a launch other than G4\'s verbatim one FAILs before anything starts', r.status === 1 && /not G4's verbatim launch/.test(r.manifest.outcomeReason) && !r.calls.some((c) => c.argv.includes('agent')));
@@ -902,7 +931,7 @@ export function g4Cases(check) {
 
   // #216: versions float. A version other than PINS.md's last tested one, on either harness's
   // CLI or wire, is a VERSION WARNING finding and the run proceeds.
-  run('g4 drifted versions on both harnesses warn and the run proceeds', { args: ['--param', 'accept=driver', ...FAST, ...PORTS(37478, 37480)], fakeClaude: { FAKE_CLAUDE_CLI_VERSION: '2.1.999', FAKE_CLAUDE_VERSION: '2.1.999' }, fakeCodex: { FAKE_CODEX_DIALOG: 'none', FAKE_CODEX_VERSION: '0.999.0' } }, (r) => {
+  run('g4 drifted versions on both harnesses warn and the run proceeds', { args: ['--param', 'accept=driver', ...FAST, ...PORTS()], fakeClaude: { FAKE_CLAUDE_CLI_VERSION: '2.1.999', FAKE_CLAUDE_VERSION: '2.1.999' }, fakeCodex: { FAKE_CODEX_DIALOG: 'none', FAKE_CODEX_VERSION: '0.999.0' } }, (r) => {
     const m = r.manifest;
     const g4 = m.scenarioData.g4;
     check('g4 #216 drift: PASS (exit 0), never NOT RUN on a version', r.status === 0 && m.outcome === 'PASS', `${r.status} ${m.outcome} ${m.outcomeReason}`);
@@ -910,7 +939,7 @@ export function g4Cases(check) {
     check('g4 #216 drift: Codex was prompted, captures name the observed versions, matchesLastTested false', r.prompts.some((p) => p.target === 'g4codex') && g4.versions.verified === true && g4.versions.matchesLastTested === false && JSON.stringify(g4.fixtures) === JSON.stringify(fixtureNames(today(), '2.1.999', '0.999.0')), JSON.stringify(g4.captureNames));
   });
 
-  run('g4 Codex MCP wire version differs from its CLI: warns, proceeds, captures stay unverified', { args: ['--param', 'accept=driver', ...FAST, ...PORTS(37488, 37490)], fakeCodex: { FAKE_CODEX_DIALOG: 'none', FAKE_CODEX_MCP_VERSION: '0.999.0' } }, (r) => {
+  run('g4 Codex MCP wire version differs from its CLI: warns, proceeds, captures stay unverified', { args: ['--param', 'accept=driver', ...FAST, ...PORTS()], fakeCodex: { FAKE_CODEX_DIALOG: 'none', FAKE_CODEX_MCP_VERSION: '0.999.0' } }, (r) => {
     const m = r.manifest;
     const g4 = m.scenarioData.g4;
     check('g4 #216 Codex wire != CLI: not stopped on the version; Codex was prompted; a VERSION WARNING from the MCP client user-agent', m.outcome !== 'NOT RUN' && r.prompts.some((p) => p.target === 'g4codex') && m.findings.some((f) => /^VERSION WARNING \(G4\): the MCP client user-agent \(codex-mcp-client\/<version>\) reports 0\.999\.0/.test(f)), `${m.outcome} ${m.outcomeReason}`);
@@ -925,23 +954,23 @@ export function g4Cases(check) {
     }
   });
 
-  run('g4 a second Codex registration also connects', { args: ['--param', 'accept=driver', ...FAST, ...PORTS(37508, 37510), '--param', 'codexLaunch=["codex","-c","mcp_servers.g4http.url=\\"http://127.0.0.1:37508/mcp\\"","-c","mcp_servers.leftover.url=\\"http://127.0.0.1:37508/mcp\\""]'], fakeCodex: { FAKE_CODEX_DIALOG: 'none' } }, (r) => {
+  run('g4 a second Codex registration also connects', { args: ['--param', 'accept=driver', ...FAST, ...PORTS(), '--param', 'codexLaunch=["codex","-c","mcp_servers.g4http.url=\\"http://127.0.0.1:@HTTP@/mcp\\"","-c","mcp_servers.leftover.url=\\"http://127.0.0.1:@HTTP@/mcp\\""]'], fakeCodex: { FAKE_CODEX_DIALOG: 'none' } }, (r) => {
     const m = r.manifest;
     check('g4 two registrations: the run records a finding that the Codex traffic is not attributable to one registration', m.findings.some((f) => /2 Codex HTTP MCP sessions/.test(f) && /cannot be attributed/.test(f)) && m.scenarioData.g4.codex.sessions.length === 2, JSON.stringify(m.findings));
     const c4 = evalRun(r).rows[3];
     check('g4 two registrations: criterion 4 is not equivalent on the one-session check (never silently credited)', c4.score === SCORES.NEQ && /exactly one Codex HTTP MCP session/.test(c4.reason), c4.reason);
   });
 
-  run('g4 the human run\'s port', { args: [...FAST, ...PORTS(17448, 37520)], fakeCodex: { FAKE_CODEX_DIALOG: 'none' } }, (r) => {
+  run('g4 the human run\'s port', { args: [...FAST, ...PORTS(17448)], fakeCodex: { FAKE_CODEX_DIALOG: 'none' } }, (r) => {
     check('g4 human-run port: refused before anything starts (a leftover global registration may name it)', r.status === 1 && /the human G4 run's/.test(r.manifest.outcomeReason) && !r.calls.some((c) => c.argv.includes('agent')), r.manifest.outcomeReason);
   });
 
   let holder = null;
-  run('g4 port already in use', { args: [...FAST, ...PORTS(37498, 37500)], fakeCodex: { FAKE_CODEX_DIALOG: 'none' } }, (r) => {
-    check('g4 port busy: NOT RUN before anything launches (a stale server must not answer for this run)', r.status === 3 && /127\.0\.0\.1:37498 is not free/.test(r.manifest.outcomeReason) && !r.calls.some((c) => c.argv.includes('agent')), r.manifest.outcomeReason);
-  }, () => new Promise((res) => {
+  run('g4 port already in use', { args: [...FAST, ...PORTS()], fakeCodex: { FAKE_CODEX_DIALOG: 'none' } }, (r, p) => {
+    check('g4 port busy: NOT RUN before anything launches (a stale server must not answer for this run)', r.status === 3 && new RegExp(`127\\.0\\.0\\.1:${p.http} is not free`).test(r.manifest.outcomeReason) && !r.calls.some((c) => c.argv.includes('agent')), r.manifest.outcomeReason);
+  }, (p) => new Promise((res) => {
     holder = createServer();
-    holder.listen(37498, '127.0.0.1', () => res(() => new Promise((done) => holder.close(() => done()))));
+    holder.listen(p.http, '127.0.0.1', () => res(() => new Promise((done) => holder.close(() => done()))));
   }));
   return cases;
 }
