@@ -233,6 +233,7 @@ fn check_of(probe: SocketProbe) -> doctor::Check {
         fallback_file: None,
         claude: &claude,
         control_socket: &socket,
+        environment: &|_| None,
     };
     // No usable scope: only the codex check is read.
     let scope = Err(std::io::Error::other("no scope for this test"));

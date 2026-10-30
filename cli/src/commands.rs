@@ -647,6 +647,7 @@ pub fn doctor(args: &[String]) -> i32 {
         fallback_file: keystore::fallback_key_file_exists(),
         claude: &claude,
         control_socket: &control_socket,
+        environment: &|name| std::env::var_os(name),
     };
     doctor_with(&scope, &probes, json, &mut stdout)
 }
