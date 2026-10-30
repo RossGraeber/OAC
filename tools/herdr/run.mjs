@@ -58,7 +58,7 @@ import { createRedactor, reportIsClean, summarize, parseLiteralSpec } from './li
 import { redactCaptures } from './lib/elide.mjs';
 import { defaultPaneShell, quoteCommand } from './lib/pane-shell.mjs';
 import { killTree, within } from './lib/proc.mjs';
-import { removeScratch } from './lib/scratch.mjs';
+import { removeScratch, writeScratchOwner } from './lib/scratch.mjs';
 import { makeCleanups } from './lib/cleanup.mjs';
 import { isMainModule, canonicallyWithin, rootGuardProblem } from './lib/canonical-path.mjs';
 
@@ -165,6 +165,7 @@ async function runScenarioInner(opts, state) {
   // Everything between creating it and the main try/finally is guarded, so a setup error
   // cannot leak the directory.
   const scratch = mkdtempSync(join(tmpdir(), 'oac-herdr-scratch-'));
+  writeScratchOwner(scratch); // #466: whose scratch this is, for a self-test's leftover scan
   let outDir;
   let herdr;
   let herdrEnv;

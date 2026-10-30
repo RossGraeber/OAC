@@ -73,7 +73,7 @@ import { createRedactor, reportIsClean, parseLiteralSpec } from '../lib/redact.m
 import { HerdrSession, DriverError, ROLES, isHerdrWait, isInputCommand, makeSessionName } from '../lib/herdr.mjs';
 import { harnessConfigFiles, herdrLaunchEnv } from '../lib/manifest.mjs';
 import { runBounded, isAlive, processesForSession } from '../lib/proc.mjs';
-import { removeScratch, SCRATCH_RETRY_DELAYS_MS } from '../lib/scratch.mjs';
+import { removeScratch, SCRATCH_RETRY_DELAYS_MS, SCRATCH_OWNER_FILE, writeScratchOwner, scratchOwner, ownScratchLeftovers } from '../lib/scratch.mjs';
 import { lfSha256, redactScriptSha256 } from '../lib/gate-report-common.mjs';
 import { committedFile } from '../lib/committed-file.mjs';
 import { g1Unit, g1Cases, installFakeClaudeCli, cloneWithPins } from './g1-tests.mjs';
@@ -560,6 +560,31 @@ async function unitGuards() {
 
 // #202: scratch removal retries a transient failure with a bounded backoff and never throws.
 async function unitScratch() {
+  // #466: the final leftover scan counts this process's scratch directories, not a concurrent self-test's.
+  {
+    const root = mkdtempSync(join(tmpdir(), 'oac-herdr-owner-unit-'));
+    try {
+      const mk = (suffix, owner) => {
+        const d = join(root, `oac-herdr-scratch-${suffix}`);
+        mkdirSync(d);
+        if (owner !== undefined) writeFileSync(join(d, SCRATCH_OWNER_FILE), String(owner));
+        return d;
+      };
+      mk('Before', process.pid); // already there when the self-test started
+      mk('Foreign', 99999999); // another self-test's (another pid's marker)
+      mk('Mine001', process.pid); // marked with this process
+      mk('Unmark', undefined); // a leftover with no marker: still this run's problem
+      writeFileSync(join(root, 'not-scratch.txt'), 'x');
+      const got = ownScratchLeftovers({ tmp: root, before: new Set(['oac-herdr-scratch-Before']), pid: process.pid }).sort();
+      check('scratch #466: the leftover scan ignores a foreign pid scratch directory, and anything present before the self-test started', !got.includes('oac-herdr-scratch-Foreign') && !got.includes('oac-herdr-scratch-Before'), JSON.stringify(got));
+      check('scratch #466: the leftover scan still counts the marked directory and an unmarked one (so a leaked own directory still fails)', JSON.stringify(got) === JSON.stringify(['oac-herdr-scratch-Mine001', 'oac-herdr-scratch-Unmark']), JSON.stringify(got));
+      const d = join(root, 'oac-herdr-scratch-Write1');
+      mkdirSync(d);
+      check('scratch #466: writeScratchOwner records the parent pid by default, scratchOwner reads it back, an unmarked directory reads null', writeScratchOwner(d) === true && scratchOwner(d) === String(process.ppid) && scratchOwner(join(root, 'oac-herdr-scratch-Unmark')) === null && writeScratchOwner(join(root, 'no', 'such', 'dir')) === false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
   const eperm = () => Object.assign(new Error('EPERM, Permission denied'), { code: 'EPERM' });
   const waits = [];
   const wait = async (ms) => void waits.push(ms);
@@ -890,23 +915,33 @@ async function lifecycle() {
     const m = r.manifest;
     check('fix1: failure after a caught timeout is NOT RUN, not FAIL', r.status === 3 && m.outcome === 'NOT RUN' && m.findings.some((f) => /recorded as NOT RUN/.test(f)), `${r.status} ${m.outcome}`);
   });
-  run('fix1: scenario outlives its timebox without a herdr call', { scenario: T('slow.mjs'), args: ['--timebox-ms', '1000', '--param', 'sleepMs=1600'] }, (r) => {
+  // #466: these three cases (fix1, cleanup hook, fix7) need the scenario to be running, mid-await, when the timebox
+  // expires. The box covers the driver's own start-up too (git, hashing, the herdr server), and a loaded machine can
+  // spend a short box before the scenario starts (measured on WSL under 6 busy loops: start-up took 0.6 to 1.9 s, which
+  // is why a 1000 ms box failed three runs in four), so (a) the box is TIMEBOX_MS, 3x the worst start-up seen, and (b) the scenario
+  // records `awaiting` and the case asserts it first: a box spent in start-up is reported as "the scenario never
+  // ran", not as a failure of the behaviour under test. fix1's scenario sleeps to the box's expiry (past-timebox),
+  // never a fixed time tuned against it, so which of two timers fires first does not matter.
+  const TIMEBOX_MS = '6000';
+  const awaited = (m) => !!m.scenarioData?.awaiting;
+  const notStarted = (m) => `the scenario never reached its await (${m.outcomeReason}): the ${TIMEBOX_MS} ms timebox was spent in the driver's start-up`;
+  run('fix1: scenario outlives its timebox without a herdr call', { scenario: T('slow.mjs'), args: ['--timebox-ms', TIMEBOX_MS, '--param', 'sleepMs=past-timebox'] }, (r) => {
     const m = r.manifest;
-    check('fix1: expired timebox ends NOT RUN even though the scenario returned', r.status === 3 && /the timebox expired/.test(m.outcomeReason) && m.timebox.expired === true, `${r.status} ${m.outcomeReason}`);
+    check('fix1: expired timebox ends NOT RUN even though the scenario returned', awaited(m) && r.status === 3 && /^scenario returned normally, but the timebox expired/.test(m.outcomeReason) && m.timebox.expired === true, awaited(m) ? `${r.status} ${m.outcomeReason}` : notStarted(m));
   });
   // M2 (G8 S6 review): a cleanup hook the scenario registered runs from run.mjs's teardown even though the scenario was cut
   // off in the middle of an await, so its own finally block never ran; a hook that throws is a finding, not a crash.
   const cleanupMarker = join(tmpdir(), `oac-cleanup-hook-${process.pid}.txt`);
-  run('cleanup hook: a timebox that cuts the scenario off still runs its registered undo', { scenario: T('cleanup-hook.mjs'), args: ['--timebox-ms', '1000', '--param', 'sleepMs=120000', '--param', `marker=${cleanupMarker}`] }, (r) => {
+  run('cleanup hook: a timebox that cuts the scenario off still runs its registered undo', { scenario: T('cleanup-hook.mjs'), args: ['--timebox-ms', TIMEBOX_MS, '--param', 'sleepMs=120000', '--param', `marker=${cleanupMarker}`] }, (r) => {
     const m = r.manifest;
     const ran = existsSync(cleanupMarker);
     rmSync(cleanupMarker, { force: true });
-    check('cleanup hook: the hook ran from teardown after the timebox cut the scenario off (marker written), is recorded ok, the failing hook is recorded and a finding, and the run is NOT RUN', ran && m.cleanups?.length === 2 && m.cleanups[0].ok === true && m.cleanups[1].ok === false && /fails on purpose/.test(m.cleanups[1].error) && m.findings.some((f) => /cleanup hook a hook that throws failed/.test(f)) && r.status === 3 && m.outcome === 'NOT RUN', `${r.status} ${m.outcome} ${JSON.stringify(m.cleanups)}`);
+    check('cleanup hook: the hook ran from teardown after the timebox cut the scenario off (marker written), is recorded ok, the failing hook is recorded and a finding, and the run is NOT RUN', awaited(m) && ran && m.cleanups?.length === 2 && m.cleanups[0].ok === true && m.cleanups[1].ok === false && /fails on purpose/.test(m.cleanups[1].error) && m.findings.some((f) => /cleanup hook a hook that throws failed/.test(f)) && r.status === 3 && m.outcome === 'NOT RUN', awaited(m) ? `${r.status} ${m.outcome} ${JSON.stringify(m.cleanups)}` : notStarted(m));
   });
-  run('fix7: non-herdr await past the timebox', { scenario: T('slow.mjs'), args: ['--timebox-ms', '1000', '--param', 'sleepMs=120000'] }, (r) => {
+  run('fix7: non-herdr await past the timebox', { scenario: T('slow.mjs'), args: ['--timebox-ms', TIMEBOX_MS, '--param', 'sleepMs=120000'] }, (r) => {
     const m = r.manifest;
     const wall = Date.parse(m.timebox.teardownEnd) - Date.parse(m.timebox.start);
-    check('fix7: timebox enforced while the scenario awaits something other than herdr', r.status === 3 && /timebox expired/.test(m.outcomeReason) && wall < 20000 && m.teardown.clean, `${r.status} ${m.outcomeReason} wall=${wall}`);
+    check('fix7: timebox enforced while the scenario awaits something other than herdr', awaited(m) && r.status === 3 && /timebox expired/.test(m.outcomeReason) && wall < 20000 && m.teardown.clean, awaited(m) ? `${r.status} ${m.outcomeReason} wall=${wall}` : notStarted(m));
   });
   run('fix8: a failed read does not unlock dialog-accept', { scenario: T('agent-io.mjs'), mode: 'fail-agent-read', args: ['--param', 'op=dialog-after-failed-read'] }, (r) => {
     const m = r.manifest;
@@ -980,6 +1015,8 @@ async function lifecycle() {
       // Clean up first: the leftover's raw path is printed on the console (only there).
       const left = /^scratch left behind \(delete by hand\): (.+)$/m.exec(r.stdout)?.[1]?.trim();
       const safe = !!left && left.startsWith(tmpdir()) && /^oac-herdr-scratch-/.test(left.slice(tmpdir().length).replace(/^[\\/]+/, ''));
+      // #466: run.mjs marks its scratch directory with the pid of its parent, which is this process.
+      check('scratch EPERM always #466: the leftover scratch directory carries the owner marker of this self-test', safe && scratchOwner(left) === String(process.pid), safe ? String(scratchOwner(left)) : 'no leftover');
       if (safe) rmSync(left, { recursive: true, force: true });
       check('scratch EPERM always #202: console names the leftover scratch directory (under os.tmpdir())', safe, r.stdout);
       const m = r.manifest;
@@ -1010,7 +1047,9 @@ async function lifecycle() {
     const undo = c.setup ? await c.setup() : null;
     let run;
     try {
-      run = runDriver(c.invariantOpts?.noManifest ? { ...c.opts, privateTmp: true } : c.opts);
+      // opts may be a function (g4Cases): evaluated after setup(), so a case's ports are taken from the OS just before it runs (#466).
+      const opts = typeof c.opts === 'function' ? c.opts() : c.opts;
+      run = runDriver(c.invariantOpts?.noManifest ? { ...opts, privateTmp: true } : opts);
     } finally {
       await undo?.();
     }
@@ -1092,7 +1131,8 @@ async function lifecycle() {
     }
   }
 
-  const leftover = readdirSync(tmpdir()).filter((n) => n.startsWith('oac-herdr-scratch-') && !scratchBefore.has(n));
+  // #466: only this self-test's own directories count; a concurrent self-test shares os.tmpdir() (ownScratchLeftovers).
+  const leftover = ownScratchLeftovers({ before: scratchBefore });
   check('lifecycle: every run removed its scratch directory', leftover.length === 0, leftover.join(','));
 }
 
