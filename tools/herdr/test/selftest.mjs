@@ -890,23 +890,33 @@ async function lifecycle() {
     const m = r.manifest;
     check('fix1: failure after a caught timeout is NOT RUN, not FAIL', r.status === 3 && m.outcome === 'NOT RUN' && m.findings.some((f) => /recorded as NOT RUN/.test(f)), `${r.status} ${m.outcome}`);
   });
-  run('fix1: scenario outlives its timebox without a herdr call', { scenario: T('slow.mjs'), args: ['--timebox-ms', '1000', '--param', 'sleepMs=1600'] }, (r) => {
+  // #466: these three cases (fix1, cleanup hook, fix7) need the scenario to be running, mid-await, when the timebox
+  // expires. The box covers the driver's own start-up too (git, hashing, the herdr server), and a loaded machine can
+  // spend a short box before the scenario starts (measured on WSL under 6 busy loops: start-up took 0.6 to 1.9 s, which
+  // is why a 1000 ms box failed three runs in four), so (a) the box is TIMEBOX_MS, 3x the worst start-up seen, and (b) the scenario
+  // records `awaiting` and the case asserts it first: a box spent in start-up is reported as "the scenario never
+  // ran", not as a failure of the behaviour under test. fix1's scenario sleeps to the box's expiry (past-timebox),
+  // never a fixed time tuned against it, so which of two timers fires first does not matter.
+  const TIMEBOX_MS = '6000';
+  const awaited = (m) => !!m.scenarioData?.awaiting;
+  const notStarted = (m) => `the scenario never reached its await (${m.outcomeReason}): the ${TIMEBOX_MS} ms timebox was spent in the driver's start-up`;
+  run('fix1: scenario outlives its timebox without a herdr call', { scenario: T('slow.mjs'), args: ['--timebox-ms', TIMEBOX_MS, '--param', 'sleepMs=past-timebox'] }, (r) => {
     const m = r.manifest;
-    check('fix1: expired timebox ends NOT RUN even though the scenario returned', r.status === 3 && /the timebox expired/.test(m.outcomeReason) && m.timebox.expired === true, `${r.status} ${m.outcomeReason}`);
+    check('fix1: expired timebox ends NOT RUN even though the scenario returned', awaited(m) && r.status === 3 && /^scenario returned normally, but the timebox expired/.test(m.outcomeReason) && m.timebox.expired === true, awaited(m) ? `${r.status} ${m.outcomeReason}` : notStarted(m));
   });
   // M2 (G8 S6 review): a cleanup hook the scenario registered runs from run.mjs's teardown even though the scenario was cut
   // off in the middle of an await, so its own finally block never ran; a hook that throws is a finding, not a crash.
   const cleanupMarker = join(tmpdir(), `oac-cleanup-hook-${process.pid}.txt`);
-  run('cleanup hook: a timebox that cuts the scenario off still runs its registered undo', { scenario: T('cleanup-hook.mjs'), args: ['--timebox-ms', '1000', '--param', 'sleepMs=120000', '--param', `marker=${cleanupMarker}`] }, (r) => {
+  run('cleanup hook: a timebox that cuts the scenario off still runs its registered undo', { scenario: T('cleanup-hook.mjs'), args: ['--timebox-ms', TIMEBOX_MS, '--param', 'sleepMs=120000', '--param', `marker=${cleanupMarker}`] }, (r) => {
     const m = r.manifest;
     const ran = existsSync(cleanupMarker);
     rmSync(cleanupMarker, { force: true });
-    check('cleanup hook: the hook ran from teardown after the timebox cut the scenario off (marker written), is recorded ok, the failing hook is recorded and a finding, and the run is NOT RUN', ran && m.cleanups?.length === 2 && m.cleanups[0].ok === true && m.cleanups[1].ok === false && /fails on purpose/.test(m.cleanups[1].error) && m.findings.some((f) => /cleanup hook a hook that throws failed/.test(f)) && r.status === 3 && m.outcome === 'NOT RUN', `${r.status} ${m.outcome} ${JSON.stringify(m.cleanups)}`);
+    check('cleanup hook: the hook ran from teardown after the timebox cut the scenario off (marker written), is recorded ok, the failing hook is recorded and a finding, and the run is NOT RUN', awaited(m) && ran && m.cleanups?.length === 2 && m.cleanups[0].ok === true && m.cleanups[1].ok === false && /fails on purpose/.test(m.cleanups[1].error) && m.findings.some((f) => /cleanup hook a hook that throws failed/.test(f)) && r.status === 3 && m.outcome === 'NOT RUN', awaited(m) ? `${r.status} ${m.outcome} ${JSON.stringify(m.cleanups)}` : notStarted(m));
   });
-  run('fix7: non-herdr await past the timebox', { scenario: T('slow.mjs'), args: ['--timebox-ms', '1000', '--param', 'sleepMs=120000'] }, (r) => {
+  run('fix7: non-herdr await past the timebox', { scenario: T('slow.mjs'), args: ['--timebox-ms', TIMEBOX_MS, '--param', 'sleepMs=120000'] }, (r) => {
     const m = r.manifest;
     const wall = Date.parse(m.timebox.teardownEnd) - Date.parse(m.timebox.start);
-    check('fix7: timebox enforced while the scenario awaits something other than herdr', r.status === 3 && /timebox expired/.test(m.outcomeReason) && wall < 20000 && m.teardown.clean, `${r.status} ${m.outcomeReason} wall=${wall}`);
+    check('fix7: timebox enforced while the scenario awaits something other than herdr', awaited(m) && r.status === 3 && /timebox expired/.test(m.outcomeReason) && wall < 20000 && m.teardown.clean, awaited(m) ? `${r.status} ${m.outcomeReason} wall=${wall}` : notStarted(m));
   });
   run('fix8: a failed read does not unlock dialog-accept', { scenario: T('agent-io.mjs'), mode: 'fail-agent-read', args: ['--param', 'op=dialog-after-failed-read'] }, (r) => {
     const m = r.manifest;
@@ -1010,7 +1020,9 @@ async function lifecycle() {
     const undo = c.setup ? await c.setup() : null;
     let run;
     try {
-      run = runDriver(c.invariantOpts?.noManifest ? { ...c.opts, privateTmp: true } : c.opts);
+      // opts may be a function (g4Cases): evaluated after setup(), so a case's ports are taken from the OS just before it runs (#466).
+      const opts = typeof c.opts === 'function' ? c.opts() : c.opts;
+      run = runDriver(c.invariantOpts?.noManifest ? { ...opts, privateTmp: true } : opts);
     } finally {
       await undo?.();
     }
