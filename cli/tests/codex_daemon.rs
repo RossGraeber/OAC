@@ -17,6 +17,10 @@
 //! CI-default tier: no Codex install, no credential, no network beyond loopback. Every wait is
 //! bounded, and every child is killed when its guard drops (#435).
 
+#[path = "support/exec_copy.rs"]
+mod exec_copy;
+
+use exec_copy::SpawnRetrying;
 use std::collections::{HashMap, VecDeque};
 use std::future::Future;
 use std::io::{BufRead, BufReader, Write};
@@ -667,9 +671,7 @@ impl Host {
         std::fs::create_dir_all(&bin).unwrap();
         std::fs::create_dir_all(&work).unwrap();
         let codex = bin.join(if cfg!(windows) { "codex.exe" } else { "codex" });
-        if !codex.exists() {
-            std::fs::copy(std::env::current_exe().unwrap(), &codex).unwrap();
-        }
+        exec_copy::install_exe_copy(&codex, exec_copy::Existing::Reuse);
         let mut child = Command::new(&codex)
             .args(["--exact", HOST_TEST, "--nocapture", "--test-threads=1"])
             .env(ROLE, "host")
@@ -678,7 +680,7 @@ impl Host {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
-            .spawn()
+            .spawn_retrying()
             .expect("the codex host starts");
         let commands = child.stdin.take().unwrap();
         let stdout = child.stdout.take().unwrap();
