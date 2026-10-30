@@ -48,12 +48,12 @@ supported integration model.
 
 - The pairing verbs (#437) and a verb that reads the daemon log.
 - The live check of the G10 verbs with a real Claude Code session ran on Windows only (2026-10-20, print mode, one device); on WSL only `oac doctor` ran, because no device key exists there yet. See the status ledger. The daemon test runs on Windows and Linux.
-- The Codex endpoint: there is no Codex adapter until G7 and G8.
+- The Codex endpoint is on `main` (G8 slices S1 to S5; a live leg with a real Codex `0.165.0` and Claude Code `2.1.312` ran on Windows on 2026-10-29, see the [G8 S6 record](docs/planning/gates/herdr-runs/G8-S6-2026-10-29.md)). The `codex --remote` fallback is deferred.
 
 ## Using the CLI
 
 The `oac` binary (build it with `cargo build -p oac-cli`; nothing is released or installed yet) needs no
-config file. The verbs (full detail: [CLI and deployment](docs/planning/v0.1/08-cli-and-deployment.md) section 5):
+config file. To launch Claude Code and Codex OAC-enabled, see [Launching OAC-enabled sessions](docs/launch.md). The verbs (full detail: [CLI and deployment](docs/planning/v0.1/08-cli-and-deployment.md) section 5):
 
 ```sh
 oac start [--detach] [--json]   # run the per-device daemon; --detach leaves it in the background
@@ -119,6 +119,7 @@ boundaries, controls, current evidence, and residual risks.
 |---|---|
 | [📖 Wiki](https://github.com/RossGraeber/OAC/wiki) | Overview and guided navigation |
 | [🧭 Getting started](https://github.com/RossGraeber/OAC/wiki/Getting-Started) | Repository orientation and contributor checks |
+| [🚀 Launching sessions](docs/launch.md) | The Claude Code and Codex launch commands, distribution constraints, and `oac doctor` failure table |
 | [🏗️ Architecture](https://github.com/RossGraeber/OAC/wiki/Architecture) | Layers, scope, and trust boundaries |
 | [🧪 Gate evidence](docs/planning/gates/README.md) | Recorded provider and transport experiments |
 | [🛠️ Tooling & credits](https://github.com/RossGraeber/OAC/wiki/Tooling-and-Credits) | herdr, upstream projects, licenses, and their roles |

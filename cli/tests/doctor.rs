@@ -226,6 +226,7 @@ fn checks_in(scope: &std::io::Result<Scope>, negotiation: Option<&str>) -> Vec<d
         fallback_file: None,
         claude: &claude,
         control_socket: &absent,
+        environment: &no_environment,
     };
     doctor::run(scope, &probes)
 }
@@ -294,10 +295,15 @@ fn run_doctor(
     path: &Path,
 ) -> Finished {
     let mut command = Command::new(oac());
+    // The host's own provider selectors (this may run inside a Claude Code session) never leak in.
+    for (name, _) in doctor::PROVIDER_VARIABLES {
+        command.env_remove(name);
+    }
     command
         .arg("doctor")
         .args(args)
         .env_remove(doctor::NEGOTIATION_VARIABLE)
+        .env_remove(doctor::CODEX_SKIP_ATTACH_VARIABLE)
         .env(doctor::NO_CREDENTIAL_PROBE_VARIABLE, "1")
         // Never the user's own Codex control socket: a path with nothing at it.
         .env(
@@ -388,6 +394,10 @@ fn member<'a>(o: &'a JsonObject, name: &str) -> &'a Json {
 
 fn string<'a>(o: &'a JsonObject, name: &str) -> &'a str {
     member(o, name).as_str().unwrap_or_else(|| panic!("{name}"))
+}
+
+fn no_environment(_: &str) -> Option<std::ffi::OsString> {
+    None
 }
 
 /// An empty directory to use as `PATH`: no `claude` on it.
@@ -512,6 +522,14 @@ fn a_running_daemon_passes_the_checks_that_can_pass_and_pairing_warns_with_no_ke
         doctor::CheckResult::Pass
     );
     assert_eq!(named(&checks, "codex").result, doctor::CheckResult::Skip);
+    // Nothing is attached to the daemon yet: a warning that says to launch a harness.
+    let sessions = named(&checks, "sessions");
+    assert_eq!(sessions.result, doctor::CheckResult::Warn, "{sessions:?}");
+    assert!(sessions.detail.contains("launch"), "{sessions:?}");
+    assert_eq!(
+        named(&checks, "launch_env").result,
+        doctor::CheckResult::Pass
+    );
     assert!(doctor::all_clear(&checks), "warnings are not failures");
 
     // The same through the verb's own writer: exit 0 (a WARN does not fail).
@@ -524,6 +542,7 @@ fn a_running_daemon_passes_the_checks_that_can_pass_and_pairing_warns_with_no_ke
         fallback_file: None,
         claude: &claude,
         control_socket: &absent,
+        environment: &no_environment,
     };
     let mut out = Vec::new();
     let code = oac_cli::commands::doctor_with(&Ok(rig.scope.clone()), &probes, true, &mut out);
@@ -539,8 +558,27 @@ fn a_running_daemon_passes_the_checks_that_can_pass_and_pairing_warns_with_no_ke
     assert_eq!(result(&report, "pairing"), "warn");
     assert_eq!(result(&report, "mcp_revision"), "pass");
     assert_eq!(result(&report, "codex"), "skip");
+    assert_eq!(result(&report, "sessions"), "warn");
+    assert_eq!(result(&report, "launch_env"), "pass");
     assert_eq!(result(&report, "credential_store"), "skip");
     assert_eq!(real.code(), Some(0), "{}", real.stdout);
+
+    // A provider selector in the environment is a warning that names the variable and not its
+    // value, and does not fail the run; the Codex attach override is the same.
+    for (name, value) in [
+        ("CLAUDE_CODE_USE_BEDROCK", "1"),
+        ("CLAUDE_CODE_USE_VERTEX", "1"),
+        ("CLAUDE_CODE_USE_FOUNDRY", "1"),
+        (doctor::CODEX_SKIP_ATTACH_VARIABLE, "ws://127.0.0.1:1"),
+    ] {
+        let out = rig.oac_doctor(&["--json"], &[(name, value)], &path.0);
+        let report = out.report();
+        assert_eq!(result(&report, "launch_env"), "warn", "{name}: {report:?}");
+        let detail = &report.iter().find(|(n, ..)| n == "launch_env").unwrap().2;
+        assert!(detail.contains(name), "{detail}");
+        assert!(!detail.contains("127.0.0.1"), "{detail}");
+        assert_eq!(out.code(), Some(0), "{name}: {}", out.stdout);
+    }
 }
 
 #[test]

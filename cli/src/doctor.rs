@@ -25,8 +25,10 @@
 //! | `transport` | the daemon reports it healthy | | degraded or unavailable | no daemon |
 //! | `mcp_revision` | no session failed to negotiate, and the environment leaves the revision alone | the environment sets a revision other than `legacy`, or a Claude session did not negotiate a legacy revision (counted since the daemon started) | | |
 //! | `pairing` | a trusted device or a grant exists | none of either | | no daemon |
+//! | `sessions` | at least one session is attached and none is waiting to be bound | a connection is open with no session bound (Claude: the `SessionStart` hook has not reported; Codex: the pairing has not completed), no session is attached at all, or a listed session is withheld | | no daemon |
 //! | `claude_version` | at or above the recorded minimum | below it, or not recognised, or `claude` did not answer | | `claude` is not on `PATH` |
-//! | `codex` | | | | always (#433) |
+//! | `codex` | the control socket accepted a connection and its server is this user's | the socket did not accept, or its owner could not be verified | the server is another user's | no socket |
+//! | `launch_env` | none of the variables below is set in this environment | a third-party provider selector (`CLAUDE_CODE_USE_BEDROCK`, `_VERTEX`, `_FOUNDRY`, `_MANTLE`) or `CODEX_EXEC_SERVER_URL` is set | | |
 //!
 //! The exit status is 0 unless a check FAILs (then 1); 2 is usage.
 
@@ -59,6 +61,23 @@ pub const CLAUDE_OUTPUT_LIMIT: u64 = 4096;
 
 /// The environment variable that forces a stdio MCP server to a revision.
 pub const NEGOTIATION_VARIABLE: &str = "MCP_PROTOCOL_NEGOTIATION";
+
+/// The environment variables with which Claude Code selects a third-party model provider
+/// (Amazon Bedrock, Google Cloud's Agent Platform, Microsoft Foundry, and Amazon Bedrock's
+/// Mantle endpoint), with the provider's name. Channels are not available on those providers
+/// (the channels page of Claude Code's documentation, retrieved 2026-10-30, Claude Code 2.1.312), so
+/// a Claude Code started from an environment that sets one cannot register OAC as a channel.
+/// Only this process's own environment is looked at; a settings file's `env` block is not read.
+pub const PROVIDER_VARIABLES: [(&str, &str); 4] = [
+    ("CLAUDE_CODE_USE_BEDROCK", "Amazon Bedrock"),
+    ("CLAUDE_CODE_USE_VERTEX", "Google Cloud's Agent Platform"),
+    ("CLAUDE_CODE_USE_FOUNDRY", "Microsoft Foundry"),
+    ("CLAUDE_CODE_USE_MANTLE", "Amazon Bedrock (Mantle)"),
+];
+
+/// The environment variable that makes a Codex invocation skip implicit daemon attachment
+/// (`codex-rs/app-server-daemon/README.md` at `rust-v0.165.0`, retrieved 2026-10-30).
+pub const CODEX_SKIP_ATTACH_VARIABLE: &str = "CODEX_EXEC_SERVER_URL";
 
 /// The test-only switch that turns the credential probe off. It is honoured only when
 /// `OAC_SCOPE` names a valid test namespace, so it cannot hide a failure on a user's own
@@ -154,6 +173,9 @@ pub struct Probes<'a> {
     /// The Codex control socket, connected to and closed at once (`crate::codex`): nothing is
     /// sent or read, and nothing else under the Codex home is looked at.
     pub control_socket: &'a dyn Fn() -> SocketProbe,
+    /// This process's environment, by variable name: only the names in
+    /// [`PROVIDER_VARIABLES`] and [`CODEX_SKIP_ATTACH_VARIABLE`] are asked for.
+    pub environment: &'a dyn Fn(&str) -> Option<OsString>,
 }
 
 /// The credential-store service the probe uses: OAC's own, or, in a test namespace
@@ -218,8 +240,10 @@ pub fn run(scope: &io::Result<Scope>, probes: &Probes<'_>) -> Vec<Check> {
         transport_check(report),
         revision_check(probes, report),
         pairing_check(report),
+        sessions_check(report),
         claude_check(probes),
         codex_check(probes),
+        launch_env_check(probes),
     ]
 }
 
@@ -481,6 +505,129 @@ fn pairing_check(report: Option<&JsonObject>) -> Check {
     }
 }
 
+fn sessions_check(report: Option<&JsonObject>) -> Check {
+    use CheckResult::{Pass, Skip, Warn};
+    let Some(report) = report else {
+        return check("sessions", Skip, "no daemon to ask");
+    };
+    let adapters: Vec<&JsonObject> = report
+        .get("adapters")
+        .and_then(Json::as_array)
+        .map(|a| a.iter().filter_map(Json::as_object).collect())
+        .unwrap_or_default();
+    // Open connections with no session bound, by harness label: a shim that connected and
+    // whose session the daemon could not identify (Claude: no `SessionStart` hook report;
+    // Codex: the pairing has not completed).
+    let waiting: Vec<(String, u64)> = adapters
+        .iter()
+        .filter_map(|a| {
+            let n = int(a, "unbound_attachments").unwrap_or(0);
+            (n > 0).then(|| (clean(text(a, "label").unwrap_or("?")), n))
+        })
+        .collect();
+    if !waiting.is_empty() {
+        // Codex starts a registered MCP server when the session opens, but the pairing
+        // completes only on the first OAC tool call in a thread (08 section 9; G8 S1, S6), so
+        // an unbound Codex connection is normal until that call. The status reply carries no
+        // count of calls reported under another server name, so the wording does not blame one.
+        let why = |label: &str| match label {
+            "claude" => "Claude Code's SessionStart hook (`oac hook`) has not reported for it",
+            "codex" => {
+                "no OAC tool call has paired it yet; normal until the first call in the thread; if it persists after one, check `codex mcp add <name>` against OAC_CODEX_REGISTERED_NAME"
+            }
+            _ => "no session has been bound to it",
+        };
+        let parts: Vec<String> = waiting
+            .iter()
+            .map(|(label, n)| {
+                format!(
+                    "{n} {label} connection(s) open with no session bound: {}",
+                    why(label)
+                )
+            })
+            .collect();
+        return check("sessions", Warn, parts.join("; "));
+    }
+    let total = int(report, "sessions_total").unwrap_or(0);
+    if total == 0 {
+        return check(
+            "sessions",
+            Warn,
+            "no harness session is attached; launch Claude Code or Codex OAC-enabled",
+        );
+    }
+    // The list is capped (`crate::status::MAX_SESSIONS`), so the per-harness and withheld
+    // counts are of the listed sessions.
+    let rows: Vec<&JsonObject> = report
+        .get("sessions")
+        .and_then(Json::as_array)
+        .map(|a| a.iter().filter_map(Json::as_object).collect())
+        .unwrap_or_default();
+    let withheld = rows
+        .iter()
+        .filter(|s| text(s, "state") == Some("withheld"))
+        .count();
+    if withheld > 0 {
+        return check(
+            "sessions",
+            Warn,
+            format!(
+                "{withheld} of the {} listed session(s) are withheld, not online",
+                rows.len()
+            ),
+        );
+    }
+    let count = |label: &str| {
+        rows.iter()
+            .filter(|s| text(s, "harness") == Some(label))
+            .count()
+    };
+    check(
+        "sessions",
+        Pass,
+        format!(
+            "{total} session(s) attached, none waiting to be bound (of the listed sessions: claude {}, codex {})",
+            count("claude"),
+            count("codex")
+        ),
+    )
+}
+
+/// True for a variable that is set to something other than a disabling word. Claude Code's
+/// environment-variable reference gives `1`, `true`, `yes` and `on` as the enabling values of
+/// its on/off variables and `0`, `false`, `no` and `off` as the disabling ones; the provider
+/// pages show `=1`. Whether the provider selectors read every enabling word is UNVERIFIED, so
+/// any other non-empty value counts as set.
+fn is_set(value: Option<OsString>) -> bool {
+    value.is_some_and(|v| {
+        let v = v.to_string_lossy().trim().to_ascii_lowercase();
+        !(v.is_empty() || matches!(v.as_str(), "0" | "false" | "no" | "off"))
+    })
+}
+
+fn launch_env_check(probes: &Probes<'_>) -> Check {
+    use CheckResult::{Pass, Warn};
+    let mut found: Vec<String> = PROVIDER_VARIABLES
+        .iter()
+        .filter(|(name, _)| is_set((probes.environment)(name)))
+        .map(|(name, provider)| format!("{name} is set: channels are not available on {provider}"))
+        .collect();
+    if is_set((probes.environment)(CODEX_SKIP_ATTACH_VARIABLE)) {
+        found.push(format!(
+            "{CODEX_SKIP_ATTACH_VARIABLE} is set: a Codex started from this environment skips implicit daemon attachment"
+        ));
+    }
+    if found.is_empty() {
+        check(
+            "launch_env",
+            Pass,
+            "no third-party provider selector and no Codex attach override in this environment (settings files are not read)",
+        )
+    } else {
+        check("launch_env", Warn, found.join("; "))
+    }
+}
+
 fn claude_check(probes: &Probes<'_>) -> Check {
     use CheckResult::{Pass, Skip, Warn};
     // Not on PATH is a SKIP, not a WARN: a host that uses only another harness, or starts
@@ -693,7 +840,12 @@ mod tests {
             fallback_file: None,
             claude,
             control_socket: &absent,
+            environment: &no_environment,
         }
+    }
+
+    fn no_environment(_: &str) -> Option<OsString> {
+        None
     }
 
     fn absent() -> SocketProbe {
@@ -729,6 +881,103 @@ mod tests {
             let p = probes(None, &f, &cred);
             assert_eq!(claude_check(&p).result, result);
         }
+    }
+
+    fn report(text: &str) -> JsonObject {
+        oac_core::json::parse(text.as_bytes())
+            .unwrap()
+            .into_object()
+            .unwrap()
+    }
+
+    #[test]
+    fn the_sessions_check_tells_waiting_connections_from_none_at_all() {
+        use CheckResult::{Pass, Skip, Warn};
+        assert_eq!(sessions_check(None).result, Skip);
+
+        // Nothing attached: a warning that says to launch a harness.
+        let none = report(
+            r#"{"adapters":[{"label":"claude","state":"healthy","unbound_attachments":0},{"label":"codex","state":"healthy","unbound_attachments":0}],"sessions":[],"sessions_total":0}"#,
+        );
+        let c = sessions_check(Some(&none));
+        assert_eq!(c.result, Warn, "{c:?}");
+        assert!(c.detail.contains("launch"), "{c:?}");
+
+        // A Claude connection that no `SessionStart` hook report has bound.
+        let claude_waiting = report(
+            r#"{"adapters":[{"label":"claude","state":"healthy","unbound_attachments":1},{"label":"codex","state":"healthy","unbound_attachments":0}],"sessions":[],"sessions_total":0}"#,
+        );
+        let c = sessions_check(Some(&claude_waiting));
+        assert_eq!(c.result, Warn, "{c:?}");
+        assert!(c.detail.contains("1 claude connection(s)"), "{c:?}");
+        assert!(c.detail.contains("oac hook"), "{c:?}");
+
+        // A Codex connection that has not paired: the registered name is the usual cause.
+        let codex_waiting = report(
+            r#"{"adapters":[{"label":"codex","state":"healthy","unbound_attachments":2}],"sessions":[],"sessions_total":0}"#,
+        );
+        let c = sessions_check(Some(&codex_waiting));
+        assert_eq!(c.result, Warn, "{c:?}");
+        assert!(
+            c.detail.contains("no OAC tool call has paired it yet"),
+            "{c:?}"
+        );
+        assert!(c.detail.contains("OAC_CODEX_REGISTERED_NAME"), "{c:?}");
+
+        // A bound session on each harness, nothing waiting. The ids never reach the detail.
+        let both = report(
+            r#"{"adapters":[{"label":"claude","state":"healthy","unbound_attachments":0},{"label":"codex","state":"healthy","unbound_attachments":0}],"sessions":[{"harness":"claude","session_id":"sid-leak-check-1","state":"online"},{"harness":"codex","session_id":"sid-leak-check-2","state":"online"}],"sessions_total":2}"#,
+        );
+        let c = sessions_check(Some(&both));
+        assert_eq!(c.result, Pass, "{c:?}");
+        assert!(c.detail.contains("claude 1, codex 1"), "{c:?}");
+        assert!(c.detail.contains("of the listed sessions"), "{c:?}");
+        assert!(!c.detail.contains("sid-leak-check"), "{c:?}");
+
+        // Withheld sessions are a warning that names the counts only.
+        let withheld = report(
+            r#"{"adapters":[{"label":"claude","state":"healthy","unbound_attachments":0}],"sessions":[{"harness":"claude","session_id":"sid-leak-check-3","state":"online"},{"harness":"claude","session_id":"sid-leak-check-4","state":"withheld"}],"sessions_total":2}"#,
+        );
+        let c = sessions_check(Some(&withheld));
+        assert_eq!(c.result, Warn, "{c:?}");
+        assert!(c.detail.contains("1 of the 2 listed"), "{c:?}");
+        assert!(!c.detail.contains("sid-leak-check"), "{c:?}");
+    }
+
+    #[test]
+    fn the_launch_environment_check_names_the_variable_and_never_its_value() {
+        let (cred, claude) = (
+            || CredentialOutcome::Probed(CredentialProbe::Works),
+            || ClaudeVersion::NotOnPath,
+        );
+        let with = |name: &'static str, value: &'static str| {
+            let env = move |n: &str| (n == name).then(|| OsString::from(value));
+            let mut p = probes(None, &claude, &cred);
+            p.environment = &env;
+            launch_env_check(&p)
+        };
+        assert_eq!(
+            launch_env_check(&probes(None, &claude, &cred)).result,
+            CheckResult::Pass
+        );
+        for (name, _) in PROVIDER_VARIABLES {
+            let c = with(name, "secret-looking-value-1");
+            assert_eq!(c.result, CheckResult::Warn, "{name}");
+            assert!(c.detail.contains(name), "{c:?}");
+            assert!(!c.detail.contains("secret-looking-value-1"), "{c:?}");
+        }
+        // The disabling words and an empty value leave the check passing.
+        for off in ["0", "false", "No", "OFF", "", "  "] {
+            assert_eq!(
+                with("CLAUDE_CODE_USE_BEDROCK", off).result,
+                CheckResult::Pass,
+                "{off:?}"
+            );
+        }
+        let c = with(CODEX_SKIP_ATTACH_VARIABLE, "ws://elsewhere.invalid");
+        assert_eq!(c.result, CheckResult::Warn);
+        assert!(c.detail.contains("implicit daemon attachment"), "{c:?}");
+        assert!(!c.detail.contains("elsewhere.invalid"), "{c:?}");
     }
 
     #[test]
