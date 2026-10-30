@@ -20,6 +20,10 @@
 //! another session bound; clean shutdown ends the endpoints and the sessions; a second start
 //! creates no second daemon. Each session role is selected by `OAC_DAEMON_TEST_ROLE`.
 
+#[path = "support/exec_copy.rs"]
+mod exec_copy;
+
+use exec_copy::SpawnRetrying;
 use std::future::Future;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -178,9 +182,7 @@ impl Session {
         } else {
             "claude"
         });
-        if !claude.exists() {
-            std::fs::copy(std::env::current_exe().unwrap(), &claude).unwrap();
-        }
+        exec_copy::install_exe_copy(&claude, exec_copy::Existing::Reuse);
         let mut child = Command::new(&claude)
             .args(["--exact", TEST, "--nocapture", "--test-threads=1"])
             .env(ROLE, "session")
@@ -197,7 +199,7 @@ impl Session {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
-            .spawn()
+            .spawn_retrying()
             .expect("the session starts");
         let commands = child.stdin.take().unwrap();
         let replies = BufReader::new(child.stdout.take().unwrap());
