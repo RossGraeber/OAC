@@ -73,7 +73,7 @@ import { createRedactor, reportIsClean, parseLiteralSpec } from '../lib/redact.m
 import { HerdrSession, DriverError, ROLES, isHerdrWait, isInputCommand, makeSessionName } from '../lib/herdr.mjs';
 import { harnessConfigFiles, herdrLaunchEnv } from '../lib/manifest.mjs';
 import { runBounded, isAlive, processesForSession } from '../lib/proc.mjs';
-import { removeScratch, SCRATCH_RETRY_DELAYS_MS } from '../lib/scratch.mjs';
+import { removeScratch, SCRATCH_RETRY_DELAYS_MS, SCRATCH_OWNER_FILE, writeScratchOwner, scratchOwner, ownScratchLeftovers } from '../lib/scratch.mjs';
 import { lfSha256, redactScriptSha256 } from '../lib/gate-report-common.mjs';
 import { committedFile } from '../lib/committed-file.mjs';
 import { g1Unit, g1Cases, installFakeClaudeCli, cloneWithPins } from './g1-tests.mjs';
@@ -560,6 +560,31 @@ async function unitGuards() {
 
 // #202: scratch removal retries a transient failure with a bounded backoff and never throws.
 async function unitScratch() {
+  // #466: the final leftover scan counts this process's scratch directories, not a concurrent self-test's.
+  {
+    const root = mkdtempSync(join(tmpdir(), 'oac-herdr-owner-unit-'));
+    try {
+      const mk = (suffix, owner) => {
+        const d = join(root, `oac-herdr-scratch-${suffix}`);
+        mkdirSync(d);
+        if (owner !== undefined) writeFileSync(join(d, SCRATCH_OWNER_FILE), String(owner));
+        return d;
+      };
+      mk('Before', process.pid); // already there when the self-test started
+      mk('Foreign', 99999999); // another self-test's (another pid's marker)
+      mk('Mine001', process.pid); // marked with this process
+      mk('Unmark', undefined); // a leftover with no marker: still this run's problem
+      writeFileSync(join(root, 'not-scratch.txt'), 'x');
+      const got = ownScratchLeftovers({ tmp: root, before: new Set(['oac-herdr-scratch-Before']), pid: process.pid }).sort();
+      check('scratch #466: the leftover scan ignores a foreign pid scratch directory, and anything present before the self-test started', !got.includes('oac-herdr-scratch-Foreign') && !got.includes('oac-herdr-scratch-Before'), JSON.stringify(got));
+      check('scratch #466: the leftover scan still counts the marked directory and an unmarked one (so a leaked own directory still fails)', JSON.stringify(got) === JSON.stringify(['oac-herdr-scratch-Mine001', 'oac-herdr-scratch-Unmark']), JSON.stringify(got));
+      const d = join(root, 'oac-herdr-scratch-Write1');
+      mkdirSync(d);
+      check('scratch #466: writeScratchOwner records the parent pid by default, scratchOwner reads it back, an unmarked directory reads null', writeScratchOwner(d) === true && scratchOwner(d) === String(process.ppid) && scratchOwner(join(root, 'oac-herdr-scratch-Unmark')) === null && writeScratchOwner(join(root, 'no', 'such', 'dir')) === false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
   const eperm = () => Object.assign(new Error('EPERM, Permission denied'), { code: 'EPERM' });
   const waits = [];
   const wait = async (ms) => void waits.push(ms);
@@ -990,6 +1015,8 @@ async function lifecycle() {
       // Clean up first: the leftover's raw path is printed on the console (only there).
       const left = /^scratch left behind \(delete by hand\): (.+)$/m.exec(r.stdout)?.[1]?.trim();
       const safe = !!left && left.startsWith(tmpdir()) && /^oac-herdr-scratch-/.test(left.slice(tmpdir().length).replace(/^[\\/]+/, ''));
+      // #466: run.mjs marks its scratch directory with the pid of its parent, which is this process.
+      check('scratch EPERM always #466: the leftover scratch directory carries the owner marker of this self-test', safe && scratchOwner(left) === String(process.pid), safe ? String(scratchOwner(left)) : 'no leftover');
       if (safe) rmSync(left, { recursive: true, force: true });
       check('scratch EPERM always #202: console names the leftover scratch directory (under os.tmpdir())', safe, r.stdout);
       const m = r.manifest;
@@ -1104,7 +1131,8 @@ async function lifecycle() {
     }
   }
 
-  const leftover = readdirSync(tmpdir()).filter((n) => n.startsWith('oac-herdr-scratch-') && !scratchBefore.has(n));
+  // #466: only this self-test's own directories count; a concurrent self-test shares os.tmpdir() (ownScratchLeftovers).
+  const leftover = ownScratchLeftovers({ before: scratchBefore });
   check('lifecycle: every run removed its scratch directory', leftover.length === 0, leftover.join(','));
 }
 
