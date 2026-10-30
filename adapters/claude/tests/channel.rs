@@ -825,12 +825,13 @@ fn shutdown_settles_an_inflight_deliver_before_return() {
     assert!(done_rx.try_recv().is_err());
     a.shutdown();
     assert!(h.is_closed());
-    // The adapter settled the call before `shutdown` returned; the tolerance covers only
-    // the thread hop that sends the outcome after `deliver` returns, far below a late
-    // settlement.
+    // Interfaces 0.12 ([IFC-ADP-109], [IFC-ADP-126]): the call takes no effect after
+    // `shutdown` returned and returns within the composed bound of that return, with the
+    // peer still paused (so without anything the core must do). Whether the thread running
+    // it has been scheduled again at the instant of the return is not judged.
     let outcome = done_rx
-        .recv_timeout(Duration::from_millis(10))
-        .expect("result settled at first shutdown return");
+        .recv_timeout(Duration::from_millis(a.shutdown_bound_ms()))
+        .expect("the pending deliver returned within the composed bound of shutdown's return");
     assert!(matches!(
         outcome,
         HandOffOutcome::Failed | HandOffOutcome::Indeterminate

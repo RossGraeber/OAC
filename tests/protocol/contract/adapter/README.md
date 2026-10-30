@@ -211,7 +211,7 @@ existing check and planted breach remains; the pre-shutdown attachment snapshot 
 before the new probe, so attachment-closed reporting is still checked at the barrier.
 The stand-ins close their supplied handles before reporting shutdown, including
 Codex native-signal connections. Existing shutdown assertions use the event and request
-snapshots captured at the first return barrier, before the probe resumes the peer.
+snapshots up to the shutdown mark (revision 0.12 below), taken before the probe resumes the peer.
 
 The added factory probe pauses an admitted write, times shutdown against the binding's
 bound, checks every issued handle is closed at return, then resumes the peer and checks
@@ -263,3 +263,67 @@ none of which weakens a check:
   IFC-ADP-031 and IFC-ADP-060 as passes, not not-applicable; the planted `RequestsAsGap` over
   the queue stand-in is now caught as those three rows (it was asserted to pass).
 
+
+## Interfaces 0.12 settlement revision: judged by effects (#457)
+
+Revision 0.12 of `spec/interfaces.md` (proposed; lead approval pending) judges settlement at
+`shutdown` by the effects the core records, not by whether the pending `deliver` or `shutdown`
+returned first. The earlier probe read its helper thread's result with `try_recv()` right after
+`shutdown` returned. Under CPU load a conformant adapter read as having settled late, and the
+order of two thread returns is not something a core can observe without a scheduler race. The
+suite follows the new rule, with no sleep, retry or grace period before any verdict:
+
+- `CoreSide` records, under one lock, every event report and request it receives, and the
+  probe's `shutdown` thread marks the record right after `shutdown()` returns
+  (`mark_shutdown_returned`). `IFC-ADP-109` row `no-effect-after-shutdown-return` fails if the
+  record shows any effect after the mark, and `IFC-ADP-070` row
+  `stalled-write-has-no-late-hand-off` fails on the same record. The record is read twice: after
+  the 50 ms exposure window that follows the resume, and again after the 200 ms wait of the
+  last stage; `IFC-ADP-109` and `IFC-ADP-110` row `no-late-effect-after-the-exposure-window`
+  fail on any entry in the second read, so a report that comes later than the first read (the
+  `ReportsOnceLate` plant, about 100 ms) is still caught. The exposure has an upper limit: the
+  record is read a second time and not again, and the measured reach is roughly 300 to 600 ms
+  after the return (a report at 300 ms was caught, one at 600 ms was not). A report later than
+  that is not seen.
+- Hand-offs are not in that record. They are judged by the closure of the connection, as the
+  spec paragraph after `IFC-ADP-111` says: the core's closure barrier
+  (`core/src/connection.rs`, `ConnectionWriter::transfer`) admits no transfer once the
+  connection is closed, `IFC-ADP-073` requires every supplied connection to be closed before
+  `shutdown` returns (checked at the instant it returns), and the peer is paused until after the
+  mark, so stalled input that reaches it once it is resumed is a hand-off after the return
+  (`IFC-ADP-070`).
+- The pending `deliver` must return within the composed bound of the shutdown return while the
+  peer is still paused: the suite waits for its result for `shutdown_bound_ms` (the core and the
+  suite's absent transport add nothing, §5.3.2), then resumes the peer. `IFC-ADP-126` row
+  `stalled-deliver-returns-within-composed-bound` fails if it has not, whether it ended only
+  after the bound or waits on something the core must do. A `deliver` still returning when
+  `shutdown` returns, with no effect, is conformant. That wait is judged at the spec's own bound
+  scale (1000 ms for the stand-ins): a result a thread hop or a scheduling quantum late is on
+  time, and only a result that overruns the bound fails. The tight comparison of two
+  sub-millisecond events is what this revision removes.
+- Connections are judged closed at the instant `shutdown` returned (`IFC-ADP-073`), and
+  `IFC-ADP-071` uses the events up to the mark. The 50 ms wait after the resume is an exposure
+  window for a detached writer, not a settlement allowance: no verdict about the pending
+  `deliver` depends on it.
+
+Planted breaches: `LateSettlement` is now a `deliver` that ends only after the composed bound
+(900 ms against a 300 ms bound; the earlier 40 ms late failed result, with no effect, is
+conformant and is the `SlowTailNoEffect` case, which must pass), caught as `IFC-ADP-126`.
+`ReportsAfterShutdown` is a detached reporter that keeps reporting after the return, caught as
+`IFC-ADP-109` and `IFC-ADP-110` (the second read of the record always sees it; the first read sees it
+only if the reporter has run by then); `ReportsOnceLate` reports once about 100 ms after it, caught as
+`IFC-ADP-109` and `IFC-ADP-110`. `LateHandOff` and `WorksAfterShutdown` (a hand-off that is still
+pending, or works, after the return) stay planted and fail `IFC-ADP-070` and `IFC-ADP-126`.
+
+The well-behaved channel stand-in's `shutdown` waits for its running `deliver` calls after
+closing its connections, bounded by its own `shutdown_bound_ms`, as the real Claude adapter
+waits for its call lock; before, its `deliver` could end after `shutdown` had returned under
+load.
+
+Residual window. The core notes an effect and the shutdown thread sets the mark, each under the
+same lock, so there is no scheduler race on which came first. The mark is taken by the thread
+that called `shutdown`, at or after the return, so an effect that falls between the return and
+the mark counts as before it. That can only make the suite pass an adapter that reported in
+that gap, never fail a conformant one. The gap runs from `shutdown()` returning, through the
+`is_closed` scan of the supplied connections, to the mark. It is short, but the suite does not
+bound it. The other limit is the exposure above: effects later than the second read are not seen.
