@@ -6,9 +6,9 @@
 // that is not directly under os.tmpdir() with an mkdtemp `oac-herdr-scratch-XXXXXX` name is
 // refused (code EREFUSED) without calling the remover.
 
-import { rmSync } from 'node:fs';
+import { readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, dirname, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 
 // Attempts and delays (ms) between them: at most 5 attempts, about 3 s of waiting in all,
 // on top of Node's own per-call retries (maxRetries/retryDelay, which cover EBUSY, EMFILE,
@@ -16,6 +16,41 @@ import { basename, dirname, resolve } from 'node:path';
 export const SCRATCH_RETRY_DELAYS_MS = Object.freeze([200, 400, 800, 1600]);
 
 export const SCRATCH_NAME = /^oac-herdr-scratch-[A-Za-z0-9]{6}$/;
+
+// Owner marker (#466). Every scratch directory holds this file, written right after the directory is made, naming the
+// PARENT process of the driver (process.ppid: the self-test, or the operator's shell). os.tmpdir() is shared, so two
+// self-tests on one machine each see the other's scratch directories; the self-test's final "no scratch left" scan
+// counts only the directories it owns (ownScratchLeftovers). Best effort: a marker that cannot be written never fails a run.
+export const SCRATCH_OWNER_FILE = '.owner-pid';
+
+export function writeScratchOwner(dir, pid = process.ppid) {
+  try {
+    writeFileSync(join(dir, SCRATCH_OWNER_FILE), String(pid));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// The pid recorded in `dir`'s owner marker, or null if there is none (or it is unreadable).
+export function scratchOwner(dir) {
+  try {
+    return readFileSync(join(dir, SCRATCH_OWNER_FILE), 'utf8').trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+// Scratch directories in `tmp` that appeared since `before` (a Set of names) and belong to process `pid`: marked with
+// that pid, or UNMARKED (a run that died before writing its marker is this process's leftover until shown otherwise).
+// A directory marked with another pid belongs to a concurrent self-test and is ignored.
+export function ownScratchLeftovers({ tmp = tmpdir(), before = new Set(), pid = process.pid } = {}) {
+  return readdirSync(tmp).filter((n) => {
+    if (!n.startsWith('oac-herdr-scratch-') || before.has(n)) return false;
+    const owner = scratchOwner(join(tmp, n));
+    return owner === null || owner === String(pid);
+  });
+}
 
 // Declared (ctx.noteScratchHolder) by scenarios that start or use the shared Codex
 // app-server daemon with a thread whose cwd is under scratch. Observed on Windows (#202,
