@@ -25,7 +25,7 @@
 //! | `transport` | the daemon reports it healthy | | degraded or unavailable | no daemon |
 //! | `mcp_revision` | no session failed to negotiate, and the environment leaves the revision alone | the environment sets a revision other than `legacy`, or a Claude session did not negotiate a legacy revision (counted since the daemon started) | | |
 //! | `pairing` | a trusted device or a grant exists | none of either | | no daemon |
-//! | `sessions` | at least one session is attached and none is waiting to be bound | a connection is open with no session bound (Claude: the `SessionStart` hook has not reported; Codex: the pairing has not completed), or no session is attached at all | | no daemon |
+//! | `sessions` | at least one session is attached and none is waiting to be bound | a connection is open with no session bound (Claude: the `SessionStart` hook has not reported; Codex: the pairing has not completed), no session is attached at all, or a listed session is withheld | | no daemon |
 //! | `claude_version` | at or above the recorded minimum | below it, or not recognised, or `claude` did not answer | | `claude` is not on `PATH` |
 //! | `codex` | the control socket accepted a connection and its server is this user's | the socket did not accept, or its owner could not be verified | the server is another user's | no socket |
 //! | `launch_env` | none of the variables below is set in this environment | a third-party provider selector (`CLAUDE_CODE_USE_BEDROCK`, `_VERTEX`, `_FOUNDRY`, `_MANTLE`) or `CODEX_EXEC_SERVER_URL` is set | | |
@@ -526,10 +526,14 @@ fn sessions_check(report: Option<&JsonObject>) -> Check {
         })
         .collect();
     if !waiting.is_empty() {
+        // Codex starts a registered MCP server when the session opens, but the pairing
+        // completes only on the first OAC tool call in a thread (08 section 9; G8 S1, S6), so
+        // an unbound Codex connection is normal until that call. The status reply carries no
+        // count of calls reported under another server name, so the wording does not blame one.
         let why = |label: &str| match label {
             "claude" => "Claude Code's SessionStart hook (`oac hook`) has not reported for it",
             "codex" => {
-                "the Codex pairing has not completed (is the registered name the one `oac start` expects?)"
+                "no OAC tool call has paired it yet; normal until the first call in the thread; if it persists after one, check `codex mcp add <name>` against OAC_CODEX_REGISTERED_NAME"
             }
             _ => "no session has been bound to it",
         };
@@ -552,22 +556,37 @@ fn sessions_check(report: Option<&JsonObject>) -> Check {
             "no harness session is attached; launch Claude Code or Codex OAC-enabled",
         );
     }
+    // The list is capped (`crate::status::MAX_SESSIONS`), so the per-harness and withheld
+    // counts are of the listed sessions.
+    let rows: Vec<&JsonObject> = report
+        .get("sessions")
+        .and_then(Json::as_array)
+        .map(|a| a.iter().filter_map(Json::as_object).collect())
+        .unwrap_or_default();
+    let withheld = rows
+        .iter()
+        .filter(|s| text(s, "state") == Some("withheld"))
+        .count();
+    if withheld > 0 {
+        return check(
+            "sessions",
+            Warn,
+            format!(
+                "{withheld} of the {} listed session(s) are withheld, not online",
+                rows.len()
+            ),
+        );
+    }
     let count = |label: &str| {
-        report
-            .get("sessions")
-            .and_then(Json::as_array)
-            .map_or(0, |rows| {
-                rows.iter()
-                    .filter_map(Json::as_object)
-                    .filter(|s| text(s, "harness") == Some(label))
-                    .count()
-            })
+        rows.iter()
+            .filter(|s| text(s, "harness") == Some(label))
+            .count()
     };
     check(
         "sessions",
         Pass,
         format!(
-            "{total} session(s) attached (claude {}, codex {}); none is waiting to be bound",
+            "{total} session(s) attached, none waiting to be bound (of the listed sessions: claude {}, codex {})",
             count("claude"),
             count("codex")
         ),
@@ -899,16 +918,30 @@ mod tests {
         );
         let c = sessions_check(Some(&codex_waiting));
         assert_eq!(c.result, Warn, "{c:?}");
-        assert!(c.detail.contains("registered name"), "{c:?}");
+        assert!(
+            c.detail.contains("no OAC tool call has paired it yet"),
+            "{c:?}"
+        );
+        assert!(c.detail.contains("OAC_CODEX_REGISTERED_NAME"), "{c:?}");
 
-        // A bound session on each harness, nothing waiting.
+        // A bound session on each harness, nothing waiting. The ids never reach the detail.
         let both = report(
-            r#"{"adapters":[{"label":"claude","state":"healthy","unbound_attachments":0},{"label":"codex","state":"healthy","unbound_attachments":0}],"sessions":[{"harness":"claude","session_id":"a","state":"online"},{"harness":"codex","session_id":"b","state":"online"}],"sessions_total":2}"#,
+            r#"{"adapters":[{"label":"claude","state":"healthy","unbound_attachments":0},{"label":"codex","state":"healthy","unbound_attachments":0}],"sessions":[{"harness":"claude","session_id":"sid-leak-check-1","state":"online"},{"harness":"codex","session_id":"sid-leak-check-2","state":"online"}],"sessions_total":2}"#,
         );
         let c = sessions_check(Some(&both));
         assert_eq!(c.result, Pass, "{c:?}");
         assert!(c.detail.contains("claude 1, codex 1"), "{c:?}");
-        assert!(!c.detail.contains("session_id"), "{c:?}");
+        assert!(c.detail.contains("of the listed sessions"), "{c:?}");
+        assert!(!c.detail.contains("sid-leak-check"), "{c:?}");
+
+        // Withheld sessions are a warning that names the counts only.
+        let withheld = report(
+            r#"{"adapters":[{"label":"claude","state":"healthy","unbound_attachments":0}],"sessions":[{"harness":"claude","session_id":"sid-leak-check-3","state":"online"},{"harness":"claude","session_id":"sid-leak-check-4","state":"withheld"}],"sessions_total":2}"#,
+        );
+        let c = sessions_check(Some(&withheld));
+        assert_eq!(c.result, Warn, "{c:?}");
+        assert!(c.detail.contains("1 of the 2 listed"), "{c:?}");
+        assert!(!c.detail.contains("sid-leak-check"), "{c:?}");
     }
 
     #[test]

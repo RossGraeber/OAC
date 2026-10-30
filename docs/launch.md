@@ -20,10 +20,14 @@ a warning, never a stop.
 
 ## Why you launch OAC-enabled sessions
 
-Neither harness can attach a channel to a session that is already running. A Claude Code channel
-must be named at session start, and a second Codex process does not attach to a thread another
-process holds. A session that was not launched OAC-enabled is outside what OAC supports; restart it
-with the commands below.
+Neither harness can attach a channel to a session that is already running. Claude Code's MCP page
+says you opt a channel in "with the `--channels` flag at startup" (https://code.claude.com/docs/en/mcp.md,
+"Push messages with channels", retrieved 2026-10-30), and a second Codex process does not attach to a
+thread another process holds (open issue `openai/codex` #21743). The project records this as the
+structural finding in `docs/planning/PLANNING-PROMPT.md` §4 and ADR-001-A2
+(`docs/planning/ADR-001-AMENDMENTS.md`): "existing session" means a session launched OAC-enabled.
+A session that was not launched that way is outside what OAC supports; restart it with the
+commands below.
 
 ## Before either harness: the daemon
 
@@ -44,7 +48,8 @@ oac doctor
 
 `oac doctor` prints one line per check (`PASS`, `WARN`, `FAIL` or `SKIP`) and exits `1` only if a
 check fails. Re-run it after each launch below; the [failure table](#when-it-does-not-work) says
-what each line means. Stop the daemon with `oac stop`.
+what each line means. Stop the daemon with `oac stop`. Right after `oac start`, before any
+harness is launched and paired, the `sessions` and `pairing` WARNs are expected.
 
 ## Claude Code
 
@@ -144,11 +149,12 @@ codex app-server daemon start
 codex app-server daemon start
 ```
 
-`start` is idempotent. OAC never starts, stops or restarts this daemon; `oac doctor`'s `codex`
-check only connects to its control socket and closes. On Windows the daemon needs a non-elevated
-terminal, and a very long `CODEX_HOME` can push the socket address past the 108-byte limit, in
-which case Codex falls back to an embedded server and nothing attaches. G2 passed on Windows only;
-macOS and Linux are unexercised.
+`start` is idempotent. The daemon README calls this component experimental. OAC never starts, stops
+or restarts the daemon; `oac doctor`'s `codex` check only connects to its control socket and
+closes. On Windows the daemon needs a non-elevated terminal, and the 108-byte `AF_UNIX` limit
+applies to Windows automatic attachment: a junction alias over the limit falls back to the embedded
+server, so a very long `CODEX_HOME` can leave a Codex that attaches to nothing (shorten it). G2
+passed on Windows only; macOS and Linux are unexercised.
 
 ### 2. Register the OAC server with Codex (once)
 
@@ -176,13 +182,20 @@ Remove the registration with `codex mcp remove oac`.
 ### 3. Launch Codex
 
 Run plain `codex` from your project, in a terminal where `CODEX_EXEC_SERVER_URL` is not set (it
-makes Codex skip implicit daemon attachment). When a daemon is running, the TUI attaches to it as
-a client; otherwise it embeds its own server and OAC cannot reach the thread. You approve Codex's
-own MCP tool prompts yourself (`1. Allow` for one call is enough); OAC answers none of them.
+makes Codex skip implicit daemon attachment). Do not pass `--no-daemon` ("Run without the shared
+background server, even if it is already running", `codex --help` at `0.165.0`) or `--remote`:
+either one keeps the thread out of the daemon OAC talks to. When a daemon is running, the TUI
+attaches to it as a client. With no daemon, Codex runs on its own and OAC cannot reach the thread;
+if a discovered daemon cannot initialize the connection, Codex starts an embedded server instead,
+with the same result. You approve Codex's own MCP tool prompts yourself (`1. Allow` for one call
+is enough); OAC answers none of them.
 
-The first OAC tool call in a Codex thread is refused with a pairing value, and the next one
-returns the session id: that is the pairing, seen in the live run (G8 S6 record, claim 1). After
-it the daemon holds a session for that thread (`oac sessions`).
+Codex starts a registered MCP server when the session opens, but pairing completes only on the
+first OAC tool call in a thread. The first call is refused with a pairing value and the next one
+returns the session id (G8 S6 record, claim 1). Until then `oac doctor` shows the Codex shim as
+connected with no session bound (`sessions` WARN): that is normal. If it persists after a call,
+check `codex mcp add <name>` against `OAC_CODEX_REGISTERED_NAME`. After the pairing the daemon
+holds a session for that thread (`oac sessions`).
 
 ## Distribution constraints (Claude Code Channels)
 
@@ -204,8 +217,8 @@ it the daemon holds a session for that thread (`oac sessions`).
   and "are not available on Amazon Bedrock, Google Cloud's Agent Platform, or Microsoft Foundry".
   (The older planning text says "Vertex"; Google renamed it Agent Platform.) A Claude Code started
   with `CLAUDE_CODE_USE_BEDROCK`, `_VERTEX`, `_FOUNDRY` or `_MANTLE` set is on one of those.
-- **MCP revision.** A channel server that negotiates MCP revision `2026-07-28` cannot deliver
-  channel messages and is not registered as a channel. `oac mcp-shim` stays on the earlier
+- **MCP revision.** On the v2 runtime, a channel server that negotiates MCP revision `2026-07-28`
+  cannot deliver channel messages and is not registered as a channel. `oac mcp-shim` stays on the earlier
   handshake; do not set `MCP_PROTOCOL_NEGOTIATION` to anything but `legacy`.
 
 ## When it does not work
@@ -226,15 +239,15 @@ reports it instead.
 | Claude Code runs on Bedrock, Agent Platform (Vertex) or Foundry | `launch_env` (WARN, names the variable) | Unset the `CLAUDE_CODE_USE_*` variable in the launching shell and sign in with claude.ai or a Console API key. A provider set in a settings file's `env` block is not visible to doctor: `/status` in Claude Code shows the API provider |
 | Server not in `.mcp.json`, key differs from `server:<name>`, project server not approved, or the dialog answered **Exit**: no Claude connection ever opens | `sessions` (WARN: no harness session is attached) | Match the key to `server:oac`; approve the server; relaunch and accept the dialog |
 | `SessionStart` hook missing or not run: the shim is connected but unbound | `sessions` (WARN: claude connection open with no session bound) | Add the hook (step 1); trust the project folder if Claude Code asks; relaunch |
-| Codex registered under a name the daemon does not expect, so pairing never completes | `sessions` (WARN: codex connection open with no session bound) | Make `codex mcp add <name>` and `OAC_CODEX_REGISTERED_NAME` agree; restart `oac start`; the daemon log names the mismatch |
-| Codex TUI embedded its own server (elevated Windows terminal, over-long `CODEX_HOME`, no daemon when it started) so the thread is not in the daemon | `sessions` (WARN: codex connection open with no session bound); `codex` (SKIP if no socket) | Start the daemon, then start Codex from a normal terminal; shorten `CODEX_HOME` on Windows |
+| Codex registered under a name the daemon does not expect, so pairing never completes | `sessions` (WARN: codex connection open with no session bound). The same WARN is normal before the first OAC tool call in the thread, and doctor cannot tell the two apart | After a call, make `codex mcp add <name>` and `OAC_CODEX_REGISTERED_NAME` agree and restart `oac start`; the daemon log names the mismatch |
+| Codex ran without the daemon (`--no-daemon` or `--remote`; no daemon when it started; a discovered daemon that could not initialize the connection; a junction alias over the 108-byte limit on Windows), so the thread is not in the daemon | `sessions` (WARN: codex connection open with no session bound); `codex` (SKIP if no socket) | Start the daemon, then relaunch plain `codex` from a normal terminal; shorten `CODEX_HOME` on Windows |
 | `CODEX_EXEC_SERVER_URL` set in the launching environment | `launch_env` (WARN) | Unset it before starting Codex |
 | Codex app-server daemon not running (no control socket) | `codex` (SKIP: OAC never starts it) | `codex app-server daemon start` |
 | Control socket there but not accepting, or its owner cannot be verified | `codex` (WARN) | Restart the daemon: `codex app-server daemon restart` |
 | Control socket served by another user's process | `codex` (FAIL) | Stop using that socket; run your own daemon under your user |
 | No pairing or grant, so default deny delivers nothing | `pairing` (WARN) | Pair devices or add a grant (the pairing verb, #437, is not built yet) |
 | Launched without `--dangerously-load-development-channels`, or in `-p` mode, so the server runs as a plain MCP server and no wake arrives | none: Claude Code gives no acknowledgement, and the session still binds, so `sessions` passes | Relaunch interactively with the command above; look for the notice under the banner |
-| `channelsEnabled` off or unset on a Team or Enterprise organization | none: reading managed settings or Claude's configuration is outside what doctor may do | Ask an Owner to enable channels; Claude Code prints a startup warning ("blocked by org policy") |
+| `channelsEnabled` off or unset on a Team or Enterprise organization | none: reading managed settings or Claude's configuration is outside what doctor may do | Ask an Owner to enable channels; Claude Code prints a startup warning (the channels reference calls it "blocked by org policy") |
 | Not signed in through claude.ai or a Console API key ("Login expired") | none: doctor never reads credentials | `/login` in Claude Code |
 
 Two of these have no check by design, and one by the harness's silence. The doctor never reads a
@@ -255,7 +268,7 @@ Retrieved 2026-10-30. Claude Code `2.1.312` and Codex CLI `0.165.0` are the inst
 | `CLAUDE_CODE_USE_BEDROCK=1`, `CLAUDE_CODE_USE_VERTEX=1`, `CLAUDE_CODE_USE_FOUNDRY=1`, `CLAUDE_CODE_USE_MANTLE` | https://code.claude.com/docs/en/amazon-bedrock.md, google-vertex-ai.md, microsoft-foundry.md |
 | `SessionStart` hook structure and settings locations | https://code.claude.com/docs/en/hooks.md ("Hook locations"); the structure for `SessionStart` is built from the `PostToolUse` example and from the live run's settings |
 | `codex mcp add <name> -- <command...>`, `codex mcp remove`, `codex --remote`, `codex app-server` experimental | https://learn.chatgpt.com/docs/cli/reference; `codex mcp add --help` at `0.165.0` |
-| `codex app-server daemon start|stop|restart|version`, idempotent `start`, `CODEX_EXEC_SERVER_URL` skips implicit attachment, embedded-server fallback, Windows non-elevated and 108-byte limit | `codex app-server daemon --help` at `0.165.0`; https://raw.githubusercontent.com/openai/codex/rust-v0.165.0/codex-rs/app-server-daemon/README.md |
+| `codex app-server daemon` start, stop, restart, version; idempotent `start`; the daemon is called experimental; `CODEX_EXEC_SERVER_URL` skips implicit attachment; a discovered daemon that cannot initialize the connection gives an embedded server; Windows non-elevated terminal and the 108-byte limit | `codex app-server daemon --help` at `0.165.0`; https://raw.githubusercontent.com/openai/codex/rust-v0.165.0/codex-rs/app-server-daemon/README.md |
 | `turn/steer`, `turn/start`, experimental API gate | https://learn.chatgpt.com/docs/app-server (that page does not mention the daemon or `thread/queue/add`: they are documented in the daemon README and the generated schema) |
 | What worked end to end on 2026-10-29 | [G8 S6 record](planning/gates/herdr-runs/G8-S6-2026-10-29.md) |
 
