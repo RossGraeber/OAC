@@ -15,6 +15,10 @@
 //! core ended the binding: the absence is not polled for); with no daemon the verb exits 3;
 //! and the session's native id and working directory appear in neither output form.
 
+#[path = "support/exec_copy.rs"]
+mod exec_copy;
+
+use exec_copy::SpawnRetrying;
 use std::future::Future;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
@@ -353,7 +357,7 @@ impl Session {
         } else {
             "claude"
         });
-        std::fs::copy(std::env::current_exe().unwrap(), &claude).unwrap();
+        exec_copy::install_exe_copy(&claude, exec_copy::Existing::Replace);
         let mut child = Command::new(&claude)
             .args(["--exact", SESSION_TEST, "--nocapture", "--test-threads=1"])
             .env(ROLE, "session")
@@ -367,7 +371,7 @@ impl Session {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
-            .spawn()
+            .spawn_retrying()
             .expect("the session starts");
         let commands = child.stdin.take().unwrap();
         let stdout = child.stdout.take().unwrap();
