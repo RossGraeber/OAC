@@ -310,7 +310,8 @@ Planted breaches: `LateSettlement` is now a `deliver` that ends only after the c
 (900 ms against a 300 ms bound; the earlier 40 ms late failed result, with no effect, is
 conformant and is the `SlowTailNoEffect` case, which must pass), caught as `IFC-ADP-126`.
 `ReportsAfterShutdown` is a detached reporter that keeps reporting after the return, caught as
-`IFC-ADP-109` and `IFC-ADP-070`; `ReportsOnceLate` reports once about 100 ms after it, caught as
+`IFC-ADP-109` and `IFC-ADP-110` (the second read of the record always sees it; the first read sees it
+only if the reporter has run by then); `ReportsOnceLate` reports once about 100 ms after it, caught as
 `IFC-ADP-109` and `IFC-ADP-110`. `LateHandOff` and `WorksAfterShutdown` (a hand-off that is still
 pending, or works, after the return) stay planted and fail `IFC-ADP-070` and `IFC-ADP-126`.
 

@@ -2232,7 +2232,7 @@ the requirement whose fixtures exercise it. Appendix C gives each requirement's 
 | IFC-ADP-057 | MUST | 5.5 | TODO(fixture): F10 adapter suite against the F9 fake; G7 (#68) |
 | IFC-ADP-060 | MUST | 5.6 | TODO(fixture): F10 adapter suite |
 | IFC-ADP-062 | MAY | 5.6 | none (MAY) |
-| IFC-ADP-070 | MUST NOT | 5.7 | tested, no wire fixture: shared adapter suite `nothing-after-shutdown` and `stalled-write-has-no-late-hand-off` (the core's record has no event or request after the shutdown mark, and a resumed peer receives no stalled input), with `LateHandOff`, `ReportsAfterShutdown` and `LateSettlement` planted failures |
+| IFC-ADP-070 | MUST NOT | 5.7 | tested, no wire fixture: shared adapter suite `nothing-after-shutdown` and `stalled-write-has-no-late-hand-off` (the core's record has no event or request after the shutdown mark, and a resumed peer receives no stalled input), with `LateHandOff` and `LateSettlement` planted failures |
 | IFC-ADP-071 | MUST | 5.7 | tested, no wire fixture: shared adapter suite `closes-every-attachment-on-shutdown`, using the core's record up to the shutdown mark |
 | IFC-ADP-072 | MUST | 5.7 | TODO(fixture): owner F10 (#59) with G4 (#65), race shutdown with new delivery and harness requests; no new hand-off begins |
 | IFC-ADP-073 | MUST | 5.7 | tested, no wire fixture: shared adapter suite `closes-all-core-connections`; channel `shutdown_closes_opening_connections_and_double_shutdown_returns` covers unfinished openings |

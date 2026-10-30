@@ -1543,7 +1543,11 @@ fn the_suite_still_catches_stalled_shutdown_and_late_hand_off_after_factory_migr
     assert_caught(
         &reporter,
         "event report after shutdown returned",
-        &["IFC-ADP-109", "IFC-ADP-070"],
+        // Both rows read the record after the last stage, so they hold whenever the
+        // detached reporter first runs; the first-read rows (IFC-ADP-070, the first
+        // IFC-ADP-109 row) depend on it having run before that read, which a loaded
+        // machine does not promise.
+        &["IFC-ADP-109", "IFC-ADP-110"],
     );
     let late_report = channel_report(ChannelBreach::ReportsOnceLate, MidTurnRelease::default());
     assert_caught(
