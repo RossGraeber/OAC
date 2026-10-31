@@ -117,7 +117,7 @@ const REPO = resolve(HERE, '..', '..', '..');
 
 // The quarantined client, and the sha256 of the blob this scenario was written for.
 export const COMMITTED_CLIENT = 'docs/planning/gates/fixtures/g7-codex-recheck/client.mjs.throwaway-quarantined';
-export const COMMITTED_CLIENT_SHA256 = '82a2f531b49bb9fa8f228bac2d9c01b431aa15d79af5734dc5ef4c1459f8de89';
+export const COMMITTED_CLIENT_SHA256 = 'd7c0b1732f762f552f74647c8ef516b84cc66d62602a88952f1f6d36af76a020';
 export const G7_GATE = 'G7 recheck';
 export const G7_NON_VERDICT = '#470: a live re-check of risk rows 66 and 73 for G7 (#68); compared against no other run, not a gate run, never changes a gate verdict';
 export const CASE_SETS = Object.freeze(['all', 'row66', 'row73']);
@@ -154,6 +154,10 @@ const stoppedOr = (map, need) => {
   return null;
 };
 const j = (id, claim, verdict, basis, detail = {}) => ({ id, claim, verdict, basis, ...detail });
+// A thread status as the app-server reports it: a string or { type }.
+export const statusIsIdle = (st) => (typeof st === 'string' ? st : st?.type) === 'idle';
+// The thread was idle when the override was sent: its first turn completed, or the override's own answer says idle.
+const wasIdle = (firstTurn, overrideAnswer) => firstTurn?.status === 'completed' || statusIsIdle(overrideAnswer?.settings?.threadStatus);
 
 // Row 66 and row 73 judged from the observation map. Pure; unit-tested.
 export function judgeG7(map, { quietMs = null } = {}) {
@@ -170,6 +174,7 @@ export function judgeG7(map, { quietMs = null } = {}) {
     if (g('a1-interrupt-completed').status !== 'interrupted') return j('66a-queued-at-interrupt', c, V.INCONCLUSIVE, `the turn ended \`${g('a1-interrupt-completed').status}\`, not interrupted; the case did not set up its precondition`);
     if (map.has('a1-late-dispatch')) return j('66a-queued-at-interrupt', c, V.CONTRADICTED, `a queued item started a turn just after the quiet window, with no uninterrupted turn in between (turn ${JSON.stringify(g('a1-late-dispatch').turnIds)})`);
     if (g('a1-dispatch-within-quiet-window').dispatched) return j('66a-queued-at-interrupt', c, V.CONTRADICTED, `a turn started within the ${g('a1-dispatch-within-quiet-window').quietMs} ms window after the interrupt, with no uninterrupted turn in between`);
+    if (map.has('a1-next-turn') && g('a1-next-turn').status !== 'completed') return j('66a-queued-at-interrupt', c, V.INCONCLUSIVE, `the next uninterrupted turn ended \`${g('a1-next-turn').status}\`${g('a1-next-turn').error ? ` (${JSON.stringify(g('a1-next-turn').error)})` : ''}, not completed, so whether the queued items run after it is not observed`);
     const f = g('a1-first-queued-turn');
     const s = g('a1-second-queued-turn');
     const t = g('a1-queued-turns');
@@ -184,6 +189,7 @@ export function judgeG7(map, { quietMs = null } = {}) {
     if (g('a2-interrupt-completed').status !== 'interrupted') return j('66a-add-after-interrupt', c, V.INCONCLUSIVE, `the turn ended \`${g('a2-interrupt-completed').status}\`, not interrupted`);
     if (map.has('a2-late-dispatch')) return j('66a-add-after-interrupt', c, V.CONTRADICTED, `the add started a turn just after the quiet window, with no uninterrupted turn in between (turn ${JSON.stringify(g('a2-late-dispatch').turnIds)})`);
     if (g('a2-dispatch-within-quiet-window').dispatched) return j('66a-add-after-interrupt', c, V.CONTRADICTED, `a turn started within the ${g('a2-dispatch-within-quiet-window').quietMs} ms window after the add`);
+    if (map.has('a2-next-turn') && g('a2-next-turn').status !== 'completed') return j('66a-add-after-interrupt', c, V.INCONCLUSIVE, `the next uninterrupted turn ended \`${g('a2-next-turn').status}\`${g('a2-next-turn').error ? ` (${JSON.stringify(g('a2-next-turn').error)})` : ''}, not completed, so whether the add runs after it is not observed`);
     const q = g('a2-queued-turn');
     if (!q.ran) return j('66a-add-after-interrupt', c, V.CONTRADICTED, 'the add waited, but did not run after the next uninterrupted turn within the bound');
     return j('66a-add-after-interrupt', c, q.afterNextTurn === true ? V.CONFIRMED : V.CONTRADICTED, q.afterNextTurn === true ? 'accepted; nothing in the quiet window; ran after the next turn completed' : 'it ran, but not after the next turn completed');
@@ -212,7 +218,7 @@ export function judgeG7(map, { quietMs = null } = {}) {
   {
     const id = '66b-queue-management';
     const claim = '(b) other daemon clients can reorder, update or delete a queued item';
-    const needs = ['b-adds', 'b-interrupt-completed', 'b-list-before', 'b-update', 'b-reorder', 'b-delete', 'b-list-after', 'b-held-during-management', 'b-dispatched'];
+    const needs = ['b-adds', 'b-interrupt-completed', 'b-list-before', 'b-update', 'b-reorder', 'b-delete', 'b-list-after', 'b-held-during-management', 'b-next-turn', 'b-dispatched'];
     const missing = stoppedOr(map, needs);
     if (missing) row66.push(j(id, claim, V.INCONCLUSIVE, missing));
     else {
@@ -232,6 +238,7 @@ export function judgeG7(map, { quietMs = null } = {}) {
       const detail = { operations: ops };
       if (!adds.accepted.every(Boolean)) row66.push(j(id, claim, V.INCONCLUSIVE, 'an add was refused, so there was no queue to manage', detail));
       else if (g('b-interrupt-completed').status !== 'interrupted' || g('b-held-during-management').turnStartedMeanwhile || map.has('b-late-dispatch')) row66.push(j(id, claim, V.INCONCLUSIVE, 'the items were not held while they were managed (the turn was not interrupted, or a turn started meanwhile), so a change cannot be told from a dispatch', detail));
+      else if (g('b-next-turn').status !== 'completed') row66.push(j(id, claim, V.INCONCLUSIVE, `the uninterrupted turn after the changes ended \`${g('b-next-turn').status}\`, not completed, so what dispatches after it is not observed`, detail));
       else if (Object.values(ops).every((o) => !o.accepted)) row66.push(j(id, claim, V.CONTRADICTED, `thread/queue/update, reorder and delete from a client that did not start the thread were all refused (update: ${JSON.stringify(ops.update.error)}); thread/queue/list answered ${before.error ? JSON.stringify(before.error) : 'normally'}`, detail));
       else if (before.error || !beforeTexts || JSON.stringify(beforeTexts) !== JSON.stringify([t1, t2, t3])) row66.push(j(id, claim, V.INCONCLUSIVE, `thread/queue/list before the changes did not show the three items in order (${before.error ? JSON.stringify(before.error) : JSON.stringify(beforeTexts)})`, detail));
       else {
@@ -286,16 +293,23 @@ export function judgeG7(map, { quietMs = null } = {}) {
     };
     const branches = {
       loadedWithSubscribers: branch('loaded, idle, with subscribers', {
-        needs: ['l-loaded', 'l-subscribers', 'l-resume-baseline', 'l-resume-override', 'l-settings-updated-notification', 'l-resume-readback'],
-        precondition: () => (g('l-loaded').loaded === true ? null : 'the thread was not in thread/loaded/list when the override was sent'),
+        needs: ['l-loaded', 'l-first-turn', 'l-subscribers', 'l-resume-baseline', 'l-resume-override', 'l-settings-updated-notification', 'l-resume-readback'],
+        precondition: () => (g('l-loaded').loaded !== true ? 'the thread was not in thread/loaded/list when the override was sent' : wasIdle(g('l-first-turn'), g('l-resume-override')) ? null : `the thread was not shown idle: its first turn ended \`${g('l-first-turn').status}\` and the override's answer reports thread status ${JSON.stringify(g('l-resume-override').settings?.threadStatus ?? null)}`),
         override: 'l-resume-override',
         readback: 'l-resume-readback',
         subscribers: 'l-subscribers',
         extra: () => ({ baselineResume: g('l-resume-baseline').settings?.approvalPolicy ?? null, notification: g('l-settings-updated-notification').seen }),
       }),
       loadedWithoutSubscribers: branch('loaded, idle, no subscriber', {
-        needs: ['w-subscribers', 'w-unsubscribe', 'w-loaded-before-resume', 'w-resume-override', 'w-events-after-override', 'w-resume-readback'],
-        precondition: () => (g('w-unsubscribe').error ? `thread/unsubscribe failed: ${JSON.stringify(g('w-unsubscribe').error)}` : g('w-loaded-before-resume').loaded === true ? null : 'the thread was no longer in thread/loaded/list when the override was sent, so this was not the loaded-without-subscribers state'),
+        needs: ['w-first-turn', 'w-subscribers', 'w-unsubscribe', 'w-loaded-before-resume', 'w-resume-override', 'w-events-after-override', 'w-resume-readback'],
+        precondition: () => {
+          const un = g('w-unsubscribe');
+          if (un.error) return `thread/unsubscribe failed: ${JSON.stringify(un.error)}`;
+          if (un.status !== 'unsubscribed') return `thread/unsubscribe answered status ${JSON.stringify(un.status ?? null)}, not \`unsubscribed\` (notLoaded and notSubscribed mean the thread was not left loaded with no subscriber), so this was not the loaded-without-subscribers state`;
+          if (g('w-loaded-before-resume').loaded !== true) return 'the thread was no longer in thread/loaded/list when the override was sent, so this was not the loaded-without-subscribers state';
+          if (!wasIdle(g('w-first-turn'), g('w-resume-override'))) return `the thread was not shown idle: its first turn ended \`${g('w-first-turn').status}\` and the override's answer reports thread status ${JSON.stringify(g('w-resume-override').settings?.threadStatus ?? null)}`;
+          return null;
+        },
         override: 'w-resume-override',
         readback: 'w-resume-readback',
         subscribers: 'w-subscribers',

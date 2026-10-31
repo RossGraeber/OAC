@@ -169,8 +169,8 @@ export async function startFakeG7Daemon({ overrideLoaded = 'real', queueMgmt = t
       return ok(c, id, {});
     }
     if (method === 'thread/unsubscribe') {
-      th.subs.delete(c);
-      ok(c, id, { status: 'unsubscribed' });
+      const was = th.subs.delete(c);
+      ok(c, id, { status: !th.loaded ? 'notLoaded' : was ? 'unsubscribed' : 'notSubscribed' });
       if (!th.subs.size) {
         setTimeout(() => {
           if (th.subs.size || th.active) return;

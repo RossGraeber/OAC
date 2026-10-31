@@ -133,6 +133,9 @@ export async function g7Unit(check) {
   check('g7 client (N1): every request has a timeout and an upgrade is bounded; no path calls process.exit(3) without archiving (all go through finish)', /const REQUEST_MS = 60000/.test(cc) && /const UPGRADE_MS = 30000/.test(cc) && /setTimeout\(\(\) => \{\n\s*conn\.pending\.delete\(id\)/.test(cc) && !/process\.exit\(3\)/.test(cc) && (cc.match(/void finish\(3,/g) ?? []).length === 2 && /process\.on\(sig, \(\) => void finish\(143/.test(cc) && /deadlineHit/.test(cc) && /await archiveOwn\(\);/.test(cc));
   check('g7 client (N3): a quiet window is followed by a check for a late dispatch before any turn/start of its own', (cc.match(/await settleIdle\(main, T\.id, (?:qFrom|heldFrom), '(?:a1|a2|b)'\);\n\s*(?:next = )?(?:const next = )?(?:await )?runTurn/g) ?? []).length === 3 && /const qFrom = done \? main\.events\.indexOf\(done\) \+ 1 : main\.events\.length;/.test(cc) && /const heldFrom = done \? main\.events\.indexOf\(done\) \+ 1 : main\.events\.length;/.test(cc));
   check('g7 client (B1): the row 73 probe has the three states (with subscribers, without, not loaded) and records the subscriber state of each', /w-subscribers/.test(cc) && /l-subscribers/.test(cc) && /u-subscribers/.test(cc) && /w-loaded-before-resume/.test(cc) && /const wovr = await open\('p-wovr'\);\n\s*const wafter = await open\('p-wafter'\);\n\s*const wun = await main\.request\('thread\/unsubscribe'/.test(cc));
+  check('g7 client (N1a): finish() sets a stopping flag that every wait and request honours whatever stopOnBlock says, no thread/start is sent once it is set, and nothing reaches [done] or exit 0 after finish() has begun', /let stopping = false/.test(cc) && /stopping = true;\n\s*for \(const c of connections\)/.test(cc) && /if \(stopping && !cleanup\.on\) throw new CaseStop/.test(cc) && /if \(method === 'thread\/start' && stopping\) throw/.test(cc) && /if \(finishing\) return;[^\n]*\n\s*if \(deadlineHit\)/.test(cc) && /if \(finishing\) await finishing;[^\n]*\n\s*process\.exit\(0\)/.test(cc) && /while \(pendingStarts > 0 && Date\.now\(\) < until\)/.test(cc) && /for \(let round = 0; round < 3; round\+\+\)/.test(cc));
+  check('g7 client (N1c): a thread/start that timed out is remembered, and a late answer adds its thread to OWN (so it is archived) and is logged', /conn\.lateStarts\.add\(id\)/.test(cc) && /conn\.lateStarts\.has\(msg\.id\)/.test(cc) && /OWN\.add\(lateId\)/.test(cc) && /obs\('late-thread-start'/.test(cc));
+  check('g7 client (N4): the effort fallback fires only on an error that names effort or is invalid-params (-32602), never on a timeout', /\/effort\/i\.test\(String\(e\.message \?\? ''\)\) \|\| e\.code === -32602/.test(cc) && /e && !e\.timedOut && /.test(cc));
   check('g7 client: the override differs from the thread\'s own value', /const overrideFor = \(current\) => \(current === 'untrusted' \? 'on-request' : 'untrusted'\)/.test(cc));
 
   // --- the scenario's limits ---------------------------------------------------------------------------
@@ -293,6 +296,26 @@ check('g7 judge (row 73): per branch: an error is REFUSED; a response that does 
     })());
     check('g7 judge (row 73): no basis or claim states a general answer for a loaded thread; the NOT-APPLIED basis names its state', !/already loaded\b.*(applies|ignores)/.test(mut({}).row73.claim) && /\(loaded, idle, with subscribers\)/.test(mut({}).row73.branches.loadedWithSubscribers.basis) && /subscribers/.test(mut({}).row73.claim));
     check('g7 judge (N3): a dispatch that started after the quiet window is CONTRADICTED for (a) and makes (b) INCONCLUSIVE', verdictOf(mut({ 'a1-late-dispatch': () => {}, }, { add: { 'a1-late-dispatch': { turnIds: ['t'] } } }), '66a-queued-at-interrupt') === 'CONTRADICTED' && verdictOf(mut({}, { add: { 'a2-late-dispatch': { turnIds: ['t'] } } }), '66a-add-after-interrupt') === 'CONTRADICTED' && verdictOf(mut({}, { add: { 'b-late-dispatch': { turnIds: ['t'] } } }), '66b-queue-management') === 'INCONCLUSIVE');
+    check('g7 judge (W1): the loaded-without-subscribers state needs unsubscribed status AND an idle thread; notSubscribed, notLoaded, a first turn that did not complete (with no idle thread status in the answer) are INCONCLUSIVE, each for its reason; (b) of it also applies to the subscribed state', (() => {
+      const w = (patch) => mut(patch).row73.branches;
+      const idleAns = (o) => (o.settings.threadStatus = { type: 'idle' });
+      const notIdle = (o) => (o.settings.threadStatus = { type: 'active' });
+      return w({ 'w-unsubscribe': (o) => (o.status = 'notSubscribed') }).loadedWithoutSubscribers.outcome === 'INCONCLUSIVE' &&
+        /notSubscribed/.test(w({ 'w-unsubscribe': (o) => (o.status = 'notSubscribed') }).loadedWithoutSubscribers.basis) &&
+        w({ 'w-unsubscribe': (o) => (o.status = 'notLoaded') }).loadedWithoutSubscribers.outcome === 'INCONCLUSIVE' &&
+        w({ 'w-first-turn': (o) => (o.status = 'failed'), 'w-resume-override': notIdle }).loadedWithoutSubscribers.outcome === 'INCONCLUSIVE' &&
+        w({ 'w-first-turn': (o) => (o.status = 'failed'), 'w-resume-override': idleAns }).loadedWithoutSubscribers.outcome !== 'INCONCLUSIVE' &&
+        w({ 'l-first-turn': (o) => (o.status = 'failed'), 'l-resume-override': notIdle }).loadedWithSubscribers.outcome === 'INCONCLUSIVE' &&
+        w({ 'l-first-turn': (o) => (o.status = 'failed'), 'l-resume-override': idleAns }).loadedWithSubscribers.outcome !== 'INCONCLUSIVE' &&
+        w({ 'w-first-turn': (o) => (o.status = 'failed'), 'w-resume-override': notIdle }).loadedWithSubscribers.outcome === 'NOT-APPLIED';
+    })());
+    check('g7 judge (N4b): a next turn that did not complete makes (a) and (b) INCONCLUSIVE with that basis, not CONTRADICTED', (() => {
+      const a1 = mut({ 'a1-first-queued-turn': (o) => (o.ran = false) }, { add: { 'a1-next-turn': { status: 'failed', error: null } } }).row66.find((r) => r.id === '66a-queued-at-interrupt');
+      const a2 = mut({ 'a2-queued-turn': (o) => (o.ran = false) }, { add: { 'a2-next-turn': { status: 'interrupted', error: null } } }).row66.find((r) => r.id === '66a-add-after-interrupt');
+      const b = mut({ 'b-next-turn': (o) => (o.status = 'failed'), 'b-dispatched': (o) => (o.texts = []) }).row66.find((r) => r.id === '66b-queue-management');
+      const a1ok = mut({ 'a1-first-queued-turn': (o) => (o.ran = false) }, { add: { 'a1-next-turn': { status: 'completed', error: null } } }).row66.find((r) => r.id === '66a-queued-at-interrupt');
+      return a1.verdict === 'INCONCLUSIVE' && /next uninterrupted turn ended .failed./.test(a1.basis) && a2.verdict === 'INCONCLUSIVE' && /interrupted/.test(a2.basis) && b.verdict === 'INCONCLUSIVE' && /uninterrupted turn after the changes ended .failed./.test(b.basis) && a1ok.verdict === 'CONTRADICTED';
+    })());
 
     // 5. no running daemon: NOT RUN, nothing sent
     const d4 = await startFakeG7Daemon();
