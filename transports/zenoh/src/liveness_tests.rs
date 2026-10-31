@@ -87,7 +87,7 @@ impl Events {
     fn first_loss(&self) -> Option<(Instant, CarrierHandle)> {
         self.0.lock().unwrap().iter().find_map(|(at, e)| match e {
             PresenceEvent::CarrierLoss { carrier } => Some((*at, carrier.clone())),
-            PresenceEvent::Record { .. } => None,
+            PresenceEvent::Record { .. } | PresenceEvent::CarrierAppeared { .. } => None,
         })
     }
 }
