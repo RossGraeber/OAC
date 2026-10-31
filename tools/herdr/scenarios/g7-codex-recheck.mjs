@@ -39,7 +39,8 @@
 //     ATTEMPTED because the schema of this Codex defines the methods (`codex app-server
 //     generate-json-schema --experimental`: ThreadQueueListParams, ThreadQueueUpdateParams,
 //     ThreadQueueReorderParams, ThreadQueueDeleteParams; thread/queue/list|update|delete|reorder
-//     among the ClientRequest methods, checked 2026-10-31 on codex-cli 0.165.0). The oac-codex-
+//     among the ClientRequest methods, regenerated and checked 2026-10-31 on codex-cli 0.165.0 and again on
+//     0.166.0, and read at rust-v0.166.0). The oac-codex-
 //     appserver skill and the spec's schema tables do not list them yet; they are experimental.
 //   Row 66 (c): on the thread of case a2, thread/unsubscribe, a wait for thread/closed, a check
 //     with thread/loaded/list that it is not loaded, a thread/queue/add, a quiet window, a check that
@@ -49,14 +50,27 @@
 //   Row 66 (d): on an idle thread whose last turn completed, a thread/queue/add with one member
 //     beyond threadId, clientUserMessageId and input. Judged: accepted, and the message runs
 //     with exactly the text sent (the member had no visible effect).
-//   Row 73: on a thread of its own, loaded and idle after ONE minimal turn (a resume needs the
-//     thread's stored history, which exists from the first user message), a thread/resume from a
-//     second connection carrying `approvalPolicy` (below), then the same on a thread that is not
-//     loaded (the control), each followed by a thread/resume without it. Recorded: the response's
-//     approvalPolicy, any thread/settings/updated notification in a quiet window, the readback.
-//     Judged: APPLIED-AND-RETAINED, REPORTED-NOT-RETAINED, NOT-APPLIED or REFUSED for the loaded
-//     thread, and whether the control shows the readback to be live state. No turn is started
-//     after the override, so what the app-server does with it in a turn is not observed.
+//   Row 73: three states of a thread, each on a thread of its own after ONE minimal turn (a
+//     resume needs the thread's stored history, which exists from the first user message), each with a
+//     thread/resume from a connection of its own carrying `approvalPolicy` (below), then a
+//     thread/resume without it as the readback: (1) loaded and idle WITH subscribers (two
+//     connections hold it); (2) loaded and idle with NO subscriber (its one subscriber unsubscribes,
+//     and the override is sent before the daemon's unload delay of about 60 s ends; the connections
+//     that send the resumes are opened first so this takes milliseconds); (3) not loaded (the control).
+//     Why three: at rust-v0.166.0 codex-rs/app-server/src/request_processors/thread_processor.rs
+//     L4697-L4748 (read 2026-10-31) an override that differs from a LOADED thread's settings is
+//     applied only if the thread is idle and has NO subscribers (the thread is shut down and resumed
+//     cold with the override, and parent-owned multi-agent children are excluded); otherwise it is
+//     ignored with a warning, and the thread is rejoined. That is the source's reading; this run
+//     observes what the daemon does. Recorded per state: the subscriber state, the response's
+//     approvalPolicy, the readback, and, for state (1), any thread/settings/updated notification in
+//     a quiet window; for state (2) the notification methods about the thread after the override.
+//     Judged per state, never as one answer: APPLIED-AND-RETAINED, REPORTED-NOT-RETAINED,
+//     NOT-APPLIED or REFUSED, or INCONCLUSIVE when the state was not reached. If the control (3) does
+//     not show the override in its readback, the readbacks are flagged as weaker. No turn is started
+//     after an override, so what the app-server does with it in a turn is not observed. The client
+//     passes `effort: low` on its turns (TurnStartParams.effort) and falls back to none if the daemon
+//     refuses it.
 //
 // Why `approvalPolicy` for row 73. spec/bindings/mcp.md [MCPB-CDX-006] names six members that a
 // subscribing thread/resume MUST NOT carry (`model`, `cwd`, `approvalPolicy`, `sandbox`,
@@ -103,7 +117,7 @@ const REPO = resolve(HERE, '..', '..', '..');
 
 // The quarantined client, and the sha256 of the blob this scenario was written for.
 export const COMMITTED_CLIENT = 'docs/planning/gates/fixtures/g7-codex-recheck/client.mjs.throwaway-quarantined';
-export const COMMITTED_CLIENT_SHA256 = '3ab5c817e3a361f57df9884e970ddc0ddad6112276faf5bec88b37c667ea876a';
+export const COMMITTED_CLIENT_SHA256 = '82a2f531b49bb9fa8f228bac2d9c01b431aa15d79af5734dc5ef4c1459f8de89';
 export const G7_GATE = 'G7 recheck';
 export const G7_NON_VERDICT = '#470: a live re-check of risk rows 66 and 73 for G7 (#68); compared against no other run, not a gate run, never changes a gate verdict';
 export const CASE_SETS = Object.freeze(['all', 'row66', 'row73']);
@@ -154,6 +168,7 @@ export function judgeG7(map, { quietMs = null } = {}) {
     const c = 'items queued before the interrupt wait and run after the next uninterrupted turn';
     if (!g('a1-add-1').accepted || !g('a1-add-2').accepted) return j('66a-queued-at-interrupt', c, V.INCONCLUSIVE, `an add was refused: ${JSON.stringify([g('a1-add-1').error, g('a1-add-2').error])}`);
     if (g('a1-interrupt-completed').status !== 'interrupted') return j('66a-queued-at-interrupt', c, V.INCONCLUSIVE, `the turn ended \`${g('a1-interrupt-completed').status}\`, not interrupted; the case did not set up its precondition`);
+    if (map.has('a1-late-dispatch')) return j('66a-queued-at-interrupt', c, V.CONTRADICTED, `a queued item started a turn just after the quiet window, with no uninterrupted turn in between (turn ${JSON.stringify(g('a1-late-dispatch').turnIds)})`);
     if (g('a1-dispatch-within-quiet-window').dispatched) return j('66a-queued-at-interrupt', c, V.CONTRADICTED, `a turn started within the ${g('a1-dispatch-within-quiet-window').quietMs} ms window after the interrupt, with no uninterrupted turn in between`);
     const f = g('a1-first-queued-turn');
     const s = g('a1-second-queued-turn');
@@ -167,6 +182,7 @@ export function judgeG7(map, { quietMs = null } = {}) {
     const c = 'an add to an idle thread whose last turn was interrupted waits until a turn completes uninterrupted';
     if (!g('a2-add').accepted) return j('66a-add-after-interrupt', c, V.CONTRADICTED, `the add was refused: ${JSON.stringify(g('a2-add').error)}`);
     if (g('a2-interrupt-completed').status !== 'interrupted') return j('66a-add-after-interrupt', c, V.INCONCLUSIVE, `the turn ended \`${g('a2-interrupt-completed').status}\`, not interrupted`);
+    if (map.has('a2-late-dispatch')) return j('66a-add-after-interrupt', c, V.CONTRADICTED, `the add started a turn just after the quiet window, with no uninterrupted turn in between (turn ${JSON.stringify(g('a2-late-dispatch').turnIds)})`);
     if (g('a2-dispatch-within-quiet-window').dispatched) return j('66a-add-after-interrupt', c, V.CONTRADICTED, `a turn started within the ${g('a2-dispatch-within-quiet-window').quietMs} ms window after the add`);
     const q = g('a2-queued-turn');
     if (!q.ran) return j('66a-add-after-interrupt', c, V.CONTRADICTED, 'the add waited, but did not run after the next uninterrupted turn within the bound');
@@ -215,7 +231,7 @@ export function judgeG7(map, { quietMs = null } = {}) {
       };
       const detail = { operations: ops };
       if (!adds.accepted.every(Boolean)) row66.push(j(id, claim, V.INCONCLUSIVE, 'an add was refused, so there was no queue to manage', detail));
-      else if (g('b-interrupt-completed').status !== 'interrupted' || g('b-held-during-management').turnStartedMeanwhile) row66.push(j(id, claim, V.INCONCLUSIVE, 'the items were not held while they were managed (the turn was not interrupted, or a turn started meanwhile), so a change cannot be told from a dispatch', detail));
+      else if (g('b-interrupt-completed').status !== 'interrupted' || g('b-held-during-management').turnStartedMeanwhile || map.has('b-late-dispatch')) row66.push(j(id, claim, V.INCONCLUSIVE, 'the items were not held while they were managed (the turn was not interrupted, or a turn started meanwhile), so a change cannot be told from a dispatch', detail));
       else if (Object.values(ops).every((o) => !o.accepted)) row66.push(j(id, claim, V.CONTRADICTED, `thread/queue/update, reorder and delete from a client that did not start the thread were all refused (update: ${JSON.stringify(ops.update.error)}); thread/queue/list answered ${before.error ? JSON.stringify(before.error) : 'normally'}`, detail));
       else if (before.error || !beforeTexts || JSON.stringify(beforeTexts) !== JSON.stringify([t1, t2, t3])) row66.push(j(id, claim, V.INCONCLUSIVE, `thread/queue/list before the changes did not show the three items in order (${before.error ? JSON.stringify(before.error) : JSON.stringify(beforeTexts)})`, detail));
       else {
@@ -228,59 +244,79 @@ export function judgeG7(map, { quietMs = null } = {}) {
     }
   }
 
-  // Row 73
+  // Row 73, judged per branch. The app-server treats the three states differently (rust-v0.166.0
+  // codex-rs/app-server/src/request_processors/thread_processor.rs L4697-L4748), so there is no single answer.
   let row73;
   {
     const id = '73-resume-override';
-    const claim = 'whether the app-server applies thread/resume setting overrides to a thread that is already loaded';
-    const needs = ['override-chosen', 'l-loaded', 'l-resume-baseline', 'l-resume-override', 'l-settings-updated-notification', 'l-resume-readback'];
-    const missing = stoppedOr(map, needs);
-    if (missing) row73 = j(id, claim, V.INCONCLUSIVE, missing, { outcome: 'INCONCLUSIVE' });
-    else {
-      const O = g('override-chosen').value;
-      const same = (a) => JSON.stringify(a ?? null) === JSON.stringify(O);
-      const base = g('l-resume-baseline').settings?.approvalPolicy;
-      const r1 = g('l-resume-override');
-      const r2 = g('l-resume-readback');
-      const note = g('l-settings-updated-notification');
-      const control = { present: map.has('u-resume-override') && map.has('u-resume-readback'), unloaded: g('u-thread-closed')?.closed === true && g('u-loaded-before-resume')?.loaded === false, applied: null, retained: null };
-      if (control.present && control.unloaded) {
-        control.applied = !g('u-resume-override').error && same(g('u-resume-override').settings?.approvalPolicy);
-        control.retained = !g('u-resume-readback').error && same(g('u-resume-readback').settings?.approvalPolicy);
-      }
+    const claim = 'what the app-server does with an approvalPolicy override on thread/resume, in three states of the thread: loaded and idle with subscribers, loaded and idle with no subscriber, and not loaded (MCPB-CDX-006 asks about a loaded thread; the answer depends on its subscribers)';
+    const O = g('override-chosen')?.value;
+    const same = (v) => JSON.stringify(v ?? null) === JSON.stringify(O);
+    const branch = (label, spec) => {
+      const missing = stoppedOr(map, ['override-chosen', ...spec.needs]);
+      if (missing) return { branch: label, outcome: 'INCONCLUSIVE', basis: missing };
+      const pre = spec.precondition();
+      if (pre) return { branch: label, outcome: 'INCONCLUSIVE', basis: pre };
+      const r1 = g(spec.override);
+      const r2 = g(spec.readback);
       const facts = {
+        subscribers: g(spec.subscribers),
         override: { member: 'approvalPolicy', value: O },
         threadHad: g('override-chosen').threadHas,
-        baselineResume: base ?? null,
         overrideResponse: { error: r1.error, approvalPolicy: r1.settings?.approvalPolicy ?? null, matchesOverride: same(r1.settings?.approvalPolicy) },
-        notification: note.seen,
         readback: { error: r2.error, approvalPolicy: r2.settings?.approvalPolicy ?? null, matchesOverride: same(r2.settings?.approvalPolicy) },
-        control,
+        ...spec.extra(),
       };
-      const caveats = ['judged from the wire only: no turn was started after the override, so its effect on a turn is not observed'];
-      if (control.present && control.unloaded && control.retained === false) caveats.push('the control thread (not loaded) did not show the override in a later resume, so a later resume may not read live settings');
-      if (!control.present || !control.unloaded) caveats.push('the control did not run to its end (thread not unloaded, or a case stopped), so whether a later resume reads live settings is not shown');
       let outcome;
       let basis;
-      if (!g('l-loaded').loaded) {
-        outcome = 'INCONCLUSIVE';
-        basis = 'the thread was not in thread/loaded/list when the override was sent';
-      } else if (r1.error) {
+      if (r1.error) {
         outcome = 'REFUSED';
         basis = `the app-server answered the override with an error: ${JSON.stringify(r1.error)}`;
       } else if (!same(r1.settings?.approvalPolicy)) {
         outcome = 'NOT-APPLIED';
-        basis = `the response reports ${JSON.stringify(r1.settings?.approvalPolicy ?? null)}, not the override ${JSON.stringify(O)}; the thread's own value is kept`;
+        basis = `in this state (${label}) the response reports ${JSON.stringify(r1.settings?.approvalPolicy ?? null)}, not the override ${JSON.stringify(O)}`;
       } else if (same(r2.settings?.approvalPolicy)) {
         outcome = 'APPLIED-AND-RETAINED';
-        basis = `the response reports the override and a later resume without it reports it too${note.seen.length ? `; thread/settings/updated was sent (${note.seen.length} connection(s))` : '; no thread/settings/updated was sent'}`;
+        basis = `in this state (${label}) the response reports the override and a later resume without it reports it too`;
       } else {
         outcome = 'REPORTED-NOT-RETAINED';
-        basis = `the response reports the override, but a later resume without it reports ${JSON.stringify(r2.settings?.approvalPolicy ?? null)}`;
+        basis = `in this state (${label}) the response reports the override, but a later resume without it reports ${JSON.stringify(r2.settings?.approvalPolicy ?? null)}`;
       }
-      // For row 73 `verdict` is the observation's standing, not a claim about the spec: `outcome` is the answer.
-      row73 = j(id, claim, outcome === 'INCONCLUSIVE' ? V.INCONCLUSIVE : 'OBSERVED', basis, { outcome, facts, caveats });
-    }
+      return { branch: label, outcome, basis, facts };
+    };
+    const branches = {
+      loadedWithSubscribers: branch('loaded, idle, with subscribers', {
+        needs: ['l-loaded', 'l-subscribers', 'l-resume-baseline', 'l-resume-override', 'l-settings-updated-notification', 'l-resume-readback'],
+        precondition: () => (g('l-loaded').loaded === true ? null : 'the thread was not in thread/loaded/list when the override was sent'),
+        override: 'l-resume-override',
+        readback: 'l-resume-readback',
+        subscribers: 'l-subscribers',
+        extra: () => ({ baselineResume: g('l-resume-baseline').settings?.approvalPolicy ?? null, notification: g('l-settings-updated-notification').seen }),
+      }),
+      loadedWithoutSubscribers: branch('loaded, idle, no subscriber', {
+        needs: ['w-subscribers', 'w-unsubscribe', 'w-loaded-before-resume', 'w-resume-override', 'w-events-after-override', 'w-resume-readback'],
+        precondition: () => (g('w-unsubscribe').error ? `thread/unsubscribe failed: ${JSON.stringify(g('w-unsubscribe').error)}` : g('w-loaded-before-resume').loaded === true ? null : 'the thread was no longer in thread/loaded/list when the override was sent, so this was not the loaded-without-subscribers state'),
+        override: 'w-resume-override',
+        readback: 'w-resume-readback',
+        subscribers: 'w-subscribers',
+        extra: () => ({ eventsAfterOverride: g('w-events-after-override').methods }),
+      }),
+      unloadedControl: branch('not loaded (control)', {
+        needs: ['u-subscribers', 'u-thread-closed', 'u-loaded-before-resume', 'u-resume-override', 'u-resume-readback'],
+        precondition: () => (g('u-thread-closed').closed === true && g('u-loaded-before-resume').loaded === false ? null : 'the thread was not unloaded when the override was sent'),
+        override: 'u-resume-override',
+        readback: 'u-resume-readback',
+        subscribers: 'u-subscribers',
+        extra: () => ({}),
+      }),
+    };
+    const caveats = ['judged from the wire only: no turn was started after an override, so its effect on a turn is not observed'];
+    const ctl = branches.unloadedControl;
+    if (ctl.outcome !== 'APPLIED-AND-RETAINED') caveats.push(`the control (not loaded) is ${ctl.outcome}, not APPLIED-AND-RETAINED, so a later resume without an override may not read live settings and the other branches' readbacks are weakened`);
+    const any = Object.values(branches).some((x) => x.outcome !== 'INCONCLUSIVE');
+    const basis = Object.values(branches).map((x) => `${x.branch}: ${x.outcome}`).join('; ');
+    // For row 73 `verdict` is the observation's standing, not a claim about the spec: each branch's `outcome` is the answer.
+    row73 = j(id, claim, any ? 'OBSERVED' : V.INCONCLUSIVE, basis, { branches, caveats });
   }
   return { row66, row73, quietMs };
 }
@@ -479,7 +515,9 @@ export default {
       // --- 3. the cases: threads the client starts itself, in a scratch directory of its own ------------
       say(`Running the row 66 / row 73 cases against the running shared daemon (cases=${caseSet}, quietMs=${params.quietMs}). No TUI and no input from you are needed; this takes several minutes.`);
       const casesDir = ctx.dir('g7-cases-project');
-      const cr = await runClient('cases', [casesDir, caseSet, String(num('quietMs'))], { deadlineMs: num('casesTimeoutMs') });
+      // The client stops itself at its own deadline, 2 minutes before the hard kill, so it can archive its threads.
+      const clientDeadline = Math.max(60000, num('casesTimeoutMs') - 120000);
+      const cr = await runClient('cases', [casesDir, caseSet, String(num('quietMs')), String(clientDeadline)], { deadlineMs: num('casesTimeoutMs') });
       const ignoredRequests = cr.rec.stdoutStatus.filter((l) => l.startsWith('[server-request ignored'));
       if (ignoredRequests.length) ctx.finding(`the daemon sent the G7 client ${ignoredRequests.length} server-to-client request(s), which it never answers; the case that was running stopped: ${ignoredRequests.join('; ')}`);
 
@@ -488,6 +526,8 @@ export default {
       for (const o of list) {
         if (o.name === 'case-error') ctx.finding(`case \`${o.observed.case}\` ended with an error inside the client: ${o.observed.message}; its rows are INCONCLUSIVE`);
         if (o.name === 'case-stopped') ctx.finding(`case \`${o.observed.case}\` stopped: ${o.observed.reason}`);
+        if (o.name === 'deadline-reached') ctx.finding('the client reached its own deadline and stopped the running case; later cases were skipped, its threads were archived, and the rows they cover are INCONCLUSIVE');
+        if (o.name === 'effort-rejected') ctx.finding(`the daemon refused turn/start with effort ${JSON.stringify(o.observed.effort)} (${JSON.stringify(o.observed.error)}); the client sent its turns without it`);
       }
       g7.observations = list;
       const verdicts = judgeG7(map, { quietMs: num('quietMs') });
@@ -496,7 +536,7 @@ export default {
         if (caseSet === 'row73') break;
         if (r.verdict === V.CONTRADICTED) ctx.finding(`risk row 66 ${r.id} is CONTRADICTED on this Codex (${cli}): ${r.basis}. The 2026-10-07/08 record said otherwise. No spec text was changed; report this to the lead`);
       }
-      say(`Judgments (not verdicts of a gate):\n${[...(caseSet === 'row73' ? [] : verdicts.row66), ...(caseSet === 'row66' ? [] : [verdicts.row73])].map((r) => `  ${r.id}: ${r.outcome ?? r.verdict} - ${r.basis}`).join('\n')}`);
+      say(`Judgments (not verdicts of a gate):\n${[...(caseSet === 'row73' ? [] : verdicts.row66), ...(caseSet === 'row66' ? [] : [verdicts.row73])].map((r) => `  ${r.id}: ${r.branches ? '' : `${r.verdict} - `}${r.basis}`).join('\n')}`);
 
       // --- 5. post-run versions --------------------------------------------------------------------------------
       const post = await harnessVersions(['codex']);

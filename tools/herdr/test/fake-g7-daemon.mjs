@@ -14,17 +14,27 @@
 import { listen } from '../../../tests/fakes/codex-app-server/lib/ws.mjs';
 
 // options:
-//   overrideLoaded  'applied' (stored, thread/settings/updated sent), 'echo' (the answer reports the
-//                   override, nothing is stored) or 'ignored' (the thread's own value is reported)
+//   overrideLoaded  how a resume override is treated on a LOADED thread. 'real' (default) follows the
+//                   subscriber rule read at rust-v0.166.0 (thread_processor.rs L4697-L4748): a thread
+//                   with a subscriber ignores it (the thread's own value is reported); an idle thread with
+//                   none is shut down and resumed cold with it (stored, still loaded afterwards).
+//                   'applied' (always stored, thread/settings/updated sent), 'echo' (the answer reports
+//                   the override, nothing is stored) and 'ignored' (never applied) are the other
+//                   behaviours a judgment can meet. A thread that is not loaded always takes it.
 //   queueMgmt       thread/queue/list|update|delete|reorder implemented (true) or "method not found"
 //   approvalAtThread  a thread number (1 = the first thread started) whose first turn sends a
 //                   server->client approval request and then waits for ever
 //   unloadMs, turnMs, busyMs  timings
 //   foreign         send notifications about a thread the client did not start (privacy check)
-export async function startFakeG7Daemon({ overrideLoaded = 'applied', queueMgmt = true, approvalAtThread = null, unloadMs = 80, turnMs = 40, busyMs = 700, foreign = true, version = '9.9.9' } = {}) {
+//   rejectEffort    turn/start with an `effort` member is refused (-32602), to exercise the client's fallback
+//   startedBeforeAnswer  send thread/started for a new thread BEFORE the thread/start answer (the client
+//                   holds a frame about a thread it does not know yet until the answer names it)
+export async function startFakeG7Daemon({ overrideLoaded = 'real', queueMgmt = true, approvalAtThread = null, unloadMs = 250, turnMs = 40, busyMs = 700, foreign = true, startedBeforeAnswer = true, rejectEffort = false, version = '9.9.9' } = {}) {
   const threads = new Map();
   const conns = new Set();
   const received = []; // every message a client sent: { conn, msg }
+  const overrideLog = []; // each resume that carried an override: the thread's state when it arrived
+  let joinedTurns = false; // a turn/start arrived while the thread had a turn running (a steer)
   let n = 0;
   let threadCount = 0;
   let connSeq = 0;
@@ -101,14 +111,19 @@ export async function startFakeG7Daemon({ overrideLoaded = 'applied', queueMgmt 
     if (method === 'thread/start') {
       const th = { id: `thr-${++threadCount}-${n++}`, number: threadCount, loaded: true, subs: new Set([c]), turns: 0, queue: [], archived: false, active: null, lastInterrupted: false, settings: { approvalPolicy: 'on-request' } };
       threads.set(th.id, th);
+      if (startedBeforeAnswer) notify(th, 'thread/started', { thread: { id: th.id } });
       ok(c, id, { thread: { id: th.id, status: { type: 'idle' }, ephemeral: false, cwd: params?.cwd }, ...settingsOf(th) });
-      notify(th, 'thread/started', { thread: { id: th.id } });
+      if (!startedBeforeAnswer) notify(th, 'thread/started', { thread: { id: th.id } });
       return;
     }
     const th = own(c, id, params);
     if (!th) return;
     if (method === 'turn/start') {
-      if (th.active) return ok(c, id, { turn: { id: th.active.id, status: 'inProgress' } }); // joins the running turn (a steer): the client must never get here
+      if (rejectEffort && params.effort !== undefined) return err(c, id, -32602, 'unknown member effort');
+      if (th.active) {
+        joinedTurns = true;
+        return ok(c, id, { turn: { id: th.active.id, status: 'inProgress' } }); // joins the running turn (a steer): the client must never get here
+      }
       const input = params.input;
       const busy = /busy turn/.test(JSON.stringify(input));
       const turnId = nextId('turn');
@@ -160,20 +175,23 @@ export async function startFakeG7Daemon({ overrideLoaded = 'applied', queueMgmt 
         setTimeout(() => {
           if (th.subs.size || th.active) return;
           th.loaded = false;
-          send(c, { method: 'thread/closed', params: { threadId: th.id } });
+          for (const cc of conns) send(cc, { method: 'thread/closed', params: { threadId: th.id } }); // every connection, as the real daemon does
         }, unloadMs);
       }
       return;
     }
     if (method === 'thread/resume') {
       if (!th.turns) return err(c, id, -32600, `no rollout found for thread id ${th.id}`);
-      th.subs.add(c);
       const wasLoaded = th.loaded;
+      const hadSubscribers = th.subs.size > 0; // before this connection subscribes, as the real daemon checks
+      th.subs.add(c);
       th.loaded = true;
       const override = params.approvalPolicy;
+      if (override !== undefined) overrideLog.push({ loaded: wasLoaded, hadSubscribers, idle: !th.active });
       let shown = null;
       if (override !== undefined) {
-        if (!wasLoaded || overrideLoaded === 'applied') {
+        const cold = overrideLoaded === 'real' && !hadSubscribers && !th.active;
+        if (!wasLoaded || overrideLoaded === 'applied' || cold) {
           th.settings.approvalPolicy = override;
           if (wasLoaded) notify(th, 'thread/settings/updated', { threadId: th.id, threadSettings: { approvalPolicy: override } });
         } else if (overrideLoaded === 'echo') shown = override;
@@ -215,6 +233,10 @@ export async function startFakeG7Daemon({ overrideLoaded = 'applied', queueMgmt 
     url: server.url,
     port: Number(new URL(server.url).port),
     received,
+    overrideLog,
+    get joinedTurns() {
+      return joinedTurns;
+    },
     threads,
     close: async () => {
       for (const th of threads.values()) th.active?.timers.forEach(clearTimeout);

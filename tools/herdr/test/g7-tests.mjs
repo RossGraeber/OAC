@@ -49,14 +49,15 @@ function shimDir(dir) {
 }
 
 // Run the real client (copied from the working tree) against a fake daemon. -> { exit, stdout, entries }
-function runClient(dir, bin, port, set, quietMs = 150) {
+function runClient(dir, bin, port, set, quietMs = 150, deadlineMs = null, { killAfterMs = null } = {}) {
   mkdirSync(dir, { recursive: true });
   copyFileSync(join(REPO, COMMITTED_CLIENT), join(dir, 'client.mjs'));
   return new Promise((resolveRun) => {
-    const p = spawn(process.execPath, [join(dir, 'client.mjs'), 'cases', join(dir, 'cwd'), set, String(quietMs)], { cwd: dir, env: envWith(bin, { G7_FAKE_PORT: String(port) }), stdio: ['ignore', 'pipe', 'ignore'] });
+    const p = spawn(process.execPath, [join(dir, 'client.mjs'), 'cases', join(dir, 'cwd'), set, String(quietMs), ...(deadlineMs === null ? [] : [String(deadlineMs)])], { cwd: dir, env: envWith(bin, { G7_FAKE_PORT: String(port) }), stdio: ['ignore', 'pipe', 'ignore'] });
     let stdout = '';
     p.stdout.on('data', (d) => (stdout += d));
     const timer = setTimeout(() => p.kill(), 90000);
+    if (killAfterMs !== null) setTimeout(() => p.kill('SIGTERM'), killAfterMs);
     p.on('exit', (exit) => {
       clearTimeout(timer);
       const tp = join(dir, 'transcript.jsonl');
@@ -127,8 +128,11 @@ export async function g7Unit(check) {
   check('g7 client: a server->client request is logged, never answered, and stops the running case', /never answered by this client/.test(cc) && /blocked \?\?= \{ method: msg\.method/.test(cc) && /class CaseStop/.test(cc) && /obs\('case-stopped'/.test(cc));
   check('g7 client: it reads no file and no credential store (only appendFileSync is imported from node:fs)', /import \{ appendFileSync \} from 'node:fs'/.test(cc) && !/readFile|createReadStream|readdir|openSync/.test(cc) && !new RegExp(['auth\\.', 'json|\\.sqlite|roll', 'out|CODEX', '_HOME|key', 'ring'].join('')).test(CLIENT));
   check('g7 client: frames about a thread it did not start, and ids in thread/loaded/list that are not its own, are not recorded', /_g7: 'about a thread this client did not start/.test(cc) && /'<NOT-OWN-THREAD>'/.test(cc) && /p\.method === 'thread\/loaded\/list'/.test(cc));
-  check('g7 client: it archives only the threads it started, once each', /for \(const id of OWN\)/.test(cc) && /thread\/archive/.test(cc) && !/thread\/delete/.test(cc));
+  check('g7 client: it archives only the threads it started, once each', /const todo = \[\.\.\.OWN\]\.filter\(\(id\) => !archived\.has\(id\)\)/.test(cc) && /thread\/archive/.test(cc) && !/thread\/delete/.test(cc));
   check('g7 client: the row 73 override is one member, approvalPolicy, and the header says the client does what OAC must never do', /approvalPolicy: O/.test(cc) && !/\b(?:model|cwd|sandbox|permissions|config): O\b/.test(cc) && /DELIBERATELY DOING WHAT OAC ITSELF MUST NEVER DO/.test(CLIENT) && /MCPB-CDX-006/.test(CLIENT));
+  check('g7 client (N1): every request has a timeout and an upgrade is bounded; no path calls process.exit(3) without archiving (all go through finish)', /const REQUEST_MS = 60000/.test(cc) && /const UPGRADE_MS = 30000/.test(cc) && /setTimeout\(\(\) => \{\n\s*conn\.pending\.delete\(id\)/.test(cc) && !/process\.exit\(3\)/.test(cc) && (cc.match(/void finish\(3,/g) ?? []).length === 2 && /process\.on\(sig, \(\) => void finish\(143/.test(cc) && /deadlineHit/.test(cc) && /await archiveOwn\(\);/.test(cc));
+  check('g7 client (N3): a quiet window is followed by a check for a late dispatch before any turn/start of its own', (cc.match(/await settleIdle\(main, T\.id, (?:qFrom|heldFrom), '(?:a1|a2|b)'\);\n\s*(?:next = )?(?:const next = )?(?:await )?runTurn/g) ?? []).length === 3 && /const qFrom = done \? main\.events\.indexOf\(done\) \+ 1 : main\.events\.length;/.test(cc) && /const heldFrom = done \? main\.events\.indexOf\(done\) \+ 1 : main\.events\.length;/.test(cc));
+  check('g7 client (B1): the row 73 probe has the three states (with subscribers, without, not loaded) and records the subscriber state of each', /w-subscribers/.test(cc) && /l-subscribers/.test(cc) && /u-subscribers/.test(cc) && /w-loaded-before-resume/.test(cc) && /const wovr = await open\('p-wovr'\);\n\s*const wafter = await open\('p-wafter'\);\n\s*const wun = await main\.request\('thread\/unsubscribe'/.test(cc));
   check('g7 client: the override differs from the thread\'s own value', /const overrideFor = \(current\) => \(current === 'untrusted' \? 'on-request' : 'untrusted'\)/.test(cc));
 
   // --- the scenario's limits ---------------------------------------------------------------------------
@@ -178,29 +182,70 @@ export async function g7Unit(check) {
       check('g7 scenario against the double: the daemon was only asked for its version (a read-only check), twice, and the client ran hello then cases', g7.daemon.versionBefore.argv.join(' ') === 'codex app-server daemon version' && g7.daemon.versionAfter.argv.join(' ') === 'codex app-server daemon version' && g7.clientRuns.map((r) => r.mode).join() === 'hello,cases');
       const j = g7.judgments;
       check('g7 judgments (all behaving as recorded): row 66 (a) both halves, (b), (c) and (d) CONFIRMED', ['66a-queued-at-interrupt', '66a-add-after-interrupt', '66b-queue-management', '66c-unloaded-thread', '66d-extra-member'].every((id) => verdictOf(j, id) === 'CONFIRMED'), JSON.stringify(j.row66.map((r) => [r.id, r.verdict, r.basis])));
-      check('g7 judgments (override applied by the double): row 73 APPLIED-AND-RETAINED, notified, with a control that shows the readback is live state and no caveat about it', j.row73.outcome === 'APPLIED-AND-RETAINED' && j.row73.facts.notification.length === 3 && j.row73.facts.control.applied === true && j.row73.facts.control.retained === true && j.row73.caveats.length === 1, JSON.stringify(j.row73));
+      const br = j.row73.branches;
+      check('g7 judgments (the double follows the subscriber rule of rust-v0.166.0): row 73 is judged per branch: with subscribers NOT-APPLIED, with none APPLIED-AND-RETAINED, not loaded APPLIED-AND-RETAINED; no caveat about the control; the verdict is not one answer', br.loadedWithSubscribers.outcome === 'NOT-APPLIED' && br.loadedWithoutSubscribers.outcome === 'APPLIED-AND-RETAINED' && br.unloadedControl.outcome === 'APPLIED-AND-RETAINED' && j.row73.caveats.length === 1 && br.loadedWithSubscribers.facts.subscribers.count === 2 && br.loadedWithoutSubscribers.facts.subscribers.count === 0 && !/loaded thread.*applies/.test(j.row73.basis) && /with subscribers: NOT-APPLIED/.test(j.row73.basis), JSON.stringify(j.row73));
       check('g7 capture: the observations are in the capture; no frame about a thread the client did not start, and no id the double reported for one, reached it', /"direction":"observation"/.test(text) && !/SECRET-FOREIGN-PREVIEW|\/secret\/foreign\/cwd/.test(text) && !/"foreign-thread-1"/.test(text) && /<NOT-OWN-THREAD>/.test(text));
       check('g7 scenario against the double: the final findings hold no contradiction', !ctx1.out.findings.some((f) => /CONTRADICTED/.test(f)), JSON.stringify(ctx1.out.findings));
       const methods = d1.received.map((r) => r.msg.method);
       check('g7 wire (double): every request the client sent is on its list, none is a response, and every thread id named is a thread a client of this double started', d1.received.every(({ msg }) => msg.method !== undefined && (msg.method === 'initialized' || allowed.includes(msg.method))) && !methods.includes('turn/steer') && d1.received.every(({ msg }) => msg.params?.threadId === undefined || d1.threads.has(msg.params.threadId)), `${[...new Set(methods)].join(', ')}`);
       const sentSettings = d1.received.filter(({ msg }) => msg.method === 'thread/resume' && msg.params.approvalPolicy !== undefined);
-      check('g7 wire (double): exactly two resumes carry an override (the loaded thread and the control), each only approvalPolicy beyond threadId and excludeTurns; all other resumes carry no setting', sentSettings.length === 2 && sentSettings.every(({ msg }) => Object.keys(msg.params).sort().join() === 'approvalPolicy,excludeTurns,threadId') && d1.received.filter(({ msg }) => msg.method === 'thread/resume').every(({ msg }) => !('model' in msg.params) && !('cwd' in msg.params) && !('sandbox' in msg.params) && !('permissions' in msg.params) && !('config' in msg.params)));
+      const turnStarts = d1.received.filter(({ msg }) => msg.method === 'turn/start');
+      check('g7 wire (double): exactly three resumes carry an override (loaded with subscribers, loaded without, not loaded), each only approvalPolicy beyond threadId and excludeTurns; all other resumes carry no setting', sentSettings.length === 3 && sentSettings.every(({ msg }) => Object.keys(msg.params).sort().join() === 'approvalPolicy,excludeTurns,threadId') && d1.received.filter(({ msg }) => msg.method === 'thread/resume').every(({ msg }) => !('model' in msg.params) && !('cwd' in msg.params) && !('sandbox' in msg.params) && !('permissions' in msg.params) && !('config' in msg.params)));
+      check('g7 wire (double): every turn/start asks for a low reasoning effort (N4), and none is sent to a thread with a turn running', turnStarts.length >= 10 && turnStarts.every(({ msg }) => msg.params.effort === 'low') && !d1.joinedTurns);
+      check('g7 wire (double): the loaded-without-subscribers override was sent while the thread had no subscriber and was still loaded (the double saw it)', d1.overrideLog.some((o) => o.loaded === true && o.hadSubscribers === false && o.idle === true) && d1.overrideLog.some((o) => o.loaded === true && o.hadSubscribers === true) && d1.overrideLog.some((o) => o.loaded === false));
+      {
+        const entries = parseG2Transcript(text);
+        const answers = new Map();
+        for (const e of entries) if (e.direction === 'daemon->client' && e.payload?.result?.thread?.id && !answers.has(e.payload.result.thread.id)) answers.set(e.payload.result.thread.id, e.line);
+        const startedFrames = entries.filter((e) => e.direction === 'daemon->client' && e.payload?.method === 'thread/started' && e.payload.params?.thread?.id);
+        check('g7 held frames (N7): a thread/started that arrives BEFORE the thread/start answer is held and recorded after it, in full, for every thread the client started', answers.size === 6 && [...answers].every(([id, line]) => startedFrames.some((f) => f.payload.params.thread.id === id && f.line > line)));
+        const closedModes = new Set(entries.filter((e) => e.direction === 'daemon->client' && e.payload?.method === 'thread/closed').map((e) => e.mode));
+        check('g7 broadcast (N7): thread/closed reaches connections other than the one that unsubscribed', closedModes.size > 1 && [...closedModes].some((m) => !['p-main', 'dac-main'].includes(m)), [...closedModes].join());
+      }
       check('g7 wire (double): the queue was managed by a connection that never started or resumed the thread', (() => {
         const mgmt = d1.received.filter(({ msg }) => /^thread\/queue\/(list|update|delete|reorder)$/.test(msg.method));
         const ids = new Set(mgmt.map((m) => m.connId));
         const threadId = mgmt[0]?.msg.params.threadId;
         return mgmt.length === 5 && ids.size === 1 && new Set(mgmt.map((m) => m.msg.params.threadId)).size === 1 && !d1.received.some((r) => ids.has(r.connId) && (r.msg.method === 'thread/start' || (r.msg.method === 'thread/resume' && r.msg.params.threadId === threadId)));
       })());
-      check('g7 cleanup (double): every thread the client started was archived, and none other', d1.threads.size === 5 && [...d1.threads.values()].every((t) => t.archived));
+      check('g7 cleanup (double): every thread the client started (six) was archived, and none other', d1.threads.size === 6 && [...d1.threads.values()].every((t) => t.archived));
     }
     await d1.close();
 
-    // 2. the double reports the override and keeps nothing: REPORTED-NOT-RETAINED
+// 2. the double reports the override and keeps nothing; and one that always applies it, and refuses the effort member
     const d2 = await startFakeG7Daemon({ overrideLoaded: 'echo' });
     const r2 = await runClient(join(root, 'echo'), bin, d2.port, 'row73');
     const j2 = judgeG7(readObservations(r2.entries).map, {});
-    check('g7 judgments (override only reported): row 73 REPORTED-NOT-RETAINED, no notification', r2.exit === 0 && j2.row73.outcome === 'REPORTED-NOT-RETAINED' && j2.row73.facts.notification.length === 0, JSON.stringify(j2.row73));
+    check('g7 judgments (override only reported): row 73 REPORTED-NOT-RETAINED on both loaded branches, APPLIED-AND-RETAINED when not loaded', r2.exit === 0 && j2.row73.branches.loadedWithSubscribers.outcome === 'REPORTED-NOT-RETAINED' && j2.row73.branches.loadedWithoutSubscribers.outcome === 'REPORTED-NOT-RETAINED' && j2.row73.branches.unloadedControl.outcome === 'APPLIED-AND-RETAINED' && j2.row73.branches.loadedWithSubscribers.facts.notification.length === 0, JSON.stringify(j2.row73));
     await d2.close();
+    const d2b = await startFakeG7Daemon({ overrideLoaded: 'applied', rejectEffort: true });
+    const r2b = await runClient(join(root, 'applied'), bin, d2b.port, 'row73');
+    const o2b = readObservations(r2b.entries);
+    const j2b = judgeG7(o2b.map, {});
+    check('g7 judgments (override always applied): row 73 APPLIED-AND-RETAINED on every branch, notified on the loaded branch with subscribers', Object.values(j2b.row73.branches).every((b) => b.outcome === 'APPLIED-AND-RETAINED') && j2b.row73.branches.loadedWithSubscribers.facts.notification.length === 3, JSON.stringify(j2b.row73));
+    const ts2b = d2b.received.filter(({ msg }) => msg.method === 'turn/start');
+    check('g7 effort (N4): a refused effort member is recorded once and the turn is sent again without it, and the client keeps going without it', o2b.map.get('effort-rejected')?.effort === 'low' && ts2b[0].msg.params.effort === 'low' && ts2b[1].msg.params.effort === undefined && ts2b.slice(1).every(({ msg }) => msg.params.effort === undefined) && r2b.exit === 0);
+    await d2b.close();
+
+    // 2c. the client's own deadline (N1): the running case stops, the threads are archived, the client exits 0 by itself
+    const d2c = await startFakeG7Daemon();
+    const r2c = await runClient(join(root, 'deadline'), bin, d2c.port, 'all', 20000, 3000);
+    const o2c = readObservations(r2c.entries);
+    check('g7 deadline (N1): at its own deadline the client stops the case that was running, skips the rest, archives every thread it started and exits 0 (no hard kill)', r2c.exit === 0 && !!o2c.map.get('deadline-reached') && /deadline/.test(o2c.map.get('case-stopped')?.reason ?? '') && d2c.threads.size >= 1 && [...d2c.threads.values()].every((t) => t.archived) && r2c.stdout.includes('[done]'), JSON.stringify([...o2c.map.keys()].filter((k) => /case-|deadline|archive/.test(k))));
+    await d2c.close();
+    if (process.platform !== 'win32') {
+      const d2d = await startFakeG7Daemon();
+      const r2d = await runClient(join(root, 'sigterm'), bin, d2d.port, 'all', 20000, null, { killAfterMs: 2500 });
+      check('g7 exit paths (N1): SIGTERM mid-case archives the client\'s threads before it exits (143)', r2d.exit === 143 && d2d.threads.size >= 1 && [...d2d.threads.values()].every((t) => t.archived));
+      await d2d.close();
+    }
+    {
+      const dead = await startFakeG7Daemon();
+      const port = dead.port;
+      await dead.close();
+      const r2e = await runClient(join(root, 'deadproxy'), bin, port, 'all', 150);
+      check('g7 exit paths (N1): a proxy that cannot reach the daemon ends the client with exit 3 at once (no hang, no threads to leave)', r2e.exit === 3 && r2e.entries.every((e) => e.direction !== 'client->daemon' || e.payload?.method === 'initialize' || e.payload?.method === undefined));
+    }
 
     // 3. approval request, ignored override, no queue management
     const d3 = await startFakeG7Daemon({ approvalAtThread: 1, overrideLoaded: 'ignored', queueMgmt: false });
@@ -209,13 +254,14 @@ export async function g7Unit(check) {
     const j3 = judgeG7(o3.map, {});
     check('g7 limit (approval): an approval request stops the case that was running, is recorded, and is never answered (no response frame in what the double received); later cases run', r3.exit === 0 && o3.map.get('case-stopped')?.case === 'a1' && /requestApproval/.test(r3.stdout) && d3.received.every(({ msg }) => msg.method !== undefined) && verdictOf(j3, '66a-queued-at-interrupt') === 'INCONCLUSIVE' && verdictOf(j3, '66c-unloaded-thread') === 'CONFIRMED');
     check('g7 judgments (queue methods missing): row 66 (b) CONTRADICTED with the refused operation named; the dispatch is still observed', verdictOf(j3, '66b-queue-management') === 'CONTRADICTED' && /update/.test(j3.row66.find((r) => r.id === '66b-queue-management').basis) && o3.map.get('b-dispatched').count === 3);
-    check('g7 judgments (override ignored): row 73 NOT-APPLIED', j3.row73.outcome === 'NOT-APPLIED', JSON.stringify(j3.row73));
+    check('g7 judgments (override ignored): row 73 NOT-APPLIED on both loaded branches; the not-loaded control still APPLIED-AND-RETAINED', j3.row73.branches.loadedWithSubscribers.outcome === 'NOT-APPLIED' && j3.row73.branches.loadedWithoutSubscribers.outcome === 'NOT-APPLIED' && j3.row73.branches.unloadedControl.outcome === 'APPLIED-AND-RETAINED', JSON.stringify(j3.row73));
     await d3.close();
 
     // 4. judgments from mutated observation sets
     const base = readObservations(parseG2Transcript(ctx1?.out.captures.size ? [...ctx1.out.captures.values()][0] : ''));
-    const mut = (patch) => {
+    const mut = (patch, { add = {} } = {}) => {
       const m = new Map([...base.map].map(([k, v]) => [k, JSON.parse(JSON.stringify(v))]));
+      for (const [k, v] of Object.entries(add)) m.set(k, v);
       for (const [k, f] of Object.entries(patch)) f === null ? m.delete(k) : f(m.get(k), m);
       return judgeG7(m, {});
     };
@@ -232,9 +278,21 @@ export async function g7Unit(check) {
       const ran = mut({ 'b-dispatched': (o) => (o.deletedItemRan = true) }).row66.find((r) => r.id === '66b-queue-management');
       return del.verdict === 'CONTRADICTED' && /delete/.test(del.basis) && held.verdict === 'INCONCLUSIVE' && reo.verdict === 'CONTRADICTED' && ran.verdict !== 'CONFIRMED';
     })());
-    check('g7 judge (row 73): an error is REFUSED; a response that does not show the override is NOT-APPLIED; a thread that was not loaded is INCONCLUSIVE; a failed control adds a caveat', mut({ 'l-resume-override': (o) => (o.error = { code: -32602 }) }).row73.outcome === 'REFUSED' &&
-      mut({ 'l-resume-override': (o) => (o.settings.approvalPolicy = 'on-request') }).row73.outcome === 'NOT-APPLIED' && mut({ 'l-loaded': (o) => (o.loaded = false) }).row73.outcome === 'INCONCLUSIVE' &&
-      mut({ 'u-resume-readback': (o) => (o.settings.approvalPolicy = 'on-request') }).row73.caveats.some((c) => /control thread/.test(c)) && mut({ 'l-resume-readback': (o) => (o.settings.approvalPolicy = 'on-request') }).row73.outcome === 'REPORTED-NOT-RETAINED');
+check('g7 judge (row 73): per branch: an error is REFUSED; a response that does not show the override is NOT-APPLIED; a state that was not reached is INCONCLUSIVE; a failed control adds a caveat; a branch never decides another', (() => {
+      const w = (patch) => mut(patch).row73.branches;
+      return w({ 'l-resume-override': (o) => (o.error = { code: -32602 }) }).loadedWithSubscribers.outcome === 'REFUSED' &&
+        w({ 'w-resume-override': (o) => (o.settings.approvalPolicy = 'on-request') }).loadedWithoutSubscribers.outcome === 'NOT-APPLIED' &&
+        w({ 'w-resume-override': (o) => (o.settings.approvalPolicy = 'on-request') }).unloadedControl.outcome === 'APPLIED-AND-RETAINED' &&
+        w({ 'l-loaded': (o) => (o.loaded = false) }).loadedWithSubscribers.outcome === 'INCONCLUSIVE' &&
+        w({ 'w-loaded-before-resume': (o) => (o.loaded = false) }).loadedWithoutSubscribers.outcome === 'INCONCLUSIVE' &&
+        /no longer in thread\/loaded\/list/.test(w({ 'w-loaded-before-resume': (o) => (o.loaded = false) }).loadedWithoutSubscribers.basis) &&
+        w({ 'u-thread-closed': (o) => (o.closed = false) }).unloadedControl.outcome === 'INCONCLUSIVE' &&
+        w({ 'w-resume-readback': (o) => (o.settings.approvalPolicy = 'on-request') }).loadedWithoutSubscribers.outcome === 'REPORTED-NOT-RETAINED' &&
+        mut({ 'u-resume-readback': (o) => (o.settings.approvalPolicy = 'on-request') }).row73.caveats.some((c) => /control/.test(c)) &&
+        mut({ 'w-subscribers': null }).row73.branches.loadedWithoutSubscribers.outcome === 'INCONCLUSIVE';
+    })());
+    check('g7 judge (row 73): no basis or claim states a general answer for a loaded thread; the NOT-APPLIED basis names its state', !/already loaded\b.*(applies|ignores)/.test(mut({}).row73.claim) && /\(loaded, idle, with subscribers\)/.test(mut({}).row73.branches.loadedWithSubscribers.basis) && /subscribers/.test(mut({}).row73.claim));
+    check('g7 judge (N3): a dispatch that started after the quiet window is CONTRADICTED for (a) and makes (b) INCONCLUSIVE', verdictOf(mut({ 'a1-late-dispatch': () => {}, }, { add: { 'a1-late-dispatch': { turnIds: ['t'] } } }), '66a-queued-at-interrupt') === 'CONTRADICTED' && verdictOf(mut({}, { add: { 'a2-late-dispatch': { turnIds: ['t'] } } }), '66a-add-after-interrupt') === 'CONTRADICTED' && verdictOf(mut({}, { add: { 'b-late-dispatch': { turnIds: ['t'] } } }), '66b-queue-management') === 'INCONCLUSIVE');
 
     // 5. no running daemon: NOT RUN, nothing sent
     const d4 = await startFakeG7Daemon();

@@ -7171,7 +7171,7 @@
       "redaction": {
         "script": null,
         "script_sha256": null,
-        "residual_scan_result": "Not applicable to source code. Kept per the oac-gates \"Throwaway rule\", quarantined with the .throwaway-quarantined suffix. The g7-codex-recheck scenario stages it from its blob at HEAD and checks its sha256 (3ab5c817e3a361f57df9884e970ddc0ddad6112276faf5bec88b37c667ea876a, commit cf34414). No run of it is committed yet."
+        "residual_scan_result": "Not applicable to source code. Kept per the oac-gates \"Throwaway rule\", quarantined with the .throwaway-quarantined suffix. The g7-codex-recheck scenario stages it from its blob at HEAD and checks its sha256 (82a2f531b49bb9fa8f228bac2d9c01b431aa15d79af5734dc5ef4c1459f8de89, commit 29309ef). No run of it is committed yet."
       },
       "coverage": null,
       "coverage_notes": "Not applicable — client source code, not a captured exchange.",
