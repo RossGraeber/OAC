@@ -47,7 +47,7 @@ The placeholders that appear in the committed transcript, counted in the file (e
 | `<HOST>` | 15 | The machine's name, the `serverName` of `remoteControl/status/changed`. |
 | `<INSTALLATION_ID>` | 15 | The `installationId` of `remoteControl/status/changed`. A run literal. |
 | `<REDACTED>` | 48 | Account fields: `planType` of `account/updated` (14), and `planType` (17) and `credits` (17) of `account/rateLimits/updated`. |
-| `<NOT-OWN-THREAD>` | 5 | Written by the client, not the sanitizer: a stub for another thread's id in a `thread/list` or `thread/loaded/list` result (lines 275, 282, 518, 627 and 747). The client records no frame about a thread it did not start. |
+| `<NOT-OWN-THREAD>` | 5 | Written by the client, not the sanitizer: a stub for another thread's id in a `thread/loaded/list` result (the client never sends `thread/list`) (lines 275, 282, 518, 627 and 747). The client records no frame about a thread it did not start. |
 | `<ELIDED tool-output bytes=23 sha256=ec3e00ab...>` | 7 | The `text` of a hook run entry in `hook/completed` (lines 28, 150, 308, 351, 497, 584 and 692). Elided under #130; the 23-byte text has the same digest each time. The hook is the operator's `sessionStart` hook in `~/.codex/hooks.json`, which reported `failed`. |
 
 Kept, deliberately:
