@@ -7,7 +7,7 @@
 // interrupt, extra-member, after-interrupt and unloaded-thread cases) with the queue
 // management of risk row 66 (b) and the resume override probe of risk row 73:
 //   hello                          initialize only (the wire userAgent)
-//   cases <cwd> [set] [quietMs]    the cases below; set `all` (default), `row66` or `row73`;
+//   cases <cwd> [set] [quietMs] [deadlineMs]   the cases below; set `all` (default), `row66` or `row73`;
 //                                  quietMs is the "nothing happens" window (default 25000)
 //
 // Row 66 (docs/planning/v0.1/11-risks.md), each on a thread this process starts itself:
@@ -20,9 +20,10 @@
 //   c   an add to an unloaded thread waits; thread/resume dispatches it
 //   d   an extra member in a thread/queue/add request is accepted and ignored
 // Row 73: a thread/resume that carries ONE setting override (approvalPolicy) is sent to a thread
-// that is loaded and idle, and, as the control, to one that is not loaded; the responses, a
-// resume without an override afterwards, and any thread/settings/updated notification are
-// recorded. THIS IS A TEST CLIENT DELIBERATELY DOING WHAT OAC ITSELF MUST NEVER DO
+// that is loaded and idle WITH subscribers, to one that is loaded and idle with NO subscriber, and,
+// as the control, to one that is not loaded (the app-server treats these differently, rust-v0.166.0
+// thread_processor.rs L4697-L4748); the responses, a resume without an override afterwards, and any
+// thread/settings/updated notification are recorded. THIS IS A TEST CLIENT DELIBERATELY DOING WHAT OAC ITSELF MUST NEVER DO
 // (spec/bindings/mcp.md [MCPB-CDX-006]): it exists to learn what the app-server does with
 // the member, so that the spec's UNVERIFIED label can be replaced by an observation.
 //
@@ -41,7 +42,10 @@
 //     a stub in its place. thread/loaded/list ids that are not its own are replaced.
 //   - It reads no file. It reads no credential and asks no credential store for anything; the
 //     daemon serves every model turn from its own saved sign-in.
-//   - At the end it archives the threads it started (S3 did the same), best effort.
+//   - It archives the threads it started (S3 did the same), best effort, on EVERY exit path: normal
+//     end, an error, a proxy that fails, SIGINT/SIGTERM, and its own deadline (the 4th argument, set by
+//     the scenario shorter than its hard kill). A request with no answer in 60 s is answered with an
+//     error here and not re-sent; an upgrade is bounded to 30 s.
 // Every frame, both directions, is appended to transcript.jsonl beside this script as
 // {t, mode, direction, payload}; `mode` names the connection. Each observation is also
 // appended, with direction `observation`. Every wait is bounded and event-gated: the only
@@ -258,7 +262,11 @@ function connect(label) {
 
 async function open(label, { experimentalApi = true } = {}) {
   const c = connect(label);
-  await c.upgraded;
+  const up = await Promise.race([c.upgraded.then(() => true), sleep(UPGRADE_MS).then(() => false)]);
+  if (!up) {
+    await c.close();
+    throw new Error(`${label}: no WebSocket upgrade in ${UPGRADE_MS} ms`);
+  }
   const capabilities = experimentalApi ? { experimentalApi: true } : {};
   const init = await c.request('initialize', { clientInfo: { name: 'oac_g7_recheck', title: 'OAC G7 live re-check (throwaway)', version: '0.0.1' }, capabilities });
   if (init.error) throw new Error(`${label}: initialize failed ${JSON.stringify(init.error)}`);
@@ -312,10 +320,35 @@ async function startThread(c, cwd, tag) {
   return { id, start: s };
 }
 
+// turn/start with a low reasoning effort (TurnStartParams.effort, a string the model advertises), so the
+// turns cost little. If the daemon refuses the member, the refusal is recorded once and the turn is
+// sent again without it (a refused request started nothing; a request that got no answer is not re-sent).
+let EFFORT = 'low';
+async function turnStart(c, threadId, input) {
+  let t = await c.request('turn/start', EFFORT ? { threadId, input, effort: EFFORT } : { threadId, input });
+  if (t.error && !t.error.timedOut && EFFORT) {
+    obs('effort-rejected', { effort: EFFORT, error: errOf(t) });
+    EFFORT = null;
+    t = await c.request('turn/start', { threadId, input });
+  }
+  return t;
+}
+
+// A turn that started after event index `from` and has not completed (a dispatch that came late):
+// wait for it, and record it, rather than sending turn/start into it. -> turn ids, or null
+async function settleIdle(c, threadId, from, tag) {
+  const ev = c.events.slice(from);
+  const running = ev.filter(turnStarted(threadId)).map((m) => m.params.turn.id).filter((id) => !ev.some(turnCompleted(threadId, id)));
+  if (!running.length) return null;
+  for (const id of running) await c.waitFor(turnCompleted(threadId, id), TURN_MS, from);
+  obs(`${tag}-late-dispatch`, { turnIds: running });
+  return running;
+}
+
 // One minimal turn on the connection that holds the thread. -> { turnId, status, doneIdx }
 async function runTurn(c, threadId, words) {
   const from = c.events.length;
-  const t = await c.request('turn/start', { threadId, input: text(reply(words)) });
+  const t = await turnStart(c, threadId, text(reply(words)));
   const tid = t.result?.turn?.id;
   if (!tid) return { turnId: null, status: null, doneIdx: null, error: errOf(t) };
   const done = await c.waitFor(turnCompleted(threadId, tid), TURN_MS, from);
@@ -344,7 +377,7 @@ async function queuedTurn(c, threadId, clientId, from, sentText = null, ms = TUR
 // A busy turn, started: -> its id and the event index to wait from.
 async function startBusyTurn(c, threadId, tag) {
   const from = c.events.length;
-  const t = await c.request('turn/start', { threadId, input: text(BUSY) });
+  const t = await turnStart(c, threadId, text(BUSY));
   const tid = t.result?.turn?.id;
   obs(`${tag}-busy-turn-start`, { error: errOf(t), turnId: tid ?? null });
   const started = tid && (await c.waitFor(turnStarted(threadId, tid), 30000, from));
@@ -371,12 +404,13 @@ async function caseA1(cwd) {
   obs('a1-interrupt', { error: errOf(i) });
   const done = await main.waitFor(turnCompleted(T.id, tid), 60000, from);
   obs('a1-interrupt-completed', { status: done?.params?.turn?.status ?? null });
-  const qFrom = main.events.length;
+  const qFrom = done ? main.events.indexOf(done) + 1 : main.events.length;
   const early = await main.waitFor(turnStarted(T.id), QUIET_MS, qFrom);
   obs('a1-dispatch-within-quiet-window', { dispatched: !!early, quietMs: QUIET_MS });
   let next = null;
   if (early) await main.waitFor(turnCompleted(T.id, early.params.turn.id), TURN_MS, qFrom);
   else {
+    await settleIdle(main, T.id, qFrom, 'a1');
     next = await runTurn(main, T.id, 'OAC G7 A1 NEXT TURN');
     obs('a1-next-turn', { status: next.status, error: next.error });
   }
@@ -415,7 +449,7 @@ async function caseDAC(cwd) {
     obs('a2-interrupt', { error: errOf(i) });
     const done = await main.waitFor(turnCompleted(T.id, tid), 60000, from);
     obs('a2-interrupt-completed', { status: done?.params?.turn?.status ?? null });
-    const qFrom = main.events.length;
+    const qFrom = done ? main.events.indexOf(done) + 1 : main.events.length;
     const q = await queueAdd(main, T.id, reply('OAC G7 A2 AFTER INTERRUPT'));
     obs('a2-add', addObs(q));
     const early = await main.waitFor(turnStarted(T.id), QUIET_MS, qFrom);
@@ -423,6 +457,7 @@ async function caseDAC(cwd) {
     let next = null;
     if (early) await main.waitFor(turnCompleted(T.id, early.params.turn.id), TURN_MS, qFrom);
     else {
+      await settleIdle(main, T.id, qFrom, 'a2');
       next = await runTurn(main, T.id, 'OAC G7 A2 NEXT TURN');
       obs('a2-next-turn', { status: next.status, error: next.error });
     }
@@ -473,7 +508,7 @@ async function caseB(cwd) {
   obs('b-interrupt', { error: errOf(i) });
   const done = await main.waitFor(turnCompleted(T.id, tid), 60000, from);
   obs('b-interrupt-completed', { status: done?.params?.turn?.status ?? null });
-  const heldFrom = main.events.length;
+  const heldFrom = done ? main.events.indexOf(done) + 1 : main.events.length;
 
   const other = await open('b-other');
   const listItems = (r) => (Array.isArray(r.result?.data) ? r.result.data.map((s) => ({ id: s.id, clientUserMessageId: s.clientUserMessageId, text: textOf(s.input) })) : null);
@@ -494,6 +529,7 @@ async function caseB(cwd) {
   obs('b-held-during-management', { turnStartedMeanwhile: main.events.slice(heldFrom).some(turnStarted(T.id)), queueChangedOnOwner: main.events.slice(heldFrom).filter((m) => m.method === 'thread/queue/changed' && isFor(T.id)(m)).length });
 
   // An uninterrupted turn; then what dispatches, one item per idle, head first.
+  await settleIdle(main, T.id, heldFrom, 'b');
   const next = await runTurn(main, T.id, 'OAC G7 B NEXT TURN');
   obs('b-next-turn', { status: next.status, error: next.error });
   const expected = itemsAfter ? itemsAfter.length : 2;
@@ -517,23 +553,37 @@ async function caseB(cwd) {
   });
 }
 
-// Row 73. A thread/resume that carries one setting override, sent to a thread that is loaded
-// and idle, then to one that is not loaded (the control). Readbacks are resumes without it.
+// Row 73. A thread/resume that carries one setting override (approvalPolicy), in three states of
+// the thread, because the app-server's behaviour depends on them (rust-v0.166.0
+// codex-rs/app-server/src/request_processors/thread_processor.rs L4697-L4748: an override that differs
+// from a loaded thread's settings is applied by shutting the thread down and resuming it cold ONLY if
+// the thread is idle and has no subscriber; otherwise it is ignored with a warning):
+//   l  loaded and idle, with subscribers (two connections hold it)
+//   w  loaded and idle, with NO subscriber (the one subscriber unsubscribed; the override is sent
+//      before the daemon's unload delay of about 60 s ends)
+//   u  not loaded (the control)
+// Each is followed by a resume without an override, from a connection of its own, as the readback.
+// Each thread needs one minimal turn first: a resume needs the thread's stored history, which
+// exists from its first user message on.
 async function caseProbe(cwd) {
   const main = await open('p-main');
-  // Loaded and idle. The thread needs one turn: a resume needs the thread's stored history,
-  // which exists from its first user message on.
+  const loadedHas = async (c, id) => {
+    const r = await c.request('thread/loaded/list', {});
+    return Array.isArray(r.result?.data) ? r.result.data.includes(id) : null;
+  };
+
+  // l. Loaded, idle, with subscribers.
   const L = await startThread(main, cwd, 'l');
   const baselinePolicy = L.start.result?.approvalPolicy ?? null;
   const O = overrideFor(baselinePolicy);
   obs('override-chosen', { member: 'approvalPolicy', value: O, threadHas: baselinePolicy });
   const turn = await runTurn(main, L.id, 'OAC G7 PROBE LOADED');
   obs('l-first-turn', { status: turn.status, error: turn.error });
-  const ll = await main.request('thread/loaded/list', {});
-  obs('l-loaded', { loaded: Array.isArray(ll.result?.data) ? ll.result.data.includes(L.id) : null });
+  obs('l-loaded', { loaded: await loadedHas(main, L.id) });
   const sub = await open('p-sub');
   const r0 = await sub.request('thread/resume', { threadId: L.id, excludeTurns: true });
   obs('l-resume-baseline', { sent: ['threadId', 'excludeTurns'], error: errOf(r0), settings: settingsOf(r0) });
+  obs('l-subscribers', { connections: ['p-main (thread/start subscribes it)', 'p-sub (thread/resume)'], count: 2 });
   const ovr = await open('p-ovr');
   const marks = new Map([main, sub, ovr].map((c) => [c.label, c.events.length]));
   const r1 = await ovr.request('thread/resume', { threadId: L.id, excludeTurns: true, approvalPolicy: O });
@@ -545,7 +595,28 @@ async function caseProbe(cwd) {
   const r2 = await after.request('thread/resume', { threadId: L.id, excludeTurns: true });
   obs('l-resume-readback', { sent: ['threadId', 'excludeTurns'], error: errOf(r2), settings: settingsOf(r2) });
 
-  // The control: not loaded.
+  // w. Loaded, idle, no subscriber. The connections that will send the resumes are opened BEFORE the
+  //    unsubscribe, so that the override reaches the daemon well inside its unload delay.
+  const W = await startThread(main, cwd, 'w');
+  const wturn = await runTurn(main, W.id, 'OAC G7 PROBE NO SUBSCRIBER');
+  obs('w-first-turn', { status: wturn.status, error: wturn.error });
+  const wovr = await open('p-wovr');
+  const wafter = await open('p-wafter');
+  const wun = await main.request('thread/unsubscribe', { threadId: W.id });
+  obs('w-unsubscribe', { error: errOf(wun) });
+  obs('w-subscribers', { connections: [], count: 0, note: 'p-main, the only connection that held the thread, unsubscribed; no other connection resumed it' });
+  const wLoaded = await loadedHas(wovr, W.id);
+  obs('w-loaded-before-resume', { loaded: wLoaded });
+  const wMark = new Map([main, wovr, wafter].map((c) => [c.label, c.events.length]));
+  const r5 = await wovr.request('thread/resume', { threadId: W.id, excludeTurns: true, approvalPolicy: O });
+  obs('w-resume-override', { sent: ['threadId', 'excludeTurns', 'approvalPolicy'], approvalPolicy: O, error: errOf(r5), settings: settingsOf(r5) });
+  await sleep(Math.min(QUIET_MS, 5000));
+  const wMethods = [...new Set([main, wovr, wafter].flatMap((c) => c.events.slice(wMark.get(c.label)).filter(isFor(W.id)).map((m) => m.method)))];
+  obs('w-events-after-override', { windowMs: Math.min(QUIET_MS, 5000), methods: wMethods });
+  const r6 = await wafter.request('thread/resume', { threadId: W.id, excludeTurns: true });
+  obs('w-resume-readback', { sent: ['threadId', 'excludeTurns'], error: errOf(r6), settings: settingsOf(r6) });
+
+  // u. The control: not loaded.
   const U = await startThread(main, cwd, 'u');
   const uturn = await runTurn(main, U.id, 'OAC G7 PROBE UNLOADED');
   obs('u-first-turn', { status: uturn.status, error: uturn.error });
@@ -554,8 +625,8 @@ async function caseProbe(cwd) {
   obs('u-unsubscribe', { error: errOf(un) });
   const closed = await main.waitFor((m) => m.method === 'thread/closed' && isFor(U.id)(m), UNLOAD_MS, uFrom);
   obs('u-thread-closed', { closed: !!closed, waitedMs: closed ? null : UNLOAD_MS });
-  const ul = await main.request('thread/loaded/list', {});
-  obs('u-loaded-before-resume', { loaded: Array.isArray(ul.result?.data) ? ul.result.data.includes(U.id) : null });
+  obs('u-loaded-before-resume', { loaded: await loadedHas(main, U.id) });
+  obs('u-subscribers', { connections: [], count: 0, loaded: false });
   const uovr = await open('p-uovr');
   const r3 = await uovr.request('thread/resume', { threadId: U.id, excludeTurns: true, approvalPolicy: O });
   obs('u-resume-override', { sent: ['threadId', 'excludeTurns', 'approvalPolicy'], approvalPolicy: O, error: errOf(r3), settings: settingsOf(r3) });
@@ -571,10 +642,29 @@ const CASES = [
   ['row73', 'probe', caseProbe],
 ];
 
+// Archive the threads this process started, bounded, once each. Used on every exit path.
+async function archiveOwn() {
+  stopOnBlock.on = false;
+  blocked = null;
+  const todo = [...OWN].filter((id) => !archived.has(id));
+  if (!todo.length) return;
+  const c = await open('cleanup');
+  for (const id of todo) {
+    archived.add(id);
+    const a = await Promise.race([c.request('thread/archive', { threadId: id }), sleep(ARCHIVE_MS).then(() => ({ error: { message: `no answer in ${ARCHIVE_MS} ms` } }))]);
+    obs('archive', { thread: id, error: errOf(a) });
+  }
+  await c.close();
+}
+
 async function runCases(cwd, set = 'all') {
   if (!['all', 'row66', 'row73'].includes(set)) throw new Error(`unknown case set ${set}`);
   for (const [group, name, fn] of CASES) {
     if (set !== 'all' && set !== group) continue;
+    if (deadlineHit) {
+      obs('case-skipped', { case: name, reason: 'the deadline was reached' });
+      continue;
+    }
     blocked = null;
     stopOnBlock.on = true;
     try {
@@ -589,19 +679,8 @@ async function runCases(cwd, set = 'all') {
       await Promise.all([...connections].map((c) => c.close()));
     }
   }
-  // Clean up: archive the threads this process started, best effort.
-  stopOnBlock.on = false;
-  blocked = null;
-  if (OWN.size) {
-    const c = await open('cleanup');
-    for (const id of OWN) {
-      if (archived.has(id)) continue;
-      const a = await Promise.race([c.request('thread/archive', { threadId: id }), sleep(30000).then(() => ({ error: { message: 'no answer in 30 s' } }))]);
-      archived.add(id);
-      obs('archive', { thread: id, error: errOf(a) });
-    }
-    await c.close();
-  }
+  if (deadlineHit) obs('deadline-reached', { note: 'the running case was stopped at the client\'s own deadline' });
+  await archiveOwn();
   status(`[done] cases: ${results.length} observations; ${OWN.size} thread(s) started`);
 }
 
@@ -613,17 +692,30 @@ async function runCases(cwd, set = 'all') {
       if (!/^\d+$/.test(quiet)) { console.error('quietMs must be a whole number of ms'); process.exit(2); }
       QUIET_MS = Number(quiet);
     }
+    const deadline = process.argv[6];
+    if (deadline !== undefined) {
+      if (!/^\d+$/.test(deadline)) { console.error('deadlineMs must be a whole number of ms'); process.exit(2); }
+      setTimeout(() => {
+        deadlineHit = true;
+        for (const c of connections) for (const w of [...c.waiters]) w.resolve(null);
+      }, Number(deadline));
+    }
     try {
       await runCases(arg1, arg2 ?? 'all');
     } catch (err) {
       console.log(`[error] ${err.message}`);
-      process.exit(1);
+      await finish(1);
     }
     process.exit(0);
   }
   if (mode === 'hello') {
-    const c = await open('hello');
-    await c.close();
+    try {
+      const c = await open('hello');
+      await c.close();
+    } catch (err) {
+      console.log(`[error] ${err.message}`);
+      process.exit(1);
+    }
     process.exit(0);
   }
   console.error(`unknown mode ${mode}`);
