@@ -1,0 +1,1916 @@
+{
+  "schemaVersion": 3,
+  "runId": "20261031T094523Z-f1de3d",
+  "outcome": "PASS",
+  "outcomeReason": null,
+  "scenario": {
+    "name": "g7-codex-recheck",
+    "file": "tools/herdr/scenarios/g7-codex-recheck.mjs",
+    "description": "G7 follow-up (#470): live re-check of risk rows 66 and 73 on the current Codex, by a quarantined client against the running shared daemon. No TUI. Not a gate run; not verdict-bearing.",
+    "params": {
+      "cases": "all",
+      "quietMs": "25000",
+      "casesTimeoutMs": "1500000",
+      "cliTimeoutMs": "60000",
+      "clientTimeoutMs": "60000"
+    }
+  },
+  "launch": {
+    "argv": [
+      "codex"
+    ],
+    "herdrReportedArgv": null
+  },
+  "driver": {
+    "entry": "tools/herdr/run.mjs",
+    "commit": "56aeb3b9d5b9e7195c3ab0f7ff6f21e54f01a89b",
+    "toolsHerdrDirty": false,
+    "node": "v25.2.1"
+  },
+  "herdr": {
+    "pinRow": "herdr (test tooling)",
+    "executable": {
+      "requested": "herdr",
+      "resolved": true,
+      "basename": "herdr.exe",
+      "realBasename": "herdr.exe",
+      "sha256": "007781224360a8bdd1d1a35d34c08c11db3cc3c7132769cffea795869d36b9b6",
+      "bytes": 25562624,
+      "format": "pe",
+      "runUnderNode": false,
+      "testDouble": false,
+      "unchangedAfterRun": true
+    },
+    "executableCheck": {
+      "platform": "win32-x64",
+      "expectedSha256": "007781224360a8bdd1d1a35d34c08c11db3cc3c7132769cffea795869d36b9b6",
+      "firstParty": true,
+      "basis": "First-party, verified 2026-10-03 in the three steps listed above. The release zip hashes to the API digest. `gh release verify-asset` confirmed it against the release attestation for tag `v0.9.1` (sha1 `8544776216a8d28088db59a5344ea21ee2d05d2b`). Its `herdr.exe` hashes to this value. The same value is the sha256 of the installed `herdr.exe` (25562624 bytes, standalone package `0.9.1-x86_64-pc-windows-msvc`) and of the herdr the driver recorded in run `G5-2026-10-02` (`herdr.executable.sha256`).",
+      "result": "match",
+      "detail": "herdr executable sha256 equals PINS.md's expected value for win32-x64"
+    },
+    "pinnedTag": "v0.9.1",
+    "pinsSource": {
+      "path": "docs/planning/PINS.md",
+      "headCommit": "56aeb3b9d5b9e7195c3ab0f7ff6f21e54f01a89b",
+      "committedSha256": "8d8221770e9e81a6485f4404ff136fcffcfff06f4800fd94e784bca0a08258c1",
+      "workingTreeMatchesHead": true
+    },
+    "expectedVersionOutput": "herdr 0.9.1",
+    "observedVersionOutput": "herdr 0.9.1",
+    "serverStatus": {
+      "status": "running",
+      "running": true,
+      "version": "0.9.1",
+      "protocol": 22,
+      "capabilities": {
+        "live_handoff": false,
+        "detached_server_daemon": false,
+        "endpoint_protocol_generation": 1,
+        "surface_interest": true,
+        "health_check": true
+      },
+      "compatible": true,
+      "endpoint_compatible": true,
+      "socket": "<USER_HOME>\\AppData\\Roaming\\herdr\\sessions\\oac-k-g7-codex-recheck-20261031T094523Z-f9381d\\herdr.sock",
+      "session": "oac-k-g7-codex-recheck-20261031T094523Z-f9381d",
+      "restart_needed": false,
+      "server_binary_stale": false
+    },
+    "config": {
+      "path": "<SCRATCH>\\herdr-config.toml",
+      "contents": "[update]\nversion_check = false\nmanifest_check = false\n"
+    },
+    "agentManifests": {
+      "id": "cli:server:agent-manifests",
+      "result": {
+        "last_check_unix": 1790783747,
+        "last_result": "failed: failed to fetch https://herdr.dev/agent-detection/index.toml",
+        "manifests": [
+          {
+            "active_version": "2026.09.14.1",
+            "agent": "pi",
+            "cached_remote_version": "2026.09.14.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\pi.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.09.11.1",
+            "agent": "claude",
+            "cached_remote_version": "2026.09.11.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\claude.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.09.23.1",
+            "agent": "codex",
+            "cached_remote_version": "2026.09.23.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\codex.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.06.10.1",
+            "agent": "gemini",
+            "cached_remote_version": "2026.06.10.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\gemini.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.08.03.1",
+            "agent": "cursor",
+            "cached_remote_version": "2026.08.03.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\cursor.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.06.15.1",
+            "agent": "devin",
+            "cached_remote_version": "2026.06.15.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\devin.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.06.24.1",
+            "agent": "agy",
+            "cached_remote_version": "2026.06.24.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\agy.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.09.11.1",
+            "agent": "cline",
+            "cached_remote_version": "2026.09.11.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\cline.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.06.10.1",
+            "agent": "opencode",
+            "cached_remote_version": "2026.06.10.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\opencode.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.08.29.1",
+            "agent": "copilot",
+            "cached_remote_version": "2026.08.29.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\copilot.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.06.10.1",
+            "agent": "kimi",
+            "cached_remote_version": "2026.06.10.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\kimi.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.09.19.1",
+            "agent": "kiro",
+            "cached_remote_version": "2026.09.19.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\kiro.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.06.10.1",
+            "agent": "droid",
+            "cached_remote_version": "2026.06.10.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\droid.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.07.09.1",
+            "agent": "amp",
+            "cached_remote_version": "2026.07.09.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\amp.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.09.18.1",
+            "agent": "grok",
+            "cached_remote_version": "2026.09.18.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\grok.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.07.24.1",
+            "agent": "hermes",
+            "cached_remote_version": "2026.07.24.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\hermes.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.06.10.1",
+            "agent": "kilo",
+            "cached_remote_version": "2026.06.10.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\kilo.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.06.10.1",
+            "agent": "qodercli",
+            "cached_remote_version": "2026.06.10.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\qodercli.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.08.14.1",
+            "agent": "qwen",
+            "cached_remote_version": "2026.08.14.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\qwen.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.08.24.1",
+            "agent": "letta",
+            "cached_remote_version": "2026.08.24.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\letta.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.07.09.2",
+            "agent": "maki",
+            "cached_remote_version": "2026.07.09.2",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\maki.toml",
+            "source_kind": "remote"
+          },
+          {
+            "active_version": "2026.08.26.1",
+            "agent": "muse",
+            "cached_remote_version": "2026.08.26.1",
+            "local_override_shadowing_remote": false,
+            "remote_last_checked_unix": 1790778255,
+            "remote_update_result": "current",
+            "source": "remote:<USER_HOME>\\AppData\\Local\\herdr\\agent-detection\\remote\\muse.toml",
+            "source_kind": "remote"
+          }
+        ],
+        "type": "agent_manifest_status"
+      }
+    }
+  },
+  "harnessVersions": {
+    "codex": "codex-cli 0.166.0"
+  },
+  "harnessExecutables": {
+    "codex": {
+      "requested": "codex",
+      "resolved": true,
+      "basename": "codex.exe",
+      "realBasename": "codex.exe",
+      "sha256": "9d563ee4e0441ff9d59d612013e0460ddf8e5709735c2d9f6b98b7ef8ca4eb42",
+      "bytes": 371735856,
+      "format": "pe"
+    }
+  },
+  "os": {
+    "platform": "win32",
+    "type": "Windows_NT",
+    "release": "10.0.26300",
+    "arch": "x64"
+  },
+  "session": {
+    "name": "oac-k-g7-codex-recheck-20261031T094523Z-f9381d",
+    "serverPid": 24824,
+    "panePids": []
+  },
+  "env": {
+    "serverLaunch": {
+      "added": {
+        "HERDR_CONFIG_PATH": "<SCRATCH>\\herdr-config.toml"
+      },
+      "removed": [
+        "ANTHROPIC_BASE_URL",
+        "CLAUDECODE",
+        "CLAUDE_AGENT_SDK_MCP_NO_PREFIX",
+        "CLAUDE_AGENT_SDK_VERSION",
+        "CLAUDE_CODE_ACCOUNT_UUID",
+        "CLAUDE_CODE_CHILD_SESSION",
+        "CLAUDE_CODE_DESKTOP_APP_VERSION",
+        "CLAUDE_CODE_DISABLE_CRON",
+        "CLAUDE_CODE_DISABLE_TERMINAL_TITLE",
+        "CLAUDE_CODE_EAGER_FLUSH",
+        "CLAUDE_CODE_EMIT_STARTUP_TIMING",
+        "CLAUDE_CODE_EMIT_TOOL_USE_SUMMARIES",
+        "CLAUDE_CODE_ENABLE_ASK_USER_QUESTION_TOOL",
+        "CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING",
+        "CLAUDE_CODE_ENABLE_TELEMETRY",
+        "CLAUDE_CODE_ENTRYPOINT",
+        "CLAUDE_CODE_EXECPATH",
+        "CLAUDE_CODE_HARBOR_KITE",
+        "CLAUDE_CODE_HOST_SESSION_ID",
+        "CLAUDE_CODE_OAUTH_SCOPES",
+        "CLAUDE_CODE_ORGANIZATION_UUID",
+        "CLAUDE_CODE_SDK_HAS_HOST_AUTH_REFRESH",
+        "CLAUDE_CODE_SESSION_ATTENDED",
+        "CLAUDE_CODE_SESSION_ID",
+        "CLAUDE_CODE_SIMPLE",
+        "CLAUDE_CODE_STARTUP_FAILURE_RESULTS",
+        "CLAUDE_CODE_TERMINAL_MCP_TOOLS",
+        "CLAUDE_CODE_USER_EMAIL",
+        "CLAUDE_PID",
+        "CLAUDE_PREVIEW_CLASSIFIER_FLOOR"
+      ]
+    },
+    "pane": null
+  },
+  "harnessConfig": {
+    "before": [
+      {
+        "file": "~/.claude/settings.json",
+        "present": true,
+        "sha256": "6eba80b024411fd279718f69818a8c80f2721e3a9217655e4717a5fa2699d8bb"
+      },
+      {
+        "file": "~/.codex/config.toml",
+        "present": true,
+        "sha256": "f4773e2d1bab41ecc9beb92967d73ba47debc118921114bab8bce137ca8b5c44"
+      },
+      {
+        "file": "~/.codex/hooks.json",
+        "present": true,
+        "sha256": "190a0ca24dd0fe9a4b3b2bc232915064a53ae4ec6b9d52bf8924d49255866f93"
+      }
+    ],
+    "after": [
+      {
+        "file": "~/.claude/settings.json",
+        "present": true,
+        "sha256": "6eba80b024411fd279718f69818a8c80f2721e3a9217655e4717a5fa2699d8bb"
+      },
+      {
+        "file": "~/.codex/config.toml",
+        "present": true,
+        "sha256": "f4773e2d1bab41ecc9beb92967d73ba47debc118921114bab8bce137ca8b5c44"
+      },
+      {
+        "file": "~/.codex/hooks.json",
+        "present": true,
+        "sha256": "190a0ca24dd0fe9a4b3b2bc232915064a53ae4ec6b9d52bf8924d49255866f93"
+      }
+    ],
+    "unchanged": true,
+    "changed": [],
+    "mustStayUnchanged": []
+  },
+  "timebox": {
+    "budgetMs": 3600000,
+    "start": "2026-10-31T09:45:23.936Z",
+    "end": "2026-10-31T09:50:50.831Z",
+    "elapsedMs": 326895,
+    "expired": false,
+    "teardownEnd": "2026-10-31T09:50:53.373Z"
+  },
+  "commands": [
+    {
+      "seq": 1,
+      "role": "preflight",
+      "argv": [
+        "herdr",
+        "--version"
+      ],
+      "target": null,
+      "startedAt": "2026-10-31T09:45:25.180Z",
+      "endedAt": "2026-10-31T09:45:25.963Z",
+      "durationMs": 783,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 10000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 12,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 2,
+      "role": "lifecycle",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g7-codex-recheck-20261031T094523Z-f9381d",
+        "server"
+      ],
+      "target": null,
+      "startedAt": "2026-10-31T09:45:27.887Z",
+      "endedAt": null,
+      "durationMs": null,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": null,
+        "by": "long-running server; stopped by teardown (session stop, then process-group kill)"
+      },
+      "pid": 24824
+    },
+    {
+      "seq": 3,
+      "role": "lifecycle",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g7-codex-recheck-20261031T094523Z-f9381d",
+        "status",
+        "server",
+        "--json"
+      ],
+      "target": null,
+      "startedAt": "2026-10-31T09:45:27.896Z",
+      "endedAt": "2026-10-31T09:45:27.956Z",
+      "durationMs": 60,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 5000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 492,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 4,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g7-codex-recheck-20261031T094523Z-f9381d",
+        "server",
+        "agent-manifests",
+        "--json"
+      ],
+      "target": null,
+      "startedAt": "2026-10-31T09:45:27.957Z",
+      "endedAt": "2026-10-31T09:45:28.627Z",
+      "durationMs": 670,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 7198,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 5,
+      "role": "lifecycle",
+      "argv": [
+        "herdr",
+        "session",
+        "stop",
+        "oac-k-g7-codex-recheck-20261031T094523Z-f9381d",
+        "--json"
+      ],
+      "target": null,
+      "startedAt": "2026-10-31T09:50:51.946Z",
+      "endedAt": "2026-10-31T09:50:52.132Z",
+      "durationMs": 186,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 25000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 361,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 6,
+      "role": "lifecycle",
+      "argv": [
+        "herdr",
+        "session",
+        "delete",
+        "oac-k-g7-codex-recheck-20261031T094523Z-f9381d",
+        "--json"
+      ],
+      "target": null,
+      "startedAt": "2026-10-31T09:50:53.211Z",
+      "endedAt": "2026-10-31T09:50:53.259Z",
+      "durationMs": 48,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 361,
+      "stderrBytes": 0
+    }
+  ],
+  "teardown": {
+    "sessionStop": "ok",
+    "serverExited": true,
+    "panes": {
+      "created": 0,
+      "queried": [],
+      "notQueried": []
+    },
+    "forcedKills": [],
+    "leftoverProcesses": [],
+    "unverifiedPids": [],
+    "skippedReusedPids": [],
+    "skippedPreexistingPids": [],
+    "protectedProcesses": [],
+    "processScan": "process table (pid, parent pid, creation time, argv) checked for --session <name>",
+    "sessionDelete": "ok",
+    "clean": true
+  },
+  "scratch": {
+    "location": "os.tmpdir(), outside the repository",
+    "path": "<SCRATCH>",
+    "removed": true,
+    "holders": [
+      "the shared Codex app-server daemon (left running; the driver never stops it) may hold the directory of a thread it loaded under scratch; it is released on `codex app-server daemon stop`, or when the daemon unloads the thread (documented: no subscribers and no thread activity for 30 minutes). The driver does not call thread/archive or thread/delete, which would unload it sooner, because both write to the operator's Codex thread store (thread/delete destroys the run's rollout) and whether their shutdown releases the directory handle is unverified"
+    ],
+    "removal": {
+      "attempts": 1,
+      "errors": []
+    }
+  },
+  "captures": [
+    {
+      "file": "transcript-g7recheck-2026-10-31-0.166.0-herdr.jsonl",
+      "format": "jsonl",
+      "written": true,
+      "sha256": "ed7d5e17b17f8d702ca90c9eed170319373f4d1b7692d394197cbe5f0b343003",
+      "redaction": {
+        "mode": "jsonl",
+        "lines": 828,
+        "droppedHazardLines": 0,
+        "unterminatedKeyBlock": false,
+        "hazardProtocolFrames": [],
+        "elidedToolOutputs": [
+          {
+            "line": 28,
+            "path": "$.payload.params.run.entries[0].text",
+            "bytes": 23,
+            "sha256": "ec3e00ab2b6f0f337c1cefdfc0556e5b4dc998172c2ff870fb53f7271ed43251"
+          },
+          {
+            "line": 150,
+            "path": "$.payload.params.run.entries[0].text",
+            "bytes": 23,
+            "sha256": "ec3e00ab2b6f0f337c1cefdfc0556e5b4dc998172c2ff870fb53f7271ed43251"
+          },
+          {
+            "line": 308,
+            "path": "$.payload.params.run.entries[0].text",
+            "bytes": 23,
+            "sha256": "ec3e00ab2b6f0f337c1cefdfc0556e5b4dc998172c2ff870fb53f7271ed43251"
+          },
+          {
+            "line": 351,
+            "path": "$.payload.params.run.entries[0].text",
+            "bytes": 23,
+            "sha256": "ec3e00ab2b6f0f337c1cefdfc0556e5b4dc998172c2ff870fb53f7271ed43251"
+          },
+          {
+            "line": 497,
+            "path": "$.payload.params.run.entries[0].text",
+            "bytes": 23,
+            "sha256": "ec3e00ab2b6f0f337c1cefdfc0556e5b4dc998172c2ff870fb53f7271ed43251"
+          },
+          {
+            "line": 584,
+            "path": "$.payload.params.run.entries[0].text",
+            "bytes": 23,
+            "sha256": "ec3e00ab2b6f0f337c1cefdfc0556e5b4dc998172c2ff870fb53f7271ed43251"
+          },
+          {
+            "line": 692,
+            "path": "$.payload.params.run.entries[0].text",
+            "bytes": 23,
+            "sha256": "ec3e00ab2b6f0f337c1cefdfc0556e5b4dc998172c2ff870fb53f7271ed43251"
+          }
+        ],
+        "replacements": {
+          "home": 71,
+          "literal <SCRATCH>": 118
+        },
+        "residualLeaks": [],
+        "residualGenericHits": []
+      }
+    }
+  ],
+  "redaction": {
+    "runLiteralPlaceholders": [
+      "<INSTALLATION_ID>"
+    ]
+  },
+  "scenarioData": {
+    "g7": {
+      "nonVerdictBearing": "#470: a live re-check of risk rows 66 and 73 for G7 (#68); compared against no other run, not a gate run, never changes a gate verdict",
+      "params": {
+        "cases": "all",
+        "quietMs": "25000",
+        "casesTimeoutMs": "1500000",
+        "cliTimeoutMs": "60000",
+        "clientTimeoutMs": "60000"
+      },
+      "date": "2026-10-31",
+      "versions": {
+        "pinsRow": "Codex CLI / app-server",
+        "pinsMinimum": "0.154.0",
+        "pinsLastTested": "0.165.0",
+        "pinsCommit": "360319d8dee62d87e2d59fc0c21805d79519cfed",
+        "pinsSource": {
+          "path": "docs/planning/PINS.md",
+          "headCommit": "56aeb3b9d5b9e7195c3ab0f7ff6f21e54f01a89b",
+          "committedSha256": "8d8221770e9e81a6485f4404ff136fcffcfff06f4800fd94e784bca0a08258c1",
+          "workingTreeMatchesHead": true
+        },
+        "cliOutput": "codex-cli 0.166.0",
+        "cli": "0.166.0",
+        "daemon": {
+          "status": "running",
+          "cliVersion": "0.166.0",
+          "appServerVersion": "0.166.0",
+          "managedCodexVersion": "0.166.0"
+        },
+        "wireUserAgent": "codex-tui/0.166.0 (Windows 10.0.26300; x86_64) unknown (oac_g7_recheck; 0.0.1)",
+        "wire": "0.166.0",
+        "verified": true,
+        "matchesLastTested": false,
+        "warnings": [
+          "VERSION WARNING (G7 recheck): `codex --version` reports 0.166.0; docs/planning/PINS.md \"Codex CLI / app-server\" records minimum 0.154.0, last tested 0.165.0 (not the last tested 0.165.0). Codex versions float and are never gated (operator decision on #216, 2026-10-01): the run continues, and this is a finding only. It does not by itself invalidate any gate verdict. The run does not edit PINS.md; record the version as last tested there after a live run.",
+          "VERSION WARNING (G7 recheck): `codex app-server daemon version` cliVersion reports 0.166.0; docs/planning/PINS.md \"Codex CLI / app-server\" records minimum 0.154.0, last tested 0.165.0 (not the last tested 0.165.0). Codex versions float and are never gated (operator decision on #216, 2026-10-01): the run continues, and this is a finding only. It does not by itself invalidate any gate verdict. The run does not edit PINS.md; record the version as last tested there after a live run.",
+          "VERSION WARNING (G7 recheck): `codex app-server daemon version` appServerVersion reports 0.166.0; docs/planning/PINS.md \"Codex CLI / app-server\" records minimum 0.154.0, last tested 0.165.0 (not the last tested 0.165.0). Codex versions float and are never gated (operator decision on #216, 2026-10-01): the run continues, and this is a finding only. It does not by itself invalidate any gate verdict. The run does not edit PINS.md; record the version as last tested there after a live run.",
+          "VERSION WARNING (G7 recheck): `codex app-server daemon version` managedCodexVersion reports 0.166.0; docs/planning/PINS.md \"Codex CLI / app-server\" records minimum 0.154.0, last tested 0.165.0 (not the last tested 0.165.0). Codex versions float and are never gated (operator decision on #216, 2026-10-01): the run continues, and this is a finding only. It does not by itself invalidate any gate verdict. The run does not edit PINS.md; record the version as last tested there after a live run.",
+          "VERSION WARNING (G7 recheck): the wire initialize userAgent reports 0.166.0; docs/planning/PINS.md \"Codex CLI / app-server\" records minimum 0.154.0, last tested 0.165.0 (not the last tested 0.165.0). Codex versions float and are never gated (operator decision on #216, 2026-10-01): the run continues, and this is a finding only. It does not by itself invalidate any gate verdict. The run does not edit PINS.md; record the version as last tested there after a live run."
+        ]
+      },
+      "client": {
+        "committed": "docs/planning/gates/fixtures/g7-codex-recheck/client.mjs.throwaway-quarantined",
+        "headCommit": "56aeb3b9d5b9e7195c3ab0f7ff6f21e54f01a89b",
+        "gitMode": "100644",
+        "committedSha256": "d7c0b1732f762f552f74647c8ef516b84cc66d62602a88952f1f6d36af76a020",
+        "expectedSha256": "d7c0b1732f762f552f74647c8ef516b84cc66d62602a88952f1f6d36af76a020",
+        "workingTreeSha256": "d7c0b1732f762f552f74647c8ef516b84cc66d62602a88952f1f6d36af76a020",
+        "workingTreeIsSymlink": false,
+        "workingTreeMatchesHead": true,
+        "copy": "<SCRATCH>\\g7-client\\client.mjs",
+        "copySha256": "d7c0b1732f762f552f74647c8ef516b84cc66d62602a88952f1f6d36af76a020",
+        "match": true
+      },
+      "daemon": {
+        "versionBefore": {
+          "label": "daemon version",
+          "argv": [
+            "codex",
+            "app-server",
+            "daemon",
+            "version"
+          ],
+          "startedAt": "2026-10-31T09:45:28.985Z",
+          "endedAt": "2026-10-31T09:45:29.232Z",
+          "exitCode": 0,
+          "timedOut": false,
+          "spawnError": null,
+          "parsed": {
+            "status": "running",
+            "cliVersion": "0.166.0",
+            "appServerVersion": "0.166.0",
+            "managedCodexVersion": "0.166.0"
+          }
+        },
+        "versionAfter": {
+          "label": "daemon version (post-run)",
+          "argv": [
+            "codex",
+            "app-server",
+            "daemon",
+            "version"
+          ],
+          "startedAt": "2026-10-31T09:50:50.608Z",
+          "endedAt": "2026-10-31T09:50:50.817Z",
+          "exitCode": 0,
+          "timedOut": false,
+          "spawnError": null,
+          "parsed": {
+            "status": "running",
+            "cliVersion": "0.166.0",
+            "appServerVersion": "0.166.0",
+            "managedCodexVersion": "0.166.0"
+          }
+        }
+      },
+      "clientRuns": [
+        {
+          "mode": "hello",
+          "args": [],
+          "startedAt": "2026-10-31T09:45:29.233Z",
+          "endedAt": "2026-10-31T09:45:29.513Z",
+          "exitCode": 0,
+          "signal": null,
+          "timedOut": false,
+          "stdoutStatus": [],
+          "stderr": "(node:27564) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.\n(Use `node --trace-deprecation ...` to show where the warning was created)",
+          "linesBefore": 0,
+          "linesAfter": 5,
+          "problems": []
+        },
+        {
+          "mode": "cases",
+          "args": [
+            "<SCRATCH>\\g7-cases-project",
+            "all",
+            "25000",
+            "1380000"
+          ],
+          "startedAt": "2026-10-31T09:45:29.516Z",
+          "endedAt": "2026-10-31T09:50:48.984Z",
+          "exitCode": 0,
+          "signal": null,
+          "timedOut": false,
+          "stdoutStatus": [
+            "[done] cases: 74 observations; 6 thread(s) started"
+          ],
+          "stderr": "(node:30296) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.\n(Use `node --trace-deprecation ...` to show where the warning was created)",
+          "linesBefore": 5,
+          "linesAfter": 828,
+          "problems": []
+        }
+      ],
+      "captureNames": {
+        "transcript": "transcript-g7recheck-2026-10-31-0.166.0-herdr.jsonl"
+      },
+      "observations": [
+        {
+          "line": 16,
+          "name": "a1-thread-start",
+          "observed": {
+            "error": null,
+            "settings": {
+              "approvalPolicy": "on-request",
+              "sandbox": {
+                "type": "readOnly",
+                "networkAccess": false
+              },
+              "model": "gpt-6.1-sol",
+              "reasoningEffort": "low",
+              "threadStatus": {
+                "type": "idle"
+              }
+            },
+            "ephemeral": false
+          }
+        },
+        {
+          "line": 22,
+          "name": "a1-busy-turn-start",
+          "observed": {
+            "error": null,
+            "turnId": "01a19159-9e7b-7032-8ba7-942c2f4ba789"
+          }
+        },
+        {
+          "line": 44,
+          "name": "a1-add-1",
+          "observed": {
+            "accepted": true,
+            "error": null,
+            "queuedId": "01a19159-b18c-7163-ab81-cfd3317e5600"
+          }
+        },
+        {
+          "line": 45,
+          "name": "a1-add-2",
+          "observed": {
+            "accepted": true,
+            "error": null,
+            "queuedId": "01a19159-b196-7430-a4ed-656cc7aa6601"
+          }
+        },
+        {
+          "line": 50,
+          "name": "a1-interrupt",
+          "observed": {
+            "error": null
+          }
+        },
+        {
+          "line": 52,
+          "name": "a1-interrupt-completed",
+          "observed": {
+            "status": "interrupted"
+          }
+        },
+        {
+          "line": 54,
+          "name": "a1-dispatch-within-quiet-window",
+          "observed": {
+            "dispatched": false,
+            "quietMs": 25000
+          }
+        },
+        {
+          "line": 77,
+          "name": "a1-next-turn",
+          "observed": {
+            "status": "completed",
+            "error": null
+          }
+        },
+        {
+          "line": 102,
+          "name": "a1-first-queued-turn",
+          "observed": {
+            "ran": true,
+            "turnId": "01a1915a-22e4-7601-8ec6-a25283f73f25",
+            "completed": "completed",
+            "userText": "OAC G7 recheck: reply with exactly the words OAC G7 A1 QUEUED 1. Do not use any tools.",
+            "textMatches": true,
+            "startedIdx": 51,
+            "completedIdx": 71,
+            "afterNextTurn": true
+          }
+        },
+        {
+          "line": 127,
+          "name": "a1-second-queued-turn",
+          "observed": {
+            "ran": true,
+            "turnId": "01a1915a-2afe-72a2-bd49-dfd66dd6d570",
+            "completed": "completed",
+            "userText": "OAC G7 recheck: reply with exactly the words OAC G7 A1 QUEUED 2. Do not use any tools.",
+            "textMatches": true,
+            "startedIdx": 75,
+            "completedIdx": 95,
+            "afterNextTurn": true
+          }
+        },
+        {
+          "line": 128,
+          "name": "a1-queued-turns",
+          "observed": {
+            "distinct": true,
+            "inOrder": true,
+            "onePerIdle": true
+          }
+        },
+        {
+          "line": 139,
+          "name": "dac-thread-start",
+          "observed": {
+            "error": null,
+            "settings": {
+              "approvalPolicy": "on-request",
+              "sandbox": {
+                "type": "readOnly",
+                "networkAccess": false
+              },
+              "model": "gpt-6.1-sol",
+              "reasoningEffort": "low",
+              "threadStatus": {
+                "type": "idle"
+              }
+            },
+            "ephemeral": false
+          }
+        },
+        {
+          "line": 167,
+          "name": "dac-first-turn",
+          "observed": {
+            "status": "completed",
+            "error": null
+          }
+        },
+        {
+          "line": 172,
+          "name": "d-add",
+          "observed": {
+            "accepted": true,
+            "error": null,
+            "queuedId": "01a1915a-4a23-7f32-b172-1ca5ef3a94d6",
+            "extraMember": "oacG7ExtraMember"
+          }
+        },
+        {
+          "line": 191,
+          "name": "d-turn",
+          "observed": {
+            "ran": true,
+            "turnId": "01a1915a-4a24-7b82-a8aa-ac23462f7164",
+            "completed": "completed",
+            "userText": "OAC G7 recheck: reply with exactly the words OAC G7 EXTRA MEMBER. Do not use any tools.",
+            "textMatches": true,
+            "startedIdx": 33,
+            "completedIdx": 48
+          }
+        },
+        {
+          "line": 194,
+          "name": "a2-busy-turn-start",
+          "observed": {
+            "error": null,
+            "turnId": "01a1915a-5214-7881-ae00-18b441447e51"
+          }
+        },
+        {
+          "line": 212,
+          "name": "a2-interrupt",
+          "observed": {
+            "error": null
+          }
+        },
+        {
+          "line": 213,
+          "name": "a2-interrupt-completed",
+          "observed": {
+            "status": "interrupted"
+          }
+        },
+        {
+          "line": 217,
+          "name": "a2-add",
+          "observed": {
+            "accepted": true,
+            "error": null,
+            "queuedId": "01a1915a-5bbf-7543-bac9-219c71a624b5"
+          }
+        },
+        {
+          "line": 219,
+          "name": "a2-dispatch-within-quiet-window",
+          "observed": {
+            "dispatched": false,
+            "quietMs": 25000
+          }
+        },
+        {
+          "line": 242,
+          "name": "a2-next-turn",
+          "observed": {
+            "status": "completed",
+            "error": null
+          }
+        },
+        {
+          "line": 265,
+          "name": "a2-queued-turn",
+          "observed": {
+            "ran": true,
+            "turnId": "01a1915a-c74f-7c11-8f7b-77648b1ecc88",
+            "completed": "completed",
+            "userText": "OAC G7 recheck: reply with exactly the words OAC G7 A2 AFTER INTERRUPT. Do not use any tools.",
+            "textMatches": true,
+            "startedIdx": 89,
+            "completedIdx": 107,
+            "afterNextTurn": true
+          }
+        },
+        {
+          "line": 268,
+          "name": "c-unsubscribe",
+          "observed": {
+            "error": null
+          }
+        },
+        {
+          "line": 273,
+          "name": "c-thread-closed",
+          "observed": {
+            "closed": true,
+            "waitedMs": null
+          }
+        },
+        {
+          "line": 276,
+          "name": "c-loaded-before-add",
+          "observed": {
+            "loaded": false,
+            "error": null
+          }
+        },
+        {
+          "line": 279,
+          "name": "c-add",
+          "observed": {
+            "accepted": true,
+            "error": null,
+            "queuedId": "01a1915b-b8d4-7e41-9321-07ec3fa1b768"
+          }
+        },
+        {
+          "line": 280,
+          "name": "c-events-within-quiet-window",
+          "observed": {
+            "method": null,
+            "quietMs": 25000
+          }
+        },
+        {
+          "line": 283,
+          "name": "c-loaded-after-add",
+          "observed": {
+            "loaded": false,
+            "error": null
+          }
+        },
+        {
+          "line": 297,
+          "name": "c-resume",
+          "observed": {
+            "error": null,
+            "settings": {
+              "approvalPolicy": "on-request",
+              "sandbox": {
+                "type": "readOnly",
+                "networkAccess": false
+              },
+              "model": "gpt-6.1-sol",
+              "reasoningEffort": "low",
+              "threadStatus": {
+                "type": "idle"
+              }
+            }
+          }
+        },
+        {
+          "line": 329,
+          "name": "c-queued-turn",
+          "observed": {
+            "ran": true,
+            "turnId": "01a1915c-1b80-7b50-b9e4-ae03fe6a0680",
+            "completed": "completed",
+            "userText": "OAC G7 recheck: reply with exactly the words OAC G7 C UNLOADED. Do not use any tools.",
+            "textMatches": true,
+            "startedIdx": 15,
+            "completedIdx": 33
+          }
+        },
+        {
+          "line": 339,
+          "name": "b-thread-start",
+          "observed": {
+            "error": null,
+            "settings": {
+              "approvalPolicy": "on-request",
+              "sandbox": {
+                "type": "readOnly",
+                "networkAccess": false
+              },
+              "model": "gpt-6.1-sol",
+              "reasoningEffort": "low",
+              "threadStatus": {
+                "type": "idle"
+              }
+            },
+            "ephemeral": false
+          }
+        },
+        {
+          "line": 345,
+          "name": "b-busy-turn-start",
+          "observed": {
+            "error": null,
+            "turnId": "01a1915c-2e98-7993-824e-f0f8d45c1123"
+          }
+        },
+        {
+          "line": 368,
+          "name": "b-adds",
+          "observed": {
+            "accepted": [
+              true,
+              true,
+              true
+            ],
+            "ids": [
+              "01a1915c-41fc-7943-bd84-9d7aaf7c9e77",
+              "01a1915c-4200-7152-b79c-39bbf568be36",
+              "01a1915c-4203-7253-9d50-efb5cd86de85"
+            ],
+            "texts": [
+              "OAC G7 recheck: reply with exactly the words OAC G7 B ITEM 1. Do not use any tools.",
+              "OAC G7 recheck: reply with exactly the words OAC G7 B ITEM 2. Do not use any tools.",
+              "OAC G7 recheck: reply with exactly the words OAC G7 B ITEM 3. Do not use any tools."
+            ]
+          }
+        },
+        {
+          "line": 374,
+          "name": "b-interrupt",
+          "observed": {
+            "error": null
+          }
+        },
+        {
+          "line": 375,
+          "name": "b-interrupt-completed",
+          "observed": {
+            "status": "interrupted"
+          }
+        },
+        {
+          "line": 383,
+          "name": "b-list-before",
+          "observed": {
+            "error": null,
+            "items": [
+              {
+                "id": "01a1915c-41fc-7943-bd84-9d7aaf7c9e77",
+                "clientUserMessageId": "e828379b-6548-4a87-8c8e-c164a5a47762",
+                "text": "OAC G7 recheck: reply with exactly the words OAC G7 B ITEM 1. Do not use any tools."
+              },
+              {
+                "id": "01a1915c-4200-7152-b79c-39bbf568be36",
+                "clientUserMessageId": "26c344bd-c598-4352-804c-225227602123",
+                "text": "OAC G7 recheck: reply with exactly the words OAC G7 B ITEM 2. Do not use any tools."
+              },
+              {
+                "id": "01a1915c-4203-7253-9d50-efb5cd86de85",
+                "clientUserMessageId": "c282ce41-ec02-42dd-a8f7-5799fea4cad9",
+                "text": "OAC G7 recheck: reply with exactly the words OAC G7 B ITEM 3. Do not use any tools."
+              }
+            ]
+          }
+        },
+        {
+          "line": 388,
+          "name": "b-update",
+          "observed": {
+            "error": null,
+            "id": "01a1915c-4200-7152-b79c-39bbf568be36",
+            "sameId": true,
+            "text": "OAC G7 recheck: reply with exactly the words OAC G7 B ITEM 2 UPDATED. Do not use any tools."
+          }
+        },
+        {
+          "line": 392,
+          "name": "b-reorder",
+          "observed": {
+            "error": null,
+            "requestedOrder": [
+              "item 3",
+              "item 2",
+              "item 1"
+            ]
+          }
+        },
+        {
+          "line": 395,
+          "name": "b-delete",
+          "observed": {
+            "error": null,
+            "deleted": true
+          }
+        },
+        {
+          "line": 399,
+          "name": "b-list-after",
+          "observed": {
+            "error": null,
+            "items": [
+              {
+                "id": "01a1915c-4203-7253-9d50-efb5cd86de85",
+                "clientUserMessageId": "c282ce41-ec02-42dd-a8f7-5799fea4cad9",
+                "text": "OAC G7 recheck: reply with exactly the words OAC G7 B ITEM 3. Do not use any tools."
+              },
+              {
+                "id": "01a1915c-4200-7152-b79c-39bbf568be36",
+                "clientUserMessageId": "26c344bd-c598-4352-804c-225227602123",
+                "text": "OAC G7 recheck: reply with exactly the words OAC G7 B ITEM 2 UPDATED. Do not use any tools."
+              }
+            ]
+          }
+        },
+        {
+          "line": 400,
+          "name": "b-held-during-management",
+          "observed": {
+            "turnStartedMeanwhile": false,
+            "queueChangedOnOwner": 3
+          }
+        },
+        {
+          "line": 424,
+          "name": "b-next-turn",
+          "observed": {
+            "status": "completed",
+            "error": null
+          }
+        },
+        {
+          "line": 474,
+          "name": "b-dispatched",
+          "observed": {
+            "count": 2,
+            "texts": [
+              "OAC G7 recheck: reply with exactly the words OAC G7 B ITEM 3. Do not use any tools.",
+              "OAC G7 recheck: reply with exactly the words OAC G7 B ITEM 2 UPDATED. Do not use any tools."
+            ],
+            "expectedTexts": [
+              "OAC G7 recheck: reply with exactly the words OAC G7 B ITEM 3. Do not use any tools.",
+              "OAC G7 recheck: reply with exactly the words OAC G7 B ITEM 2 UPDATED. Do not use any tools."
+            ],
+            "deletedItemRan": false,
+            "quietMs": 25000
+          }
+        },
+        {
+          "line": 483,
+          "name": "l-thread-start",
+          "observed": {
+            "error": null,
+            "settings": {
+              "approvalPolicy": "on-request",
+              "sandbox": {
+                "type": "readOnly",
+                "networkAccess": false
+              },
+              "model": "gpt-6.1-sol",
+              "reasoningEffort": "low",
+              "threadStatus": {
+                "type": "idle"
+              }
+            },
+            "ephemeral": false
+          }
+        },
+        {
+          "line": 484,
+          "name": "override-chosen",
+          "observed": {
+            "member": "approvalPolicy",
+            "value": "untrusted",
+            "threadHas": "on-request"
+          }
+        },
+        {
+          "line": 516,
+          "name": "l-first-turn",
+          "observed": {
+            "status": "completed",
+            "error": null
+          }
+        },
+        {
+          "line": 519,
+          "name": "l-loaded",
+          "observed": {
+            "loaded": true
+          }
+        },
+        {
+          "line": 528,
+          "name": "l-resume-baseline",
+          "observed": {
+            "sent": [
+              "threadId",
+              "excludeTurns"
+            ],
+            "error": null,
+            "settings": {
+              "approvalPolicy": "on-request",
+              "sandbox": {
+                "type": "readOnly",
+                "networkAccess": false
+              },
+              "model": "gpt-6.1-sol",
+              "reasoningEffort": "low",
+              "threadStatus": {
+                "type": "idle"
+              }
+            }
+          }
+        },
+        {
+          "line": 529,
+          "name": "l-subscribers",
+          "observed": {
+            "connections": [
+              "p-main (thread/start subscribes it)",
+              "p-sub (thread/resume)"
+            ],
+            "count": 2
+          }
+        },
+        {
+          "line": 540,
+          "name": "l-resume-override",
+          "observed": {
+            "sent": [
+              "threadId",
+              "excludeTurns",
+              "approvalPolicy"
+            ],
+            "approvalPolicy": "untrusted",
+            "error": null,
+            "settings": {
+              "approvalPolicy": "on-request",
+              "sandbox": {
+                "type": "readOnly",
+                "networkAccess": false
+              },
+              "model": "gpt-6.1-sol",
+              "reasoningEffort": "low",
+              "threadStatus": {
+                "type": "idle"
+              }
+            }
+          }
+        },
+        {
+          "line": 550,
+          "name": "l-settings-updated-notification",
+          "observed": {
+            "quietMs": 25000,
+            "seen": []
+          }
+        },
+        {
+          "line": 559,
+          "name": "l-resume-readback",
+          "observed": {
+            "sent": [
+              "threadId",
+              "excludeTurns"
+            ],
+            "error": null,
+            "settings": {
+              "approvalPolicy": "on-request",
+              "sandbox": {
+                "type": "readOnly",
+                "networkAccess": false
+              },
+              "model": "gpt-6.1-sol",
+              "reasoningEffort": "low",
+              "threadStatus": {
+                "type": "idle"
+              }
+            }
+          }
+        },
+        {
+          "line": 572,
+          "name": "w-thread-start",
+          "observed": {
+            "error": null,
+            "settings": {
+              "approvalPolicy": "on-request",
+              "sandbox": {
+                "type": "readOnly",
+                "networkAccess": false
+              },
+              "model": "gpt-6.1-sol",
+              "reasoningEffort": "low",
+              "threadStatus": {
+                "type": "idle"
+              }
+            },
+            "ephemeral": false
+          }
+        },
+        {
+          "line": 609,
+          "name": "w-first-turn",
+          "observed": {
+            "status": "completed",
+            "error": null
+          }
+        },
+        {
+          "line": 623,
+          "name": "w-unsubscribe",
+          "observed": {
+            "error": null,
+            "status": "unsubscribed"
+          }
+        },
+        {
+          "line": 624,
+          "name": "w-subscribers",
+          "observed": {
+            "connections": [],
+            "count": 0,
+            "note": "p-main, the only connection that held the thread, unsubscribed; no other connection resumed it"
+          }
+        },
+        {
+          "line": 628,
+          "name": "w-loaded-before-resume",
+          "observed": {
+            "loaded": true
+          }
+        },
+        {
+          "line": 648,
+          "name": "w-resume-override",
+          "observed": {
+            "sent": [
+              "threadId",
+              "excludeTurns",
+              "approvalPolicy"
+            ],
+            "approvalPolicy": "untrusted",
+            "error": null,
+            "settings": {
+              "approvalPolicy": "untrusted",
+              "sandbox": {
+                "type": "readOnly",
+                "networkAccess": false
+              },
+              "model": "gpt-6.1-sol",
+              "reasoningEffort": "low",
+              "threadStatus": {
+                "type": "idle"
+              }
+            }
+          }
+        },
+        {
+          "line": 657,
+          "name": "w-events-after-override",
+          "observed": {
+            "windowMs": 5000,
+            "methods": [
+              "thread/status/changed",
+              "thread/goal/cleared",
+              "mcpServer/startupStatus/updated",
+              "thread/tokenUsage/updated"
+            ]
+          }
+        },
+        {
+          "line": 660,
+          "name": "w-resume-readback",
+          "observed": {
+            "sent": [
+              "threadId",
+              "excludeTurns"
+            ],
+            "error": null,
+            "settings": {
+              "approvalPolicy": "untrusted",
+              "sandbox": {
+                "type": "readOnly",
+                "networkAccess": false
+              },
+              "model": "gpt-6.1-sol",
+              "reasoningEffort": "low",
+              "threadStatus": {
+                "type": "idle"
+              }
+            }
+          }
+        },
+        {
+          "line": 675,
+          "name": "u-thread-start",
+          "observed": {
+            "error": null,
+            "settings": {
+              "approvalPolicy": "on-request",
+              "sandbox": {
+                "type": "readOnly",
+                "networkAccess": false
+              },
+              "model": "gpt-6.1-sol",
+              "reasoningEffort": "low",
+              "threadStatus": {
+                "type": "idle"
+              }
+            },
+            "ephemeral": false
+          }
+        },
+        {
+          "line": 713,
+          "name": "u-first-turn",
+          "observed": {
+            "status": "completed",
+            "error": null
+          }
+        },
+        {
+          "line": 720,
+          "name": "u-unsubscribe",
+          "observed": {
+            "error": null
+          }
+        },
+        {
+          "line": 741,
+          "name": "u-thread-closed",
+          "observed": {
+            "closed": true,
+            "waitedMs": null
+          }
+        },
+        {
+          "line": 748,
+          "name": "u-loaded-before-resume",
+          "observed": {
+            "loaded": false
+          }
+        },
+        {
+          "line": 749,
+          "name": "u-subscribers",
+          "observed": {
+            "connections": [],
+            "count": 0,
+            "loaded": false
+          }
+        },
+        {
+          "line": 776,
+          "name": "u-resume-override",
+          "observed": {
+            "sent": [
+              "threadId",
+              "excludeTurns",
+              "approvalPolicy"
+            ],
+            "approvalPolicy": "untrusted",
+            "error": null,
+            "settings": {
+              "approvalPolicy": "untrusted",
+              "sandbox": {
+                "type": "readOnly",
+                "networkAccess": false
+              },
+              "model": "gpt-6.1-sol",
+              "reasoningEffort": "low",
+              "threadStatus": {
+                "type": "idle"
+              }
+            }
+          }
+        },
+        {
+          "line": 787,
+          "name": "u-resume-readback",
+          "observed": {
+            "sent": [
+              "threadId",
+              "excludeTurns"
+            ],
+            "error": null,
+            "settings": {
+              "approvalPolicy": "untrusted",
+              "sandbox": {
+                "type": "readOnly",
+                "networkAccess": false
+              },
+              "model": "gpt-6.1-sol",
+              "reasoningEffort": "low",
+              "threadStatus": {
+                "type": "idle"
+              }
+            }
+          }
+        },
+        {
+          "line": 805,
+          "name": "archive",
+          "observed": {
+            "thread": "01a19159-958d-70c1-80bd-e07c07e9ef6b",
+            "error": null
+          }
+        },
+        {
+          "line": 809,
+          "name": "archive",
+          "observed": {
+            "thread": "01a1915a-36f8-7bb1-9537-8e0342fb9a5d",
+            "error": null
+          }
+        },
+        {
+          "line": 813,
+          "name": "archive",
+          "observed": {
+            "thread": "01a1915c-2e46-74c3-993c-568da144a3b9",
+            "error": null
+          }
+        },
+        {
+          "line": 818,
+          "name": "archive",
+          "observed": {
+            "thread": "01a1915c-cfc7-7600-9e7a-1d4bd5e43a10",
+            "error": null
+          }
+        },
+        {
+          "line": 823,
+          "name": "archive",
+          "observed": {
+            "thread": "01a1915d-4695-74b0-b2b6-f8fd131dc5a9",
+            "error": null
+          }
+        },
+        {
+          "line": 828,
+          "name": "archive",
+          "observed": {
+            "thread": "01a1915d-74fc-72e1-8d5c-9b62ff51b197",
+            "error": null
+          }
+        }
+      ],
+      "judgments": {
+        "row66": [
+          {
+            "id": "66a-queued-at-interrupt",
+            "claim": "items queued before the interrupt wait and run after the next uninterrupted turn",
+            "verdict": "CONFIRMED",
+            "basis": "both adds accepted; nothing dispatched in the quiet window; after the next uninterrupted turn the two items ran in separate turns, in order, the second after the first completed"
+          },
+          {
+            "id": "66a-add-after-interrupt",
+            "claim": "an add to an idle thread whose last turn was interrupted waits until a turn completes uninterrupted",
+            "verdict": "CONFIRMED",
+            "basis": "accepted; nothing in the quiet window; ran after the next turn completed"
+          },
+          {
+            "id": "66c-unloaded-thread",
+            "claim": "an add to an unloaded thread is accepted and waits; loading the thread dispatches it",
+            "verdict": "CONFIRMED",
+            "basis": "accepted; no event and still unloaded through the quiet window; thread/resume then dispatched it"
+          },
+          {
+            "id": "66d-extra-member",
+            "claim": "an extra member in thread/queue/add is accepted and ignored",
+            "verdict": "CONFIRMED",
+            "basis": "accepted; the message ran as one turn with exactly the text sent"
+          },
+          {
+            "id": "66b-queue-management",
+            "claim": "(b) other daemon clients can reorder, update or delete a queued item",
+            "verdict": "CONFIRMED",
+            "basis": "update, reorder and delete from a second client were accepted, shown by thread/queue/list, and dispatch followed them (item 3, then item 2 as updated; item 1 never ran)",
+            "operations": {
+              "update": {
+                "accepted": true,
+                "error": null,
+                "inList": true,
+                "ran": true
+              },
+              "reorder": {
+                "accepted": true,
+                "error": null,
+                "inList": true,
+                "ran": true
+              },
+              "delete": {
+                "accepted": true,
+                "error": null,
+                "deleted": true,
+                "inList": true,
+                "ran": true
+              }
+            }
+          }
+        ],
+        "row73": {
+          "id": "73-resume-override",
+          "claim": "what the app-server does with an approvalPolicy override on thread/resume, in three states of the thread: loaded and idle with subscribers, loaded and idle with no subscriber, and not loaded (MCPB-CDX-006 asks about a loaded thread; the answer depends on its subscribers)",
+          "verdict": "OBSERVED",
+          "basis": "loaded, idle, with subscribers: NOT-APPLIED; loaded, idle, no subscriber: APPLIED-AND-RETAINED; not loaded (control): APPLIED-AND-RETAINED",
+          "branches": {
+            "loadedWithSubscribers": {
+              "branch": "loaded, idle, with subscribers",
+              "outcome": "NOT-APPLIED",
+              "basis": "in this state (loaded, idle, with subscribers) the response reports \"on-request\", not the override \"untrusted\"",
+              "facts": {
+                "subscribers": {
+                  "connections": [
+                    "p-main (thread/start subscribes it)",
+                    "p-sub (thread/resume)"
+                  ],
+                  "count": 2
+                },
+                "override": {
+                  "member": "approvalPolicy",
+                  "value": "untrusted"
+                },
+                "threadHad": "on-request",
+                "overrideResponse": {
+                  "error": null,
+                  "approvalPolicy": "on-request",
+                  "matchesOverride": false
+                },
+                "readback": {
+                  "error": null,
+                  "approvalPolicy": "on-request",
+                  "matchesOverride": false
+                },
+                "baselineResume": "on-request",
+                "notification": []
+              }
+            },
+            "loadedWithoutSubscribers": {
+              "branch": "loaded, idle, no subscriber",
+              "outcome": "APPLIED-AND-RETAINED",
+              "basis": "in this state (loaded, idle, no subscriber) the response reports the override and a later resume without it reports it too",
+              "facts": {
+                "subscribers": {
+                  "connections": [],
+                  "count": 0,
+                  "note": "p-main, the only connection that held the thread, unsubscribed; no other connection resumed it"
+                },
+                "override": {
+                  "member": "approvalPolicy",
+                  "value": "untrusted"
+                },
+                "threadHad": "on-request",
+                "overrideResponse": {
+                  "error": null,
+                  "approvalPolicy": "untrusted",
+                  "matchesOverride": true
+                },
+                "readback": {
+                  "error": null,
+                  "approvalPolicy": "untrusted",
+                  "matchesOverride": true
+                },
+                "eventsAfterOverride": [
+                  "thread/status/changed",
+                  "thread/goal/cleared",
+                  "mcpServer/startupStatus/updated",
+                  "thread/tokenUsage/updated"
+                ]
+              }
+            },
+            "unloadedControl": {
+              "branch": "not loaded (control)",
+              "outcome": "APPLIED-AND-RETAINED",
+              "basis": "in this state (not loaded (control)) the response reports the override and a later resume without it reports it too",
+              "facts": {
+                "subscribers": {
+                  "connections": [],
+                  "count": 0,
+                  "loaded": false
+                },
+                "override": {
+                  "member": "approvalPolicy",
+                  "value": "untrusted"
+                },
+                "threadHad": "on-request",
+                "overrideResponse": {
+                  "error": null,
+                  "approvalPolicy": "untrusted",
+                  "matchesOverride": true
+                },
+                "readback": {
+                  "error": null,
+                  "approvalPolicy": "untrusted",
+                  "matchesOverride": true
+                }
+              }
+            }
+          },
+          "caveats": [
+            "judged from the wire only: no turn was started after an override, so its effect on a turn is not observed"
+          ]
+        },
+        "quietMs": 25000
+      },
+      "stoppedAt": null,
+      "postRun": {
+        "cliOutput": "codex-cli 0.166.0",
+        "cli": "0.166.0",
+        "daemon": {
+          "status": "running",
+          "cliVersion": "0.166.0",
+          "appServerVersion": "0.166.0",
+          "managedCodexVersion": "0.166.0"
+        },
+        "wireVersionsSeen": [
+          "0.166.0"
+        ],
+        "matches": true
+      },
+      "sanitizer": {
+        "ownThreadId": null,
+        "threadListEntriesRemoved": 0,
+        "threadListResultsTouched": 0,
+        "readStatesEntriesRemoved": 0,
+        "serverNames": 15,
+        "installationIds": 15,
+        "planFields": 31,
+        "creditFields": 17,
+        "unparsedLines": 0
+      }
+    }
+  },
+  "findings": [
+    "the driver was started from inside a Claude Code session: 30 of its variables (names in env.serverLaunch.removed) were removed so the harness under test does not run as that session's child or through its relay (#163)",
+    "VERSION WARNING (G7 recheck): `codex --version` reports 0.166.0; docs/planning/PINS.md \"Codex CLI / app-server\" records minimum 0.154.0, last tested 0.165.0 (not the last tested 0.165.0). Codex versions float and are never gated (operator decision on #216, 2026-10-01): the run continues, and this is a finding only. It does not by itself invalidate any gate verdict. The run does not edit PINS.md; record the version as last tested there after a live run.",
+    "VERSION WARNING (G7 recheck): `codex app-server daemon version` cliVersion reports 0.166.0; docs/planning/PINS.md \"Codex CLI / app-server\" records minimum 0.154.0, last tested 0.165.0 (not the last tested 0.165.0). Codex versions float and are never gated (operator decision on #216, 2026-10-01): the run continues, and this is a finding only. It does not by itself invalidate any gate verdict. The run does not edit PINS.md; record the version as last tested there after a live run.",
+    "VERSION WARNING (G7 recheck): `codex app-server daemon version` appServerVersion reports 0.166.0; docs/planning/PINS.md \"Codex CLI / app-server\" records minimum 0.154.0, last tested 0.165.0 (not the last tested 0.165.0). Codex versions float and are never gated (operator decision on #216, 2026-10-01): the run continues, and this is a finding only. It does not by itself invalidate any gate verdict. The run does not edit PINS.md; record the version as last tested there after a live run.",
+    "VERSION WARNING (G7 recheck): `codex app-server daemon version` managedCodexVersion reports 0.166.0; docs/planning/PINS.md \"Codex CLI / app-server\" records minimum 0.154.0, last tested 0.165.0 (not the last tested 0.165.0). Codex versions float and are never gated (operator decision on #216, 2026-10-01): the run continues, and this is a finding only. It does not by itself invalidate any gate verdict. The run does not edit PINS.md; record the version as last tested there after a live run.",
+    "VERSION WARNING (G7 recheck): the wire initialize userAgent reports 0.166.0; docs/planning/PINS.md \"Codex CLI / app-server\" records minimum 0.154.0, last tested 0.165.0 (not the last tested 0.165.0). Codex versions float and are never gated (operator decision on #216, 2026-10-01): the run continues, and this is a finding only. It does not by itself invalidate any gate verdict. The run does not edit PINS.md; record the version as last tested there after a live run."
+  ],
+  "manifestRedaction": {
+    "afterRedaction": "droppedHazardLines=0 hazardProtocolFrames=0 residualLeaks=0 residualGenericHits=0",
+    "replacements": {
+      "home": 23,
+      "literal <SCRATCH>": 5
+    },
+    "withheld": [],
+    "writtenClean": true
+  }
+}
