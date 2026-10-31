@@ -1378,14 +1378,20 @@ impl Pipelines {
     /// that no set covers yet; `None` when there is none, and also while a set is starting
     /// (its first announcement is not yet passed, so the hold-off has not started; the owner
     /// asks again after it). It is the hold-off after the previous set began, which is at
-    /// most [`CARRIER_APPEARANCE_BOUND`] after the appearance was handed over.
+    /// most [`CARRIER_APPEARANCE_BOUND`] after the appearance was handed over, or the present
+    /// when no set has begun.
     pub fn next_appearance_set_at(&self) -> Option<Instant> {
+        let now = (self.inner.monotonic)();
         let core = self.inner.lock();
         let sets = &core.appearances;
         if !sets.uncovered || sets.starting.is_some() {
             return None;
         }
-        sets.last_began.map(|t| t + CARRIER_APPEARANCE_HOLD_OFF)
+        // No set has begun yet (the one decided before was empty): the set is due now.
+        Some(
+            sets.last_began
+                .map_or(now, |t| t + CARRIER_APPEARANCE_HOLD_OFF),
+        )
     }
 
     /// How long from now, on the core's own monotonic clock, until
@@ -2346,9 +2352,22 @@ impl Inner {
         }
     }
 
-    /// Returns the instant (on the monotonic clock) at which the announcement was passed to
-    /// the transport, or `None` when none was ([IFC-TRN-125] dates a set from its first).
-    fn announce_to(&self, session: &SessionId, device: &KeyId, refresh: bool) -> Option<Instant> {
+    fn announce_to(&self, session: &SessionId, device: &KeyId, refresh: bool) {
+        self.announce_to_noting(session, device, refresh, |_| {});
+    }
+
+    /// As [`Inner::announce_to`], calling `passing` with the monotonic instant just before the
+    /// announcement is passed to the transport, if one is ([IFC-TRN-125] dates a set from its
+    /// first). `passing` runs before the transport call, so that a call which takes long, or
+    /// never returns, does not hold up the decision about a later set. It returns whether an
+    /// announcement was passed.
+    fn announce_to_noting(
+        &self,
+        session: &SessionId,
+        device: &KeyId,
+        refresh: bool,
+        passing: impl FnOnce(Instant),
+    ) -> bool {
         let mono = (self.monotonic)();
         let next = {
             let mut core = self.lock();
@@ -2361,8 +2380,10 @@ impl Inner {
                 None => None,
             }
         };
-        let ((destination, payload), carriage) = next?;
-        let passed_at = (self.monotonic)();
+        let Some(((destination, payload), carriage)) = next else {
+            return false;
+        };
+        passing((self.monotonic)());
         let result = self.pass(
             carriage,
             device,
@@ -2371,7 +2392,7 @@ impl Inner {
             self.control_deadline(),
         );
         self.announcement_taken(session, device, mono, result);
-        Some(passed_at)
+        true
     }
 
     /// A carrier appeared ([IFC-TRN-123]). The event is marked uncovered under the lock,
@@ -2395,6 +2416,24 @@ impl Inner {
     /// where [SEC-AUZ-011] allows the device to receive that session's presence record, and
     /// only through the transport that reported the appearance.
     fn announce_set(&self) {
+        // Ends the set whatever happens below: a set that passed nothing never began. Once
+        // the first announcement is being passed the set has begun, and the guard is done
+        // (a later set may already be starting by then).
+        struct Settle<'a> {
+            inner: &'a Inner,
+            began: bool,
+        }
+        impl Drop for Settle<'_> {
+            fn drop(&mut self) {
+                if !self.began {
+                    self.inner.lock().appearances.settle();
+                }
+            }
+        }
+        let mut settle = Settle {
+            inner: self,
+            began: false,
+        };
         let own = self.identity.key_id().clone();
         let (sessions, devices): (Vec<SessionId>, Vec<KeyId>) = {
             let core = self.lock();
@@ -2408,23 +2447,15 @@ impl Inner {
                     .collect(),
             )
         };
-        // Ends the set whatever happens below: a set that passed nothing never began.
-        struct Settle<'a>(&'a Inner);
-        impl Drop for Settle<'_> {
-            fn drop(&mut self) {
-                self.0.lock().appearances.settle();
-            }
-        }
-        let _settle = Settle(self);
-        let mut began = false;
         for session in &sessions {
             for device in &devices {
-                if let Some(at) = self.announce_to(session, device, true)
-                    && !began
-                {
-                    began = true;
-                    self.lock().appearances.first_passed(at);
-                }
+                let mut note = |at| {
+                    if !settle.began {
+                        settle.began = true;
+                        self.lock().appearances.first_passed(at);
+                    }
+                };
+                self.announce_to_noting(session, device, true, &mut note);
             }
         }
     }

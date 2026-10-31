@@ -4779,35 +4779,66 @@ fn a_reveal_turned_away_at_the_cap_does_not_reset_the_window_count() {
 
 /// A monotonic clock that moves only when told to.
 #[derive(Clone)]
-struct Mono(Arc<Mutex<(Instant, Duration)>>);
+struct Mono(Arc<Mutex<MonoState>>);
+
+struct MonoState {
+    now: Instant,
+    step: Duration,
+    /// Runs once, at the core's `n`th read of the clock from now on, outside the lock.
+    hook: Option<(u32, Box<dyn FnOnce() + Send>)>,
+}
 
 impl Mono {
     fn new() -> Mono {
-        Mono(Arc::new(Mutex::new((Instant::now(), Duration::ZERO))))
+        Mono(Arc::new(Mutex::new(MonoState {
+            now: Instant::now(),
+            step: Duration::ZERO,
+            hook: None,
+        })))
     }
 
     /// The time, without reading the clock as the core does.
     fn now(&self) -> Instant {
-        self.0.lock().unwrap().0
+        self.0.lock().unwrap().now
     }
 
     fn advance(&self, by: Duration) {
-        self.0.lock().unwrap().0 += by;
+        self.0.lock().unwrap().now += by;
     }
 
     /// From now on each read by the core moves the clock on by `step`: the time the core
     /// itself takes between two reads (a lock wait, the signing of a record).
     fn step_per_core_read(&self, step: Duration) {
-        self.0.lock().unwrap().1 = step;
+        self.0.lock().unwrap().step = step;
+    }
+
+    /// Runs `f` at the core's `nth` read of the clock from now on (1 is the next), as a
+    /// moment inside the core's own work at which an event can be handed.
+    fn at_core_read(&self, nth: u32, f: impl FnOnce() + Send + 'static) {
+        self.0.lock().unwrap().hook = Some((nth, Box::new(f)));
     }
 
     fn clock(&self) -> oac_core::pipeline::MonotonicClock {
         let m = self.clone();
         Arc::new(move || {
-            let mut g = m.0.lock().unwrap();
-            let step = g.1;
-            g.0 += step;
-            g.0
+            let (t, hook) = {
+                let mut g = m.0.lock().unwrap();
+                let step = g.step;
+                g.now += step;
+                let hook = match g.hook.take() {
+                    Some((n, f)) if n <= 1 => Some(f),
+                    Some((n, f)) => {
+                        g.hook = Some((n - 1, f));
+                        None
+                    }
+                    None => None,
+                };
+                (g.now, hook)
+            };
+            if let Some(f) = hook {
+                f();
+            }
+            t
         })
     }
 }
@@ -5108,7 +5139,8 @@ fn an_appearance_alone_creates_no_presence_record_session_or_authorization() {
 /// [IFC-TRN-125]: a set begins when the core passes its first announcement to the transport,
 /// not when it decides to begin it. Here the core's clock moves on while it prepares the
 /// first record, so the first pass is later than the decision, and the hold-off runs from the
-/// pass. [IFC-TRN-123]: an event handed after the decision is still not covered by that set.
+/// pass. [IFC-TRN-123]: an event handed after the decision, whether while the set is starting
+/// or after the set has finished, is not covered by that set.
 #[test]
 fn the_hold_off_runs_from_the_first_pass_not_from_the_decision() {
     let a = appearing();
@@ -5123,13 +5155,18 @@ fn the_hold_off_runs_from_the_first_pass_not_from_the_decision() {
     a.bus.0.lock().unwrap().on_presence = Some(Box::new(move || {
         *seen.lock().unwrap() = Some(mono.now());
     }));
+    // An event handed while the set is starting (at the core's read for the announcement,
+    // after the decision and before the pass).
+    let (bus, yk) = (a.bus.clone(), a.yk.clone());
+    a.mono
+        .at_core_read(2, move || bus.appear(&yk, "link-during-start"));
     a.bus.appear(&a.yk, "link-1");
     a.mono.step_per_core_read(Duration::ZERO);
-    assert_eq!(a.sent(), base + 1);
+    assert_eq!(a.sent(), base + 1, "the event while starting begins no set");
     // The time the transport saw the record, which is no earlier than the core's pass.
     let in_transport = passed_at.lock().unwrap().expect("a record was passed");
-    // An event handed after the decision is not covered by the set, and gets a later one.
-    a.bus.appear(&a.yk, "link-2");
+    // An event handed after the set has finished is not covered by it either.
+    a.bus.appear(&a.yk, "link-after");
     assert_eq!(a.sent(), base + 1);
     let due = a.y.pipes.next_appearance_set_at().expect("a set is due");
     // The hold-off runs from the pass, which is at least two clock reads (800 ms) after the
@@ -5145,6 +5182,73 @@ fn the_hold_off_runs_from_the_first_pass_not_from_the_decision() {
     a.mono.advance(due - a.mono.now());
     a.y.pipes.begin_due_appearance_set();
     assert_eq!(a.sent(), base + 2);
+    assert_eq!(a.y.pipes.next_appearance_set_at(), None);
+}
+
+/// A transport call that takes long, or never returns, does not hold up the next set: the set
+/// has begun once its first announcement is being passed ([IFC-TRN-125]), and a later set
+/// that is due begins however long the first pass takes. Here the first set's pass blocks on
+/// a channel the test holds, and the second set begins and passes meanwhile.
+#[test]
+fn a_blocked_pass_does_not_hold_up_a_later_set() {
+    let a = appearing();
+    let base = a.sent();
+    let (entered_tx, entered_rx) = std::sync::mpsc::channel::<()>();
+    let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
+    a.bus.0.lock().unwrap().on_presence = Some(Box::new(move || {
+        entered_tx.send(()).unwrap();
+        let _ = release_rx.recv_timeout(WAIT);
+    }));
+    let (bus, yk) = (a.bus.clone(), a.yk.clone());
+    let first = std::thread::spawn(move || bus.appear(&yk, "link-1"));
+    entered_rx.recv_timeout(WAIT).expect("the first pass began");
+    // The first pass is in the transport and has not returned.
+    assert_eq!(a.sent(), base);
+    a.bus.appear(&a.yk, "link-2");
+    assert_eq!(a.sent(), base, "held back by the hold-off, not by the pass");
+    a.mono.advance(HOLD_OFF);
+    a.y.pipes.begin_due_appearance_set();
+    assert_eq!(
+        a.sent(),
+        base + 1,
+        "the second set passed while the first is blocked"
+    );
+    release_tx.send(()).unwrap();
+    first.join().unwrap();
+    assert_eq!(a.sent(), base + 2);
+    assert_eq!(a.y.pipes.next_appearance_set_at(), None);
+}
+
+/// A set decided but empty (a trusted device no grant admits) never begins. An event handed
+/// while it was starting is not covered by it: once it has settled, a set is due now, and no
+/// hold-off holds it back.
+#[test]
+fn an_event_handed_while_an_empty_set_starts_is_due_at_once() {
+    let bus = Bus::default();
+    let mono = Mono::new();
+    let x = node(&bus, "device-x", PipelineConfig::default());
+    let y = node_mono(
+        &bus,
+        "device-y",
+        PipelineConfig::default(),
+        Arc::new(SystemClock),
+        mono.clock(),
+    );
+    pair(&x, &y);
+    pair(&y, &x);
+    let yk = y.pipes.device().key_id().clone();
+    // A session, and a trusted device that no grant admits to it: the set is empty.
+    session(&y, 2);
+    let (b, k) = (bus.clone(), yk.clone());
+    // The core's second read of the clock is inside the set, after its decision.
+    mono.at_core_read(2, move || b.appear(&k, "link-2"));
+    bus.appear(&yk, "link-1");
+    assert!(bus.presence_from(&yk).is_empty());
+    assert_eq!(y.pipes.next_appearance_set_at(), Some(mono.now()));
+    assert_eq!(y.pipes.next_appearance_set_in(), Some(Duration::ZERO));
+    y.pipes.begin_due_appearance_set();
+    assert_eq!(y.pipes.next_appearance_set_at(), None);
+    assert_eq!(y.pipes.next_appearance_set_in(), None);
 }
 
 /// [IFC-TRN-123]: a set with nothing to pass has nothing to observe. It never begins, so it
