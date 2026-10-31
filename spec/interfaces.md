@@ -2,7 +2,7 @@
 
 **Document:** `spec/interfaces.md`, the normative interface contracts of OAC Session
 Channels: the core neutral types, the provider adapter contract and the transport contract.
-**Revision:** 0.12 (in force from the merge of PR #469, Refs #457; 0.11 from the merge of PR #427, Refs #409, 0.10 from the merge of PR #424, and 0.9 from the merge of PR #408), a minor revision of the 0.1 frozen
+**Revision:** 0.13 (proposed; lead approval pending, Refs #420; 0.12 is in force from the merge of PR #469, Refs #457, 0.11 from the merge of PR #427, Refs #409, 0.10 from the merge of PR #424, and 0.9 from the merge of PR #408), a minor revision of the 0.1 frozen
 at Gate S2 (signed off 2026-10-06, in
 force from the merge of PR #276; E7, #47), made under
 `docs/planning/decisions/E7-interface-freeze.md` §7: 0.2 (issue #69, PR #350), 0.3
@@ -11,7 +11,7 @@ force from the merge of PR #276; E7, #47), made under
 0.5 (bounded core calls and event callbacks, §5.3.1; lead decision 2026-10-10,
 Refs #376, Refs #380, Refs #66), 0.6 (shutdown given the transport, §5.3.2;
 lead decision 2026-10-10, Refs #380, Refs #376), 0.7 (transport deadline, §6.4,
-IFC-TRN-034, IFC-TRN-038 and IFC-TRN-117; lead decision 2026-10-11, Refs #377), 0.8 (owners for the hook carrier's MCPB-CLD ids, #390; in force from the merge of PR #401), 0.9 (the declared payload size, §6.4; a carrier appearance event, §6.6; the Appendix A cells for IFC-TRN-060 and IFC-TRN-108; Refs #396, #389, #391; the revisions of the companion documents made for #375 are listed in §7.5), 0.10 (owners for the shim's hello line's MCPB-CLD ids, #70; in force from the merge of PR #424), 0.11 (owners for SEC-SEL-044 to SEC-SEL-050, the pairing change of `spec/security.md` 0.6, Refs #409; in force from the merge of PR #427), and 0.12 (settlement at shutdown judged by effects the core records, not by the order of two returns, §5.3.1 and §5.7; proposed, lead approval pending, Refs #457). Written by #273.
+IFC-TRN-034, IFC-TRN-038 and IFC-TRN-117; lead decision 2026-10-11, Refs #377), 0.8 (owners for the hook carrier's MCPB-CLD ids, #390; in force from the merge of PR #401), 0.9 (the declared payload size, §6.4; a carrier appearance event, §6.6; the Appendix A cells for IFC-TRN-060 and IFC-TRN-108; Refs #396, #389, #391; the revisions of the companion documents made for #375 are listed in §7.5), 0.10 (owners for the shim's hello line's MCPB-CLD ids, #70; in force from the merge of PR #424), 0.11 (owners for SEC-SEL-044 to SEC-SEL-050, the pairing change of `spec/security.md` 0.6, Refs #409; in force from the merge of PR #427), 0.12 (settlement at shutdown judged by effects the core records, not by the order of two returns, §5.3.1 and §5.7; in force from the merge of PR #469, Refs #457), and 0.13 (the Appendix A cells for IFC-TRN-123 to IFC-TRN-125 name the core's tests, and §7.7 classifies the revision; proposed, lead approval pending, Refs #420). Written by #273.
 Appendix B records the changes.
 **Companion documents:** `spec/session-channels.md` (the protocol), `spec/security.md` (the
 security model) and `spec/bindings/mcp.md` (the MCP binding). This document does not restate
@@ -2076,6 +2076,22 @@ Implementation work: the adapter contract suite (F10, #59) judges by a core-side
 shutdown mark; the channel stand-in's `shutdown` waits for its running `deliver` calls. No
 adapter code changes.
 
+### 7.7 Revision 0.13 classification and implementation work
+
+Refs #420. Revision 0.13 is **minor under E7 §7 item 2's no-wire-form rule**, with the same
+major version and extension identifier. It changes no requirement: [IFC-TRN-123],
+[IFC-TRN-124] and [IFC-TRN-125] keep the wording of 0.9, and the timing values (hold-off 1
+second, bound 2 seconds) are the ones the lead confirmed on 2026-10-14. What changes is the
+evidence, in Appendix A, and the code that carries the requirements out.
+
+Implementation work: the neutral `PresenceEvent` type of the Rust core gains the
+`carrier-appeared` variant that §6.6 specified in 0.9, with the carrier handle as its only
+member ([IFC-TRN-122]). The core begins a set of announcements on such an event when no
+hold-off holds it back, and otherwise when the hold-off ends. The owner of the core's timers
+calls the core at the instant the core names for it, so that the set begins within the bound.
+A transport binding that reports appearances is G2 (#63, #419), and is not changed by this
+revision.
+
 ---
 
 ## 8. Security considerations
@@ -2338,9 +2354,9 @@ the requirement whose fixtures exercise it. Appendix C gives each requirement's 
 | IFC-TRN-120 | MAY | 6.6 | none (MAY); omission remains conformant |
 | IFC-TRN-121 | MUST | 6.6 | TODO(fixture): F10 transport suite, a scripted appearance, including a link already usable at start; G2 (#63) |
 | IFC-TRN-122 | MUST | 6.6 | TODO(fixture): F10 transport suite, the event's members checked (the carrier handle only); G2 (#63) |
-| IFC-TRN-123 | MUST | 6.6 | TODO(fixture): F6, F10: a scripted core and a scripted appearance through the transport that reported it; the set begins within 2 seconds of the event; an event handed during a set, and one handed at its start, each get a later set; each set goes to each device `SEC-AUZ-011` allows, and to no other |
-| IFC-TRN-124 | MUST NOT | 6.6 | TODO(fixture): F6, F10: an appearance alone creates no presence record, session or authorization |
-| IFC-TRN-125 | MUST NOT | 6.6 | TODO(fixture): F6, F10: a scripted series of appearances from one transport, one arriving at the start of a set and one during it; no second set begins less than 1 second after the previous set began |
+| IFC-TRN-123 | MUST | 6.6 | tested, no fixture (behaviour; the core side, #420): `core/tests/pipeline.rs` `an_appearance_begins_a_set_to_each_admitted_device` (the set holds one new announcement per announced session, to each device [SEC-AUZ-011] allows and to no other, each with a higher `seq` than the one before; [SC-DLV-050]), `an_appearance_at_the_start_of_a_set_gets_a_later_set_within_the_bound` (an event handed at the instant a set begins), `an_appearance_during_a_set_gets_a_later_set_within_the_bound` (an event handed while the set is being passed to the transport) and `no_second_set_begins_within_the_hold_off` (every event of a series is covered by a set begun after it, within 2 seconds). The scripted transport reports the appearance to the core that owns it; the clock is a manual monotonic clock, so no test sleeps. F6 |
+| IFC-TRN-124 | MUST NOT | 6.6 | tested, no fixture (behaviour; the core side, #420): `core/tests/pipeline.rs` `an_appearance_alone_creates_no_presence_record_session_or_authorization` (after appearances on several carrier handles the core can discover no session, holds no record of one, and its sessions, grants and trusted devices are unchanged; a core with no session sends nothing). F6 |
+| IFC-TRN-125 | MUST NOT | 6.6 | tested, no fixture (behaviour; the core side, #420): `core/tests/pipeline.rs` `no_second_set_begins_within_the_hold_off` (a scripted series on five carrier handles: no set begins within 1 second of the previous one, including an event handed at the instant a set begins, and an appearance after a quiet period begins a set at once), `an_appearance_at_the_start_of_a_set_gets_a_later_set_within_the_bound` (the later set waits for the instant that is 1 second after the first set began, not 1 millisecond less). F6 |
 | IFC-NEU-001 | MUST NOT | 7 | TODO(fixture): F1 workspace boundaries, boundary lint checks 1-2 over `core/` |
 | IFC-NEU-002 | MUST NOT | 7 | TODO(fixture): F10 adapter suite, boundary lint check 2 over `core/` |
 | IFC-NEU-003 | MUST NOT | 7 | TODO(fixture): F10 transport suite, boundary lint check 1 over `core/`; G1 |
@@ -2373,6 +2389,7 @@ a frame, so the id was reused for the rule it holds now and is not retired.
 | 0.10 (in force from the merge of PR #424) | 2026-10-15 | #70, with `spec/bindings/mcp.md` 0.4 (the shim's hello line, §8.1): Appendix C gives the six new `MUST` and `MUST NOT` requirements of MCPB-CLD-011 to MCPB-CLD-016 one owner each, adapter (the `oac mcp-shim` command that sends the line and the adapter's classification and reporting of it). No requirement of this document changes, and no wire form or member changes; the cross-check value the adapter reports in `attachment-opened` is the one this document already defines (§5.4, the `attachment-opened` event). Minor revision under E7 §7: the owner index is an index of who carries out a requirement, as in 0.8. |
 | 0.11 (in force from the merge of PR #427) | 2026-10-15 | Refs #409, split from #375 item 1, with `spec/security.md` 0.6 (pairing confirms each device's agreement statement; a breaking change to the unreleased 0.3 sealing, published as a minor revision by the lead's decision, #409 option c, as a one-off exception to E7 §7 item 2 and `spec/session-channels.md` §5.3, which `spec/session-channels.md` 0.4 records). Appendix C gives owner core to SEC-SEL-044 to SEC-SEL-050, the pairing comparison and the admission, durability and removal rules that follow from it, so that the owner index lists every `MUST` of `spec/security.md` once. No requirement of this document, and no wire form, changes. Appendix A: the IFC-TRN-118 cell now cites the F10 transport suite row `declared-size-is-not-refused` and its planted breaches (PR #428); IFC-TRN-119 stays `TODO(fixture)`, since its stop cases are not exercised yet. Apart from that cell, this revision only extends the owner index, which is a change to a frozen document and takes a version bump under `docs/planning/decisions/E7-interface-freeze.md` §7, as in 0.8. |
 | 0.12 (in force from the merge of PR #469) | 2026-10-29 | Refs #457; lead decision 2026-10-29 (option 1). The settlement barrier of §5.3.1 is judged by effects the core records, not by which of `deliver` and `shutdown` returned first, which a core cannot observe without a scheduler race: [IFC-ADP-109] now requires that no in-flight call, report or callback takes effect after `shutdown` returns and that each ends with one definite result (for `deliver`, one terminal outcome) without waiting on anything the core must do; the new [IFC-ADP-126] (`MUST`, owner adapter) requires each `deliver` in flight at that return to return within the composed bound of §5.3.2, measured from it; the paragraph after [IFC-ADP-111] says how the record, the closure of the supplied connections (hand-offs) and the shutdown mark judge it, with no later grace period; [IFC-ADP-075] follows [IFC-ADP-109]. What an adapter owes after `shutdown` returns ([IFC-ADP-070], [IFC-ADP-110]) is unchanged. Relaxed: a `deliver` still returning, with no effect, at the mark is conformant (§7.6). Appendix A rows 070, 071, 075, 109 and the new 126 name the revised suite rows; Appendix C gives [IFC-ADP-126] to the adapter. No wire form, delivery state, error code or other requirement changes. Minor revision under `docs/planning/decisions/E7-interface-freeze.md` §7. |
+| 0.13 (proposed; lead approval pending, Refs #420) | 2026-10-30 | Refs #420, #63, #389. The core now carries out [IFC-TRN-123], [IFC-TRN-124] and [IFC-TRN-125], and the neutral `PresenceEvent` has the `carrier-appeared` variant that §6.6 already specified (IFC-TRN-120 to IFC-TRN-122; the type had lagged the text). Appendix A: the cells for IFC-TRN-123, -124 and -125 replace their `TODO(fixture)` text with the core's tests. No `MUST`, `SHOULD` or `MAY` wording, requirement, wire form, delivery state, error code or ownership boundary changes (§7.7). Minor revision under `docs/planning/decisions/E7-interface-freeze.md` §7. |
 
 ## Appendix C. Owner index
 
