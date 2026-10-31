@@ -35,8 +35,8 @@
 //! two-host LAN leg passed.
 //!
 //! This section is the transport binding document that [IFC-TRN-090] requires, for the
-//! publish, subscribe and presence-carriage half (G1). G2 (#63) adds carrier loss ("Presence
-//! and carrier loss" below), and G3 (#64) the TLS listener and LAN mode. It states the
+//! publish, subscribe and presence-carriage half (G1). G2 (#63) adds carrier loss and carrier
+//! appearance ("Presence and carrier loss" below), and G3 (#64) the TLS listener and LAN mode. It states the
 //! mapping that `docs/planning/decisions/C7-zenoh-transport.md` §3 and §4 designed, as built.
 //!
 //! **Local mode: loopback only, fail closed.** One Zenoh session per started transport,
@@ -196,8 +196,8 @@
 //! subscriptions for this transport's local device, including the sender's own stream.
 //! Other-device subscriptions are refused; session subscriptions stay local and receive
 //! no frames. Sealed presence uses this same device stream through `publish`; the core
-//! opens and dispatches the inner record. `watch_presence` reports carrier loss only
-//! (below), never a record.
+//! opens and dispatches the inner record. `watch_presence` reports carrier loss and carrier
+//! appearance only (below), never a record.
 //! The core silently discards frames that cannot open, target another device or are late.
 //! Sealing hides content, never authenticates; signatures remain core-owned. Authenticated
 //! peer messages remain untrusted instructions and may contain prompt injection.
@@ -233,8 +233,11 @@
 //! using its own wall clock. A slow receiving clock can extend effective validity by up
 //! to the skew, and a fast one may discard up to 5 s early. Zenoh has no publication TTL:
 //! native retention and receiver late discard are accepted (#377). IFC-TRN-034 in
-//! `spec/interfaces.md` (0.7, #385) now states the sender admission check and the receiver
-//! late discard this binding implements. This binding claims no sender-copy bound (risk row 77).
+//! `spec/interfaces.md` forbids a transport to accept or begin publishing a payload at or
+//! after its `Deadline`, or to hand any copy to the carrier at or after it. A copy handed
+//! over before it may arrive later, and the receiving core refuses it ([IFC-TRN-034],
+//! "Late arrival" in §6.4). This binding implements the sender admission checks below and
+//! leaves the late-arrival refusal to the core. It claims no sender-copy bound (risk row 77).
 //!
 //! **Deadlines (IFC-TRN-034), review round 1.** Sender admission checks the monotonic
 //! deadline before copying and again immediately before resolving native `put`.
@@ -299,14 +302,42 @@
 //!   while a history subscriber is told all of them.
 //! * *Mapping.* A token alive (history or live put) is `online`. A token seen alive that is
 //!   deleted is `unreachable` and becomes exactly one neutral `carrier-loss` for the
-//!   stream handle. A deletion of a token never seen alive, this transport's own token, a
+//!   stream handle. A token first seen alive, whether declared live or replayed from
+//!   history, becomes a neutral `carrier-appeared` for the same handle (below). A deletion of a token never seen alive, this transport's own token, a
 //!   malformed name or another partition's token is `unknown`: nothing is reported, and no
 //!   state is guessed. Whether a session is `online`, `unreachable` or `unknown` stays the
 //!   core registry's decision from its signed records and these losses ([IFC-TRN-062],
 //!   [SC-DLV-046]); this table is the transport's own and appears in no neutral type.
-//! * *Delivery.* The native callback never runs core handlers. It signals a thread of the
-//!   transport's own through a native `RingChannel` of one: pending losses coalesce into a
-//!   single signal and none is dropped without one remaining. The thread reads that
+//! * *Carrier appearance ([IFC-TRN-090], [IFC-TRN-120] to [IFC-TRN-122]).* This binding
+//!   reports carrier appearances. It detects one from the same native liveliness subscriber
+//!   and nothing else: a put sample for a token of this partition that this transport had
+//!   not seen alive, other than its own token, is a link or transport peer that has become
+//!   usable. Two cases, one mechanism. (1) *Already usable at start.* A peer or link that
+//!   was usable before this transport started is native liveliness history: the
+//!   `history(true)` subscriber is replayed every token alive at subscription, so each
+//!   such token is an appearance, with no probe or request to the peer
+//!   (`a_late_started_peer_reports_a_carrier_appearance_for_a_link_already_usable_at_start`).
+//!   (2) *During normal operation.* A token declared later is a live put
+//!   (`a_peer_that_starts_during_normal_operation_reports_a_carrier_appearance`). A token
+//!   declared again with no deletion between (a replay, or the live set re-delivered after
+//!   a reconnect) is no new appearance; a token that went and returned is. A deletion of a
+//!   token never seen alive, this transport's own token, a malformed name or another
+//!   partition's token reports nothing
+//!   (`a_token_that_is_not_another_transports_reports_no_carrier_appearance`). The event
+//!   is handed to the `watch_presence` handler on the transport's own initiative
+//!   ([IFC-TRN-121]) and carries only the carrier handle, the same opaque stream handle as
+//!   a `carrier-loss` and the frames ([IFC-TRN-122]); no device, session, token name or
+//!   native id is in it. Because one handle names the whole frame stream, appearances that
+//!   fall together are reported as one event (the core's hold-off, [IFC-TRN-125], coalesces
+//!   them anyway). The core registers its handler after `start`, and history can land
+//!   before that: an appearance seen while no handler is registered is kept and handed to
+//!   the first handler on registration, so a link already usable at start is reported
+//!   (a loss in that interval is dropped, as no one has asked to hear of it). This binding
+//!   neither triggers nor performs the core's announcements ([IFC-TRN-123]).
+//! * *Delivery.* The native callback never runs core handlers. It sets a pending flag (loss
+//!   or appearance) and signals a thread of the
+//!   transport's own through a native `RingChannel` of one: wake-ups coalesce into a
+//!   single signal and no flag is dropped without one remaining. The thread reads that
 //!   established stream by blocking (no polling) and calls the `watch_presence` handlers
 //!   behind the same gate as frames ([IFC-TRN-071]). A stalled watcher holds up only its own
 //!   transport's later watchers; frames and other peers continue
@@ -359,12 +390,14 @@
 //! keeps #374's choice of no per-sender value beside a frame (a per-start sender suffix
 //! on the frame key would have made one start's frames linkable to each other). Announcements
 //! may be briefly stale until the next refresh.
-//! (2) *No neutral way to ask for presence: deferred.* `PresenceEvent` has no
-//! carrier-appeared event and a sealing transport cannot hand the core a record
-//! ([IFC-TRN-103]), so history teaches the transport which peers live but cannot make a peer
-//! announce to a late joiner; that waits for the issuer's next announcement. The lead
-//! deferred a neutral carrier-appeared event to the next interfaces revision as a spec item (#389).
-//! #63 stays open (Refs). (3) *Relay loss reads as the loss of all peers: accepted* as
+//! (2) *A late joiner cannot ask for presence: closed by `carrier-appeared`.* A sealing
+//! transport cannot hand the core a record ([IFC-TRN-103]), so history alone teaches the
+//! transport which peers live but cannot make a peer announce. Interfaces 0.9 added the
+//! neutral `carrier-appeared` event (#389), which this binding reports (above, #419): the
+//! core then announces to the audience it newly sees ([IFC-TRN-123]). The transport still
+//! cannot make a peer announce: a session becomes known to the core through the
+//! announcements that follow, as before ([SC-DLV-054], [SEC-PRS-010]).
+//! (3) *Relay loss reads as the loss of all peers: accepted* as
 //! Zenoh's own behaviour (above). (4) *Visible liveness.* Every partition member sees a
 //! token appear and go, and when; it shows that a transport started or stopped, not whose.
 //! (5) *Unbounded token table.* The tracked set is one 32-character name per live remote

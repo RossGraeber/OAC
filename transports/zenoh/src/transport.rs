@@ -28,7 +28,7 @@ use zenoh::sample::Sample;
 use crate::addressing::{self, Digest128, Partition};
 use crate::config::{PeerConfiguration, Role};
 use crate::gate::Gate;
-use crate::presence::{Links, Watchers};
+use crate::presence::{Links, Signals, Watchers};
 
 /// The largest payload this transport takes: 1 MiB. Zenoh fragments larger messages
 /// itself; the bound is what the contract suite exercises ([IFC-TRN-023], [IFC-TRN-104]).
@@ -75,6 +75,7 @@ struct Running {
     gate: Arc<Gate>,
     subs: Arc<Subs>,
     watchers: Arc<Watchers>,
+    signals: Arc<Signals>,
     dispatcher: Mutex<Option<JoinHandle<()>>>,
     dispatcher_id: ThreadId,
     loss_reporter: Mutex<Option<JoinHandle<()>>>,
@@ -172,18 +173,26 @@ fn dispatch_loop(
 }
 
 /// Blocking read on the established native signal, not polling. A native liveliness
-/// callback never runs core handlers. Losses coalesce: the native ring holds one pending
-/// signal and a newer one replaces it, so a loss is never dropped without a signal
-/// remaining.
-fn loss_loop(
+/// callback never runs core handlers. The native ring holds one wake-up and a newer one
+/// replaces it, but what to report is kept in `signals`' flags, so neither a loss nor an
+/// appearance is dropped without a wake-up remaining. A loss is handed on before an
+/// appearance: when both are pending, the net state is that the link is usable.
+fn presence_loop(
     rx: RingChannelHandler<()>,
+    signals: Arc<Signals>,
     watchers: Arc<Watchers>,
     gate: Arc<Gate>,
     link: Digest128,
 ) {
     let carrier = CarrierHandle::from_opaque(link.to_vec());
     while rx.recv().is_ok() {
-        watchers.carrier_loss(&gate, &carrier);
+        let (lost, appeared) = signals.take(watchers.any());
+        if lost {
+            watchers.carrier_loss(&gate, &carrier);
+        }
+        if appeared {
+            watchers.carrier_appeared(&gate, &carrier);
+        }
     }
 }
 
@@ -443,11 +452,12 @@ impl Transport for PeerTransport {
         // can already reach its frame subscription.
         let own_token = addressing::token_name(&native_id);
         let links = Arc::new(Links::new(partition.clone(), own_token.clone()));
-        let (loss_tx, loss_rx) = RingChannel::new(1).into_handler();
-        let (w, g) = (watchers.clone(), gate.clone());
+        let (wake, loss_rx) = RingChannel::new(1).into_handler();
+        let signals = Arc::new(Signals::new(wake));
+        let (s, w, g) = (signals.clone(), watchers.clone(), gate.clone());
         let loss_reporter = match thread::Builder::new()
             .name("oac-peer-liveness".into())
-            .spawn(move || loss_loop(loss_rx, w, g, link))
+            .spawn(move || presence_loop(loss_rx, s, w, g, link))
         {
             Ok(h) => h,
             Err(_) => {
@@ -461,17 +471,21 @@ impl Transport for PeerTransport {
         };
         let loss_reporter_id = loss_reporter.thread().id();
         let observed = links.clone();
+        let seen = signals.clone();
         let liveliness = session
             .liveliness()
             .declare_subscriber(partition.token_pattern())
             .history(true)
             .callback(move |sample: Sample| {
-                // Native deletion of a token this subscriber saw alive: undeclared, its link
-                // closed or its lease expired. Anything else says nothing about a carrier.
-                if observed.observe(sample.kind(), sample.key_expr().as_str())
-                    == Some(PresenceState::Unreachable)
-                {
-                    loss_tx.call(());
+                // A token first seen alive is a carrier appearance: declared live, or replayed
+                // from native history because it was declared before this subscriber (a peer
+                // already online when this transport started). Native deletion of a token this
+                // subscriber saw alive (undeclared, its link closed or its lease expired) is a
+                // loss. Anything else says nothing about a carrier.
+                match observed.transition(sample.kind(), sample.key_expr().as_str()) {
+                    Some((PresenceState::Online, true)) => seen.appeared(),
+                    Some((PresenceState::Unreachable, _)) => seen.lost(),
+                    _ => {}
                 }
             })
             .wait();
@@ -489,6 +503,7 @@ impl Transport for PeerTransport {
                 drop(subscriber);
                 let _ = session.close().wait();
                 let _ = dispatcher.join();
+                signals.close();
                 let _ = loss_reporter.join();
                 return Err(TransportError::InvalidConfiguration(
                     "the peer session refused the liveliness declarations".into(),
@@ -521,6 +536,7 @@ impl Transport for PeerTransport {
             gate,
             subs,
             watchers,
+            signals,
             dispatcher: Mutex::new(Some(dispatcher)),
             dispatcher_id,
             loss_reporter: Mutex::new(Some(loss_reporter)),
@@ -583,6 +599,8 @@ impl Transport for PeerTransport {
     fn watch_presence(&self, handler: PresenceHandler) -> Result<(), TransportError> {
         let r = self.running().ok_or(TransportError::NotStarted)?;
         r.watchers.add(handler);
+        // An appearance replayed from history before this handler existed is waiting for it.
+        r.signals.wake();
         Ok(())
     }
 
@@ -650,6 +668,8 @@ impl Transport for PeerTransport {
             let _ = sub.undeclare().wait();
         }
         let _ = r.session.close().wait();
+        // This holder of the wake-up's sender, so the reporter's blocking read can end below.
+        r.signals.close();
         // Undeclaring drops the native ring callback, ending the stream; wait for it,
         // unless this is it (a handler that called shutdown).
         let worker = r
@@ -701,17 +721,19 @@ mod tests {
                 gate.close();
             }
             let (tx, rx) = RingChannel::new(1).into_handler();
-            let (w, g) = (watchers.clone(), gate.clone());
-            let looped = thread::spawn(move || loss_loop(rx, w, g, [7; 16]));
-            tx.call(());
-            // `tx` is still alive, so the loop is blocked on a live ring, not ended by it.
+            let signals = Arc::new(Signals::new(tx));
+            let (s, w, g) = (signals.clone(), watchers.clone(), gate.clone());
+            let looped = thread::spawn(move || presence_loop(rx, s, w, g, [7; 16]));
+            signals.lost();
+            // `signals` still holds the sender, so the loop is blocked on a live ring, not
+            // ended by it.
             thread::sleep(Duration::from_millis(400));
             assert_eq!(
                 calls.load(Ordering::SeqCst),
                 usize::from(open),
                 "open={open}"
             );
-            drop(tx);
+            signals.close();
             looped.join().unwrap();
         }
     }
