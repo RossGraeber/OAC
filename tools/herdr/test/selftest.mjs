@@ -79,6 +79,7 @@ import { committedFile } from '../lib/committed-file.mjs';
 import { g1Unit, g1Cases, installFakeClaudeCli, cloneWithPins } from './g1-tests.mjs';
 import { g2Unit, g2Cases, fakeCodexEnv, stopFakeCodexDaemon } from './g2-tests.mjs';
 import { s3Unit } from './s3-tests.mjs';
+import { g7Unit } from './g7-tests.mjs';
 import { g8Unit } from './g8-tests.mjs';
 import { g8liveUnit } from './g8live-tests.mjs';
 import { ciUnit, ciLifecycle } from './ci-tests.mjs';
@@ -1166,6 +1167,7 @@ export async function runSelfTest() {
   g1Unit(check);
   g2Unit(check);
   s3Unit(check);
+  await g7Unit(check);
   await g8Unit(check);
   await g8liveUnit(check);
   await g4Unit(check);
