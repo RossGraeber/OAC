@@ -1,0 +1,4 @@
+$ oac sessions --json
+oac sessions: using the test namespace "g5r"
+{"oac_cli":1,"ok":true,"running":true,"sessions":[{"active_inbound":true,"content_types":[],"extension":"io.github.<USER>raeber/oac-session-channels","harness":"claude","major":0,"max_envelope_octets":65536,"session_id":"<OAC_SESSION_B>","state":"online"}],"sessions_total":1,"unbound":[{"harness":"claude","unbound_attachments":0},{"harness":"codex","unbound_attachments":0}]}
+exit 0
