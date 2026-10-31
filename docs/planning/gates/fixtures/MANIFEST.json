@@ -7156,6 +7156,34 @@
       }
     },
     {
+      "path": "docs/planning/gates/fixtures/g7-codex-recheck/client.mjs.throwaway-quarantined",
+      "provider": "codex",
+      "surface": "spike-source-code (throwaway, quarantined — not a protocol fixture)",
+      "observed_version": {
+        "note": "N/A — this is spike client source code, not captured wire traffic. Version fields do not apply."
+      },
+      "pins_row": null,
+      "pins_as_of": null,
+      "version_matches_pin": null,
+      "capture_date": null,
+      "capture_utc_range": null,
+      "superseded_by": null,
+      "redaction": {
+        "script": null,
+        "script_sha256": null,
+        "residual_scan_result": "Not applicable to source code. Kept per the oac-gates \"Throwaway rule\", quarantined with the .throwaway-quarantined suffix. The g7-codex-recheck scenario stages it from its blob at HEAD and checks its sha256 (3ab5c817e3a361f57df9884e970ddc0ddad6112276faf5bec88b37c667ea876a, commit cf34414). No run of it is committed yet."
+      },
+      "coverage": null,
+      "coverage_notes": "Not applicable — client source code, not a captured exchange.",
+      "notes": [
+        "The #470 G7 re-check client (risk rows 66 and 73): the S3 capture client's transport and transcript format, with the queue-management case (b) and the resume override probe (row 73). It sends only an allow-listed set of methods, never steers, never answers an approval, and records no frame about a thread it did not start. Committed under docs/planning/gates/fixtures/ and so covered by this manifest."
+      ],
+      "schema": {
+        "applicable": false,
+        "reason": "spike client source code, not protocol traffic"
+      }
+    },
+    {
       "path": "docs/planning/gates/fixtures/s3-codex-capture/transcript-2026-10-08-0.161.0-queued-interrupt-herdr.jsonl",
       "provider": "codex",
       "surface": "codex-app-server",
