@@ -89,7 +89,7 @@ export default {
     try {
       await herdr.paneWaitOutput(wsA.paneId, { regex: regexLiteral('"event":"ready"'), timeoutMs: waitMs });
     } catch (err) {
-      ctx.capture('pane-daemon-not-ready.txt', await herdr.paneRead(wsA.paneId, { source: 'recent-unwrapped', lines: 200 }));
+      ctx.capture('pane-daemon-not-ready-herdr.txt', await herdr.paneRead(wsA.paneId, { source: 'recent-unwrapped', lines: 200 }));
       throw err;
     }
     const stopDaemon = async () => {
@@ -152,7 +152,7 @@ export default {
         try {
           await herdr.paneWaitOutput(wsB.paneId, { regex: `^\\s*${regexLiteral(mark)}\\s*$`, timeoutMs: claudeWaitMs });
         } catch (err) {
-          ctx.capture(`pane-claude-${label}-not-done.txt`, await herdr.paneRead(wsB.paneId, { source: 'recent-unwrapped', lines: 200 }));
+          ctx.capture(`pane-claude-${label}-not-done-herdr.txt`, await herdr.paneRead(wsB.paneId, { source: 'recent-unwrapped', lines: 200 }));
           throw err;
         }
         const claudeText = await herdr.paneRead(wsB.paneId, { source: 'recent-unwrapped', lines: 200 });
@@ -188,7 +188,7 @@ export default {
       });
       const claudeIds = [...new Set(runs.map((r) => r.claudeSessionId).filter(Boolean))];
       claudeIds.forEach((id, i) => ctx.redactLiteral(id, `<CLAUDE_SESSION_${i + 1}>`));
-      for (const r of runs) ctx.capture(`pane-claude-${r.label}.txt`, r.claudeText);
+      for (const r of runs) ctx.capture(`pane-claude-${r.label}-herdr.txt`, r.claudeText);
       for (const c of captures) ctx.capture(`sessions-${c.r.n}-${c.tag}.txt`, `$ oac sessions --json\n${c.r.text}\nexit ${c.r.code}\n`);
 
       const oacIds = runs.map((r) => r.oacSessionId);
@@ -216,7 +216,7 @@ export default {
       const ok = runs.every((r) => !r.sleepFailed && r.listedDuring === 1 && r.oacSessionId && r.totalAfter === 0) && summary.oacSessionIdsDistinct;
 
       await stopDaemon();
-      ctx.capture('pane-daemon.txt', await herdr.paneRead(wsA.paneId, { source: 'recent-unwrapped', lines: 200 }));
+      ctx.capture('pane-daemon-herdr.txt', await herdr.paneRead(wsA.paneId, { source: 'recent-unwrapped', lines: 200 }));
       const all = jsonLines(readFileSync(events, 'utf8'));
       ctx.capture('events.jsonl.txt', readFileSync(events, 'utf8'));
       ctx.record('daemon', {
