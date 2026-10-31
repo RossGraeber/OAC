@@ -7627,6 +7627,366 @@
         "applicable": false,
         "reason": "documentation"
       }
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g5-claude-resume/README.md",
+      "provider": "claude",
+      "surface": "documentation (not a protocol fixture)",
+      "observed_version": {
+        "note": "N/A -- documentation file."
+      },
+      "pins_row": null,
+      "pins_as_of": null,
+      "version_matches_pin": null,
+      "capture_date": null,
+      "capture_utc_range": null,
+      "superseded_by": null,
+      "redaction": {
+        "script": null,
+        "script_sha256": null,
+        "residual_scan_result": "N/A -- authored documentation, not captured wire traffic."
+      },
+      "coverage": null,
+      "coverage_notes": "Documents this directory's files, the redaction applied, and their map to the run manifest's captures. Not itself a captured protocol exchange.",
+      "notes": [
+        "Added with the G5 resume live leg record (#66)."
+      ],
+      "schema": {
+        "applicable": false,
+        "reason": "documentation"
+      }
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g5-claude-resume/pane-claude-A-herdr.txt",
+      "capture_date": "2026-10-31",
+      "superseded_by": null,
+      "provider": "claude",
+      "surface": "claude-code print-mode pane text (herdr read)",
+      "observed_version": {
+        "claude_code": "2.1.312",
+        "node": null
+      },
+      "pins_row": "Claude Code (Channels)",
+      "pins_as_of": "PINS.md as committed at driver commit 731f7f83c9922b72109bb3f54e6399c43be37292 records last tested v2.1.312, the version the run used; the run recorded no version warning (#216)",
+      "version_matches_pin": true,
+      "capture_utc_range": null,
+      "driver": {
+        "herdr_version": "herdr 0.9.1",
+        "driver_commit": "731f7f83c9922b72109bb3f54e6399c43be37292",
+        "run_manifest": "docs/planning/gates/herdr-runs/G5-resume-2026-10-31.run-manifest.json"
+      },
+      "notes": [
+        "Run A (fresh): the command line and Claude Code's --output-format json result. One pane served all three runs, so later captures also hold the earlier runs. G5 #66 box 4 live leg (registration across start, --resume and --continue), scenario tools/herdr/scenarios/g5-claude-resume.mjs, run 20261031T043741Z-fc7356 (run 3; runs 1 and 2 not committed). NOT a gate run and NOT verdict-bearing. Record: docs/planning/gates/herdr-runs/G5-resume-2026-10-31.md; findings: docs/planning/gates/fixtures/g5-claude-resume/README.md. The file is exactly what the driver wrote, under its own name; its sha256 is the run manifest's."
+      ],
+      "redaction": {
+        "script": "tools/herdr/lib/redact.mjs",
+        "script_sha256": "c950d99ac992db9db85528613923453429c75749e16b6424d8555bd6b85b6dc2",
+        "residual_scan_result": "tools/herdr/lib/redact.mjs (run.mjs): droppedHazardLines=0, hazardProtocolFrames=0, residualLeaks=0, residualGenericHits=0 (captures[].redaction in the run manifest). Scratch and repo paths, OAC session ids and the Claude session id are replaced (run literals)."
+      },
+      "coverage": {
+        "pane read": "the run's command line and its --output-format json result line (session_id, whoami result text)"
+      }
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g5-claude-resume/pane-claude-B-herdr.txt",
+      "capture_date": "2026-10-31",
+      "superseded_by": null,
+      "provider": "claude",
+      "surface": "claude-code print-mode pane text (herdr read)",
+      "observed_version": {
+        "claude_code": "2.1.312",
+        "node": null
+      },
+      "pins_row": "Claude Code (Channels)",
+      "pins_as_of": "PINS.md as committed at driver commit 731f7f83c9922b72109bb3f54e6399c43be37292 records last tested v2.1.312, the version the run used; the run recorded no version warning (#216)",
+      "version_matches_pin": true,
+      "capture_utc_range": null,
+      "driver": {
+        "herdr_version": "herdr 0.9.1",
+        "driver_commit": "731f7f83c9922b72109bb3f54e6399c43be37292",
+        "run_manifest": "docs/planning/gates/herdr-runs/G5-resume-2026-10-31.run-manifest.json"
+      },
+      "notes": [
+        "Run B (--resume <CLAUDE_SESSION_1>): the command line and Claude Code's --output-format json result. One pane served all three runs, so later captures also hold the earlier runs. G5 #66 box 4 live leg (registration across start, --resume and --continue), scenario tools/herdr/scenarios/g5-claude-resume.mjs, run 20261031T043741Z-fc7356 (run 3; runs 1 and 2 not committed). NOT a gate run and NOT verdict-bearing. Record: docs/planning/gates/herdr-runs/G5-resume-2026-10-31.md; findings: docs/planning/gates/fixtures/g5-claude-resume/README.md. The file is exactly what the driver wrote, under its own name; its sha256 is the run manifest's."
+      ],
+      "redaction": {
+        "script": "tools/herdr/lib/redact.mjs",
+        "script_sha256": "c950d99ac992db9db85528613923453429c75749e16b6424d8555bd6b85b6dc2",
+        "residual_scan_result": "tools/herdr/lib/redact.mjs (run.mjs): droppedHazardLines=0, hazardProtocolFrames=0, residualLeaks=0, residualGenericHits=0 (captures[].redaction in the run manifest). Scratch and repo paths, OAC session ids and the Claude session id are replaced (run literals)."
+      },
+      "coverage": {
+        "pane read": "the run's command line and its --output-format json result line (session_id, whoami result text)"
+      }
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g5-claude-resume/pane-claude-C-herdr.txt",
+      "capture_date": "2026-10-31",
+      "superseded_by": null,
+      "provider": "claude",
+      "surface": "claude-code print-mode pane text (herdr read)",
+      "observed_version": {
+        "claude_code": "2.1.312",
+        "node": null
+      },
+      "pins_row": "Claude Code (Channels)",
+      "pins_as_of": "PINS.md as committed at driver commit 731f7f83c9922b72109bb3f54e6399c43be37292 records last tested v2.1.312, the version the run used; the run recorded no version warning (#216)",
+      "version_matches_pin": true,
+      "capture_utc_range": null,
+      "driver": {
+        "herdr_version": "herdr 0.9.1",
+        "driver_commit": "731f7f83c9922b72109bb3f54e6399c43be37292",
+        "run_manifest": "docs/planning/gates/herdr-runs/G5-resume-2026-10-31.run-manifest.json"
+      },
+      "notes": [
+        "Run C (--continue): the command line and Claude Code's --output-format json result. One pane served all three runs, so later captures also hold the earlier runs. G5 #66 box 4 live leg (registration across start, --resume and --continue), scenario tools/herdr/scenarios/g5-claude-resume.mjs, run 20261031T043741Z-fc7356 (run 3; runs 1 and 2 not committed). NOT a gate run and NOT verdict-bearing. Record: docs/planning/gates/herdr-runs/G5-resume-2026-10-31.md; findings: docs/planning/gates/fixtures/g5-claude-resume/README.md. The file is exactly what the driver wrote, under its own name; its sha256 is the run manifest's."
+      ],
+      "redaction": {
+        "script": "tools/herdr/lib/redact.mjs",
+        "script_sha256": "c950d99ac992db9db85528613923453429c75749e16b6424d8555bd6b85b6dc2",
+        "residual_scan_result": "tools/herdr/lib/redact.mjs (run.mjs): droppedHazardLines=0, hazardProtocolFrames=0, residualLeaks=0, residualGenericHits=0 (captures[].redaction in the run manifest). Scratch and repo paths, OAC session ids and the Claude session id are replaced (run literals)."
+      },
+      "coverage": {
+        "pane read": "the run's command line and its --output-format json result line (session_id, whoami result text)"
+      }
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g5-claude-resume/pane-daemon-herdr.txt",
+      "capture_date": "2026-10-31",
+      "superseded_by": null,
+      "provider": "claude",
+      "surface": "OAC example live daemon pane text (herdr read)",
+      "observed_version": {
+        "claude_code": "2.1.312",
+        "node": null
+      },
+      "pins_row": "Claude Code (Channels)",
+      "pins_as_of": "PINS.md as committed at driver commit 731f7f83c9922b72109bb3f54e6399c43be37292 records last tested v2.1.312, the version the run used; the run recorded no version warning (#216)",
+      "version_matches_pin": true,
+      "capture_utc_range": null,
+      "driver": {
+        "herdr_version": "herdr 0.9.1",
+        "driver_commit": "731f7f83c9922b72109bb3f54e6399c43be37292",
+        "run_manifest": "docs/planning/gates/herdr-runs/G5-resume-2026-10-31.run-manifest.json"
+      },
+      "notes": [
+        "The example daemon's pane (cli/examples/live_daemon.rs) through its stopped event. G5 #66 box 4 live leg (registration across start, --resume and --continue), scenario tools/herdr/scenarios/g5-claude-resume.mjs, run 20261031T043741Z-fc7356 (run 3; runs 1 and 2 not committed). NOT a gate run and NOT verdict-bearing. Record: docs/planning/gates/herdr-runs/G5-resume-2026-10-31.md; findings: docs/planning/gates/fixtures/g5-claude-resume/README.md. The file is exactly what the driver wrote, under its own name; its sha256 is the run manifest's."
+      ],
+      "redaction": {
+        "script": "tools/herdr/lib/redact.mjs",
+        "script_sha256": "c950d99ac992db9db85528613923453429c75749e16b6424d8555bd6b85b6dc2",
+        "residual_scan_result": "tools/herdr/lib/redact.mjs (run.mjs): droppedHazardLines=0, hazardProtocolFrames=0, residualLeaks=0, residualGenericHits=0 (captures[].redaction in the run manifest). The Windows account SID and paths are replaced."
+      },
+      "coverage": {
+        "pane read": "ready through stopped"
+      }
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g5-claude-resume/events.jsonl.txt",
+      "capture_date": "2026-10-31",
+      "superseded_by": null,
+      "provider": "claude",
+      "surface": "OAC live daemon events (cli/examples/live_daemon.rs)",
+      "observed_version": {
+        "claude_code": "2.1.312",
+        "node": null
+      },
+      "pins_row": "Claude Code (Channels)",
+      "pins_as_of": "PINS.md as committed at driver commit 731f7f83c9922b72109bb3f54e6399c43be37292 records last tested v2.1.312, the version the run used; the run recorded no version warning (#216)",
+      "version_matches_pin": true,
+      "capture_utc_range": null,
+      "notes": [
+        "The example daemon's events: ready, local_grant, six accepted and six ended (a shim and a hook handler per run), its log lines, and the one SC-ID-142 binding diagnostic in run C (line 22). Not a herdr-suffixed capture; written by the scenario from the daemon's events file. G5 #66 box 4 live leg (registration across start, --resume and --continue), scenario tools/herdr/scenarios/g5-claude-resume.mjs, run 20261031T043741Z-fc7356 (run 3; runs 1 and 2 not committed). NOT a gate run and NOT verdict-bearing. Record: docs/planning/gates/herdr-runs/G5-resume-2026-10-31.md; findings: docs/planning/gates/fixtures/g5-claude-resume/README.md. The file is exactly what the driver wrote, under its own name; its sha256 is the run manifest's."
+      ],
+      "redaction": {
+        "script": "tools/herdr/lib/redact.mjs",
+        "script_sha256": "c950d99ac992db9db85528613923453429c75749e16b6424d8555bd6b85b6dc2",
+        "residual_scan_result": "tools/herdr/lib/redact.mjs (run.mjs): droppedHazardLines=0, hazardProtocolFrames=0, residualLeaks=0, residualGenericHits=0 (captures[].redaction in the run manifest). The Windows account SID is replaced."
+      },
+      "coverage": {
+        "SC-ID-142 diagnostic in run C": "22"
+      }
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g5-claude-resume/sessions-1-A-during.txt",
+      "capture_date": "2026-10-31",
+      "superseded_by": null,
+      "provider": "claude",
+      "surface": "oac sessions --json output (test namespace g5r)",
+      "observed_version": {
+        "claude_code": "2.1.312",
+        "node": null
+      },
+      "pins_row": "Claude Code (Channels)",
+      "pins_as_of": "PINS.md as committed at driver commit 731f7f83c9922b72109bb3f54e6399c43be37292 records last tested v2.1.312, the version the run used; the run recorded no version warning (#216)",
+      "version_matches_pin": true,
+      "capture_utc_range": null,
+      "notes": [
+        "oac sessions --json at the first poll of run A, before its session was bound: sessions_total 0. Written by the scenario. G5 #66 box 4 live leg (registration across start, --resume and --continue), scenario tools/herdr/scenarios/g5-claude-resume.mjs, run 20261031T043741Z-fc7356 (run 3; runs 1 and 2 not committed). NOT a gate run and NOT verdict-bearing. Record: docs/planning/gates/herdr-runs/G5-resume-2026-10-31.md; findings: docs/planning/gates/fixtures/g5-claude-resume/README.md. The file is exactly what the driver wrote, under its own name; its sha256 is the run manifest's."
+      ],
+      "redaction": {
+        "script": "tools/herdr/lib/redact.mjs",
+        "script_sha256": "c950d99ac992db9db85528613923453429c75749e16b6424d8555bd6b85b6dc2",
+        "residual_scan_result": "tools/herdr/lib/redact.mjs (run.mjs): droppedHazardLines=0, hazardProtocolFrames=0, residualLeaks=0, residualGenericHits=0 (captures[].redaction in the run manifest). OAC session ids and the user name are replaced."
+      },
+      "coverage": {
+        "output": "sessions_total 0"
+      }
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g5-claude-resume/sessions-2-A-during.txt",
+      "capture_date": "2026-10-31",
+      "superseded_by": null,
+      "provider": "claude",
+      "surface": "oac sessions --json output (test namespace g5r)",
+      "observed_version": {
+        "claude_code": "2.1.312",
+        "node": null
+      },
+      "pins_row": "Claude Code (Channels)",
+      "pins_as_of": "PINS.md as committed at driver commit 731f7f83c9922b72109bb3f54e6399c43be37292 records last tested v2.1.312, the version the run used; the run recorded no version warning (#216)",
+      "version_matches_pin": true,
+      "capture_utc_range": null,
+      "notes": [
+        "oac sessions --json while run A was alive: one session, harness claude, state online. Written by the scenario. G5 #66 box 4 live leg (registration across start, --resume and --continue), scenario tools/herdr/scenarios/g5-claude-resume.mjs, run 20261031T043741Z-fc7356 (run 3; runs 1 and 2 not committed). NOT a gate run and NOT verdict-bearing. Record: docs/planning/gates/herdr-runs/G5-resume-2026-10-31.md; findings: docs/planning/gates/fixtures/g5-claude-resume/README.md. The file is exactly what the driver wrote, under its own name; its sha256 is the run manifest's."
+      ],
+      "redaction": {
+        "script": "tools/herdr/lib/redact.mjs",
+        "script_sha256": "c950d99ac992db9db85528613923453429c75749e16b6424d8555bd6b85b6dc2",
+        "residual_scan_result": "tools/herdr/lib/redact.mjs (run.mjs): droppedHazardLines=0, hazardProtocolFrames=0, residualLeaks=0, residualGenericHits=0 (captures[].redaction in the run manifest). OAC session ids and the user name are replaced."
+      },
+      "coverage": {
+        "output": "sessions_total 1"
+      }
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g5-claude-resume/sessions-3-A-after.txt",
+      "capture_date": "2026-10-31",
+      "superseded_by": null,
+      "provider": "claude",
+      "surface": "oac sessions --json output (test namespace g5r)",
+      "observed_version": {
+        "claude_code": "2.1.312",
+        "node": null
+      },
+      "pins_row": "Claude Code (Channels)",
+      "pins_as_of": "PINS.md as committed at driver commit 731f7f83c9922b72109bb3f54e6399c43be37292 records last tested v2.1.312, the version the run used; the run recorded no version warning (#216)",
+      "version_matches_pin": true,
+      "capture_utc_range": null,
+      "notes": [
+        "oac sessions --json after run A exited: sessions_total 0. Written by the scenario. G5 #66 box 4 live leg (registration across start, --resume and --continue), scenario tools/herdr/scenarios/g5-claude-resume.mjs, run 20261031T043741Z-fc7356 (run 3; runs 1 and 2 not committed). NOT a gate run and NOT verdict-bearing. Record: docs/planning/gates/herdr-runs/G5-resume-2026-10-31.md; findings: docs/planning/gates/fixtures/g5-claude-resume/README.md. The file is exactly what the driver wrote, under its own name; its sha256 is the run manifest's."
+      ],
+      "redaction": {
+        "script": "tools/herdr/lib/redact.mjs",
+        "script_sha256": "c950d99ac992db9db85528613923453429c75749e16b6424d8555bd6b85b6dc2",
+        "residual_scan_result": "tools/herdr/lib/redact.mjs (run.mjs): droppedHazardLines=0, hazardProtocolFrames=0, residualLeaks=0, residualGenericHits=0 (captures[].redaction in the run manifest). OAC session ids and the user name are replaced."
+      },
+      "coverage": {
+        "output": "sessions_total 0"
+      }
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g5-claude-resume/sessions-4-B-during.txt",
+      "capture_date": "2026-10-31",
+      "superseded_by": null,
+      "provider": "claude",
+      "surface": "oac sessions --json output (test namespace g5r)",
+      "observed_version": {
+        "claude_code": "2.1.312",
+        "node": null
+      },
+      "pins_row": "Claude Code (Channels)",
+      "pins_as_of": "PINS.md as committed at driver commit 731f7f83c9922b72109bb3f54e6399c43be37292 records last tested v2.1.312, the version the run used; the run recorded no version warning (#216)",
+      "version_matches_pin": true,
+      "capture_utc_range": null,
+      "notes": [
+        "oac sessions --json while run B was alive: one session, harness claude, state online. Written by the scenario. G5 #66 box 4 live leg (registration across start, --resume and --continue), scenario tools/herdr/scenarios/g5-claude-resume.mjs, run 20261031T043741Z-fc7356 (run 3; runs 1 and 2 not committed). NOT a gate run and NOT verdict-bearing. Record: docs/planning/gates/herdr-runs/G5-resume-2026-10-31.md; findings: docs/planning/gates/fixtures/g5-claude-resume/README.md. The file is exactly what the driver wrote, under its own name; its sha256 is the run manifest's."
+      ],
+      "redaction": {
+        "script": "tools/herdr/lib/redact.mjs",
+        "script_sha256": "c950d99ac992db9db85528613923453429c75749e16b6424d8555bd6b85b6dc2",
+        "residual_scan_result": "tools/herdr/lib/redact.mjs (run.mjs): droppedHazardLines=0, hazardProtocolFrames=0, residualLeaks=0, residualGenericHits=0 (captures[].redaction in the run manifest). OAC session ids and the user name are replaced."
+      },
+      "coverage": {
+        "output": "sessions_total 1"
+      }
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g5-claude-resume/sessions-5-B-after.txt",
+      "capture_date": "2026-10-31",
+      "superseded_by": null,
+      "provider": "claude",
+      "surface": "oac sessions --json output (test namespace g5r)",
+      "observed_version": {
+        "claude_code": "2.1.312",
+        "node": null
+      },
+      "pins_row": "Claude Code (Channels)",
+      "pins_as_of": "PINS.md as committed at driver commit 731f7f83c9922b72109bb3f54e6399c43be37292 records last tested v2.1.312, the version the run used; the run recorded no version warning (#216)",
+      "version_matches_pin": true,
+      "capture_utc_range": null,
+      "notes": [
+        "oac sessions --json after run B exited: sessions_total 0. Written by the scenario. G5 #66 box 4 live leg (registration across start, --resume and --continue), scenario tools/herdr/scenarios/g5-claude-resume.mjs, run 20261031T043741Z-fc7356 (run 3; runs 1 and 2 not committed). NOT a gate run and NOT verdict-bearing. Record: docs/planning/gates/herdr-runs/G5-resume-2026-10-31.md; findings: docs/planning/gates/fixtures/g5-claude-resume/README.md. The file is exactly what the driver wrote, under its own name; its sha256 is the run manifest's."
+      ],
+      "redaction": {
+        "script": "tools/herdr/lib/redact.mjs",
+        "script_sha256": "c950d99ac992db9db85528613923453429c75749e16b6424d8555bd6b85b6dc2",
+        "residual_scan_result": "tools/herdr/lib/redact.mjs (run.mjs): droppedHazardLines=0, hazardProtocolFrames=0, residualLeaks=0, residualGenericHits=0 (captures[].redaction in the run manifest). OAC session ids and the user name are replaced."
+      },
+      "coverage": {
+        "output": "sessions_total 0"
+      }
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g5-claude-resume/sessions-6-C-during.txt",
+      "capture_date": "2026-10-31",
+      "superseded_by": null,
+      "provider": "claude",
+      "surface": "oac sessions --json output (test namespace g5r)",
+      "observed_version": {
+        "claude_code": "2.1.312",
+        "node": null
+      },
+      "pins_row": "Claude Code (Channels)",
+      "pins_as_of": "PINS.md as committed at driver commit 731f7f83c9922b72109bb3f54e6399c43be37292 records last tested v2.1.312, the version the run used; the run recorded no version warning (#216)",
+      "version_matches_pin": true,
+      "capture_utc_range": null,
+      "notes": [
+        "oac sessions --json while run C was alive: one session, harness claude, state online. Written by the scenario. G5 #66 box 4 live leg (registration across start, --resume and --continue), scenario tools/herdr/scenarios/g5-claude-resume.mjs, run 20261031T043741Z-fc7356 (run 3; runs 1 and 2 not committed). NOT a gate run and NOT verdict-bearing. Record: docs/planning/gates/herdr-runs/G5-resume-2026-10-31.md; findings: docs/planning/gates/fixtures/g5-claude-resume/README.md. The file is exactly what the driver wrote, under its own name; its sha256 is the run manifest's."
+      ],
+      "redaction": {
+        "script": "tools/herdr/lib/redact.mjs",
+        "script_sha256": "c950d99ac992db9db85528613923453429c75749e16b6424d8555bd6b85b6dc2",
+        "residual_scan_result": "tools/herdr/lib/redact.mjs (run.mjs): droppedHazardLines=0, hazardProtocolFrames=0, residualLeaks=0, residualGenericHits=0 (captures[].redaction in the run manifest). OAC session ids and the user name are replaced."
+      },
+      "coverage": {
+        "output": "sessions_total 1"
+      }
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g5-claude-resume/sessions-7-C-after.txt",
+      "capture_date": "2026-10-31",
+      "superseded_by": null,
+      "provider": "claude",
+      "surface": "oac sessions --json output (test namespace g5r)",
+      "observed_version": {
+        "claude_code": "2.1.312",
+        "node": null
+      },
+      "pins_row": "Claude Code (Channels)",
+      "pins_as_of": "PINS.md as committed at driver commit 731f7f83c9922b72109bb3f54e6399c43be37292 records last tested v2.1.312, the version the run used; the run recorded no version warning (#216)",
+      "version_matches_pin": true,
+      "capture_utc_range": null,
+      "notes": [
+        "oac sessions --json after run C exited: sessions_total 0. Written by the scenario. G5 #66 box 4 live leg (registration across start, --resume and --continue), scenario tools/herdr/scenarios/g5-claude-resume.mjs, run 20261031T043741Z-fc7356 (run 3; runs 1 and 2 not committed). NOT a gate run and NOT verdict-bearing. Record: docs/planning/gates/herdr-runs/G5-resume-2026-10-31.md; findings: docs/planning/gates/fixtures/g5-claude-resume/README.md. The file is exactly what the driver wrote, under its own name; its sha256 is the run manifest's."
+      ],
+      "redaction": {
+        "script": "tools/herdr/lib/redact.mjs",
+        "script_sha256": "c950d99ac992db9db85528613923453429c75749e16b6424d8555bd6b85b6dc2",
+        "residual_scan_result": "tools/herdr/lib/redact.mjs (run.mjs): droppedHazardLines=0, hazardProtocolFrames=0, residualLeaks=0, residualGenericHits=0 (captures[].redaction in the run manifest). OAC session ids and the user name are replaced."
+      },
+      "coverage": {
+        "output": "sessions_total 0"
+      }
     }
   ]
 }
