@@ -7156,6 +7156,34 @@
       }
     },
     {
+      "path": "docs/planning/gates/fixtures/g7-codex-recheck/client.mjs.throwaway-quarantined",
+      "provider": "codex",
+      "surface": "spike-source-code (throwaway, quarantined — not a protocol fixture)",
+      "observed_version": {
+        "note": "N/A — this is spike client source code, not captured wire traffic. Version fields do not apply."
+      },
+      "pins_row": null,
+      "pins_as_of": null,
+      "version_matches_pin": null,
+      "capture_date": null,
+      "capture_utc_range": null,
+      "superseded_by": null,
+      "redaction": {
+        "script": null,
+        "script_sha256": null,
+        "residual_scan_result": "Not applicable to source code. Kept per the oac-gates \"Throwaway rule\", quarantined with the .throwaway-quarantined suffix. The g7-codex-recheck scenario stages it from its blob at HEAD and checks its sha256 (d7c0b1732f762f552f74647c8ef516b84cc66d62602a88952f1f6d36af76a020, commit e1d32e7). Its run is committed beside it: transcript-g7recheck-2026-10-31-0.166.0-herdr.jsonl (run 20261031T094523Z-f1de3d; record docs/planning/gates/herdr-runs/G7-recheck-2026-10-31.md)."
+      },
+      "coverage": null,
+      "coverage_notes": "Not applicable — client source code, not a captured exchange.",
+      "notes": [
+        "The #470 G7 re-check client (risk rows 66 and 73): the S3 capture client's transport and transcript format, with the queue-management case (b) and the resume override probe (row 73). It sends only an allow-listed set of methods, never steers, never answers an approval, and records no frame about a thread it did not start. Committed under docs/planning/gates/fixtures/ and so covered by this manifest."
+      ],
+      "schema": {
+        "applicable": false,
+        "reason": "spike client source code, not protocol traffic"
+      }
+    },
+    {
       "path": "docs/planning/gates/fixtures/s3-codex-capture/transcript-2026-10-08-0.161.0-queued-interrupt-herdr.jsonl",
       "provider": "codex",
       "surface": "codex-app-server",
@@ -7986,6 +8014,89 @@
       },
       "coverage": {
         "output": "sessions_total 0"
+      }
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g7-codex-recheck/transcript-g7recheck-2026-10-31-0.166.0-herdr.jsonl",
+      "capture_date": "2026-10-31",
+      "superseded_by": null,
+      "provider": "codex",
+      "surface": "codex-app-server",
+      "observed_version": {
+        "codex_cli": "0.166.0 (codex --version `codex-cli 0.166.0`)",
+        "codex_daemon": "0.166.0/0.166.0/0.166.0 (cliVersion/appServerVersion/managedCodexVersion)",
+        "commit": "6ff1e1ca3b30fc8b914720681fcf5fe62e95f856",
+        "node": "25.2.1",
+        "client_visible_user_agent": "codex-tui/0.166.0 (Windows 10.0.26300; x86_64) unknown (oac_g7_recheck; 0.0.1) (initialize result of the capture client)"
+      },
+      "pins_row": "Codex CLI / app-server",
+      "pins_as_of": "PINS.md as committed at driver commit 56aeb3b9d5b9e7195c3ab0f7ff6f21e54f01a89b records last tested 0.165.0 (the scenario read it there, scenarioData.g7.versions.pinsLastTested); the run recorded VERSION WARNING findings (warn, never gate, #216). The commit that adds this entry moves PINS.md last tested to 0.166.0, after the run.",
+      "version_matches_pin": false,
+      "version_matches_pin_note": "codex-cli 0.166.0 is not PINS.md last tested 0.165.0 at the driver commit; a finding only (#216). The run continued; the findings are in docs/planning/gates/herdr-runs/G7-recheck-2026-10-31.md.",
+      "capture_utc_range": "2026-10-31T09:45:29.472Z-2026-10-31T09:50:48.950Z",
+      "driver": {
+        "herdr_version": "herdr 0.9.1",
+        "driver_commit": "56aeb3b9d5b9e7195c3ab0f7ff6f21e54f01a89b",
+        "run_manifest": "docs/planning/gates/herdr-runs/G7-recheck-2026-10-31.run-manifest.json"
+      },
+      "notes": [
+        "The capture client's wire transcript of the G7 recheck live run (#470, a G7 follow-up; risk rows 66 and 73), scenario tools/herdr/scenarios/g7-codex-recheck.mjs, run 20261031T094523Z-f1de3d (the only committed run). Six threads, all started and archived by the client in a scratch directory; other threads appear only as <NOT-OWN-THREAD> stubs. NOT a gate run and NOT verdict-bearing. Record: docs/planning/gates/herdr-runs/G7-recheck-2026-10-31.md; findings: docs/planning/gates/fixtures/g7-codex-recheck/README.md. The file is exactly what the driver wrote; its sha256 is the run manifest's."
+      ],
+      "redaction": {
+        "script": "tools/herdr/lib/redact.mjs",
+        "script_sha256": "c950d99ac992db9db85528613923453429c75749e16b6424d8555bd6b85b6dc2",
+        "residual_scan_result": "tools/herdr/lib/redact.mjs (run.mjs): droppedHazardLines=0, hazardProtocolFrames=0, residualLeaks=0, residualGenericHits=0 (captures[].redaction in the run manifest). Literal replacements: <SCRATCH> (118), <USER_HOME> (71), <HOST> (15), <INSTALLATION_ID> (15, a run literal). <REDACTED> for planType and credits fields (48). <NOT-OWN-THREAD> is the client's own stub for another thread id in a list result (5). Tool-result and hook text elided by #130 (<ELIDED ...>, 7 lines). account/rateLimits/updated usedPercent kept (a usage figure, not personal data); the thread ids are the client's own scratch threads, all archived."
+      },
+      "coverage": {
+        "row 66 (a), first half: items queued during a busy turn wait through an interrupt and run after the next uninterrupted turn, one per idle, in order": "38-55, 77, 102, 127, 128",
+        "row 66 (a), second half: an add to an idle thread after an interrupted turn waits, then runs after the next turn completes": "194-220, 242, 265",
+        "row 66 (c): an add to an unloaded thread waits; thread/resume dispatches it": "266-297, 329",
+        "row 66 (d): an extra member in thread/queue/add is accepted and ignored": "168-172, 191",
+        "row 66 (b): a second client lists, updates, reorders and deletes queued items; dispatch follows": "357-399, 401-474",
+        "row 73 state 1 (loaded, idle, with subscribers): override not applied; readback on-request": "480-559",
+        "row 73 state 2 (loaded, idle, no subscriber): override applied and retained": "560-660",
+        "row 73 state 3 (not loaded, control): override applied and retained": "661-787",
+        "threads started by the client (thread/start)": "11, 134, 335, 480, 560, 661",
+        "threads archived by the client at the end (thread/archive, one per thread started)": "801, 806, 810, 814, 819, 824 (answers 805-828)",
+        "other threads stubbed as <NOT-OWN-THREAD> in list results": "275, 282, 518, 627, 747",
+        "operator hook (sessionStart, ~/.codex/hooks.json) reported failed, text elided": "28, 150, 308, 351, 497, 584, 692"
+      },
+      "schema": {
+        "commit": "6ff1e1ca3b30fc8b914720681fcf5fe62e95f856",
+        "hash_method": "hash-tree.mjs (committed, quarantined, at docs/planning/gates/fixtures/d6-codex-protocol/hash-tree.mjs.throwaway-quarantined, sha256 73dbcb0524be80e70acdbaad95dd5d7767c2c077e5b686a2392f1bd6aa97d808): sorted relative POSIX file paths under the tree; for each, one line '<path>  <sha256-of-that-file>' (two literal spaces between path and hash); all lines '\\n'-joined with a trailing '\\n'; tree_sha256 is the sha256 of that whole listing text.",
+        "upstream": null,
+        "local_generation": null,
+        "sha256": null,
+        "note": "Schema not recorded as a tree at Codex 0.166.0. The thread/queue/list, update, reorder and delete methods were checked against a schema generated locally with codex app-server generate-json-schema --experimental on 0.166.0 (the scenario header); the tree was not recorded and no frame was compared with it. Only the members the scenario reads (mcpToolCall items, userMessage items, thread/resume, thread/queue effects) were exercised.",
+        "validated_against": "not validated against a schema tree; item members read as in the G8 S1 capture and not compared at 0.166.0"
+      }
+    },
+    {
+      "path": "docs/planning/gates/fixtures/g7-codex-recheck/README.md",
+      "provider": "codex",
+      "surface": "documentation (not a protocol fixture)",
+      "observed_version": {
+        "note": "N/A -- documentation file."
+      },
+      "pins_row": null,
+      "pins_as_of": null,
+      "version_matches_pin": null,
+      "capture_date": null,
+      "capture_utc_range": null,
+      "superseded_by": null,
+      "redaction": {
+        "script": null,
+        "script_sha256": null,
+        "residual_scan_result": "N/A -- authored documentation, not captured wire traffic."
+      },
+      "coverage": null,
+      "coverage_notes": "Documents this directory's files, the line map of the transcript, the redaction applied and what the G7 recheck live run showed at Codex 0.166.0. Not itself a captured protocol exchange.",
+      "notes": [
+        "Added with the G7 recheck live run record (#470, G7 #68)."
+      ],
+      "schema": {
+        "applicable": false,
+        "reason": "documentation"
       }
     }
   ]
