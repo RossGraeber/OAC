@@ -618,7 +618,7 @@ impl Seen<PresenceEvent> {
             .into_iter()
             .filter_map(|e| match e {
                 PresenceEvent::Record { payload, .. } => Some(payload),
-                PresenceEvent::CarrierLoss { .. } => None,
+                PresenceEvent::CarrierLoss { .. } | PresenceEvent::CarrierAppeared { .. } => None,
             })
             .collect()
     }

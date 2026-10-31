@@ -2707,6 +2707,9 @@ impl Inner {
             PresenceEvent::CarrierLoss { carrier } => {
                 self.lock().registry.carrier_loss(&carrier);
             }
+            // [IFC-TRN-124]: an appearance is neither a presence record nor a session, and
+            // changes no state here by itself.
+            PresenceEvent::CarrierAppeared { .. } => {}
         }
     }
 
