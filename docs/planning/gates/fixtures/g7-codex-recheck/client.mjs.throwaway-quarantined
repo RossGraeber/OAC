@@ -98,7 +98,12 @@ const connections = new Set();
 
 class CaseStop extends Error {}
 
+// Set by finish(): from then on nothing new starts (no thread/start, every wait ends), except the cleanup itself.
+let stopping = false;
+const cleanup = { on: false };
+
 const checkBlocked = () => {
+  if (stopping && !cleanup.on) throw new CaseStop('the client is exiting; the case stops');
   if (deadlineHit && stopOnBlock.on) throw new CaseStop('the client\'s own deadline was reached; the case stops and the threads are archived');
   if (blocked && stopOnBlock.on) throw new CaseStop(`server request ${blocked.method} (id ${JSON.stringify(blocked.id)}) was not answered; the case stops`);
 };
@@ -116,6 +121,8 @@ let deadlineHit = false;
 // Every exit path ends here: archive the threads this process started (bounded), then exit.
 let finishing = null;
 function finish(code, why = null) {
+  stopping = true;
+  for (const c of connections) for (const w of [...c.waiters]) w.resolve(null);
   finishing ??= (async () => {
     if (why) console.error(why);
     stopOnBlock.on = false;
@@ -159,7 +166,7 @@ function connect(label) {
   proc.on('exit', (code) => {
     if (!upgraded && !conn.closed) void finish(3, `[proxy exited before the upgrade] ${label} code ${code}`);
   });
-  const conn = { label, proc, events: [], pending: new Map(), nextId: 0, waiters: new Set(), closed: false };
+  const conn = { label, proc, events: [], pending: new Map(), nextId: 0, waiters: new Set(), closed: false, lateStarts: new Set() };
   connections.add(conn);
 
   const frame = (opcode, payload) => {
@@ -180,6 +187,7 @@ function connect(label) {
     if (!ALLOWED_METHODS.includes(method)) throw new Error(`refusing to send ${method}: not a method this client may send`);
     const tid = params?.threadId;
     if (tid !== undefined && !OWN.has(tid)) throw new Error(`refusing to send ${method} for a thread this client did not start`);
+    if (method === 'thread/start' && stopping) throw new CaseStop('refusing thread/start: the client is exiting');
   };
 
   conn.request = (method, params) => {
@@ -190,7 +198,10 @@ function connect(label) {
     return new Promise((resolve) => {
       const timer = setTimeout(() => {
         conn.pending.delete(id);
-        if (method === 'thread/start') pendingStarts -= 1;
+        if (method === 'thread/start') {
+          pendingStarts -= 1;
+          conn.lateStarts.add(id); // a late answer still names a thread this process started
+        }
         resolve({ error: { code: null, message: `no answer in ${REQUEST_MS} ms`, timedOut: true } });
       }, REQUEST_MS);
       conn.pending.set(id, { resolve: (r) => { clearTimeout(timer); resolve(r); }, method });
@@ -262,7 +273,14 @@ function connect(label) {
       fragments = [];
       let msg;
       try { msg = JSON.parse(line); } catch { log(label, 'unparsed', line); continue; }
-      if (msg.id !== undefined && !msg.method && conn.pending.has(msg.id)) {
+      if (msg.id !== undefined && !msg.method && conn.lateStarts.has(msg.id)) {
+        conn.lateStarts.delete(msg.id);
+        const lateId = msg.result?.thread?.id;
+        if (typeof lateId === 'string') OWN.add(lateId); // so that it is archived
+        log(label, 'daemon->client', msg);
+        obs('late-thread-start', { thread: lateId ?? null, note: 'the answer to a thread/start that had timed out arrived; the thread is archived with the others' });
+        flushHeld();
+      } else if (msg.id !== undefined && !msg.method && conn.pending.has(msg.id)) {
         const p = conn.pending.get(msg.id);
         conn.pending.delete(msg.id);
         if (p.method === 'thread/start') {
@@ -358,7 +376,8 @@ async function startThread(c, cwd, tag) {
 let EFFORT = 'low';
 async function turnStart(c, threadId, input) {
   let t = await c.request('turn/start', EFFORT ? { threadId, input, effort: EFFORT } : { threadId, input });
-  if (t.error && !t.error.timedOut && EFFORT) {
+  const effortError = (e) => e && !e.timedOut && (/effort/i.test(String(e.message ?? '')) || e.code === -32602);
+  if (t.error && EFFORT && effortError(t.error)) {
     obs('effort-rejected', { effort: EFFORT, error: errOf(t) });
     EFFORT = null;
     t = await c.request('turn/start', { threadId, input });
@@ -635,7 +654,7 @@ async function caseProbe(cwd) {
   const wovr = await open('p-wovr');
   const wafter = await open('p-wafter');
   const wun = await main.request('thread/unsubscribe', { threadId: W.id });
-  obs('w-unsubscribe', { error: errOf(wun) });
+  obs('w-unsubscribe', { error: errOf(wun), status: wun.result?.status ?? null });
   obs('w-subscribers', { connections: [], count: 0, note: 'p-main, the only connection that held the thread, unsubscribed; no other connection resumed it' });
   const wLoaded = await loadedHas(wovr, W.id);
   obs('w-loaded-before-resume', { loaded: wLoaded });
@@ -674,19 +693,29 @@ const CASES = [
   ['row73', 'probe', caseProbe],
 ];
 
-// Archive the threads this process started, bounded, once each. Used on every exit path.
+// Archive the threads this process started, bounded, once each. Used on every exit path. When the
+// client is exiting (stopping) no new thread/start is sent; a start already in flight is waited for
+// (bounded) so that its thread is in OWN before the last snapshot.
 async function archiveOwn() {
   stopOnBlock.on = false;
   blocked = null;
-  const todo = [...OWN].filter((id) => !archived.has(id));
-  if (!todo.length) return;
-  const c = await open('cleanup');
-  for (const id of todo) {
-    archived.add(id);
-    const a = await Promise.race([c.request('thread/archive', { threadId: id }), sleep(ARCHIVE_MS).then(() => ({ error: { message: `no answer in ${ARCHIVE_MS} ms` } }))]);
-    obs('archive', { thread: id, error: errOf(a) });
+  cleanup.on = true;
+  if (stopping) {
+    const until = Date.now() + 5000;
+    while (pendingStarts > 0 && Date.now() < until) await sleep(100);
   }
-  await c.close();
+  let c = null;
+  for (let round = 0; round < 3; round++) {
+    const todo = [...OWN].filter((id) => !archived.has(id));
+    if (!todo.length) break;
+    c ??= await open('cleanup');
+    for (const id of todo) {
+      archived.add(id);
+      const a = await Promise.race([c.request('thread/archive', { threadId: id }), sleep(ARCHIVE_MS).then(() => ({ error: { message: `no answer in ${ARCHIVE_MS} ms` } }))]);
+      obs('archive', { thread: id, error: errOf(a) });
+    }
+  }
+  if (c) await c.close();
 }
 
 async function runCases(cwd, set = 'all') {
@@ -711,8 +740,10 @@ async function runCases(cwd, set = 'all') {
       await Promise.all([...connections].map((c) => c.close()));
     }
   }
+  if (finishing) return; // finish() has begun: it archives and exits; no [done] line
   if (deadlineHit) obs('deadline-reached', { note: 'the running case was stopped at the client\'s own deadline' });
   await archiveOwn();
+  if (finishing) return;
   status(`[done] cases: ${results.length} observations; ${OWN.size} thread(s) started`);
 }
 
@@ -738,6 +769,7 @@ async function runCases(cwd, set = 'all') {
       console.log(`[error] ${err.message}`);
       await finish(1);
     }
+    if (finishing) await finishing; // finish() exits the process itself, with its own code
     process.exit(0);
   }
   if (mode === 'hello') {
