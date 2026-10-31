@@ -800,23 +800,36 @@ async fn observation_of(label: &str, process: Option<peer::ProcessId>) -> PeerOb
     observed.ok().flatten().unwrap_or_default()
 }
 
-/// The owner's timers: native-signal windows and presence refreshes.
+/// The owner's timers: native-signal windows, presence refreshes, and the sets of
+/// announcements that carrier appearances wait for ([IFC-TRN-123], [IFC-TRN-125]). A set
+/// held back by the hold-off begins when this timer next wakes, which is at most at the
+/// instant the hold-off ends (the wait is shortened to it), not at the next whole tick, so
+/// that it begins within the 2 second bound. It runs before the other work, so a slow
+/// refresh cannot delay it. The wait is read from the core, on the core's own clock.
 async fn timers(pipelines: Arc<Pipelines>, mut stopped: watch::Receiver<bool>, log: LogSink) {
+    let mut wait = TICK;
     loop {
         tokio::select! {
-            _ = tokio::time::sleep(TICK) => {}
+            _ = tokio::time::sleep(wait) => {}
             _ = stopped.changed() => return,
         }
         let pipelines = pipelines.clone();
-        // Both calls take the core's locks and may run adapter callbacks.
-        if tokio::task::spawn_blocking(move || {
+        // These calls take the core's locks and may run adapter callbacks.
+        match tokio::task::spawn_blocking(move || {
+            pipelines.begin_due_appearance_set();
             pipelines.expire_native_signals();
             pipelines.refresh_presence();
+            pipelines
+                .next_appearance_set_in()
+                .map_or(TICK, |d| d.clamp(Duration::from_millis(10), TICK))
         })
         .await
-        .is_err()
         {
-            log.line("a timer task failed");
+            Ok(next) => wait = next,
+            Err(_) => {
+                wait = TICK;
+                log.line("a timer task failed");
+            }
         }
     }
 }

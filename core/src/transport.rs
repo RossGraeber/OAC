@@ -197,6 +197,15 @@ pub enum PresenceEvent {
         /// The link that ended.
         carrier: CarrierHandle,
     },
+    /// `carrier-appeared`: a link, or a transport peer reached over it, that the handle
+    /// names has become usable, including one already usable when the transport started
+    /// ([IFC-TRN-120]). It carries the carrier handle only, with no device, session or
+    /// value derived from either ([IFC-TRN-122]). It is not a presence record, a session
+    /// or evidence of either ([IFC-TRN-124]).
+    CarrierAppeared {
+        /// The link that became usable.
+        carrier: CarrierHandle,
+    },
 }
 
 /// `PublishResult` of `spec/interfaces.md` §4.11: whether the transport took the payload

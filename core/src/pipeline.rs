@@ -159,6 +159,16 @@ use std::sync::mpsc::{SyncSender, sync_channel};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 use std::time::{Duration, Instant};
 
+/// The least time between the starts of two sets of announcements begun for carrier
+/// appearances from one transport ([IFC-TRN-125]).
+pub const CARRIER_APPEARANCE_HOLD_OFF: Duration = Duration::from_secs(1);
+
+/// The most time from the first carrier appearance not yet covered to the start of a set of
+/// announcements ([IFC-TRN-123]). The owner has to call
+/// [`Pipelines::begin_due_appearance_set`] by [`Pipelines::next_appearance_set_at`], so that
+/// the set begins in time: the hold-off ends before this bound does.
+pub const CARRIER_APPEARANCE_BOUND: Duration = Duration::from_secs(2);
+
 use crate::adapter::{
     AdapterEvent, Attachment, Connection, ConnectionHandle, DiscoveryRequest,
     DiscoveryRequestResult, HandOff, HandOffOutcome, NativeSignal, ProviderAdapter, ReceiptStream,
@@ -536,6 +546,68 @@ struct Announced {
     taken: bool,
 }
 
+/// The sets of announcements begun for carrier appearances ([IFC-TRN-123], [IFC-TRN-125]).
+///
+/// The core has one transport, so the hold-off is per transport as the spec requires, and a
+/// peer that cycles its links (a fresh carrier handle each time) gets no more sets for it.
+/// An appearance carries nothing but its handle ([IFC-TRN-122]), and nothing of it is kept:
+/// no handle, no device, no session ([IFC-TRN-124]).
+///
+/// A set **begins when the core passes its first announcement of the set to the transport**
+/// ([IFC-TRN-125]), so the hold-off runs from that instant and not from the decision to
+/// begin the set (a lock wait or the signing of a record comes between them). Until that
+/// instant is known the set is `starting`, and no other set begins. A set with nothing to
+/// pass (no session is announced, or no device is admitted under [SEC-AUZ-011]) never
+/// begins: [IFC-TRN-123] says it has nothing to observe, so it starts no hold-off, and the
+/// event that asked for it is discharged.
+#[derive(Debug, Default)]
+struct AppearanceSets {
+    /// When the latest set began (its first announcement was passed); `None` before the
+    /// first.
+    last_began: Option<Instant>,
+    /// An appearance was handed after the latest decision to begin a set, and no later
+    /// decision covers it.
+    uncovered: bool,
+    /// The instant a set was decided, until its first announcement is passed.
+    starting: Option<Instant>,
+}
+
+impl AppearanceSets {
+    /// Whether a set may begin at `now`: none is starting, and none began less than the
+    /// hold-off ago.
+    fn may_begin(&self, now: Instant) -> bool {
+        self.starting.is_none()
+            && self
+                .last_began
+                .is_none_or(|t| now >= t + CARRIER_APPEARANCE_HOLD_OFF)
+    }
+
+    /// Takes the decision to begin a set at `now`, if one is due and allowed. The same lock
+    /// holds the decision and clears `uncovered`, so an event handed after this call is not
+    /// covered by the set ([IFC-TRN-123], last sentence).
+    fn decide(&mut self, now: Instant) -> bool {
+        if self.uncovered && self.may_begin(now) {
+            self.uncovered = false;
+            self.starting = Some(now);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// The set's first announcement was passed to the transport at `at`: the set began.
+    fn first_passed(&mut self, at: Instant) {
+        if let Some(decided) = self.starting.take() {
+            self.last_began = Some(decided.max(at));
+        }
+    }
+
+    /// The set is over. If nothing was passed it never began, and starts no hold-off.
+    fn settle(&mut self) {
+        self.starting = None;
+    }
+}
+
 /// Everything the pipelines change, under one lock. The lock is never held across a call
 /// into an adapter or a transport.
 struct Core {
@@ -553,6 +625,8 @@ struct Core {
     tracker_order: VecDeque<TrackerKey>,
     /// The last announcement of each own session issued to each device.
     announced: HashMap<(SessionId, KeyId), Announced>,
+    /// Sets begun for carrier appearances ([IFC-TRN-123], [IFC-TRN-125]).
+    appearances: AppearanceSets,
     transport_caps: Option<TransportCapabilities>,
     device_subscription: Option<Subscription>,
     /// What the core process observed about each connection's peer ([IFC-ADP-012]); only
@@ -711,6 +785,7 @@ impl Pipelines {
             trackers: HashMap::new(),
             tracker_order: VecDeque::new(),
             announced: HashMap::new(),
+            appearances: AppearanceSets::default(),
             transport_caps: None,
             device_subscription: None,
             observed: HashMap::new(),
@@ -1282,6 +1357,49 @@ impl Pipelines {
             .values()
             .map(|a| a.at + inner.refresh_interval())
             .min()
+    }
+
+    /// Begins the set of announcements that a carrier appearance is waiting for, when the
+    /// hold-off after the previous set has ended ([IFC-TRN-123], [IFC-TRN-125]). An
+    /// appearance handed while no hold-off was running begins its set at once, in the
+    /// handler; this call is for one that arrived during the hold-off. The owner arms one
+    /// timer at [`Pipelines::next_appearance_set_at`] and calls this when it fires; nothing
+    /// here runs a timer or asks anyone for anything.
+    pub fn begin_due_appearance_set(&self) {
+        let inner = &self.inner;
+        let now = (inner.monotonic)();
+        let begin = inner.lock().appearances.decide(now);
+        if begin {
+            inner.announce_set();
+        }
+    }
+
+    /// The instant at which a set of announcements is next due for a carrier appearance
+    /// that no set covers yet; `None` when there is none, and also while a set is starting
+    /// (its first announcement is not yet passed, so the hold-off has not started; the owner
+    /// asks again after it). It is the hold-off after the previous set began, which is at
+    /// most [`CARRIER_APPEARANCE_BOUND`] after the appearance was handed over, or the present
+    /// when no set has begun.
+    pub fn next_appearance_set_at(&self) -> Option<Instant> {
+        let now = (self.inner.monotonic)();
+        let core = self.inner.lock();
+        let sets = &core.appearances;
+        if !sets.uncovered || sets.starting.is_some() {
+            return None;
+        }
+        // No set has begun yet (the one decided before was empty): the set is due now.
+        Some(
+            sets.last_began
+                .map_or(now, |t| t + CARRIER_APPEARANCE_HOLD_OFF),
+        )
+    }
+
+    /// How long from now, on the core's own monotonic clock, until
+    /// [`Pipelines::next_appearance_set_at`]; zero when it has passed, `None` when no set is
+    /// due. The owner arms its timer with this, so that its clock and the core's are one.
+    pub fn next_appearance_set_in(&self) -> Option<Duration> {
+        let at = self.next_appearance_set_at()?;
+        Some(at.saturating_duration_since((self.inner.monotonic)()))
     }
 
     /// This device's identity, which signs every envelope, record and receipt sent here,
@@ -2235,6 +2353,21 @@ impl Inner {
     }
 
     fn announce_to(&self, session: &SessionId, device: &KeyId, refresh: bool) {
+        self.announce_to_noting(session, device, refresh, |_| {});
+    }
+
+    /// As [`Inner::announce_to`], calling `passing` with the monotonic instant just before the
+    /// announcement is passed to the transport, if one is ([IFC-TRN-125] dates a set from its
+    /// first). `passing` runs before the transport call, so that a call which takes long, or
+    /// never returns, does not hold up the decision about a later set. It returns whether an
+    /// announcement was passed.
+    fn announce_to_noting(
+        &self,
+        session: &SessionId,
+        device: &KeyId,
+        refresh: bool,
+        passing: impl FnOnce(Instant),
+    ) -> bool {
         let mono = (self.monotonic)();
         let next = {
             let mut core = self.lock();
@@ -2247,15 +2380,83 @@ impl Inner {
                 None => None,
             }
         };
-        if let Some(((destination, payload), carriage)) = next {
-            let result = self.pass(
-                carriage,
-                device,
-                &destination,
-                payload,
-                self.control_deadline(),
-            );
-            self.announcement_taken(session, device, mono, result);
+        let Some(((destination, payload), carriage)) = next else {
+            return false;
+        };
+        passing((self.monotonic)());
+        let result = self.pass(
+            carriage,
+            device,
+            &destination,
+            payload,
+            self.control_deadline(),
+        );
+        self.announcement_taken(session, device, mono, result);
+        true
+    }
+
+    /// A carrier appeared ([IFC-TRN-123]). The event is marked uncovered under the lock,
+    /// and a set begins at once when the hold-off allows; otherwise the owner begins it when
+    /// the hold-off ends ([`Pipelines::begin_due_appearance_set`]).
+    fn on_carrier_appeared(&self) {
+        let now = (self.monotonic)();
+        let begin = {
+            let mut core = self.lock();
+            core.appearances.uncovered = true;
+            core.appearances.decide(now)
+        };
+        if begin {
+            self.announce_set();
+        }
+    }
+
+    /// A set of announcements: for each own session, a new announcement to each trusted
+    /// device; it begins at the first one passed to the transport ([`AppearanceSets`]). Each is issued as a refresh, so it carries a fresh `seq` and is sent although
+    /// an earlier one is still in force ([SC-DLV-050]); [`Inner::announce_to`] sends it only
+    /// where [SEC-AUZ-011] allows the device to receive that session's presence record, and
+    /// only through the transport that reported the appearance.
+    fn announce_set(&self) {
+        // Ends the set whatever happens below: a set that passed nothing never began. Once
+        // the first announcement is being passed the set has begun, and the guard is done
+        // (a later set may already be starting by then).
+        struct Settle<'a> {
+            inner: &'a Inner,
+            began: bool,
+        }
+        impl Drop for Settle<'_> {
+            fn drop(&mut self) {
+                if !self.began {
+                    self.inner.lock().appearances.settle();
+                }
+            }
+        }
+        let mut settle = Settle {
+            inner: self,
+            began: false,
+        };
+        let own = self.identity.key_id().clone();
+        let (sessions, devices): (Vec<SessionId>, Vec<KeyId>) = {
+            let core = self.lock();
+            (
+                core.sessions.keys().cloned().collect(),
+                core.engine
+                    .trusted_keys()
+                    .iter()
+                    .map(|k| k.key_id().clone())
+                    .filter(|k| k != &own)
+                    .collect(),
+            )
+        };
+        for session in &sessions {
+            for device in &devices {
+                let mut note = |at| {
+                    if !settle.began {
+                        settle.began = true;
+                        self.lock().appearances.first_passed(at);
+                    }
+                };
+                self.announce_to_noting(session, device, true, &mut note);
+            }
         }
     }
 
@@ -2707,6 +2908,10 @@ impl Inner {
             PresenceEvent::CarrierLoss { carrier } => {
                 self.lock().registry.carrier_loss(&carrier);
             }
+            // [IFC-TRN-124]: an appearance is neither a presence record nor a session, and
+            // adds none to the registry or the engine. It only asks for a set of
+            // announcements ([IFC-TRN-123]).
+            PresenceEvent::CarrierAppeared { .. } => self.on_carrier_appeared(),
         }
     }
 

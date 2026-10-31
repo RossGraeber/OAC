@@ -87,7 +87,7 @@ impl Events {
     fn first_loss(&self) -> Option<(Instant, CarrierHandle)> {
         self.0.lock().unwrap().iter().find_map(|(at, e)| match e {
             PresenceEvent::CarrierLoss { carrier } => Some((*at, carrier.clone())),
-            PresenceEvent::Record { .. } => None,
+            PresenceEvent::Record { .. } | PresenceEvent::CarrierAppeared { .. } => None,
         })
     }
 }
@@ -241,11 +241,177 @@ fn a_late_peer_reports_the_loss_of_a_peer_that_was_online_before_it_started() {
         late.observed_live_links() == 1
     });
     let carrier = frame_carrier(&early, &late, &key('b'));
-    assert_eq!(events.all(), 0, "nothing is reported while the peer lives");
+    assert_eq!(
+        events.losses(),
+        0,
+        "no loss is reported while the peer lives"
+    );
     early.shutdown();
     wait_for("the loss", Duration::from_secs(15), || events.losses() == 1);
     assert_eq!(events.first_loss().unwrap().1, carrier);
     late.shutdown();
+}
+
+// ---- carrier appearance (IFC-TRN-120 to IFC-TRN-122; #419) -----------------------------
+
+/// A `watch_presence` handler that forwards each event to a channel, so that a test blocks
+/// on the event itself instead of sampling for it.
+fn forwarded(t: &PeerTransport) -> mpsc::Receiver<PresenceEvent> {
+    let (tx, rx) = mpsc::channel();
+    let tx = Mutex::new(tx);
+    t.watch_presence(Arc::new(move |event| {
+        let _ = tx.lock().unwrap().send(event);
+    }))
+    .unwrap();
+    rx
+}
+
+/// The next event, which must arrive within the test's bound.
+fn next_event(rx: &mpsc::Receiver<PresenceEvent>, what: &str) -> PresenceEvent {
+    rx.recv_timeout(Duration::from_secs(15))
+        .unwrap_or_else(|_| panic!("timed out waiting for {what}"))
+}
+
+/// [IFC-TRN-120], [IFC-TRN-121], [IFC-TRN-122], [IFC-TRN-090]: a peer already online when
+/// this transport started is reported as an appearance. Native history replayed its token
+/// before any handler existed (the test waits for that), and the handler registered
+/// afterwards still hears of it, from the transport, without being asked. The event is the
+/// carrier handle and nothing else, and it is the handle the peer's frames carry.
+#[test]
+fn a_late_started_peer_reports_a_carrier_appearance_for_a_link_already_usable_at_start() {
+    let mut c = conf("appear-late");
+    let (early, late) = (PeerTransport::new(), PeerTransport::new());
+    c.start_first(|conf| early.start(&key('a'), conf.clone().wrap()))
+        .unwrap();
+    late.start(&key('b'), c.clone().wrap()).unwrap();
+    // History has delivered the early peer's token; no handler exists yet.
+    wait_for("history", Duration::from_secs(15), || {
+        late.observed_live_links() == 1
+    });
+    let events = forwarded(&late);
+    let appeared = next_event(&events, "the appearance of the early peer");
+    // Only a handle: matching the variant exhaustively leaves no other member.
+    let PresenceEvent::CarrierAppeared { carrier } = appeared else {
+        panic!("expected carrier-appeared, got {appeared:?}");
+    };
+    assert_eq!(carrier, frame_carrier(&early, &late, &key('b')));
+    assert_eq!(format!("{carrier:?}"), "CarrierHandle(..)");
+    early.shutdown();
+    // The link that appeared is the link whose loss follows, under the same handle.
+    match next_event(&events, "the loss of the early peer") {
+        PresenceEvent::CarrierLoss { carrier: lost } => assert_eq!(lost, carrier),
+        other => panic!("expected carrier-loss, got {other:?}"),
+    }
+    late.shutdown();
+}
+
+/// [IFC-TRN-121], [IFC-TRN-122]: a peer that starts while this transport is running is
+/// reported as an appearance, once per new link; a link that went and came back is a new
+/// appearance.
+#[test]
+fn a_peer_that_starts_during_normal_operation_reports_a_carrier_appearance() {
+    let mut c = conf("appear-live");
+    let (watching, first, second) = (
+        PeerTransport::new(),
+        PeerTransport::new(),
+        PeerTransport::new(),
+    );
+    c.start_first(|conf| watching.start(&key('a'), conf.clone().wrap()))
+        .unwrap();
+    let events = forwarded(&watching);
+    first.start(&key('b'), c.clone().wrap()).unwrap();
+    let PresenceEvent::CarrierAppeared { carrier } =
+        next_event(&events, "the appearance of the first peer")
+    else {
+        panic!("expected carrier-appeared");
+    };
+    assert_eq!(carrier, frame_carrier(&first, &watching, &key('a')));
+    second.start(&key('c'), c.clone().wrap()).unwrap();
+    match next_event(&events, "the appearance of the second peer") {
+        PresenceEvent::CarrierAppeared { carrier: again } => assert_eq!(again, carrier),
+        other => panic!("expected carrier-appeared, got {other:?}"),
+    }
+    // A new peer after a loss is a new appearance (the same token returning without a
+    // deletion in between is covered by `presence::tests`).
+    first.shutdown();
+    assert!(matches!(
+        next_event(&events, "the loss of the first peer"),
+        PresenceEvent::CarrierLoss { .. }
+    ));
+    let again = PeerTransport::new();
+    again.start(&key('d'), c.clone().wrap()).unwrap();
+    assert!(matches!(
+        next_event(&events, "the appearance of the restarted peer"),
+        PresenceEvent::CarrierAppeared { .. }
+    ));
+    for t in [&watching, &second, &again] {
+        t.shutdown();
+    }
+    // Every event was one of those: no record, and nothing after shutdown.
+    assert!(events.try_recv().is_err());
+}
+
+/// A token that is not another transport's of this partition is no carrier, so it is no
+/// appearance either (the same inputs that `an_ambiguous_token_is_unknown_and_reports_no_loss`
+/// shows report no loss).
+#[test]
+fn a_token_that_is_not_another_transports_reports_no_carrier_appearance() {
+    let mut c = conf("appear-foreign");
+    let t = PeerTransport::new();
+    c.start_first(|conf| t.start(&key('a'), conf.clone().wrap()))
+        .unwrap();
+    let partition = Partition::new(c.partition());
+    let events = forwarded(&t);
+    let raw = raw_session(&c);
+    let malformed = raw
+        .liveliness()
+        .declare_token(format!("{}/live/not-a-token", partition.prefix()))
+        .wait();
+    // Control, which also orders the checks: a well-formed token is the first event, so the
+    // malformed token above, declared first, had its chance to be reported before it.
+    let good = raw
+        .liveliness()
+        .declare_token(partition.token_key(&token_name("well formed")))
+        .wait()
+        .unwrap();
+    assert!(matches!(
+        next_event(&events, "the well formed token"),
+        PresenceEvent::CarrierAppeared { .. }
+    ));
+    assert_eq!(t.observed_live_links(), 1);
+    // The malformed token was declared first, so a report for it would be queued by now:
+    // none follows.
+    assert!(
+        events.recv_timeout(Duration::from_millis(500)).is_err(),
+        "a second event followed"
+    );
+    drop((malformed, good));
+    let _ = raw.close().wait();
+    t.shutdown();
+}
+
+/// A transport dropped without `shutdown` still ends its reporter thread: the handler it held
+/// is dropped (a disconnected channel is the signal, so the test blocks and does not poll).
+#[test]
+fn dropping_a_started_transport_without_shutdown_ends_its_reporter() {
+    let mut c = conf("dropped");
+    let t = PeerTransport::new();
+    c.start_first(|conf| t.start(&key('a'), conf.clone().wrap()))
+        .unwrap();
+    let (tx, rx) = mpsc::channel::<()>();
+    let tx = Mutex::new(tx);
+    t.watch_presence(Arc::new(move |_| {
+        let _ = tx.lock().unwrap().send(());
+    }))
+    .unwrap();
+    drop(t);
+    loop {
+        match rx.recv_timeout(Duration::from_secs(15)) {
+            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            Err(mpsc::RecvTimeoutError::Timeout) => panic!("the reporter thread is still alive"),
+            Ok(()) => {}
+        }
+    }
 }
 
 // ---- acceptance 2: exit produces unreachable within a stated bound ---------------------
@@ -277,6 +443,8 @@ fn a_graceful_exit_is_reported_at_once_to_every_remaining_peer() {
     // A joiner leaves: the relay and the other joiner each report one loss.
     let left = Instant::now();
     j1.shutdown();
+    // What j1 heard before it exited (the appearances of its peers); nothing may follow.
+    let at_exit = e1.all();
     wait_for("relay loss", Duration::from_secs(15), || er.losses() == 1);
     wait_for("j2 loss", Duration::from_secs(15), || e2.losses() == 1);
     let (at_relay, at_j2) = (er.nth_loss(0).unwrap(), e2.nth_loss(0).unwrap());
@@ -286,9 +454,10 @@ fn a_graceful_exit_is_reported_at_once_to_every_remaining_peer() {
         at_j2.saturating_duration_since(left)
     );
     assert_eq!(j1.observed_live_links(), 0);
+    assert_eq!(e1.losses(), 0, "no loss was reported before the exit");
     assert_eq!(
         e1.all(),
-        0,
+        at_exit,
         "the exiting transport reports nothing after shutdown"
     );
     // The relay leaves: the remaining joiner reports it.
@@ -496,7 +665,7 @@ fn a_silent_link_loss_is_reported_within_the_zenoh_link_lease() {
         t.observed_live_links() == 1
     });
     thread::sleep(Duration::from_millis(500));
-    assert_eq!(events.all(), 0);
+    assert_eq!(events.losses(), 0);
     let silent = Instant::now();
     link.blackhole.store(true, Ordering::SeqCst);
     let limit = Duration::from_millis(LINK_LEASE_MILLIS) + Duration::from_secs(6);
@@ -613,7 +782,11 @@ fn a_stalled_presence_watcher_blocks_neither_frames_nor_other_peers() {
     let release = Arc::new(AtomicBool::new(false));
     let entered = Arc::new(AtomicBool::new(false));
     let (r, e) = (release.clone(), entered.clone());
-    b.watch_presence(Arc::new(move |_| {
+    b.watch_presence(Arc::new(move |event| {
+        // Only a loss stalls this watcher; appearances at start pass through.
+        if !matches!(event, PresenceEvent::CarrierLoss { .. }) {
+            return;
+        }
         e.store(true, Ordering::SeqCst);
         let t = Instant::now();
         while !r.load(Ordering::SeqCst) && t.elapsed() < Duration::from_secs(20) {
@@ -642,13 +815,13 @@ fn a_stalled_presence_watcher_blocks_neither_frames_nor_other_peers() {
 }
 
 /// [IFC-TRN-071] end to end: nothing follows `shutdown`. One handler is held in flight
-/// while a second loss is pending in the native signal ring, and `shutdown` starts while
-/// the handler runs. This test does not prove the gate: `shutdown` undeclares the
-/// liveliness subscriber and closes the session before it joins the loss thread, and
-/// Zenoh's ring receiver holds only a weak reference to its ring, so Zenoh itself
-/// discards the pending signal. The gate is proved deterministically at the loop by
+/// while a second loss is pending, and `shutdown` starts while the handler runs. The
+/// wake-up's sender lives in `Signals` until `shutdown` has closed the gate and undeclared
+/// everything (`signals.close()` comes after), so the ring survives and the pending loss
+/// does reach the reporter loop once the handler returns: the gate itself refuses it. The
+/// gate is also proved at the loop, without the end-to-end timing, by
 /// `transport::tests::a_pending_loss_signal_reaches_no_watcher_once_the_gate_is_closed`
-/// (ring sender kept alive) and by `presence::tests::a_loss_reaches_every_watcher_until_the_gate_closes`.
+/// and by `presence::tests::a_loss_reaches_every_watcher_until_the_gate_closes`.
 #[test]
 fn no_loss_reaches_a_watcher_once_shutdown_has_begun() {
     let mut c = conf("after-shutdown");
@@ -668,7 +841,12 @@ fn no_loss_reaches_a_watcher_once_shutdown_has_begun() {
         Arc::new(AtomicBool::new(false)),
     );
     let (n, r) = (calls.clone(), release.clone());
-    b.watch_presence(Arc::new(move |_| {
+    b.watch_presence(Arc::new(move |event| {
+        // Only a loss holds the handler in flight; the appearances of the peers already
+        // online when `b` started pass through.
+        if !matches!(event, PresenceEvent::CarrierLoss { .. }) {
+            return;
+        }
         n.fetch_add(1, Ordering::SeqCst);
         let t = Instant::now();
         while !r.load(Ordering::SeqCst) && t.elapsed() < Duration::from_secs(20) {

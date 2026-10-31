@@ -94,6 +94,8 @@ fn watch_presence_feeds_the_registry_and_carrier_loss_ends_it() {
             PresenceEvent::CarrierLoss { carrier } => {
                 registry.carrier_loss(&carrier);
             }
+            // [IFC-TRN-124]: an appearance is not a presence record.
+            PresenceEvent::CarrierAppeared { .. } => {}
         }
     }))
     .unwrap();

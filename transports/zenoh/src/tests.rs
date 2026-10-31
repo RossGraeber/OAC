@@ -437,6 +437,8 @@ fn discovery_alone_hands_the_core_nothing() {
     a.watch_presence(Arc::new(move |event| match event {
         PresenceEvent::Record { .. } => panic!("discovery became presence"),
         PresenceEvent::CarrierLoss { .. } => *l.lock().unwrap() += 1,
+        // Not a record, and not a loss ([IFC-TRN-124]).
+        PresenceEvent::CarrierAppeared { .. } => {}
     }))
     .unwrap();
     let got = Arc::new(Mutex::new(Vec::new()));
