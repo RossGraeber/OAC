@@ -83,10 +83,12 @@ impl Watchers {
 ///
 /// The wake-up is a native one-slot ring: it coalesces, but the two flags do not, so a loss
 /// is never hidden by a later appearance nor the other way round. The native callback only
-/// sets a flag and wakes; it never runs a core handler. An appearance seen while no
+/// sets a flag and wakes; it never runs a core handler. A flag raised while no
 /// `watch_presence` handler is registered stays pending until one is (the core registers
-/// after `start`, and history replay can land before that); a loss in that interval is
-/// dropped, as no one has asked to hear of it.
+/// after `start`, and history replay can land before that). It is never dropped, so a
+/// handler registered at the same instant a flag is raised cannot lose it. A loss kept for
+/// the first handler may be stale by then; a stale loss only moves sessions toward
+/// `unreachable` until the issuer's next announcement ([IFC-TRN-062], §6.6).
 pub(crate) struct Signals {
     /// `(lost, appeared)`.
     pending: Mutex<(bool, bool)>,
@@ -120,14 +122,12 @@ impl Signals {
         }
     }
 
-    /// `(lost, appeared)` to report now. With no watcher registered nothing is reported, a
-    /// pending loss is dropped and a pending appearance is kept.
+    /// `(lost, appeared)` to report now. With no watcher registered nothing is reported and
+    /// nothing is cleared: both flags wait for the first handler.
     pub(crate) fn take(&self, watched: bool) -> (bool, bool) {
-        let mut p = self.pending.lock().unwrap_or_else(|e| e.into_inner());
         if watched {
-            std::mem::take(&mut *p)
+            std::mem::take(&mut *self.pending.lock().unwrap_or_else(|e| e.into_inner()))
         } else {
-            p.0 = false;
             (false, false)
         }
     }
@@ -272,18 +272,32 @@ mod tests {
     }
 
     #[test]
-    fn an_appearance_waits_for_a_watcher_and_a_loss_does_not() {
+    fn an_appearance_and_a_loss_both_wait_for_a_watcher() {
         use zenoh::handlers::{IntoHandler, RingChannel};
         let (wake, _rx) = RingChannel::new(1).into_handler();
         let s = Signals::new(wake);
         s.appeared();
         s.lost();
+        // No handler yet: nothing is reported and nothing is cleared, so a handler that
+        // registers just after a flag was raised still gets it (the interleaving of
+        // `watch_presence` with the native callback, taken one step at a time).
         assert_eq!(s.take(false), (false, false));
-        assert_eq!(s.take(true), (false, true));
         s.lost();
-        s.appeared();
+        assert_eq!(s.take(false), (false, false));
         assert_eq!(s.take(true), (true, true));
         assert_eq!(s.take(true), (false, false));
+    }
+
+    /// Dropping the wake-up's sender ends the reporter's blocking read.
+    #[test]
+    fn closing_the_signals_ends_the_wake_stream() {
+        use zenoh::handlers::{IntoHandler, RingChannel};
+        let (wake, rx) = RingChannel::new(1).into_handler();
+        let s = Signals::new(wake);
+        s.close();
+        assert!(rx.recv().is_err());
+        // Waking a closed stream is harmless.
+        s.wake();
     }
 
     #[test]

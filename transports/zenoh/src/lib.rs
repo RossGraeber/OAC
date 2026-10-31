@@ -303,9 +303,9 @@
 //! * *Mapping.* A token alive (history or live put) is `online`. A token seen alive that is
 //!   deleted is `unreachable` and becomes exactly one neutral `carrier-loss` for the
 //!   stream handle. A token first seen alive, whether declared live or replayed from
-//!   history, becomes a neutral `carrier-appeared` for the same handle (below). A deletion of a token never seen alive, this transport's own token, a
-//!   malformed name or another partition's token is `unknown`: nothing is reported, and no
-//!   state is guessed. Whether a session is `online`, `unreachable` or `unknown` stays the
+//!   history, becomes a neutral `carrier-appeared` for the same handle (below). A deletion
+//!   of a token never seen alive, this transport's own token, a malformed name or another
+//!   partition's token is `unknown`: nothing is reported, and no state is guessed. Whether a session is `online`, `unreachable` or `unknown` stays the
 //!   core registry's decision from its signed records and these losses ([IFC-TRN-062],
 //!   [SC-DLV-046]); this table is the transport's own and appears in no neutral type.
 //! * *Carrier appearance ([IFC-TRN-090], [IFC-TRN-120] to [IFC-TRN-122]).* This binding
@@ -321,9 +321,10 @@
 //!   (`a_peer_that_starts_during_normal_operation_reports_a_carrier_appearance`). A token
 //!   declared again with no deletion between (a replay, or the live set re-delivered after
 //!   a reconnect) is no new appearance; a token that went and returned is. A deletion of a
-//!   token never seen alive, this transport's own token, a malformed name or another
-//!   partition's token reports nothing
-//!   (`a_token_that_is_not_another_transports_reports_no_carrier_appearance`). The event
+//!   token never seen alive reports nothing, and neither does a malformed name
+//!   (`a_token_that_is_not_another_transports_reports_no_carrier_appearance`), another
+//!   partition's token (`an_ambiguous_token_is_unknown_and_reports_no_loss`, which shows no
+//!   event of either kind) or this transport's own token. The event
 //!   is handed to the `watch_presence` handler on the transport's own initiative
 //!   ([IFC-TRN-121]) and carries only the carrier handle, the same opaque stream handle as
 //!   a `carrier-loss` and the frames ([IFC-TRN-122]); no device, session, token name or
@@ -331,13 +332,14 @@
 //!   fall together are reported as one event (the core's hold-off, [IFC-TRN-125], coalesces
 //!   them anyway). The core registers its handler after `start`, and history can land
 //!   before that: an appearance seen while no handler is registered is kept and handed to
-//!   the first handler on registration, so a link already usable at start is reported
-//!   (a loss in that interval is dropped, as no one has asked to hear of it). This binding
-//!   neither triggers nor performs the core's announcements ([IFC-TRN-123]).
+//!   the first handler on registration, so a link already usable at start is reported. A
+//!   loss in that interval is kept too, and a stale one is harmless: it only moves sessions
+//!   toward `unreachable` until the issuer's next announcement ([IFC-TRN-062]). This
+//!   binding neither triggers nor performs the core's announcements ([IFC-TRN-123]).
 //! * *Delivery.* The native callback never runs core handlers. It sets a pending flag (loss
-//!   or appearance) and signals a thread of the
-//!   transport's own through a native `RingChannel` of one: wake-ups coalesce into a
-//!   single signal and no flag is dropped without one remaining. The thread reads that
+//!   or appearance) and signals a thread of the transport's own through a native
+//!   `RingChannel` of one: wake-ups coalesce into a single signal and no flag is dropped
+//!   without one remaining. The thread reads that
 //!   established stream by blocking (no polling) and calls the `watch_presence` handlers
 //!   behind the same gate as frames ([IFC-TRN-071]). A stalled watcher holds up only its own
 //!   transport's later watchers; frames and other peers continue

@@ -82,6 +82,15 @@ struct Running {
     loss_reporter_id: ThreadId,
 }
 
+impl Drop for Running {
+    /// A transport dropped without `shutdown` still ends its reporter thread: the wake-up's
+    /// only sender lives in `signals`, so without this the thread would block on it for
+    /// good, holding the watchers.
+    fn drop(&mut self) {
+        self.signals.close();
+    }
+}
+
 /// Only local device subscriptions receive sealed frames. Session entries stay local.
 #[derive(Default)]
 struct Subs {
@@ -175,8 +184,11 @@ fn dispatch_loop(
 /// Blocking read on the established native signal, not polling. A native liveliness
 /// callback never runs core handlers. The native ring holds one wake-up and a newer one
 /// replaces it, but what to report is kept in `signals`' flags, so neither a loss nor an
-/// appearance is dropped without a wake-up remaining. A loss is handed on before an
-/// appearance: when both are pending, the net state is that the link is usable.
+/// appearance is dropped without a wake-up remaining. When both are pending their order is
+/// not kept: a loss is handed on before an appearance, so a link that appeared and went
+/// within one wake-up reads as a loss followed by an appearance. That is stale in the same
+/// harmless way as any carrier event that is overtaken ([IFC-TRN-062]): the next sample
+/// for that link says the rest.
 fn presence_loop(
     rx: RingChannelHandler<()>,
     signals: Arc<Signals>,
@@ -670,7 +682,7 @@ impl Transport for PeerTransport {
         let _ = r.session.close().wait();
         // This holder of the wake-up's sender, so the reporter's blocking read can end below.
         r.signals.close();
-        // Undeclaring drops the native ring callback, ending the stream; wait for it,
+        // Undeclaring drops the native ring callback, ending the frame stream; wait for it,
         // unless this is it (a handler that called shutdown).
         let worker = r
             .dispatcher
@@ -682,8 +694,8 @@ impl Transport for PeerTransport {
         {
             let _ = h.join();
         }
-        // The same for the loss reporter: undeclaring the liveliness subscriber dropped its
-        // native callback, which ended the signal stream.
+        // The same for the loss reporter: `signals.close()` above dropped the wake-up's only
+        // sender, which ended the signal stream.
         let reporter = r
             .loss_reporter
             .lock()
