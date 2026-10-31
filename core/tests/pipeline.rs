@@ -75,7 +75,7 @@ struct BusState {
     /// test holding a device's core lock is not met by an inline delivery.
     no_delivery: bool,
     /// Every presence record taken, with the device that sent it.
-    presence_taken: Vec<(KeyId, Payload)>,
+    presence_taken: Vec<(KeyId, Destination, Payload)>,
 }
 
 /// A loopback medium for several endpoints, one per device key.
@@ -121,8 +121,23 @@ impl Bus {
             .unwrap()
             .presence_taken
             .iter()
-            .filter(|(f, _)| f == from)
-            .map(|(_, p)| p.clone())
+            .filter(|(f, ..)| f == from)
+            .map(|(_, _, p)| p.clone())
+            .collect()
+    }
+
+    /// The `(session, device)` of every presence record `from` has passed, in order.
+    fn presence_pairs_from(&self, from: &KeyId) -> Vec<(SessionId, KeyId)> {
+        self.0
+            .lock()
+            .unwrap()
+            .presence_taken
+            .iter()
+            .filter(|(f, ..)| f == from)
+            .map(|(_, d, p)| match d {
+                Destination::Device(k) => (record_of(p).session_id().clone(), k.clone()),
+                other => panic!("a presence record to {other:?}"),
+            })
             .collect()
     }
 
@@ -284,7 +299,8 @@ impl Transport for Endpoint {
             }
             st.log
                 .push((me.clone(), payload.kind(), destination.clone()));
-            st.presence_taken.push((me.clone(), payload.clone()));
+            st.presence_taken
+                .push((me.clone(), destination.clone(), payload.clone()));
             st.watchers
                 .iter()
                 .filter(|(owner, _)| owner == k)
@@ -4763,24 +4779,36 @@ fn a_reveal_turned_away_at_the_cap_does_not_reset_the_window_count() {
 
 /// A monotonic clock that moves only when told to.
 #[derive(Clone)]
-struct Mono(Arc<Mutex<Instant>>);
+struct Mono(Arc<Mutex<(Instant, Duration)>>);
 
 impl Mono {
     fn new() -> Mono {
-        Mono(Arc::new(Mutex::new(Instant::now())))
+        Mono(Arc::new(Mutex::new((Instant::now(), Duration::ZERO))))
     }
 
+    /// The time, without reading the clock as the core does.
     fn now(&self) -> Instant {
-        *self.0.lock().unwrap()
+        self.0.lock().unwrap().0
     }
 
     fn advance(&self, by: Duration) {
-        *self.0.lock().unwrap() += by;
+        self.0.lock().unwrap().0 += by;
+    }
+
+    /// From now on each read by the core moves the clock on by `step`: the time the core
+    /// itself takes between two reads (a lock wait, the signing of a record).
+    fn step_per_core_read(&self, step: Duration) {
+        self.0.lock().unwrap().1 = step;
     }
 
     fn clock(&self) -> oac_core::pipeline::MonotonicClock {
         let m = self.clone();
-        Arc::new(move || m.now())
+        Arc::new(move || {
+            let mut g = m.0.lock().unwrap();
+            let step = g.1;
+            g.0 += step;
+            g.0
+        })
     }
 }
 
@@ -5075,4 +5103,157 @@ fn an_appearance_alone_creates_no_presence_record_session_or_authorization() {
     lone.appear(&wk, "link-1");
     assert!(lone.presence_from(&wk).is_empty());
     assert_eq!(w.pipes.status(), w_before);
+}
+
+/// [IFC-TRN-125]: a set begins when the core passes its first announcement to the transport,
+/// not when it decides to begin it. Here the core's clock moves on while it prepares the
+/// first record, so the first pass is later than the decision, and the hold-off runs from the
+/// pass. [IFC-TRN-123]: an event handed after the decision is still not covered by that set.
+#[test]
+fn the_hold_off_runs_from_the_first_pass_not_from_the_decision() {
+    let a = appearing();
+    let base = a.sent();
+    let decision = a.mono.now();
+    // Every read of the core's clock now takes 400 ms; the core reads it for the decision,
+    // for the announcement and just before it passes the record.
+    a.mono.step_per_core_read(Duration::from_millis(400));
+    let passed_at = Arc::new(Mutex::new(None));
+    let (mono, seen) = (a.mono.clone(), passed_at.clone());
+    // Runs on the core's thread as the first announcement is passed to the transport.
+    a.bus.0.lock().unwrap().on_presence = Some(Box::new(move || {
+        *seen.lock().unwrap() = Some(mono.now());
+    }));
+    a.bus.appear(&a.yk, "link-1");
+    a.mono.step_per_core_read(Duration::ZERO);
+    assert_eq!(a.sent(), base + 1);
+    // The time the transport saw the record, which is no earlier than the core's pass.
+    let in_transport = passed_at.lock().unwrap().expect("a record was passed");
+    // An event handed after the decision is not covered by the set, and gets a later one.
+    a.bus.appear(&a.yk, "link-2");
+    assert_eq!(a.sent(), base + 1);
+    let due = a.y.pipes.next_appearance_set_at().expect("a set is due");
+    // The hold-off runs from the pass, which is at least two clock reads (800 ms) after the
+    // decision and no later than the transport saw the record.
+    assert!(due >= decision + Duration::from_millis(800) + HOLD_OFF);
+    assert!(due <= in_transport + HOLD_OFF);
+    assert!(due > decision + HOLD_OFF);
+    // The clock is already past the decision instant plus the hold-off, so a hold-off that
+    // ran from the decision would begin the second set now; it does not.
+    assert!(a.mono.now() >= decision + HOLD_OFF);
+    a.y.pipes.begin_due_appearance_set();
+    assert_eq!(a.sent(), base + 1);
+    a.mono.advance(due - a.mono.now());
+    a.y.pipes.begin_due_appearance_set();
+    assert_eq!(a.sent(), base + 2);
+}
+
+/// [IFC-TRN-123]: a set with nothing to pass has nothing to observe. It never begins, so it
+/// starts no hold-off: when a session that can be announced appears, the next appearance
+/// begins a set at once.
+#[test]
+fn an_empty_set_does_not_begin_and_starts_no_hold_off() {
+    let bus = Bus::default();
+    let mono = Mono::new();
+    let x = node(&bus, "device-x", PipelineConfig::default());
+    let y = node_mono(
+        &bus,
+        "device-y",
+        PipelineConfig::default(),
+        Arc::new(SystemClock),
+        mono.clock(),
+    );
+    pair(&x, &y);
+    pair(&y, &x);
+    let (xk, yk) = (
+        x.pipes.device().key_id().clone(),
+        y.pipes.device().key_id().clone(),
+    );
+    // No session on y: the set is empty, and the event is discharged.
+    bus.appear(&yk, "link-1");
+    assert!(bus.presence_from(&yk).is_empty());
+    assert_eq!(y.pipes.next_appearance_set_at(), None);
+    // A session an inbound grant admits `x` to, bound in the same instant: no hold-off.
+    let sx = SessionId::from_random_octets([1; 16]);
+    let sy = SessionId::from_random_octets([2; 16]);
+    grant(
+        &y,
+        Grant::Inbound {
+            writer: PeerSide::session(xk, sx),
+            target: LocalSide::Session(sy.clone()),
+        },
+    );
+    session(&y, 2);
+    let base = bus.presence_from(&yk).len();
+    bus.appear(&yk, "link-2");
+    assert_eq!(bus.presence_from(&yk).len(), base + 1);
+}
+
+/// [IFC-TRN-123], [SEC-AUZ-011]: a set holds one new announcement for each session being
+/// announced, to each device that rule admits: here two sessions to each of two devices,
+/// which is four. A session no grant covers (to any device) and a trusted device no grant
+/// covers get none.
+#[test]
+fn a_set_holds_one_announcement_per_session_per_admitted_device() {
+    let bus = Bus::default();
+    let mono = Mono::new();
+    let y = node_mono(
+        &bus,
+        "device-y",
+        PipelineConfig::default(),
+        Arc::new(SystemClock),
+        mono.clock(),
+    );
+    let devices: Vec<Node> = ["device-a", "device-b", "device-c"]
+        .iter()
+        .map(|n| node(&bus, n, PipelineConfig::default()))
+        .collect();
+    let keys: Vec<KeyId> = devices
+        .iter()
+        .map(|d| d.pipes.device().key_id().clone())
+        .collect();
+    for d in &devices {
+        pair(&y, d);
+        pair(d, &y);
+    }
+    let writer = SessionId::from_random_octets([9; 16]);
+    let (s1, s2, s3) = (
+        SessionId::from_random_octets([1; 16]),
+        SessionId::from_random_octets([2; 16]),
+        SessionId::from_random_octets([3; 16]),
+    );
+    // Devices a and b may write to s1 and s2; device c, and every device for s3, may not.
+    for target in [&s1, &s2] {
+        for k in &keys[..2] {
+            grant(
+                &y,
+                Grant::Inbound {
+                    writer: PeerSide::session(k.clone(), writer.clone()),
+                    target: LocalSide::Session(target.clone()),
+                },
+            );
+        }
+    }
+    for seed in [1, 2, 3] {
+        session(&y, seed);
+    }
+    let yk = y.pipes.device().key_id().clone();
+    let base = bus.presence_pairs_from(&yk).len();
+    assert_eq!(base, 4, "the announcements made as the sessions bound");
+
+    bus.appear(&yk, "link-1");
+    let set: Vec<(SessionId, KeyId)> = bus.presence_pairs_from(&yk)[base..].to_vec();
+    assert_eq!(set.len(), 4, "{set:?}");
+    for session in [&s1, &s2] {
+        for k in &keys[..2] {
+            assert_eq!(
+                set.iter().filter(|(s, d)| s == session && d == k).count(),
+                1,
+                "{set:?}"
+            );
+        }
+    }
+    assert!(
+        set.iter().all(|(s, d)| s != &s3 && d != &keys[2]),
+        "{set:?}"
+    );
 }

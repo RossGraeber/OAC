@@ -552,32 +552,59 @@ struct Announced {
 /// peer that cycles its links (a fresh carrier handle each time) gets no more sets for it.
 /// An appearance carries nothing but its handle ([IFC-TRN-122]), and nothing of it is kept:
 /// no handle, no device, no session ([IFC-TRN-124]).
+///
+/// A set **begins when the core passes its first announcement of the set to the transport**
+/// ([IFC-TRN-125]), so the hold-off runs from that instant and not from the decision to
+/// begin the set (a lock wait or the signing of a record comes between them). Until that
+/// instant is known the set is `starting`, and no other set begins. A set with nothing to
+/// pass (no session is announced, or no device is admitted under [SEC-AUZ-011]) never
+/// begins: [IFC-TRN-123] says it has nothing to observe, so it starts no hold-off, and the
+/// event that asked for it is discharged.
 #[derive(Debug, Default)]
 struct AppearanceSets {
-    /// When the latest set began; `None` before the first.
+    /// When the latest set began (its first announcement was passed); `None` before the
+    /// first.
     last_began: Option<Instant>,
-    /// An appearance was handed after the latest set began and no later set has begun.
+    /// An appearance was handed after the latest decision to begin a set, and no later
+    /// decision covers it.
     uncovered: bool,
+    /// The instant a set was decided, until its first announcement is passed.
+    starting: Option<Instant>,
 }
 
 impl AppearanceSets {
-    /// Whether a set may begin at `now`: none began less than the hold-off ago.
+    /// Whether a set may begin at `now`: none is starting, and none began less than the
+    /// hold-off ago.
     fn may_begin(&self, now: Instant) -> bool {
-        self.last_began
-            .is_none_or(|t| now >= t + CARRIER_APPEARANCE_HOLD_OFF)
+        self.starting.is_none()
+            && self
+                .last_began
+                .is_none_or(|t| now >= t + CARRIER_APPEARANCE_HOLD_OFF)
     }
 
     /// Takes the decision to begin a set at `now`, if one is due and allowed. The same lock
-    /// holds the decision and the start instant, so an event handed after this call is not
+    /// holds the decision and clears `uncovered`, so an event handed after this call is not
     /// covered by the set ([IFC-TRN-123], last sentence).
-    fn begin_if_due(&mut self, now: Instant) -> bool {
+    fn decide(&mut self, now: Instant) -> bool {
         if self.uncovered && self.may_begin(now) {
             self.uncovered = false;
-            self.last_began = Some(now);
+            self.starting = Some(now);
             true
         } else {
             false
         }
+    }
+
+    /// The set's first announcement was passed to the transport at `at`: the set began.
+    fn first_passed(&mut self, at: Instant) {
+        if let Some(decided) = self.starting.take() {
+            self.last_began = Some(decided.max(at));
+        }
+    }
+
+    /// The set is over. If nothing was passed it never began, and starts no hold-off.
+    fn settle(&mut self) {
+        self.starting = None;
     }
 }
 
@@ -1341,22 +1368,32 @@ impl Pipelines {
     pub fn begin_due_appearance_set(&self) {
         let inner = &self.inner;
         let now = (inner.monotonic)();
-        let begin = inner.lock().appearances.begin_if_due(now);
+        let begin = inner.lock().appearances.decide(now);
         if begin {
             inner.announce_set();
         }
     }
 
     /// The instant at which a set of announcements is next due for a carrier appearance
-    /// that no set covers yet; `None` when there is none. It is never later than
-    /// [`CARRIER_APPEARANCE_BOUND`] after the first such appearance was handed over.
+    /// that no set covers yet; `None` when there is none, and also while a set is starting
+    /// (its first announcement is not yet passed, so the hold-off has not started; the owner
+    /// asks again after it). It is the hold-off after the previous set began, which is at
+    /// most [`CARRIER_APPEARANCE_BOUND`] after the appearance was handed over.
     pub fn next_appearance_set_at(&self) -> Option<Instant> {
         let core = self.inner.lock();
         let sets = &core.appearances;
-        if !sets.uncovered {
+        if !sets.uncovered || sets.starting.is_some() {
             return None;
         }
         sets.last_began.map(|t| t + CARRIER_APPEARANCE_HOLD_OFF)
+    }
+
+    /// How long from now, on the core's own monotonic clock, until
+    /// [`Pipelines::next_appearance_set_at`]; zero when it has passed, `None` when no set is
+    /// due. The owner arms its timer with this, so that its clock and the core's are one.
+    pub fn next_appearance_set_in(&self) -> Option<Duration> {
+        let at = self.next_appearance_set_at()?;
+        Some(at.saturating_duration_since((self.inner.monotonic)()))
     }
 
     /// This device's identity, which signs every envelope, record and receipt sent here,
@@ -2309,7 +2346,9 @@ impl Inner {
         }
     }
 
-    fn announce_to(&self, session: &SessionId, device: &KeyId, refresh: bool) {
+    /// Returns the instant (on the monotonic clock) at which the announcement was passed to
+    /// the transport, or `None` when none was ([IFC-TRN-125] dates a set from its first).
+    fn announce_to(&self, session: &SessionId, device: &KeyId, refresh: bool) -> Option<Instant> {
         let mono = (self.monotonic)();
         let next = {
             let mut core = self.lock();
@@ -2322,16 +2361,17 @@ impl Inner {
                 None => None,
             }
         };
-        if let Some(((destination, payload), carriage)) = next {
-            let result = self.pass(
-                carriage,
-                device,
-                &destination,
-                payload,
-                self.control_deadline(),
-            );
-            self.announcement_taken(session, device, mono, result);
-        }
+        let ((destination, payload), carriage) = next?;
+        let passed_at = (self.monotonic)();
+        let result = self.pass(
+            carriage,
+            device,
+            &destination,
+            payload,
+            self.control_deadline(),
+        );
+        self.announcement_taken(session, device, mono, result);
+        Some(passed_at)
     }
 
     /// A carrier appeared ([IFC-TRN-123]). The event is marked uncovered under the lock,
@@ -2342,7 +2382,7 @@ impl Inner {
         let begin = {
             let mut core = self.lock();
             core.appearances.uncovered = true;
-            core.appearances.begin_if_due(now)
+            core.appearances.decide(now)
         };
         if begin {
             self.announce_set();
@@ -2350,7 +2390,7 @@ impl Inner {
     }
 
     /// A set of announcements: for each own session, a new announcement to each trusted
-    /// device. Each is issued as a refresh, so it carries a fresh `seq` and is sent although
+    /// device; it begins at the first one passed to the transport ([`AppearanceSets`]). Each is issued as a refresh, so it carries a fresh `seq` and is sent although
     /// an earlier one is still in force ([SC-DLV-050]); [`Inner::announce_to`] sends it only
     /// where [SEC-AUZ-011] allows the device to receive that session's presence record, and
     /// only through the transport that reported the appearance.
@@ -2368,9 +2408,23 @@ impl Inner {
                     .collect(),
             )
         };
+        // Ends the set whatever happens below: a set that passed nothing never began.
+        struct Settle<'a>(&'a Inner);
+        impl Drop for Settle<'_> {
+            fn drop(&mut self) {
+                self.0.lock().appearances.settle();
+            }
+        }
+        let _settle = Settle(self);
+        let mut began = false;
         for session in &sessions {
             for device in &devices {
-                self.announce_to(session, device, true);
+                if let Some(at) = self.announce_to(session, device, true)
+                    && !began
+                {
+                    began = true;
+                    self.lock().appearances.first_passed(at);
+                }
             }
         }
     }
