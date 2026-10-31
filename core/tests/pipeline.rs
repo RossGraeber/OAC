@@ -74,6 +74,8 @@ struct BusState {
     /// Take payloads without delivering them: the medium is paused after ownership, so a
     /// test holding a device's core lock is not met by an inline delivery.
     no_delivery: bool,
+    /// Every presence record taken, with the device that sent it.
+    presence_taken: Vec<(KeyId, Payload)>,
 }
 
 /// A loopback medium for several endpoints, one per device key.
@@ -90,6 +92,38 @@ impl Bus {
 
     fn log(&self) -> Vec<(KeyId, PayloadKind, Destination)> {
         self.0.lock().unwrap().log.clone()
+    }
+
+    /// Reports a carrier appearance to the core of `owner`, as that device's transport does
+    /// when a link becomes usable ([IFC-TRN-120], [IFC-TRN-121]). The event carries the
+    /// handle of `link` and nothing else ([IFC-TRN-122]).
+    fn appear(&self, owner: &KeyId, link: &str) {
+        let handlers: Vec<PresenceHandler> = self
+            .0
+            .lock()
+            .unwrap()
+            .watchers
+            .iter()
+            .filter(|(o, _)| o == owner)
+            .map(|(_, h)| h.clone())
+            .collect();
+        for h in handlers {
+            h(PresenceEvent::CarrierAppeared {
+                carrier: CarrierHandle::from_opaque(link.as_bytes().to_vec()),
+            });
+        }
+    }
+
+    /// The presence records `from` has passed to the transport, in order.
+    fn presence_from(&self, from: &KeyId) -> Vec<Payload> {
+        self.0
+            .lock()
+            .unwrap()
+            .presence_taken
+            .iter()
+            .filter(|(f, _)| f == from)
+            .map(|(_, p)| p.clone())
+            .collect()
     }
 
     /// Hands `payload` again to every subscription for `destination`: a second copy.
@@ -250,6 +284,7 @@ impl Transport for Endpoint {
             }
             st.log
                 .push((me.clone(), payload.kind(), destination.clone()));
+            st.presence_taken.push((me.clone(), payload.clone()));
             st.watchers
                 .iter()
                 .filter(|(owner, _)| owner == k)
@@ -4718,4 +4753,326 @@ fn a_reveal_turned_away_at_the_cap_does_not_reset_the_window_count() {
         None,
         "three windows have opened and none paired"
     );
+}
+
+// ---- carrier appearances (#420; IFC-TRN-123 to IFC-TRN-125) ------------------------------
+//
+// The core's monotonic clock is a `Mono` that moves only when a test moves it, so no test
+// sleeps, and the owner's timer (the daemon's, in production) is the test calling
+// `begin_due_appearance_set` at the instant `next_appearance_set_at` names.
+
+/// A monotonic clock that moves only when told to.
+#[derive(Clone)]
+struct Mono(Arc<Mutex<Instant>>);
+
+impl Mono {
+    fn new() -> Mono {
+        Mono(Arc::new(Mutex::new(Instant::now())))
+    }
+
+    fn now(&self) -> Instant {
+        *self.0.lock().unwrap()
+    }
+
+    fn advance(&self, by: Duration) {
+        *self.0.lock().unwrap() += by;
+    }
+
+    fn clock(&self) -> oac_core::pipeline::MonotonicClock {
+        let m = self.clone();
+        Arc::new(move || m.now())
+    }
+}
+
+const HOLD_OFF: Duration = oac_core::pipeline::CARRIER_APPEARANCE_HOLD_OFF;
+const BOUND: Duration = oac_core::pipeline::CARRIER_APPEARANCE_BOUND;
+
+/// The record inside a presence payload.
+fn record_of(p: &Payload) -> oac_core::presence::PresenceRecord {
+    let v = oac_core::json::parse(p.octets()).unwrap();
+    let inner = v.as_object().unwrap().get("record").unwrap();
+    oac_core::presence::PresenceRecord::from_json(inner).unwrap()
+}
+
+/// Device `y` has two sessions: `sy`, which an inbound grant lets a session of device `x`
+/// write to ([SEC-AUZ-011]), and `sz`, which no grant covers. Only `y`'s clock is manual.
+struct Appearing {
+    bus: Bus,
+    mono: Mono,
+    y: Node,
+    xk: KeyId,
+    yk: KeyId,
+    sy: SessionId,
+    sz: SessionId,
+}
+
+fn appearing() -> Appearing {
+    let bus = Bus::default();
+    let mono = Mono::new();
+    let x = node(&bus, "device-x", PipelineConfig::default());
+    let y = node_mono(
+        &bus,
+        "device-y",
+        PipelineConfig::default(),
+        Arc::new(SystemClock),
+        mono.clock(),
+    );
+    pair(&x, &y);
+    pair(&y, &x);
+    let (xk, yk) = (
+        x.pipes.device().key_id().clone(),
+        y.pipes.device().key_id().clone(),
+    );
+    let sx = SessionId::from_random_octets([1; 16]);
+    let sy = SessionId::from_random_octets([2; 16]);
+    grant(
+        &y,
+        Grant::Inbound {
+            writer: PeerSide::session(xk.clone(), sx),
+            target: LocalSide::Session(sy.clone()),
+        },
+    );
+    session(&y, 2);
+    let (_, sz) = session(&y, 3);
+    Appearing {
+        bus,
+        mono,
+        y,
+        xk,
+        yk,
+        sy,
+        sz,
+    }
+}
+
+impl Appearing {
+    fn sent(&self) -> usize {
+        self.bus.presence_from(&self.yk).len()
+    }
+
+    /// The `(session, seq)` of every presence record `y` has passed to the transport.
+    fn records(&self) -> Vec<(SessionId, u64)> {
+        self.bus
+            .presence_from(&self.yk)
+            .iter()
+            .map(|p| {
+                let r = record_of(p);
+                (r.session_id().clone(), r.seq())
+            })
+            .collect()
+    }
+}
+
+/// [IFC-TRN-123]: an appearance that no set has covered, and no hold-off holds back, begins a
+/// set at once. The set holds one new announcement for each session `y` announces, to each
+/// device [SEC-AUZ-011] allows: here `sy` to `x`, and nothing for `sz`. Its `seq` is higher
+/// than any earlier for that session ([SC-DLV-050]).
+#[test]
+fn an_appearance_begins_a_set_to_each_admitted_device() {
+    let a = appearing();
+    let before = a.records();
+    assert_eq!(before.len(), 1, "the announcement made when sy bound");
+    a.bus.appear(&a.yk, "link-1");
+    let after = a.records();
+    assert_eq!(after.len(), before.len() + 1, "{after:?}");
+    let (session, seq) = after.last().unwrap();
+    assert_eq!(session, &a.sy);
+    assert!(*seq > before[0].1, "{after:?}");
+    assert!(after.iter().all(|(s, _)| s != &a.sz));
+    // Only to the admitted device, through the transport that reported the appearance.
+    let destinations: Vec<Destination> = a
+        .bus
+        .log()
+        .into_iter()
+        .filter(|(f, k, _)| f == &a.yk && *k == PayloadKind::Presence)
+        .map(|(_, _, d)| d)
+        .collect();
+    assert!(
+        destinations
+            .iter()
+            .all(|d| d == &Destination::Device(a.xk.clone())),
+        "{destinations:?}"
+    );
+    assert_eq!(a.y.pipes.next_appearance_set_at(), None);
+}
+
+/// [IFC-TRN-123], [IFC-TRN-125]: an event handed at the instant a set begins is not covered
+/// by it. It gets a later set, which begins when the hold-off ends and so within the bound.
+#[test]
+fn an_appearance_at_the_start_of_a_set_gets_a_later_set_within_the_bound() {
+    let a = appearing();
+    let base = a.sent();
+    let t0 = a.mono.now();
+    a.bus.appear(&a.yk, "link-1");
+    a.bus.appear(&a.yk, "link-2");
+    assert_eq!(a.sent(), base + 1);
+    let due = a.y.pipes.next_appearance_set_at().expect("a set is due");
+    assert_eq!(due, t0 + HOLD_OFF);
+    assert!(due <= t0 + BOUND);
+    a.mono.advance(HOLD_OFF - Duration::from_millis(1));
+    a.y.pipes.begin_due_appearance_set();
+    assert_eq!(a.sent(), base + 1, "the hold-off has not ended");
+    a.mono.advance(Duration::from_millis(1));
+    a.y.pipes.begin_due_appearance_set();
+    assert_eq!(a.sent(), base + 2);
+    assert_eq!(a.y.pipes.next_appearance_set_at(), None);
+    // The second set is new, not a copy of the first ([SC-DLV-050]).
+    let seqs: Vec<u64> = a.records().iter().map(|(_, s)| *s).collect();
+    assert!(seqs.windows(2).all(|w| w[0] < w[1]), "{seqs:?}");
+}
+
+/// [IFC-TRN-123], [IFC-TRN-125]: an event handed while a set is being passed to the transport
+/// gets a later set, within the bound after the event.
+#[test]
+fn an_appearance_during_a_set_gets_a_later_set_within_the_bound() {
+    let a = appearing();
+    let base = a.sent();
+    let t0 = a.mono.now();
+    let (bus, yk) = (a.bus.clone(), a.yk.clone());
+    // Runs on the core's thread as the first announcement of the set is passed.
+    a.bus.0.lock().unwrap().on_presence = Some(Box::new(move || bus.appear(&yk, "link-2")));
+    a.bus.appear(&a.yk, "link-1");
+    assert_eq!(a.sent(), base + 1, "the event during the set begins no set");
+    let due = a.y.pipes.next_appearance_set_at().expect("a set is due");
+    assert_eq!(due, t0 + HOLD_OFF);
+    assert!(due <= t0 + BOUND);
+    a.mono.advance(HOLD_OFF);
+    a.y.pipes.begin_due_appearance_set();
+    assert_eq!(a.sent(), base + 2);
+    assert_eq!(a.y.pipes.next_appearance_set_at(), None);
+}
+
+/// [IFC-TRN-125]: a series of appearances from one transport, on different carrier handles,
+/// begins no set less than the hold-off after the previous one, and every event gets a set
+/// within the bound. After a quiet period an appearance begins a set at once.
+#[test]
+fn no_second_set_begins_within_the_hold_off() {
+    let a = appearing();
+    let mut began: Vec<Instant> = Vec::new();
+    let mut seen = a.sent();
+    let mut note = |a: &Appearing| {
+        let now = a.sent();
+        for _ in seen..now {
+            began.push(a.mono.now());
+        }
+        seen = now;
+        began.len()
+    };
+    let step = |ms: u64| a.mono.advance(Duration::from_millis(ms));
+    let mut events: Vec<Instant> = Vec::new();
+
+    events.push(a.mono.now());
+    a.bus.appear(&a.yk, "link-1");
+    note(&a);
+    step(300);
+    events.push(a.mono.now());
+    a.bus.appear(&a.yk, "link-2");
+    step(300);
+    events.push(a.mono.now());
+    a.bus.appear(&a.yk, "link-3");
+    a.y.pipes.begin_due_appearance_set();
+    assert_eq!(note(&a), 1, "no second set in the hold-off");
+    step(400);
+    a.y.pipes.begin_due_appearance_set();
+    assert_eq!(
+        note(&a),
+        2,
+        "the held-back set begins when the hold-off ends"
+    );
+    // At the instant that set began.
+    events.push(a.mono.now());
+    a.bus.appear(&a.yk, "link-4");
+    assert_eq!(note(&a), 2);
+    step(999);
+    a.y.pipes.begin_due_appearance_set();
+    assert_eq!(note(&a), 2);
+    step(1);
+    a.y.pipes.begin_due_appearance_set();
+    assert_eq!(note(&a), 3);
+    // Nothing is waiting, so nothing begins.
+    step(5000);
+    a.y.pipes.begin_due_appearance_set();
+    assert_eq!(note(&a), 3);
+    events.push(a.mono.now());
+    a.bus.appear(&a.yk, "link-5");
+    assert_eq!(note(&a), 4, "no hold-off after a quiet period");
+
+    // [IFC-TRN-125]: the sets began at least the hold-off apart.
+    assert!(
+        began.windows(2).all(|w| w[1] - w[0] >= HOLD_OFF),
+        "{began:?}"
+    );
+    // [IFC-TRN-123]: each event is covered by a set that began after it was handed (or at
+    // the instant a later set began), and no later than the bound after it.
+    for e in events {
+        assert!(
+            began.iter().any(|b| *b >= e && *b - e <= BOUND),
+            "{e:?} not covered by {began:?}"
+        );
+    }
+}
+
+/// [IFC-TRN-124]: an appearance alone creates no presence record, session or authorization.
+/// Device `x` holds an outbound grant to a session `sy` of `y`, which `y` has never
+/// announced. After `x`'s transport reports appearances, `x` still knows no such session
+/// (it cannot discover or write to it), its own sessions, grants and trusted devices are
+/// unchanged, and `y` has been sent nothing but `x`'s own announcement.
+#[test]
+fn an_appearance_alone_creates_no_presence_record_session_or_authorization() {
+    let bus = Bus::default();
+    let x = node(&bus, "device-x", PipelineConfig::default());
+    let y = node(&bus, "device-y", PipelineConfig::default());
+    pair(&x, &y);
+    pair(&y, &x);
+    let (xk, yk) = (
+        x.pipes.device().key_id().clone(),
+        y.pipes.device().key_id().clone(),
+    );
+    let (xa, sx) = session(&x, 1);
+    let sy = SessionId::from_random_octets([2; 16]);
+    grant(
+        &x,
+        Grant::Outbound {
+            writer: LocalSide::Session(sx.clone()),
+            target: PeerSide::session(yk.clone(), sy.clone()),
+        },
+    );
+    let discovered = || match x.adapter.sink().discover(DiscoveryRequest {
+        attachment: xa.clone(),
+    }) {
+        DiscoveryRequestResult::DiscoveryResult(d) => d.len(),
+        other => panic!("{other:?}"),
+    };
+    let before = x.pipes.status();
+    assert_eq!(discovered(), 0);
+
+    // Appearances on several handles: still no record of `sy`.
+    bus.appear(&xk, "link-1");
+    bus.appear(&xk, "link-to-y");
+    bus.appear(&xk, "link-3");
+
+    assert_eq!(discovered(), 0, "an appearance is not a presence record");
+    assert_eq!(
+        refused(x.adapter.sink().send(request(&xa, &sy, "hello"))),
+        ErrorCode::UnknownDestination
+    );
+    let after = x.pipes.status();
+    assert_eq!(after.sessions, before.sessions, "no session was created");
+    assert_eq!(after.counts, before.counts, "no grant or trusted device");
+    // `y` has nothing to announce, so the appearances on `x` made `y` send nothing.
+    assert!(bus.presence_from(&yk).is_empty());
+    assert!(
+        bus.presence_from(&xk)
+            .iter()
+            .all(|p| record_of(p).session_id() == &sx)
+    );
+
+    // A device with no session and no admitted device: the set is empty.
+    let lone = Bus::default();
+    let w = node(&lone, "device-w", PipelineConfig::default());
+    let wk = w.pipes.device().key_id().clone();
+    let w_before = w.pipes.status();
+    lone.appear(&wk, "link-1");
+    assert!(lone.presence_from(&wk).is_empty());
+    assert_eq!(w.pipes.status(), w_before);
 }
