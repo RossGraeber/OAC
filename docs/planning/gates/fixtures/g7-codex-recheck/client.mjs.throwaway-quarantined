@@ -99,8 +99,33 @@ const connections = new Set();
 class CaseStop extends Error {}
 
 const checkBlocked = () => {
+  if (deadlineHit && stopOnBlock.on) throw new CaseStop('the client\'s own deadline was reached; the case stops and the threads are archived');
   if (blocked && stopOnBlock.on) throw new CaseStop(`server request ${blocked.method} (id ${JSON.stringify(blocked.id)}) was not answered; the case stops`);
 };
+
+// Bounds. A request that gets no answer in REQUEST_MS is answered here with an error (the
+// request is not re-sent); an upgrade that does not finish in UPGRADE_MS fails the connection.
+const REQUEST_MS = 60000;
+const UPGRADE_MS = 30000;
+const ARCHIVE_MS = 15000; // per thread
+const CLEANUP_MS = 90000; // the whole cleanup
+// The scenario passes a deadline shorter than its own hard kill, so that this process stops the
+// running case, archives its threads and exits by itself.
+let deadlineHit = false;
+
+// Every exit path ends here: archive the threads this process started (bounded), then exit.
+let finishing = null;
+function finish(code, why = null) {
+  finishing ??= (async () => {
+    if (why) console.error(why);
+    stopOnBlock.on = false;
+    blocked = null;
+    await Promise.race([archiveOwn().catch((e) => console.error(`[cleanup failed] ${e.message}`)), sleep(CLEANUP_MS)]);
+    process.exit(code);
+  })();
+  return finishing;
+}
+for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => void finish(143, `[signal] ${sig}`));
 
 const frameThreadId = (msg) => msg?.params?.threadId ?? msg?.params?.thread?.id ?? null;
 const stubOf = (msg) => ({ method: msg.method, params: { threadId: '<NOT-OWN-THREAD>' }, _g7: 'about a thread this client did not start; its content was not recorded' });
@@ -132,7 +157,7 @@ function connect(label) {
   const proc = spawn('codex', ['app-server', 'proxy'], { stdio: ['pipe', 'pipe', 'pipe'], shell: true });
   proc.stderr.on('data', (d) => log(label, 'proxy-stderr', d.toString()));
   proc.on('exit', (code) => {
-    if (!upgraded && !conn.closed) { console.error(`[proxy exited before the upgrade] ${label} code ${code}`); process.exit(3); }
+    if (!upgraded && !conn.closed) void finish(3, `[proxy exited before the upgrade] ${label} code ${code}`);
   });
   const conn = { label, proc, events: [], pending: new Map(), nextId: 0, waiters: new Set(), closed: false };
   connections.add(conn);
@@ -162,7 +187,14 @@ function connect(label) {
     const id = conn.nextId++;
     if (method === 'thread/start') pendingStarts += 1;
     sendJson({ jsonrpc: '2.0', id, method, params });
-    return new Promise((resolve) => conn.pending.set(id, { resolve, method })).then((r) => {
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        conn.pending.delete(id);
+        if (method === 'thread/start') pendingStarts -= 1;
+        resolve({ error: { code: null, message: `no answer in ${REQUEST_MS} ms`, timedOut: true } });
+      }, REQUEST_MS);
+      conn.pending.set(id, { resolve: (r) => { clearTimeout(timer); resolve(r); }, method });
+    }).then((r) => {
       checkBlocked();
       return r;
     });
@@ -207,7 +239,7 @@ function connect(label) {
       const head = raw.subarray(0, end).toString('utf8');
       log(label, 'handshake', head);
       raw = raw.subarray(end + 4);
-      if (!/^HTTP\/1\.1 101/.test(head)) { console.error(`[upgrade failed] ${label}\n${head}`); process.exit(3); }
+      if (!/^HTTP\/1\.1 101/.test(head)) { void finish(3, `[upgrade failed] ${label}\n${head}`); return; }
       upgraded = true;
       onUpgraded();
     }
