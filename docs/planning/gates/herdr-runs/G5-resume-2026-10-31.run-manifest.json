@@ -1,6 +1,6 @@
 {
   "schemaVersion": 3,
-  "runId": "20261031T032533Z-ad4023",
+  "runId": "20261031T043741Z-fc7356",
   "outcome": "PASS",
   "outcomeReason": null,
   "scenario": {
@@ -23,7 +23,7 @@
   },
   "driver": {
     "entry": "tools/herdr/run.mjs",
-    "commit": "4f256b5708b6e3e947b0aec09f645a250fe10470",
+    "commit": "731f7f83c9922b72109bb3f54e6399c43be37292",
     "toolsHerdrDirty": false,
     "node": "v25.2.1"
   },
@@ -52,7 +52,7 @@
     "pinnedTag": "v0.9.1",
     "pinsSource": {
       "path": "docs/planning/PINS.md",
-      "headCommit": "4f256b5708b6e3e947b0aec09f645a250fe10470",
+      "headCommit": "731f7f83c9922b72109bb3f54e6399c43be37292",
       "committedSha256": "8d8221770e9e81a6485f4404ff136fcffcfff06f4800fd94e784bca0a08258c1",
       "workingTreeMatchesHead": true
     },
@@ -72,8 +72,8 @@
       },
       "compatible": true,
       "endpoint_compatible": true,
-      "socket": "<USER_HOME>\\AppData\\Roaming\\herdr\\sessions\\oac-k-g5-claude-resume-20261031T032533Z-075a14\\herdr.sock",
-      "session": "oac-k-g5-claude-resume-20261031T032533Z-075a14",
+      "socket": "<USER_HOME>\\AppData\\Roaming\\herdr\\sessions\\oac-k-g5-claude-resume-20261031T043741Z-fc780b\\herdr.sock",
+      "session": "oac-k-g5-claude-resume-20261031T043741Z-fc780b",
       "restart_needed": false,
       "server_binary_stale": false
     },
@@ -333,15 +333,15 @@
     "arch": "x64"
   },
   "session": {
-    "name": "oac-k-g5-claude-resume-20261031T032533Z-075a14",
-    "serverPid": 36652,
+    "name": "oac-k-g5-claude-resume-20261031T043741Z-fc780b",
+    "serverPid": 35672,
     "panePids": [
-      32176,
-      33952,
-      36456,
-      35420,
-      37056,
-      32604
+      11528,
+      37928,
+      31840,
+      34204,
+      36056,
+      13636
     ]
   },
   "env": {
@@ -409,8 +409,8 @@
         "HERDR_CONFIG_PATH": "<SCRATCH>\\herdr-config.toml",
         "HERDR_ENV": "1",
         "HERDR_PANE_ID": "w3:p1",
-        "HERDR_SESSION": "oac-k-g5-claude-resume-20261031T032533Z-075a14",
-        "HERDR_SOCKET_PATH": "<USER_HOME>\\AppData\\Roaming\\herdr\\sessions\\oac-k-g5-claude-resume-20261031T032533Z-075a14\\herdr.sock",
+        "HERDR_SESSION": "oac-k-g5-claude-resume-20261031T043741Z-fc780b",
+        "HERDR_SOCKET_PATH": "<USER_HOME>\\AppData\\Roaming\\herdr\\sessions\\oac-k-g5-claude-resume-20261031T043741Z-fc780b\\herdr.sock",
         "HERDR_TAB_ID": "w3:t1",
         "HERDR_WORKSPACE_ID": "w3",
         "TERM": "xterm-256color"
@@ -459,11 +459,11 @@
   },
   "timebox": {
     "budgetMs": 1200000,
-    "start": "2026-10-31T03:25:33.255Z",
-    "end": "2026-10-31T03:28:23.053Z",
-    "elapsedMs": 169798,
+    "start": "2026-10-31T04:37:41.915Z",
+    "end": "2026-10-31T04:41:27.386Z",
+    "elapsedMs": 225471,
     "expired": false,
-    "teardownEnd": "2026-10-31T03:28:25.888Z"
+    "teardownEnd": "2026-10-31T04:41:30.479Z"
   },
   "commands": [
     {
@@ -474,9 +474,9 @@
         "--version"
       ],
       "target": null,
-      "startedAt": "2026-10-31T03:25:34.889Z",
-      "endedAt": "2026-10-31T03:25:35.200Z",
-      "durationMs": 311,
+      "startedAt": "2026-10-31T04:37:48.367Z",
+      "endedAt": "2026-10-31T04:37:50.074Z",
+      "durationMs": 1707,
       "bound": {
         "herdrTimeoutMs": null,
         "driverDeadlineMs": 10000,
@@ -499,11 +499,11 @@
       "argv": [
         "herdr",
         "--session",
-        "oac-k-g5-claude-resume-20261031T032533Z-075a14",
+        "oac-k-g5-claude-resume-20261031T043741Z-fc780b",
         "server"
       ],
       "target": null,
-      "startedAt": "2026-10-31T03:25:46.336Z",
+      "startedAt": "2026-10-31T04:38:01.560Z",
       "endedAt": null,
       "durationMs": null,
       "bound": {
@@ -511,7 +511,7 @@
         "driverDeadlineMs": null,
         "by": "long-running server; stopped by teardown (session stop, then process-group kill)"
       },
-      "pid": 36652
+      "pid": 35672
     },
     {
       "seq": 3,
@@ -519,15 +519,15 @@
       "argv": [
         "herdr",
         "--session",
-        "oac-k-g5-claude-resume-20261031T032533Z-075a14",
+        "oac-k-g5-claude-resume-20261031T043741Z-fc780b",
         "status",
         "server",
         "--json"
       ],
       "target": null,
-      "startedAt": "2026-10-31T03:25:46.356Z",
-      "endedAt": "2026-10-31T03:25:46.469Z",
-      "durationMs": 113,
+      "startedAt": "2026-10-31T04:38:01.573Z",
+      "endedAt": "2026-10-31T04:38:01.644Z",
+      "durationMs": 71,
       "bound": {
         "herdrTimeoutMs": null,
         "driverDeadlineMs": 5000,
@@ -550,15 +550,15 @@
       "argv": [
         "herdr",
         "--session",
-        "oac-k-g5-claude-resume-20261031T032533Z-075a14",
+        "oac-k-g5-claude-resume-20261031T043741Z-fc780b",
         "server",
         "agent-manifests",
         "--json"
       ],
       "target": null,
-      "startedAt": "2026-10-31T03:25:46.469Z",
-      "endedAt": "2026-10-31T03:25:47.109Z",
-      "durationMs": 640,
+      "startedAt": "2026-10-31T04:38:01.645Z",
+      "endedAt": "2026-10-31T04:38:02.544Z",
+      "durationMs": 899,
       "bound": {
         "herdrTimeoutMs": null,
         "driverDeadlineMs": 15000,
@@ -581,7 +581,7 @@
       "argv": [
         "herdr",
         "--session",
-        "oac-k-g5-claude-resume-20261031T032533Z-075a14",
+        "oac-k-g5-claude-resume-20261031T043741Z-fc780b",
         "workspace",
         "create",
         "--no-focus",
@@ -593,9 +593,9 @@
         "OAC_SCOPE=g5r"
       ],
       "target": null,
-      "startedAt": "2026-10-31T03:25:47.113Z",
-      "endedAt": "2026-10-31T03:25:47.262Z",
-      "durationMs": 149,
+      "startedAt": "2026-10-31T04:38:02.548Z",
+      "endedAt": "2026-10-31T04:38:03.146Z",
+      "durationMs": 598,
       "bound": {
         "herdrTimeoutMs": null,
         "driverDeadlineMs": 15000,
@@ -618,16 +618,16 @@
       "argv": [
         "herdr",
         "--session",
-        "oac-k-g5-claude-resume-20261031T032533Z-075a14",
+        "oac-k-g5-claude-resume-20261031T043741Z-fc780b",
         "pane",
         "run",
         "w1:p1",
         "<REPO>/target/debug/examples/live_daemon.exe --namespace g5r --events <SCRATCH>\\g5r\\events.jsonl"
       ],
       "target": "w1:p1",
-      "startedAt": "2026-10-31T03:25:47.263Z",
-      "endedAt": "2026-10-31T03:25:47.364Z",
-      "durationMs": 101,
+      "startedAt": "2026-10-31T04:38:03.147Z",
+      "endedAt": "2026-10-31T04:38:03.606Z",
+      "durationMs": 459,
       "bound": {
         "herdrTimeoutMs": null,
         "driverDeadlineMs": 15000,
@@ -650,7 +650,7 @@
       "argv": [
         "herdr",
         "--session",
-        "oac-k-g5-claude-resume-20261031T032533Z-075a14",
+        "oac-k-g5-claude-resume-20261031T043741Z-fc780b",
         "pane",
         "wait-output",
         "w1:p1",
@@ -660,9 +660,9 @@
         "60000"
       ],
       "target": "w1:p1",
-      "startedAt": "2026-10-31T03:25:47.365Z",
-      "endedAt": "2026-10-31T03:25:49.562Z",
-      "durationMs": 2197,
+      "startedAt": "2026-10-31T04:38:03.606Z",
+      "endedAt": "2026-10-31T04:38:14.056Z",
+      "durationMs": 10450,
       "bound": {
         "herdrTimeoutMs": 60000,
         "driverDeadlineMs": 65000,
@@ -685,7 +685,7 @@
       "argv": [
         "herdr",
         "--session",
-        "oac-k-g5-claude-resume-20261031T032533Z-075a14",
+        "oac-k-g5-claude-resume-20261031T043741Z-fc780b",
         "workspace",
         "create",
         "--no-focus",
@@ -697,9 +697,9 @@
         "OAC_SCOPE=g5r"
       ],
       "target": null,
-      "startedAt": "2026-10-31T03:25:49.562Z",
-      "endedAt": "2026-10-31T03:25:49.735Z",
-      "durationMs": 173,
+      "startedAt": "2026-10-31T04:38:14.056Z",
+      "endedAt": "2026-10-31T04:38:14.783Z",
+      "durationMs": 727,
       "bound": {
         "herdrTimeoutMs": null,
         "driverDeadlineMs": 15000,
@@ -722,7 +722,7 @@
       "argv": [
         "herdr",
         "--session",
-        "oac-k-g5-claude-resume-20261031T032533Z-075a14",
+        "oac-k-g5-claude-resume-20261031T043741Z-fc780b",
         "workspace",
         "create",
         "--no-focus",
@@ -734,9 +734,9 @@
         "OAC_SCOPE=g5r"
       ],
       "target": null,
-      "startedAt": "2026-10-31T03:25:49.736Z",
-      "endedAt": "2026-10-31T03:25:50.070Z",
-      "durationMs": 334,
+      "startedAt": "2026-10-31T04:38:14.784Z",
+      "endedAt": "2026-10-31T04:38:15.687Z",
+      "durationMs": 903,
       "bound": {
         "herdrTimeoutMs": null,
         "driverDeadlineMs": 15000,
@@ -759,16 +759,16 @@
       "argv": [
         "herdr",
         "--session",
-        "oac-k-g5-claude-resume-20261031T032533Z-075a14",
+        "oac-k-g5-claude-resume-20261031T043741Z-fc780b",
         "pane",
         "run",
         "w3:p1",
-        "C:\\nvm4w\\nodejs\\node.exe <REPO>\\tools\\herdr\\lib\\env-probe.mjs <SCRATCH>\\env-probe-ba583473.json ba583473"
+        "C:\\nvm4w\\nodejs\\node.exe <REPO>\\tools\\herdr\\lib\\env-probe.mjs <SCRATCH>\\env-probe-ac73c2b4.json ac73c2b4"
       ],
       "target": "w3:p1",
-      "startedAt": "2026-10-31T03:25:50.070Z",
-      "endedAt": "2026-10-31T03:25:50.379Z",
-      "durationMs": 309,
+      "startedAt": "2026-10-31T04:38:15.688Z",
+      "endedAt": "2026-10-31T04:38:16.512Z",
+      "durationMs": 824,
       "bound": {
         "herdrTimeoutMs": null,
         "driverDeadlineMs": 15000,
@@ -791,19 +791,19 @@
       "argv": [
         "herdr",
         "--session",
-        "oac-k-g5-claude-resume-20261031T032533Z-075a14",
+        "oac-k-g5-claude-resume-20261031T043741Z-fc780b",
         "pane",
         "wait-output",
         "w3:p1",
         "--regex",
-        "^\\s*ENVPROBE-OK-ba583473\\s*$",
+        "^\\s*ENVPROBE-OK-ac73c2b4\\s*$",
         "--timeout",
         "60000"
       ],
       "target": "w3:p1",
-      "startedAt": "2026-10-31T03:25:50.379Z",
-      "endedAt": "2026-10-31T03:25:52.091Z",
-      "durationMs": 1712,
+      "startedAt": "2026-10-31T04:38:16.512Z",
+      "endedAt": "2026-10-31T04:38:33.206Z",
+      "durationMs": 16694,
       "bound": {
         "herdrTimeoutMs": 60000,
         "driverDeadlineMs": 65000,
@@ -817,7 +817,7 @@
       "killedByDriver": false,
       "killUnconfirmed": false,
       "spawnError": null,
-      "stdoutBytes": 670,
+      "stdoutBytes": 588,
       "stderrBytes": 0
     },
     {
@@ -826,16 +826,16 @@
       "argv": [
         "herdr",
         "--session",
-        "oac-k-g5-claude-resume-20261031T032533Z-075a14",
+        "oac-k-g5-claude-resume-20261031T043741Z-fc780b",
         "pane",
         "run",
         "w3:p1",
-        "claude -p 'Call the whoami tool of the oac MCP server once. Then run the Bash command sleep 30 (exactly that command). Then print the whoami result text exactly, nothing else.' --output-format json --allowedTools mcp__oac__whoami 'Bash(sleep *)' --mcp-config <SCRATCH>\\g5r\\mcp.json --strict-mcp-config --settings <SCRATCH>\\g5r\\settings.json --max-turns 6; echo G5R-A-DONE-3849e55a"
+        "claude -p 'Call the whoami tool of the oac MCP server once. Then run the Bash command sleep 30 (exactly that command). Then print the whoami result text exactly, nothing else.' --output-format json --allowedTools mcp__oac__whoami 'Bash(sleep *)' --mcp-config <SCRATCH>\\g5r\\mcp.json --strict-mcp-config --settings <SCRATCH>\\g5r\\settings.json --max-turns 6; echo G5R-A-DONE-72704432"
       ],
       "target": "w3:p1",
-      "startedAt": "2026-10-31T03:25:52.092Z",
-      "endedAt": "2026-10-31T03:25:52.207Z",
-      "durationMs": 115,
+      "startedAt": "2026-10-31T04:38:33.255Z",
+      "endedAt": "2026-10-31T04:38:34.139Z",
+      "durationMs": 884,
       "bound": {
         "herdrTimeoutMs": null,
         "driverDeadlineMs": 15000,
@@ -858,16 +858,16 @@
       "argv": [
         "herdr",
         "--session",
-        "oac-k-g5-claude-resume-20261031T032533Z-075a14",
+        "oac-k-g5-claude-resume-20261031T043741Z-fc780b",
         "pane",
         "run",
         "w2:p1",
-        "echo G5R-A-during1-9441f9-BEGIN; <REPO>/target/debug/oac.exe sessions --json; echo G5R-A-during1-9441f9-EXIT-$LASTEXITCODE"
+        "echo G5R-A-during1-502e5e-BEGIN; <REPO>/target/debug/oac.exe sessions --json; echo G5R-A-during1-502e5e-EXIT-$LASTEXITCODE"
       ],
       "target": "w2:p1",
-      "startedAt": "2026-10-31T03:25:55.220Z",
-      "endedAt": "2026-10-31T03:25:55.403Z",
-      "durationMs": 183,
+      "startedAt": "2026-10-31T04:38:37.167Z",
+      "endedAt": "2026-10-31T04:38:37.887Z",
+      "durationMs": 720,
       "bound": {
         "herdrTimeoutMs": null,
         "driverDeadlineMs": 15000,
@@ -890,19 +890,19 @@
       "argv": [
         "herdr",
         "--session",
-        "oac-k-g5-claude-resume-20261031T032533Z-075a14",
+        "oac-k-g5-claude-resume-20261031T043741Z-fc780b",
         "pane",
         "wait-output",
         "w2:p1",
         "--regex",
-        "^\\s*G5R-A-during1-9441f9-EXIT-\\d+\\s*$",
+        "^\\s*G5R-A-during1-502e5e-EXIT-\\d+\\s*$",
         "--timeout",
         "60000"
       ],
       "target": "w2:p1",
-      "startedAt": "2026-10-31T03:25:55.403Z",
-      "endedAt": "2026-10-31T03:25:56.173Z",
-      "durationMs": 770,
+      "startedAt": "2026-10-31T04:38:37.890Z",
+      "endedAt": "2026-10-31T04:38:47.860Z",
+      "durationMs": 9970,
       "bound": {
         "herdrTimeoutMs": 60000,
         "driverDeadlineMs": 65000,
@@ -916,7 +916,7 @@
       "killedByDriver": false,
       "killUnconfirmed": false,
       "spawnError": null,
-      "stdoutBytes": 1133,
+      "stdoutBytes": 819,
       "stderrBytes": 0
     },
     {
@@ -925,7 +925,7 @@
       "argv": [
         "herdr",
         "--session",
-        "oac-k-g5-claude-resume-20261031T032533Z-075a14",
+        "oac-k-g5-claude-resume-20261031T043741Z-fc780b",
         "pane",
         "read",
         "w2:p1",
@@ -935,9 +935,9 @@
         "400"
       ],
       "target": "w2:p1",
-      "startedAt": "2026-10-31T03:25:56.174Z",
-      "endedAt": "2026-10-31T03:25:56.286Z",
-      "durationMs": 112,
+      "startedAt": "2026-10-31T04:38:47.862Z",
+      "endedAt": "2026-10-31T04:38:48.365Z",
+      "durationMs": 503,
       "bound": {
         "herdrTimeoutMs": null,
         "driverDeadlineMs": 15000,
@@ -951,95 +951,25 @@
       "killedByDriver": false,
       "killUnconfirmed": false,
       "spawnError": null,
-      "stdoutBytes": 774,
+      "stdoutBytes": 559,
       "stderrBytes": 0
     },
     {
       "seq": 16,
-      "role": "wait",
-      "argv": [
-        "herdr",
-        "--session",
-        "oac-k-g5-claude-resume-20261031T032533Z-075a14",
-        "pane",
-        "wait-output",
-        "w3:p1",
-        "--regex",
-        "^\\s*G5R-A-DONE-3849e55a\\s*$",
-        "--timeout",
-        "240000"
-      ],
-      "target": "w3:p1",
-      "startedAt": "2026-10-31T03:25:56.287Z",
-      "endedAt": "2026-10-31T03:26:45.613Z",
-      "durationMs": 49326,
-      "bound": {
-        "herdrTimeoutMs": 240000,
-        "driverDeadlineMs": 245000,
-        "by": "herdr --timeout, backstopped by driver deadline"
-      },
-      "exitCode": 0,
-      "signal": null,
-      "errorCode": null,
-      "timedOut": false,
-      "timeoutBy": null,
-      "killedByDriver": false,
-      "killUnconfirmed": false,
-      "spawnError": null,
-      "stdoutBytes": 3621,
-      "stderrBytes": 0
-    },
-    {
-      "seq": 17,
-      "role": "read",
-      "argv": [
-        "herdr",
-        "--session",
-        "oac-k-g5-claude-resume-20261031T032533Z-075a14",
-        "pane",
-        "read",
-        "w3:p1",
-        "--source",
-        "recent-unwrapped",
-        "--lines",
-        "200"
-      ],
-      "target": "w3:p1",
-      "startedAt": "2026-10-31T03:26:45.613Z",
-      "endedAt": "2026-10-31T03:26:45.663Z",
-      "durationMs": 50,
-      "bound": {
-        "herdrTimeoutMs": null,
-        "driverDeadlineMs": 15000,
-        "by": "driver deadline only (herdr has no --timeout for this command)"
-      },
-      "exitCode": 0,
-      "signal": null,
-      "errorCode": null,
-      "timedOut": false,
-      "timeoutBy": null,
-      "killedByDriver": false,
-      "killUnconfirmed": false,
-      "spawnError": null,
-      "stdoutBytes": 3046,
-      "stderrBytes": 0
-    },
-    {
-      "seq": 18,
       "role": "operator-input",
       "argv": [
         "herdr",
         "--session",
-        "oac-k-g5-claude-resume-20261031T032533Z-075a14",
+        "oac-k-g5-claude-resume-20261031T043741Z-fc780b",
         "pane",
         "run",
         "w2:p1",
-        "echo G5R-A-after2-f90144-BEGIN; <REPO>/target/debug/oac.exe sessions --json; echo G5R-A-after2-f90144-EXIT-$LASTEXITCODE"
+        "echo G5R-A-during2-ab43cf-BEGIN; <REPO>/target/debug/oac.exe sessions --json; echo G5R-A-during2-ab43cf-EXIT-$LASTEXITCODE"
       ],
       "target": "w2:p1",
-      "startedAt": "2026-10-31T03:26:47.667Z",
-      "endedAt": "2026-10-31T03:26:47.718Z",
-      "durationMs": 51,
+      "startedAt": "2026-10-31T04:38:51.392Z",
+      "endedAt": "2026-10-31T04:38:52.217Z",
+      "durationMs": 825,
       "bound": {
         "herdrTimeoutMs": null,
         "driverDeadlineMs": 15000,
@@ -1057,24 +987,24 @@
       "stderrBytes": 0
     },
     {
-      "seq": 19,
+      "seq": 17,
       "role": "wait",
       "argv": [
         "herdr",
         "--session",
-        "oac-k-g5-claude-resume-20261031T032533Z-075a14",
+        "oac-k-g5-claude-resume-20261031T043741Z-fc780b",
         "pane",
         "wait-output",
         "w2:p1",
         "--regex",
-        "^\\s*G5R-A-after2-f90144-EXIT-\\d+\\s*$",
+        "^\\s*G5R-A-during2-ab43cf-EXIT-\\d+\\s*$",
         "--timeout",
         "60000"
       ],
       "target": "w2:p1",
-      "startedAt": "2026-10-31T03:26:47.718Z",
-      "endedAt": "2026-10-31T03:26:47.873Z",
-      "durationMs": 155,
+      "startedAt": "2026-10-31T04:38:52.217Z",
+      "endedAt": "2026-10-31T04:39:23.703Z",
+      "durationMs": 31486,
       "bound": {
         "herdrTimeoutMs": 60000,
         "driverDeadlineMs": 65000,
@@ -1088,16 +1018,16 @@
       "killedByDriver": false,
       "killUnconfirmed": false,
       "spawnError": null,
-      "stdoutBytes": 1659,
+      "stdoutBytes": 1589,
       "stderrBytes": 0
     },
     {
-      "seq": 20,
+      "seq": 18,
       "role": "read",
       "argv": [
         "herdr",
         "--session",
-        "oac-k-g5-claude-resume-20261031T032533Z-075a14",
+        "oac-k-g5-claude-resume-20261031T043741Z-fc780b",
         "pane",
         "read",
         "w2:p1",
@@ -1107,9 +1037,9 @@
         "400"
       ],
       "target": "w2:p1",
-      "startedAt": "2026-10-31T03:26:47.873Z",
-      "endedAt": "2026-10-31T03:26:47.918Z",
-      "durationMs": 45,
+      "startedAt": "2026-10-31T04:39:23.703Z",
+      "endedAt": "2026-10-31T04:39:24.241Z",
+      "durationMs": 538,
       "bound": {
         "herdrTimeoutMs": null,
         "driverDeadlineMs": 15000,
@@ -1123,7 +1053,77 @@
       "killedByDriver": false,
       "killUnconfirmed": false,
       "spawnError": null,
-      "stdoutBytes": 1263,
+      "stdoutBytes": 1267,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 19,
+      "role": "wait",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g5-claude-resume-20261031T043741Z-fc780b",
+        "pane",
+        "wait-output",
+        "w3:p1",
+        "--regex",
+        "^\\s*G5R-A-DONE-72704432\\s*$",
+        "--timeout",
+        "240000"
+      ],
+      "target": "w3:p1",
+      "startedAt": "2026-10-31T04:39:24.242Z",
+      "endedAt": "2026-10-31T04:39:55.875Z",
+      "durationMs": 31633,
+      "bound": {
+        "herdrTimeoutMs": 240000,
+        "driverDeadlineMs": 245000,
+        "by": "herdr --timeout, backstopped by driver deadline"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 3517,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 20,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g5-claude-resume-20261031T043741Z-fc780b",
+        "pane",
+        "read",
+        "w3:p1",
+        "--source",
+        "recent-unwrapped",
+        "--lines",
+        "200"
+      ],
+      "target": "w3:p1",
+      "startedAt": "2026-10-31T04:39:55.875Z",
+      "endedAt": "2026-10-31T04:39:56.103Z",
+      "durationMs": 228,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 2958,
       "stderrBytes": 0
     },
     {
@@ -1132,16 +1132,16 @@
       "argv": [
         "herdr",
         "--session",
-        "oac-k-g5-claude-resume-20261031T032533Z-075a14",
+        "oac-k-g5-claude-resume-20261031T043741Z-fc780b",
         "pane",
         "run",
-        "w3:p1",
-        "claude -p 'Call the whoami tool of the oac MCP server once. Then run the Bash command sleep 30 (exactly that command). Then print the whoami result text exactly, nothing else.' --resume <CLAUDE_SESSION_1> --output-format json --allowedTools mcp__oac__whoami 'Bash(sleep *)' --mcp-config <SCRATCH>\\g5r\\mcp.json --strict-mcp-config --settings <SCRATCH>\\g5r\\settings.json --max-turns 6; echo G5R-B-DONE-a8799076"
+        "w2:p1",
+        "echo G5R-A-after3-802ac7-BEGIN; <REPO>/target/debug/oac.exe sessions --json; echo G5R-A-after3-802ac7-EXIT-$LASTEXITCODE"
       ],
-      "target": "w3:p1",
-      "startedAt": "2026-10-31T03:26:47.918Z",
-      "endedAt": "2026-10-31T03:26:47.970Z",
-      "durationMs": 52,
+      "target": "w2:p1",
+      "startedAt": "2026-10-31T04:39:58.112Z",
+      "endedAt": "2026-10-31T04:39:58.264Z",
+      "durationMs": 152,
       "bound": {
         "herdrTimeoutMs": null,
         "driverDeadlineMs": 15000,
@@ -1160,20 +1160,90 @@
     },
     {
       "seq": 22,
+      "role": "wait",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g5-claude-resume-20261031T043741Z-fc780b",
+        "pane",
+        "wait-output",
+        "w2:p1",
+        "--regex",
+        "^\\s*G5R-A-after3-802ac7-EXIT-\\d+\\s*$",
+        "--timeout",
+        "60000"
+      ],
+      "target": "w2:p1",
+      "startedAt": "2026-10-31T04:39:58.264Z",
+      "endedAt": "2026-10-31T04:39:58.422Z",
+      "durationMs": 158,
+      "bound": {
+        "herdrTimeoutMs": 60000,
+        "driverDeadlineMs": 65000,
+        "by": "herdr --timeout, backstopped by driver deadline"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 2190,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 23,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g5-claude-resume-20261031T043741Z-fc780b",
+        "pane",
+        "read",
+        "w2:p1",
+        "--source",
+        "recent-unwrapped",
+        "--lines",
+        "400"
+      ],
+      "target": "w2:p1",
+      "startedAt": "2026-10-31T04:39:58.422Z",
+      "endedAt": "2026-10-31T04:39:58.468Z",
+      "durationMs": 46,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1756,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 24,
       "role": "operator-input",
       "argv": [
         "herdr",
         "--session",
-        "oac-k-g5-claude-resume-20261031T032533Z-075a14",
+        "oac-k-g5-claude-resume-20261031T043741Z-fc780b",
         "pane",
         "run",
-        "w2:p1",
-        "echo G5R-B-during3-55f4d3-BEGIN; <REPO>/target/debug/oac.exe sessions --json; echo G5R-B-during3-55f4d3-EXIT-$LASTEXITCODE"
+        "w3:p1",
+        "claude -p 'Call the whoami tool of the oac MCP server once. Then run the Bash command sleep 30 (exactly that command). Then print the whoami result text exactly, nothing else.' --resume <CLAUDE_SESSION_1> --output-format json --allowedTools mcp__oac__whoami 'Bash(sleep *)' --mcp-config <SCRATCH>\\g5r\\mcp.json --strict-mcp-config --settings <SCRATCH>\\g5r\\settings.json --max-turns 6; echo G5R-B-DONE-9b7b85d5"
       ],
-      "target": "w2:p1",
-      "startedAt": "2026-10-31T03:26:50.972Z",
-      "endedAt": "2026-10-31T03:26:51.053Z",
-      "durationMs": 81,
+      "target": "w3:p1",
+      "startedAt": "2026-10-31T04:39:58.469Z",
+      "endedAt": "2026-10-31T04:39:58.522Z",
+      "durationMs": 53,
       "bound": {
         "herdrTimeoutMs": null,
         "driverDeadlineMs": 15000,
@@ -1191,59 +1261,21 @@
       "stderrBytes": 0
     },
     {
-      "seq": 23,
-      "role": "wait",
+      "seq": 25,
+      "role": "operator-input",
       "argv": [
         "herdr",
         "--session",
-        "oac-k-g5-claude-resume-20261031T032533Z-075a14",
+        "oac-k-g5-claude-resume-20261031T043741Z-fc780b",
         "pane",
-        "wait-output",
+        "run",
         "w2:p1",
-        "--regex",
-        "^\\s*G5R-B-during3-55f4d3-EXIT-\\d+\\s*$",
-        "--timeout",
-        "60000"
+        "echo G5R-B-during4-d747c2-BEGIN; <REPO>/target/debug/oac.exe sessions --json; echo G5R-B-during4-d747c2-EXIT-$LASTEXITCODE"
       ],
       "target": "w2:p1",
-      "startedAt": "2026-10-31T03:26:51.053Z",
-      "endedAt": "2026-10-31T03:26:51.232Z",
-      "durationMs": 179,
-      "bound": {
-        "herdrTimeoutMs": 60000,
-        "driverDeadlineMs": 65000,
-        "by": "herdr --timeout, backstopped by driver deadline"
-      },
-      "exitCode": 0,
-      "signal": null,
-      "errorCode": null,
-      "timedOut": false,
-      "timeoutBy": null,
-      "killedByDriver": false,
-      "killUnconfirmed": false,
-      "spawnError": null,
-      "stdoutBytes": 2430,
-      "stderrBytes": 0
-    },
-    {
-      "seq": 24,
-      "role": "read",
-      "argv": [
-        "herdr",
-        "--session",
-        "oac-k-g5-claude-resume-20261031T032533Z-075a14",
-        "pane",
-        "read",
-        "w2:p1",
-        "--source",
-        "recent-unwrapped",
-        "--lines",
-        "400"
-      ],
-      "target": "w2:p1",
-      "startedAt": "2026-10-31T03:26:51.232Z",
-      "endedAt": "2026-10-31T03:26:51.292Z",
-      "durationMs": 60,
+      "startedAt": "2026-10-31T04:40:01.528Z",
+      "endedAt": "2026-10-31T04:40:01.591Z",
+      "durationMs": 63,
       "bound": {
         "herdrTimeoutMs": null,
         "driverDeadlineMs": 15000,
@@ -1257,28 +1289,98 @@
       "killedByDriver": false,
       "killUnconfirmed": false,
       "spawnError": null,
-      "stdoutBytes": 1971,
+      "stdoutBytes": 0,
       "stderrBytes": 0
     },
     {
-      "seq": 25,
+      "seq": 26,
       "role": "wait",
       "argv": [
         "herdr",
         "--session",
-        "oac-k-g5-claude-resume-20261031T032533Z-075a14",
+        "oac-k-g5-claude-resume-20261031T043741Z-fc780b",
+        "pane",
+        "wait-output",
+        "w2:p1",
+        "--regex",
+        "^\\s*G5R-B-during4-d747c2-EXIT-\\d+\\s*$",
+        "--timeout",
+        "60000"
+      ],
+      "target": "w2:p1",
+      "startedAt": "2026-10-31T04:40:01.591Z",
+      "endedAt": "2026-10-31T04:40:01.825Z",
+      "durationMs": 234,
+      "bound": {
+        "herdrTimeoutMs": 60000,
+        "driverDeadlineMs": 65000,
+        "by": "herdr --timeout, backstopped by driver deadline"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 2961,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 27,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g5-claude-resume-20261031T043741Z-fc780b",
+        "pane",
+        "read",
+        "w2:p1",
+        "--source",
+        "recent-unwrapped",
+        "--lines",
+        "400"
+      ],
+      "target": "w2:p1",
+      "startedAt": "2026-10-31T04:40:01.825Z",
+      "endedAt": "2026-10-31T04:40:01.902Z",
+      "durationMs": 77,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 2464,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 28,
+      "role": "wait",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g5-claude-resume-20261031T043741Z-fc780b",
         "pane",
         "wait-output",
         "w3:p1",
         "--regex",
-        "^\\s*G5R-B-DONE-a8799076\\s*$",
+        "^\\s*G5R-B-DONE-9b7b85d5\\s*$",
         "--timeout",
         "240000"
       ],
       "target": "w3:p1",
-      "startedAt": "2026-10-31T03:26:51.293Z",
-      "endedAt": "2026-10-31T03:27:32.776Z",
-      "durationMs": 41483,
+      "startedAt": "2026-10-31T04:40:01.902Z",
+      "endedAt": "2026-10-31T04:40:40.046Z",
+      "durationMs": 38144,
       "bound": {
         "herdrTimeoutMs": 240000,
         "driverDeadlineMs": 245000,
@@ -1292,16 +1394,16 @@
       "killedByDriver": false,
       "killUnconfirmed": false,
       "spawnError": null,
-      "stdoutBytes": 6643,
+      "stdoutBytes": 6628,
       "stderrBytes": 0
     },
     {
-      "seq": 26,
+      "seq": 29,
       "role": "read",
       "argv": [
         "herdr",
         "--session",
-        "oac-k-g5-claude-resume-20261031T032533Z-075a14",
+        "oac-k-g5-claude-resume-20261031T043741Z-fc780b",
         "pane",
         "read",
         "w3:p1",
@@ -1311,9 +1413,9 @@
         "200"
       ],
       "target": "w3:p1",
-      "startedAt": "2026-10-31T03:27:32.776Z",
-      "endedAt": "2026-10-31T03:27:32.846Z",
-      "durationMs": 70,
+      "startedAt": "2026-10-31T04:40:40.046Z",
+      "endedAt": "2026-10-31T04:40:40.096Z",
+      "durationMs": 50,
       "bound": {
         "herdrTimeoutMs": null,
         "driverDeadlineMs": 15000,
@@ -1327,109 +1429,7 @@
       "killedByDriver": false,
       "killUnconfirmed": false,
       "spawnError": null,
-      "stdoutBytes": 5810,
-      "stderrBytes": 0
-    },
-    {
-      "seq": 27,
-      "role": "operator-input",
-      "argv": [
-        "herdr",
-        "--session",
-        "oac-k-g5-claude-resume-20261031T032533Z-075a14",
-        "pane",
-        "run",
-        "w2:p1",
-        "echo G5R-B-after4-0ed594-BEGIN; <REPO>/target/debug/oac.exe sessions --json; echo G5R-B-after4-0ed594-EXIT-$LASTEXITCODE"
-      ],
-      "target": "w2:p1",
-      "startedAt": "2026-10-31T03:27:34.855Z",
-      "endedAt": "2026-10-31T03:27:34.957Z",
-      "durationMs": 102,
-      "bound": {
-        "herdrTimeoutMs": null,
-        "driverDeadlineMs": 15000,
-        "by": "driver deadline only (herdr has no --timeout for this command)"
-      },
-      "exitCode": 0,
-      "signal": null,
-      "errorCode": null,
-      "timedOut": false,
-      "timeoutBy": null,
-      "killedByDriver": false,
-      "killUnconfirmed": false,
-      "spawnError": null,
-      "stdoutBytes": 0,
-      "stderrBytes": 0
-    },
-    {
-      "seq": 28,
-      "role": "wait",
-      "argv": [
-        "herdr",
-        "--session",
-        "oac-k-g5-claude-resume-20261031T032533Z-075a14",
-        "pane",
-        "wait-output",
-        "w2:p1",
-        "--regex",
-        "^\\s*G5R-B-after4-0ed594-EXIT-\\d+\\s*$",
-        "--timeout",
-        "60000"
-      ],
-      "target": "w2:p1",
-      "startedAt": "2026-10-31T03:27:34.957Z",
-      "endedAt": "2026-10-31T03:27:35.243Z",
-      "durationMs": 286,
-      "bound": {
-        "herdrTimeoutMs": 60000,
-        "driverDeadlineMs": 65000,
-        "by": "herdr --timeout, backstopped by driver deadline"
-      },
-      "exitCode": 0,
-      "signal": null,
-      "errorCode": null,
-      "timedOut": false,
-      "timeoutBy": null,
-      "killedByDriver": false,
-      "killUnconfirmed": false,
-      "spawnError": null,
-      "stdoutBytes": 2956,
-      "stderrBytes": 0
-    },
-    {
-      "seq": 29,
-      "role": "read",
-      "argv": [
-        "herdr",
-        "--session",
-        "oac-k-g5-claude-resume-20261031T032533Z-075a14",
-        "pane",
-        "read",
-        "w2:p1",
-        "--source",
-        "recent-unwrapped",
-        "--lines",
-        "400"
-      ],
-      "target": "w2:p1",
-      "startedAt": "2026-10-31T03:27:35.243Z",
-      "endedAt": "2026-10-31T03:27:35.309Z",
-      "durationMs": 66,
-      "bound": {
-        "herdrTimeoutMs": null,
-        "driverDeadlineMs": 15000,
-        "by": "driver deadline only (herdr has no --timeout for this command)"
-      },
-      "exitCode": 0,
-      "signal": null,
-      "errorCode": null,
-      "timedOut": false,
-      "timeoutBy": null,
-      "killedByDriver": false,
-      "killUnconfirmed": false,
-      "spawnError": null,
-      "stdoutBytes": 2460,
+      "stdoutBytes": 5825,
       "stderrBytes": 0
     },
     {
@@ -1438,16 +1438,16 @@
       "argv": [
         "herdr",
         "--session",
-        "oac-k-g5-claude-resume-20261031T032533Z-075a14",
+        "oac-k-g5-claude-resume-20261031T043741Z-fc780b",
         "pane",
         "run",
-        "w3:p1",
-        "claude -p 'Call the whoami tool of the oac MCP server once. Then run the Bash command sleep 30 (exactly that command). Then print the whoami result text exactly, nothing else.' --continue --output-format json --allowedTools mcp__oac__whoami 'Bash(sleep *)' --mcp-config <SCRATCH>\\g5r\\mcp.json --strict-mcp-config --settings <SCRATCH>\\g5r\\settings.json --max-turns 6; echo G5R-C-DONE-c38b2bbf"
+        "w2:p1",
+        "echo G5R-B-after5-d3de2c-BEGIN; <REPO>/target/debug/oac.exe sessions --json; echo G5R-B-after5-d3de2c-EXIT-$LASTEXITCODE"
       ],
-      "target": "w3:p1",
-      "startedAt": "2026-10-31T03:27:35.310Z",
-      "endedAt": "2026-10-31T03:27:35.378Z",
-      "durationMs": 68,
+      "target": "w2:p1",
+      "startedAt": "2026-10-31T04:40:42.110Z",
+      "endedAt": "2026-10-31T04:40:42.161Z",
+      "durationMs": 51,
       "bound": {
         "herdrTimeoutMs": null,
         "driverDeadlineMs": 15000,
@@ -1466,20 +1466,90 @@
     },
     {
       "seq": 31,
+      "role": "wait",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g5-claude-resume-20261031T043741Z-fc780b",
+        "pane",
+        "wait-output",
+        "w2:p1",
+        "--regex",
+        "^\\s*G5R-B-after5-d3de2c-EXIT-\\d+\\s*$",
+        "--timeout",
+        "60000"
+      ],
+      "target": "w2:p1",
+      "startedAt": "2026-10-31T04:40:42.161Z",
+      "endedAt": "2026-10-31T04:40:42.317Z",
+      "durationMs": 156,
+      "bound": {
+        "herdrTimeoutMs": 60000,
+        "driverDeadlineMs": 65000,
+        "by": "herdr --timeout, backstopped by driver deadline"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 3487,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 32,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g5-claude-resume-20261031T043741Z-fc780b",
+        "pane",
+        "read",
+        "w2:p1",
+        "--source",
+        "recent-unwrapped",
+        "--lines",
+        "400"
+      ],
+      "target": "w2:p1",
+      "startedAt": "2026-10-31T04:40:42.317Z",
+      "endedAt": "2026-10-31T04:40:42.359Z",
+      "durationMs": 42,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 2953,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 33,
       "role": "operator-input",
       "argv": [
         "herdr",
         "--session",
-        "oac-k-g5-claude-resume-20261031T032533Z-075a14",
+        "oac-k-g5-claude-resume-20261031T043741Z-fc780b",
         "pane",
         "run",
-        "w2:p1",
-        "echo G5R-C-during5-2ee1c7-BEGIN; <REPO>/target/debug/oac.exe sessions --json; echo G5R-C-during5-2ee1c7-EXIT-$LASTEXITCODE"
+        "w3:p1",
+        "claude -p 'Call the whoami tool of the oac MCP server once. Then run the Bash command sleep 30 (exactly that command). Then print the whoami result text exactly, nothing else.' --continue --output-format json --allowedTools mcp__oac__whoami 'Bash(sleep *)' --mcp-config <SCRATCH>\\g5r\\mcp.json --strict-mcp-config --settings <SCRATCH>\\g5r\\settings.json --max-turns 6; echo G5R-C-DONE-3cd22600"
       ],
-      "target": "w2:p1",
-      "startedAt": "2026-10-31T03:27:38.391Z",
-      "endedAt": "2026-10-31T03:27:38.471Z",
-      "durationMs": 80,
+      "target": "w3:p1",
+      "startedAt": "2026-10-31T04:40:42.360Z",
+      "endedAt": "2026-10-31T04:40:42.409Z",
+      "durationMs": 49,
       "bound": {
         "herdrTimeoutMs": null,
         "driverDeadlineMs": 15000,
@@ -1497,59 +1567,21 @@
       "stderrBytes": 0
     },
     {
-      "seq": 32,
-      "role": "wait",
+      "seq": 34,
+      "role": "operator-input",
       "argv": [
         "herdr",
         "--session",
-        "oac-k-g5-claude-resume-20261031T032533Z-075a14",
+        "oac-k-g5-claude-resume-20261031T043741Z-fc780b",
         "pane",
-        "wait-output",
+        "run",
         "w2:p1",
-        "--regex",
-        "^\\s*G5R-C-during5-2ee1c7-EXIT-\\d+\\s*$",
-        "--timeout",
-        "60000"
+        "echo G5R-C-during6-ccf514-BEGIN; <REPO>/target/debug/oac.exe sessions --json; echo G5R-C-during6-ccf514-EXIT-$LASTEXITCODE"
       ],
       "target": "w2:p1",
-      "startedAt": "2026-10-31T03:27:38.471Z",
-      "endedAt": "2026-10-31T03:27:38.651Z",
-      "durationMs": 180,
-      "bound": {
-        "herdrTimeoutMs": 60000,
-        "driverDeadlineMs": 65000,
-        "by": "herdr --timeout, backstopped by driver deadline"
-      },
-      "exitCode": 0,
-      "signal": null,
-      "errorCode": null,
-      "timedOut": false,
-      "timeoutBy": null,
-      "killedByDriver": false,
-      "killUnconfirmed": false,
-      "spawnError": null,
-      "stdoutBytes": 3727,
-      "stderrBytes": 0
-    },
-    {
-      "seq": 33,
-      "role": "read",
-      "argv": [
-        "herdr",
-        "--session",
-        "oac-k-g5-claude-resume-20261031T032533Z-075a14",
-        "pane",
-        "read",
-        "w2:p1",
-        "--source",
-        "recent-unwrapped",
-        "--lines",
-        "400"
-      ],
-      "target": "w2:p1",
-      "startedAt": "2026-10-31T03:27:38.652Z",
-      "endedAt": "2026-10-31T03:27:38.722Z",
-      "durationMs": 70,
+      "startedAt": "2026-10-31T04:40:45.413Z",
+      "endedAt": "2026-10-31T04:40:45.501Z",
+      "durationMs": 88,
       "bound": {
         "herdrTimeoutMs": null,
         "driverDeadlineMs": 15000,
@@ -1563,28 +1595,98 @@
       "killedByDriver": false,
       "killUnconfirmed": false,
       "spawnError": null,
-      "stdoutBytes": 3168,
+      "stdoutBytes": 0,
       "stderrBytes": 0
     },
     {
-      "seq": 34,
+      "seq": 35,
       "role": "wait",
       "argv": [
         "herdr",
         "--session",
-        "oac-k-g5-claude-resume-20261031T032533Z-075a14",
+        "oac-k-g5-claude-resume-20261031T043741Z-fc780b",
+        "pane",
+        "wait-output",
+        "w2:p1",
+        "--regex",
+        "^\\s*G5R-C-during6-ccf514-EXIT-\\d+\\s*$",
+        "--timeout",
+        "60000"
+      ],
+      "target": "w2:p1",
+      "startedAt": "2026-10-31T04:40:45.501Z",
+      "endedAt": "2026-10-31T04:40:45.786Z",
+      "durationMs": 285,
+      "bound": {
+        "herdrTimeoutMs": 60000,
+        "driverDeadlineMs": 65000,
+        "by": "herdr --timeout, backstopped by driver deadline"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 4258,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 36,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g5-claude-resume-20261031T043741Z-fc780b",
+        "pane",
+        "read",
+        "w2:p1",
+        "--source",
+        "recent-unwrapped",
+        "--lines",
+        "400"
+      ],
+      "target": "w2:p1",
+      "startedAt": "2026-10-31T04:40:45.786Z",
+      "endedAt": "2026-10-31T04:40:45.843Z",
+      "durationMs": 57,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 3661,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 37,
+      "role": "wait",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g5-claude-resume-20261031T043741Z-fc780b",
         "pane",
         "wait-output",
         "w3:p1",
         "--regex",
-        "^\\s*G5R-C-DONE-c38b2bbf\\s*$",
+        "^\\s*G5R-C-DONE-3cd22600\\s*$",
         "--timeout",
         "240000"
       ],
       "target": "w3:p1",
-      "startedAt": "2026-10-31T03:27:38.723Z",
-      "endedAt": "2026-10-31T03:28:20.540Z",
-      "durationMs": 41817,
+      "startedAt": "2026-10-31T04:40:45.843Z",
+      "endedAt": "2026-10-31T04:41:24.672Z",
+      "durationMs": 38829,
       "bound": {
         "herdrTimeoutMs": 240000,
         "driverDeadlineMs": 245000,
@@ -1598,16 +1700,16 @@
       "killedByDriver": false,
       "killUnconfirmed": false,
       "spawnError": null,
-      "stdoutBytes": 9627,
+      "stdoutBytes": 9973,
       "stderrBytes": 0
     },
     {
-      "seq": 35,
+      "seq": 38,
       "role": "read",
       "argv": [
         "herdr",
         "--session",
-        "oac-k-g5-claude-resume-20261031T032533Z-075a14",
+        "oac-k-g5-claude-resume-20261031T043741Z-fc780b",
         "pane",
         "read",
         "w3:p1",
@@ -1617,9 +1719,9 @@
         "200"
       ],
       "target": "w3:p1",
-      "startedAt": "2026-10-31T03:28:20.540Z",
-      "endedAt": "2026-10-31T03:28:20.584Z",
-      "durationMs": 44,
+      "startedAt": "2026-10-31T04:41:24.672Z",
+      "endedAt": "2026-10-31T04:41:24.719Z",
+      "durationMs": 47,
       "bound": {
         "herdrTimeoutMs": null,
         "driverDeadlineMs": 15000,
@@ -1633,109 +1735,7 @@
       "killedByDriver": false,
       "killUnconfirmed": false,
       "spawnError": null,
-      "stdoutBytes": 8536,
-      "stderrBytes": 0
-    },
-    {
-      "seq": 36,
-      "role": "operator-input",
-      "argv": [
-        "herdr",
-        "--session",
-        "oac-k-g5-claude-resume-20261031T032533Z-075a14",
-        "pane",
-        "run",
-        "w2:p1",
-        "echo G5R-C-after6-24c354-BEGIN; <REPO>/target/debug/oac.exe sessions --json; echo G5R-C-after6-24c354-EXIT-$LASTEXITCODE"
-      ],
-      "target": "w2:p1",
-      "startedAt": "2026-10-31T03:28:22.598Z",
-      "endedAt": "2026-10-31T03:28:22.660Z",
-      "durationMs": 62,
-      "bound": {
-        "herdrTimeoutMs": null,
-        "driverDeadlineMs": 15000,
-        "by": "driver deadline only (herdr has no --timeout for this command)"
-      },
-      "exitCode": 0,
-      "signal": null,
-      "errorCode": null,
-      "timedOut": false,
-      "timeoutBy": null,
-      "killedByDriver": false,
-      "killUnconfirmed": false,
-      "spawnError": null,
-      "stdoutBytes": 0,
-      "stderrBytes": 0
-    },
-    {
-      "seq": 37,
-      "role": "wait",
-      "argv": [
-        "herdr",
-        "--session",
-        "oac-k-g5-claude-resume-20261031T032533Z-075a14",
-        "pane",
-        "wait-output",
-        "w2:p1",
-        "--regex",
-        "^\\s*G5R-C-after6-24c354-EXIT-\\d+\\s*$",
-        "--timeout",
-        "60000"
-      ],
-      "target": "w2:p1",
-      "startedAt": "2026-10-31T03:28:22.660Z",
-      "endedAt": "2026-10-31T03:28:22.822Z",
-      "durationMs": 162,
-      "bound": {
-        "herdrTimeoutMs": 60000,
-        "driverDeadlineMs": 65000,
-        "by": "herdr --timeout, backstopped by driver deadline"
-      },
-      "exitCode": 0,
-      "signal": null,
-      "errorCode": null,
-      "timedOut": false,
-      "timeoutBy": null,
-      "killedByDriver": false,
-      "killUnconfirmed": false,
-      "spawnError": null,
-      "stdoutBytes": 4253,
-      "stderrBytes": 0
-    },
-    {
-      "seq": 38,
-      "role": "read",
-      "argv": [
-        "herdr",
-        "--session",
-        "oac-k-g5-claude-resume-20261031T032533Z-075a14",
-        "pane",
-        "read",
-        "w2:p1",
-        "--source",
-        "recent-unwrapped",
-        "--lines",
-        "400"
-      ],
-      "target": "w2:p1",
-      "startedAt": "2026-10-31T03:28:22.822Z",
-      "endedAt": "2026-10-31T03:28:22.873Z",
-      "durationMs": 51,
-      "bound": {
-        "herdrTimeoutMs": null,
-        "driverDeadlineMs": 15000,
-        "by": "driver deadline only (herdr has no --timeout for this command)"
-      },
-      "exitCode": 0,
-      "signal": null,
-      "errorCode": null,
-      "timedOut": false,
-      "timeoutBy": null,
-      "killedByDriver": false,
-      "killUnconfirmed": false,
-      "spawnError": null,
-      "stdoutBytes": 3657,
+      "stdoutBytes": 8926,
       "stderrBytes": 0
     },
     {
@@ -1744,16 +1744,16 @@
       "argv": [
         "herdr",
         "--session",
-        "oac-k-g5-claude-resume-20261031T032533Z-075a14",
+        "oac-k-g5-claude-resume-20261031T043741Z-fc780b",
         "pane",
         "run",
-        "w1:p1",
-        "stop"
+        "w2:p1",
+        "echo G5R-C-after7-9ccbe8-BEGIN; <REPO>/target/debug/oac.exe sessions --json; echo G5R-C-after7-9ccbe8-EXIT-$LASTEXITCODE"
       ],
-      "target": "w1:p1",
-      "startedAt": "2026-10-31T03:28:22.881Z",
-      "endedAt": "2026-10-31T03:28:22.938Z",
-      "durationMs": 57,
+      "target": "w2:p1",
+      "startedAt": "2026-10-31T04:41:26.723Z",
+      "endedAt": "2026-10-31T04:41:26.825Z",
+      "durationMs": 102,
       "bound": {
         "herdrTimeoutMs": null,
         "driverDeadlineMs": 15000,
@@ -1776,19 +1776,19 @@
       "argv": [
         "herdr",
         "--session",
-        "oac-k-g5-claude-resume-20261031T032533Z-075a14",
+        "oac-k-g5-claude-resume-20261031T043741Z-fc780b",
         "pane",
         "wait-output",
-        "w1:p1",
+        "w2:p1",
         "--regex",
-        "\"event\":\"stopped\"",
+        "^\\s*G5R-C-after7-9ccbe8-EXIT-\\d+\\s*$",
         "--timeout",
         "60000"
       ],
-      "target": "w1:p1",
-      "startedAt": "2026-10-31T03:28:22.938Z",
-      "endedAt": "2026-10-31T03:28:22.996Z",
-      "durationMs": 58,
+      "target": "w2:p1",
+      "startedAt": "2026-10-31T04:41:26.825Z",
+      "endedAt": "2026-10-31T04:41:27.140Z",
+      "durationMs": 315,
       "bound": {
         "herdrTimeoutMs": 60000,
         "driverDeadlineMs": 65000,
@@ -1802,7 +1802,7 @@
       "killedByDriver": false,
       "killUnconfirmed": false,
       "spawnError": null,
-      "stdoutBytes": 9955,
+      "stdoutBytes": 4784,
       "stderrBytes": 0
     },
     {
@@ -1811,19 +1811,19 @@
       "argv": [
         "herdr",
         "--session",
-        "oac-k-g5-claude-resume-20261031T032533Z-075a14",
+        "oac-k-g5-claude-resume-20261031T043741Z-fc780b",
         "pane",
         "read",
-        "w1:p1",
+        "w2:p1",
         "--source",
         "recent-unwrapped",
         "--lines",
-        "200"
+        "400"
       ],
-      "target": "w1:p1",
-      "startedAt": "2026-10-31T03:28:22.996Z",
-      "endedAt": "2026-10-31T03:28:23.050Z",
-      "durationMs": 54,
+      "target": "w2:p1",
+      "startedAt": "2026-10-31T04:41:27.140Z",
+      "endedAt": "2026-10-31T04:41:27.190Z",
+      "durationMs": 50,
       "bound": {
         "herdrTimeoutMs": null,
         "driverDeadlineMs": 15000,
@@ -1837,28 +1837,28 @@
       "killedByDriver": false,
       "killUnconfirmed": false,
       "spawnError": null,
-      "stdoutBytes": 9634,
+      "stdoutBytes": 4150,
       "stderrBytes": 0
     },
     {
       "seq": 42,
-      "role": "read",
+      "role": "operator-input",
       "argv": [
         "herdr",
         "--session",
-        "oac-k-g5-claude-resume-20261031T032533Z-075a14",
+        "oac-k-g5-claude-resume-20261031T043741Z-fc780b",
         "pane",
-        "process-info",
-        "--pane",
-        "w1:p1"
+        "run",
+        "w1:p1",
+        "stop"
       ],
       "target": "w1:p1",
-      "startedAt": "2026-10-31T03:28:23.055Z",
-      "endedAt": "2026-10-31T03:28:23.112Z",
-      "durationMs": 57,
+      "startedAt": "2026-10-31T04:41:27.199Z",
+      "endedAt": "2026-10-31T04:41:27.263Z",
+      "durationMs": 64,
       "bound": {
         "herdrTimeoutMs": null,
-        "driverDeadlineMs": 10000,
+        "driverDeadlineMs": 15000,
         "by": "driver deadline only (herdr has no --timeout for this command)"
       },
       "exitCode": 0,
@@ -1869,29 +1869,32 @@
       "killedByDriver": false,
       "killUnconfirmed": false,
       "spawnError": null,
-      "stdoutBytes": 1451,
+      "stdoutBytes": 0,
       "stderrBytes": 0
     },
     {
       "seq": 43,
-      "role": "read",
+      "role": "wait",
       "argv": [
         "herdr",
         "--session",
-        "oac-k-g5-claude-resume-20261031T032533Z-075a14",
+        "oac-k-g5-claude-resume-20261031T043741Z-fc780b",
         "pane",
-        "process-info",
-        "--pane",
-        "w2:p1"
+        "wait-output",
+        "w1:p1",
+        "--regex",
+        "\"event\":\"stopped\"",
+        "--timeout",
+        "60000"
       ],
-      "target": "w2:p1",
-      "startedAt": "2026-10-31T03:28:23.112Z",
-      "endedAt": "2026-10-31T03:28:23.166Z",
-      "durationMs": 54,
+      "target": "w1:p1",
+      "startedAt": "2026-10-31T04:41:27.263Z",
+      "endedAt": "2026-10-31T04:41:27.328Z",
+      "durationMs": 65,
       "bound": {
-        "herdrTimeoutMs": null,
-        "driverDeadlineMs": 10000,
-        "by": "driver deadline only (herdr has no --timeout for this command)"
+        "herdrTimeoutMs": 60000,
+        "driverDeadlineMs": 65000,
+        "by": "herdr --timeout, backstopped by driver deadline"
       },
       "exitCode": 0,
       "signal": null,
@@ -1901,7 +1904,7 @@
       "killedByDriver": false,
       "killUnconfirmed": false,
       "spawnError": null,
-      "stdoutBytes": 1451,
+      "stdoutBytes": 9883,
       "stderrBytes": 0
     },
     {
@@ -1910,16 +1913,115 @@
       "argv": [
         "herdr",
         "--session",
-        "oac-k-g5-claude-resume-20261031T032533Z-075a14",
+        "oac-k-g5-claude-resume-20261031T043741Z-fc780b",
+        "pane",
+        "read",
+        "w1:p1",
+        "--source",
+        "recent-unwrapped",
+        "--lines",
+        "200"
+      ],
+      "target": "w1:p1",
+      "startedAt": "2026-10-31T04:41:27.328Z",
+      "endedAt": "2026-10-31T04:41:27.383Z",
+      "durationMs": 55,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 15000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 9637,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 45,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g5-claude-resume-20261031T043741Z-fc780b",
+        "pane",
+        "process-info",
+        "--pane",
+        "w1:p1"
+      ],
+      "target": "w1:p1",
+      "startedAt": "2026-10-31T04:41:27.391Z",
+      "endedAt": "2026-10-31T04:41:27.554Z",
+      "durationMs": 163,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 10000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1451,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 46,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g5-claude-resume-20261031T043741Z-fc780b",
+        "pane",
+        "process-info",
+        "--pane",
+        "w2:p1"
+      ],
+      "target": "w2:p1",
+      "startedAt": "2026-10-31T04:41:27.554Z",
+      "endedAt": "2026-10-31T04:41:27.604Z",
+      "durationMs": 50,
+      "bound": {
+        "herdrTimeoutMs": null,
+        "driverDeadlineMs": 10000,
+        "by": "driver deadline only (herdr has no --timeout for this command)"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "errorCode": null,
+      "timedOut": false,
+      "timeoutBy": null,
+      "killedByDriver": false,
+      "killUnconfirmed": false,
+      "spawnError": null,
+      "stdoutBytes": 1451,
+      "stderrBytes": 0
+    },
+    {
+      "seq": 47,
+      "role": "read",
+      "argv": [
+        "herdr",
+        "--session",
+        "oac-k-g5-claude-resume-20261031T043741Z-fc780b",
         "pane",
         "process-info",
         "--pane",
         "w3:p1"
       ],
       "target": "w3:p1",
-      "startedAt": "2026-10-31T03:28:23.166Z",
-      "endedAt": "2026-10-31T03:28:23.221Z",
-      "durationMs": 55,
+      "startedAt": "2026-10-31T04:41:27.604Z",
+      "endedAt": "2026-10-31T04:41:27.653Z",
+      "durationMs": 49,
       "bound": {
         "herdrTimeoutMs": null,
         "driverDeadlineMs": 10000,
@@ -1937,19 +2039,19 @@
       "stderrBytes": 0
     },
     {
-      "seq": 45,
+      "seq": 48,
       "role": "lifecycle",
       "argv": [
         "herdr",
         "session",
         "stop",
-        "oac-k-g5-claude-resume-20261031T032533Z-075a14",
+        "oac-k-g5-claude-resume-20261031T043741Z-fc780b",
         "--json"
       ],
       "target": null,
-      "startedAt": "2026-10-31T03:28:24.411Z",
-      "endedAt": "2026-10-31T03:28:24.642Z",
-      "durationMs": 231,
+      "startedAt": "2026-10-31T04:41:28.972Z",
+      "endedAt": "2026-10-31T04:41:29.358Z",
+      "durationMs": 386,
       "bound": {
         "herdrTimeoutMs": null,
         "driverDeadlineMs": 25000,
@@ -1967,19 +2069,19 @@
       "stderrBytes": 0
     },
     {
-      "seq": 46,
+      "seq": 49,
       "role": "lifecycle",
       "argv": [
         "herdr",
         "session",
         "delete",
-        "oac-k-g5-claude-resume-20261031T032533Z-075a14",
+        "oac-k-g5-claude-resume-20261031T043741Z-fc780b",
         "--json"
       ],
       "target": null,
-      "startedAt": "2026-10-31T03:28:25.737Z",
-      "endedAt": "2026-10-31T03:28:25.782Z",
-      "durationMs": 45,
+      "startedAt": "2026-10-31T04:41:30.329Z",
+      "endedAt": "2026-10-31T04:41:30.372Z",
+      "durationMs": 43,
       "bound": {
         "herdrTimeoutMs": null,
         "driverDeadlineMs": 15000,
@@ -2031,10 +2133,10 @@
   },
   "captures": [
     {
-      "file": "pane-claude-A.txt",
+      "file": "pane-claude-A-herdr.txt",
       "format": "text",
       "written": true,
-      "sha256": "580494a6c040310caadec453fec573cbb35a96f58decc330652e812852250da8",
+      "sha256": "bd1e43d8a52a69e3975724fa15907fb02501fe5b13df48a7a9e403d71c910891",
       "redaction": {
         "mode": "text",
         "lines": 6,
@@ -2044,8 +2146,7 @@
         "replacements": {
           "literal <SCRATCH>": 6,
           "literal <REPO>": 1,
-          "literal <CLAUDE_SESSION_1>": 1,
-          "literal <OAC_SESSION_A>": 1
+          "literal <CLAUDE_SESSION_1>": 1
         },
         "residualLeaks": [],
         "residualGenericHits": [],
@@ -2053,10 +2154,10 @@
       }
     },
     {
-      "file": "pane-claude-B.txt",
+      "file": "pane-claude-B-herdr.txt",
       "format": "text",
       "written": true,
-      "sha256": "9e476ed7e77ac0ea36c69c841ca28e284566736ec1b87d3d1b101bdee207794e",
+      "sha256": "7ac13b68a710fb589c85d7e3dc8375ce0c9f4523f8013f464108f8cb5ee2bb78",
       "redaction": {
         "mode": "text",
         "lines": 9,
@@ -2076,10 +2177,10 @@
       }
     },
     {
-      "file": "pane-claude-C.txt",
+      "file": "pane-claude-C-herdr.txt",
       "format": "text",
       "written": true,
-      "sha256": "bcb19ced95893dc0b8b02469cae9354a9fe3e7803c91eb7bb8e6323312482ef4",
+      "sha256": "27c1dd2d0b89d92f34fcb8b772bb5a14fa67005848eb89692921d1b38730cb6a",
       "redaction": {
         "mode": "text",
         "lines": 12,
@@ -2103,6 +2204,23 @@
       "file": "sessions-1-A-during.txt",
       "format": "text",
       "written": true,
+      "sha256": "383daed2719ca87463c28131138c058f190c76abbe7902fea9944c364106926d",
+      "redaction": {
+        "mode": "text",
+        "lines": 5,
+        "droppedHazardLines": 0,
+        "unterminatedKeyBlock": false,
+        "hazardProtocolFrames": [],
+        "replacements": {},
+        "residualLeaks": [],
+        "residualGenericHits": [],
+        "elidedToolOutputLines": []
+      }
+    },
+    {
+      "file": "sessions-2-A-during.txt",
+      "format": "text",
+      "written": true,
       "sha256": "e079cf2a84baa54e6c89c9bb893a22fe7fe1ba2fb82d70fd4b5509ef62af7b34",
       "redaction": {
         "mode": "text",
@@ -2120,7 +2238,7 @@
       }
     },
     {
-      "file": "sessions-2-A-after.txt",
+      "file": "sessions-3-A-after.txt",
       "format": "text",
       "written": true,
       "sha256": "383daed2719ca87463c28131138c058f190c76abbe7902fea9944c364106926d",
@@ -2137,7 +2255,7 @@
       }
     },
     {
-      "file": "sessions-3-B-during.txt",
+      "file": "sessions-4-B-during.txt",
       "format": "text",
       "written": true,
       "sha256": "a8110eeb4dd12f5a2a96fd0a8cb6dced5c7585a71bfb773528a2b267f52fb630",
@@ -2157,7 +2275,7 @@
       }
     },
     {
-      "file": "sessions-4-B-after.txt",
+      "file": "sessions-5-B-after.txt",
       "format": "text",
       "written": true,
       "sha256": "383daed2719ca87463c28131138c058f190c76abbe7902fea9944c364106926d",
@@ -2174,7 +2292,7 @@
       }
     },
     {
-      "file": "sessions-5-C-during.txt",
+      "file": "sessions-6-C-during.txt",
       "format": "text",
       "written": true,
       "sha256": "b2cb87a37be4ff83eedd6c0869ead7b2de52bf6db9c6db226ada44dcc86708be",
@@ -2194,7 +2312,7 @@
       }
     },
     {
-      "file": "sessions-6-C-after.txt",
+      "file": "sessions-7-C-after.txt",
       "format": "text",
       "written": true,
       "sha256": "383daed2719ca87463c28131138c058f190c76abbe7902fea9944c364106926d",
@@ -2211,10 +2329,10 @@
       }
     },
     {
-      "file": "pane-daemon.txt",
+      "file": "pane-daemon-herdr.txt",
       "format": "text",
       "written": true,
-      "sha256": "0e85cc465fdff1f98324c088a55457755279ed79ff9432695dc467efef8d12cd",
+      "sha256": "c61dbeec878f371c6ddd0f61660d2043809986c15261bac94ada057df9293143",
       "redaction": {
         "mode": "text",
         "lines": 29,
@@ -2235,7 +2353,7 @@
       "file": "events.jsonl.txt",
       "format": "text",
       "written": true,
-      "sha256": "c198e5062cf8d34feb317a0ceb4e888f0db3f6a70610c85537b48d1c820ec39c",
+      "sha256": "3d5990d1b4f3a11ed70c3b801e5c371573d3e8b76208b1f7303584636dca8203",
       "redaction": {
         "mode": "text",
         "lines": 27,
@@ -2328,7 +2446,7 @@
   "manifestRedaction": {
     "afterRedaction": "droppedHazardLines=0 hazardProtocolFrames=0 residualLeaks=0 residualGenericHits=0",
     "replacements": {
-      "literal <REPO>": 10,
+      "literal <REPO>": 11,
       "home": 25,
       "literal <SCRATCH>": 15,
       "literal <CLAUDE_SESSION_1>": 1
