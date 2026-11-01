@@ -1,15 +1,12 @@
 ---
 name: oac-codex-appserver
-description: Codex `app-server` JSON-RPC surface — transport/handshake, thread/turn model, live-inject daemon, thread/queue/add vs turn/steer vs turn/start, auth boundary, schema artifacts. Load for area:adapter-codex work items and gate G2.
+description: Codex `app-server` JSON-RPC surface — transport/handshake, thread/turn model, live-inject daemon, thread/queue/* vs turn/steer vs turn/start, auth boundary, schema artifacts. Load for area:adapter-codex work items and gate G2.
 ---
 
-Holds the version-pinned Codex `app-server` protocol detail. Loaded for
-`area:adapter-codex` work items (backlog G6-G8, G11) and for gate G2 (Codex live
-inject). This is the one skill exception to link-don't-copy: the detail below is
-copied in verbatim from PLANNING-PROMPT.md §3.2 because an agent cannot look it up
-elsewhere in this repo, and it carries the pin in `## Pin` below. Companion skills,
-not restated here: `oac-boundaries` (rollout-file / undocumented-RPC MUST NOTs),
-`oac-security-work` (`turn/steer` threat row), `oac-evidence` (citation format).
+Holds the version-pinned Codex `app-server` protocol detail, loaded for `area:adapter-codex`
+work items (backlog G6-G8, G11) and gate G2. The detail is copied verbatim from
+PLANNING-PROMPT.md §3.2 (the one link-don't-copy exception; the pin is in `## Pin`).
+Companions, not restated: `oac-boundaries`, `oac-security-work`, `oac-evidence`.
 
 ## Constraints that most often trip an agent up
 
@@ -87,24 +84,27 @@ a fourth option:
 | Every OAC delivery, idle or busy (MCPB-CDX-002) | `thread/queue/add` | Experimental (G6 shim); queued until idle; waits after an interrupted turn. |
 | A turn is actively in flight | `turn/steer` | Appends into the *in-flight* turn. **Never for OAC delivery (MCPB-CDX-004); no setting enables it.** Unauthorized steer is a code-execution risk (PLANNING-PROMPT.md §7) — see `oac-security-work`. |
 
-Implicit daemon attach ran at runtime on 0.154.0 (G2 PASS, 2026-09-25; Windows only, with
-default `CODEX_HOME` in a non-elevated terminal). **Codex is now floating**: an auto-updater
-tracks each release; a version other than PINS.md's last tested one warns, never gates (#216, "Version policy"). `thread/queue/add` is absent from the default checked-in schema. Get its
-shape from `codex app-server generate-json-schema --experimental`; it requires `threadId`,
-`clientUserMessageId` and `input`.
+A second daemon client can call the experimental `thread/queue/list`, `thread/queue/update`,
+`thread/queue/reorder` and `thread/queue/delete` on an item OAC queued while it is held (shown
+only after an interrupted turn), and dispatch follows the edit (risk row 66(b),
+`docs/planning/v0.1/11-risks.md`; 0.166.0 only, n = 1, Windows; `references/events-and-schema.md`).
+OAC never calls them; it sends only `thread/queue/add` (`spec/bindings/mcp.md` §8.2.1), so
+`handed-to-harness` promises only the hand-off.
 
-Experimental methods (`thread/queue/add` and any other method gated by
-`capabilities.experimentalApi`) must sit behind a named, version-pinned
-compatibility shim per backlog task G6 and PLANNING-PROMPT.md §10 — never call
+Implicit daemon attach ran at runtime on 0.154.0 (G2 PASS, 2026-09-25; Windows only, default
+`CODEX_HOME`, non-elevated terminal). **Codex is floating**: a version other than PINS.md's last
+tested one warns, never gates (#216). `thread/queue/add` is absent from the default checked-in
+schema; `codex app-server generate-json-schema --experimental` gives its shape (`threadId`,
+`clientUserMessageId`, `input`).
+
+Experimental methods (`thread/queue/add`, any other `capabilities.experimentalApi` method) must
+sit behind a named, version-pinned shim per backlog G6 and PLANNING-PROMPT.md §10; never call
 them from adapter code directly.
 
 ## Cross-process resume does not attach
 
-A second app-server process resuming a thread another process holds loads history
-from disk and appends silently — the live process is never notified. This is an
-open issue against `openai/codex`, #21743 (PLANNING-PROMPT.md Appendix B). Codex
-Desktop uses a private stdio app-server and does not expose the control socket
-(**UNVERIFIED for current builds**).
+The Constraints entry above applies (openai/codex #21743; PLANNING-PROMPT.md Appendix B). Codex Desktop uses a private
+stdio app-server and does not expose the control socket (**UNVERIFIED for current builds**).
 
 ## Remote TUI — the documented G2 fallback
 
@@ -177,7 +177,8 @@ criterion.
 ## Pin
 
 **Floating**; warn on version, never gate (#216). Minimum and last tested: PINS.md "Codex CLI
-and app-server", "Version policy". Everything below was verified on 0.154.0 only (STATUS.md).
+and app-server", "Version policy". Everything below was verified on 0.154.0 only (STATUS.md),
+except the queue-management methods (0.166.0, 2026-10-31; `references/events-and-schema.md`).
 
 **Re-verified pin (B2):** `@openai/codex@0.154.0` (published 2026-09-09T22:40:10.746Z),
 cross-checked against GitHub tag `rust-v0.154.0`, commit
