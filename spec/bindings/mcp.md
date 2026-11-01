@@ -4,10 +4,9 @@
 - **Status:** normative; frozen at Gate S2: signed off 2026-10-06, in force from the merge
   of PR #276 (E7, #47). Every requirement carries an `MCPB` id; the index in §12 lists its
   fixtures or marks it `TODO(fixture)`.
-- **Binding revision:** `0.6` (in force from the merge of PR #464, Refs #68, #69), a minor revision of the frozen `0.1`, made under
-  `docs/planning/decisions/E7-interface-freeze.md` §7 and G8 approval 6 (2026-10-21: spec index cells
-  take version bumps as fixtures land). Appendix A records the change; revision `0.5` (in force from the merge of PR #454, Refs #69) is the one before it. Fixtures written against `0.1` to `0.4`
-  keep citing those revisions; revision `0.5` (PR #454) added three fixtures, which cite `0.5`; revision `0.6` adds no fixture.
+- **Binding revision:** `0.7` (in force from the merge of PR #PRNUM, Refs #479, #68), a minor revision of the frozen `0.1`, made under
+  `docs/planning/decisions/E7-interface-freeze.md` §7 (items 1 and 2). Appendix A records the change; revision `0.6` (in force from the merge of PR #464, Refs #68, #69) is the one before it. Fixtures written against `0.1` to `0.4`
+  keep citing those revisions; revision `0.5` (PR #454) added three fixtures, which cite `0.5`; revisions `0.6` and `0.7` add no fixture.
 - **Extension identifier:** `io.github.rossgraeber/oac-session-channels`
   (`docs/planning/decisions/C3-spec-packaging.md` §1-§3).
 - **MCP revisions bound:** current (modern) era `2026-07-28`; legacy era `2025-11-25`
@@ -757,11 +756,12 @@ which needs `mcpToolCall` items added for it (`docs/planning/v0.1/11-risks.md` r
 | Race: the call reaches the server before its `item/started`, or a turn starts between a check and a call | Notifications and calls travel on different connections | The call waits for its confirmation within a bounded wait; nothing is served on a guess ([MCPB-ATT-013], [MCPB-ATT-020], [MCPB-ATT-015]); a missed confirmation stops the connection until it is paired again ([MCPB-ATT-016]) | G8: not yet built, open risk | A late notification costs a refused call and a re-pairing (availability, not authority) |
 | A connection from a process other than the thread's own OAC server process | A local process, or a process a thread's own tools start, opens a connection to the core or speaks MCP to it | OS peer authentication [SEC-AUZ-030]. The OS pairing key only narrows candidates to processes the Codex process started, and a process a thread's tools start passes it too; what tells connections apart is V, which only the OAC server's own result carries back ([MCPB-ATT-006], [MCPB-ATT-007]) | G9 (#70) and G8: not yet built, open risk | Platform facility UNVERIFIED (`RISK-LOCAL-IPC`); until it is established no pairing value is issued ([MCPB-ATT-022]) |
 | Endless retries and repeated approval prompts | Pairing cannot complete: no OS facility, a thread outside the carrier's app-server, or reveals that never arrive | No value where pairing is impossible ([MCPB-ATT-022]); at most three windows per connection ([MCPB-ATT-023]); a final refusal does not invite a retry ([MCPB-ATT-024]) | G8: not yet built, open risk | Up to three refused calls, each possibly prompting the user, before the connection gets the final refusal |
-| Settings changed by the subscription | The adapter subscribes with `thread/resume` | No setting members ([MCPB-CDX-006]) | Adapter half tested against the F9 fake: `a_served_thread_reports_turns_and_authoritative_items_only` and `the_requests_the_client_builds_fit_their_shapes` (`adapters/codex/tests/`); open risk for the loaded-thread question (`11-risks.md` row 73) | Whether the app-server applies resume overrides to a loaded thread is UNVERIFIED; it is forbidden either way |
+| Settings changed by the subscription | The adapter subscribes with `thread/resume` | No setting members ([MCPB-CDX-006]) | Adapter half tested against the F9 fake: `a_served_thread_reports_turns_and_authoritative_items_only` and `the_requests_the_client_builds_fit_their_shapes` (`adapters/codex/tests/`); the loaded-thread question was observed once on the wire, not decided by a test (`11-risks.md` row 73) | Observed once on Codex `0.166.0` (wire only, n = 1; §8.2.1): an `approvalPolicy` override was ignored for a loaded, idle thread with subscribers, and applied and kept for a loaded, idle thread with no subscriber and for an unloaded thread; the effect on a turn is not observed. The rule forbids the members in every state |
 | Malicious peer prompt injection | A granted peer sends adversarial content to T | Unchanged: a binding sets `from` and authorizes nothing ([SC-ID-157]); content stays untrusted (`spec/security.md` §1.2, [SEC-AUZ-020]) | as `spec/security.md` §13 | The model judges |
 | Unauthorized routing or discovery; cross-project disclosure | A bound Codex session sends, or calls `list_sessions` | Unchanged: default deny and working-directory scoping (`spec/security.md` §9); refusals on an unbound connection name no session ([MCPB-TOOL-021]) | as `spec/security.md` §13 | As there |
 | Tampering, replay of envelopes, compromised transport, a transport peer id taken as identity | Attacker on the transport | Unchanged: envelope signatures (`spec/security.md` §6, §8) | as `spec/security.md` §13 | As there |
 | Leaked credentials | An adapter reads Codex's login | Unchanged: nothing here reads or holds a credential ([IFC-ADP-005]); a pairing value authenticates nothing outside one pairing window | as `spec/security.md` §13 | None added |
+| Held queue item altered or removed by another daemon client | OAC handed a message off with `thread/queue/add` and Codex holds it (shown after an interrupted turn); another client of the same daemon calls `thread/queue/{list,update,reorder,delete}` | None in OAC's power: the queue is Codex's, and the daemon serves these methods to every client of it. `handed-to-harness` promises only the hand-off (`spec/session-channels.md` §8.1, [SC-DLV-007]; §8.2.1) | None: not testable on OAC's side. Observed live once, `0.166.0`, Windows, n = 1: `docs/planning/gates/herdr-runs/G7-recheck-2026-10-31.md`, Judgments row `66b-queue-management` (transcript L376-L474); `11-risks.md` row 66 | The held item can be edited, reordered or deleted before it runs, and the sender sees `handed-to-harness` either way (§8.2.1). The same-user local boundary of [SEC-AUZ-030]. The four methods are experimental |
 | Steering through `turn/steer` | Delivery to a running turn | Unchanged: §8.2.1 ([MCPB-CDX-002] to [MCPB-CDX-005]) | as there | As there |
 | Permission relay; bypass of the Claude development-channel confirmation | Claude path only | Not touched by this section | as `spec/security.md` §13 | As there |
 
@@ -1533,16 +1533,40 @@ MUST NOT carry a member that sets a thread or turn setting, such as `approvalPol
 
 At `0.160.0` a `thread/queue/add` request satisfies [MCPB-CDX-005] when it carries only
 `threadId`, `input` and `clientUserMessageId`. What the app-server does with an extra member
-in a `thread/queue/add` request is UNVERIFIED (no `deny_unknown_fields` on the struct, so it
-is probably ignored; not exercised). [MCPB-CDX-005] forbids sending one either way.
+in a `thread/queue/add` request was read from source as "probably ignored" (no
+`deny_unknown_fields` on the struct), and has since been observed: the app-server accepted the
+request and ignored the member, on `0.161.0` (S3 transcript
+`docs/planning/gates/fixtures/s3-codex-capture/transcript-2026-10-07-0.161.0-herdr.jsonl`
+L866-L873) and again on `0.166.0`, where a request carrying an extra `oacG7ExtraMember` was
+accepted and the message ran as one turn with exactly the text sent
+(`docs/planning/gates/herdr-runs/G7-recheck-2026-10-31.md`, Judgments row `66d-extra-member`;
+transcript `docs/planning/gates/fixtures/g7-codex-recheck/transcript-g7recheck-2026-10-31-0.166.0-herdr.jsonl`
+L168, L172, L191; one run on each version, Windows). [MCPB-CDX-005] forbids sending one either
+way.
 
 [MCPB-CDX-006] A `thread/resume` request that a Codex adapter pairing under §4.5 sends to
 subscribe to a thread MUST NOT carry a member that sets a thread or turn setting, such as
 `model`, `cwd`, `approvalPolicy`, `sandbox`, `permissions` or `config`.
 
 `thread/resume` takes those overrides (§4.5.1, fact C7). Whether the app-server applies them
-to a thread that is already loaded is UNVERIFIED (§10); [MCPB-CDX-006] forbids sending them
-either way. A request carrying only `threadId`, or `threadId` and `excludeTurns`, satisfies
+to a thread that is already loaded was UNVERIFIED and has been observed once, on the wire
+only, on Codex `0.166.0` (Windows; n = 1;
+`docs/planning/gates/herdr-runs/G7-recheck-2026-10-31.md`, Judgments rows 73 branch 1 to 3;
+transcript `docs/planning/gates/fixtures/g7-codex-recheck/transcript-g7recheck-2026-10-31-0.166.0-herdr.jsonl`).
+A `thread/resume` carrying `approvalPolicy` `untrusted`, to a thread whose setting was
+`on-request`, was ignored for a loaded, idle thread that had subscribers (the response and a
+later readback reported `on-request`, and no `thread/settings/updated` arrived in the quiet
+window, L537-L559); it was applied and kept for a loaded, idle thread with no subscriber
+(L629-L660) and for an unloaded thread, the control (L755-L787). "Kept" means that a later
+resume, while the thread was still loaded, reported the new value; persistence across an unload
+or a restart was not shown. No turn was started after an override, so its effect on a turn is
+not observed. This matches the source at `rust-v0.166.0`
+(`codex-rs/app-server/src/request_processors/thread_processor.rs` L4697-L4748, read
+2026-10-31): when an override differs from a loaded thread's settings, a thread that is idle,
+has no subscriber and is not running is shut down and resumed afresh with the override, and any
+other loaded thread ignores the override with a warning and is rejoined. A subscribing
+`thread/resume` that carried a setting member could therefore change a thread's settings when
+the thread had no subscriber; [MCPB-CDX-006] forbids sending one in every state. A request carrying only `threadId`, or `threadId` and `excludeTurns`, satisfies
 it; G2 subscribed with exactly those two (`docs/planning/gates/fixtures/g2-codex-inject/transcript.jsonl`
 line 51). It is scoped to an adapter that pairs, so that an adapter conformant to revision
 0.1, which does not, stays conformant (`spec/session-channels.md` §5.3, item 11).
@@ -1596,26 +1620,50 @@ Whether `thread/queue/add` has any refusal that means "not now" is UNVERIFIED; o
 
 **What the harness then holds.** A successful add is a completed hand-off, reported as
 `handed-to-harness` (`spec/session-channels.md` §8.1). The input is then held by Codex,
-not by the receiver (`spec/session-channels.md` [SC-DLV-007]). Three consequences follow
-from source (C5) and are runtime-UNVERIFIED, owner G7 (#68):
+not by the receiver (`spec/session-channels.md` [SC-DLV-007]). Three consequences followed
+from source (C5). Each is now confirmed live, by one run on Codex `0.166.0` on Windows (n = 1;
+herdr run `20261031T094523Z-f1de3d`, record `docs/planning/gates/herdr-runs/G7-recheck-2026-10-31.md`,
+Judgments table; transcript
+`docs/planning/gates/fixtures/g7-codex-recheck/transcript-g7recheck-2026-10-31-0.166.0-herdr.jsonl`,
+whose line numbers are cited below; `docs/planning/v0.1/11-risks.md` row 66). Owner G7 (#68).
+The run does not show how stable the experimental methods are, behaviour on another platform or
+version, or a repeat.
 
-- **After an interrupt, nothing dispatches until a turn completes uninterrupted.** An item
-  already queued when a turn ends interrupted is not dispatched (`service.rs#L549-L566`).
-  An add made later, to a thread that is idle but whose last turn was interrupted, also
-  waits: `wake_if_loaded` skips a thread whose agent status is `Interrupted` (`#L477`). A
-  TUI user who interrupts a turn and walks away therefore stalls every later OAC delivery
-  to that thread, each reported as `handed-to-harness`, until some turn completes without
-  an interrupt.
-- The queue is durable and shared: any client of the daemon can list, reorder, update or
-  delete queued items through `thread/queue/{list,update,delete,reorder}`. A handed-off
-  item can therefore be changed or removed before it runs.
-- An add to a thread that is not loaded stays queued until the thread is loaded and idle.
-  A live OAC session's thread is loaded, so this needs a thread that was unloaded after
-  presence was announced.
+- **After an interrupt, nothing dispatches until a turn completes uninterrupted. Confirmed
+  live.** An item already queued when a turn ends interrupted is not dispatched
+  (`service.rs#L549-L566`). An add made later, to a thread that is idle but whose last turn was
+  interrupted, also waits: `wake_if_loaded` skips a thread whose agent status is `Interrupted`
+  (`#L477`). A TUI user who interrupts a turn and walks away therefore stalls every later OAC
+  delivery to that thread, each reported as `handed-to-harness`, until some turn completes
+  without an interrupt. On `0.166.0`, two items queued before the interrupt (adds L38 and L41,
+  accepted L44 and L45; interrupted L52) were not dispatched in the quiet window (L54), and ran
+  one per idle, in order, after the next uninterrupted turn (L55-L77; ran L102 and L127); an add
+  to an idle thread after an interrupt (interrupted L213, add accepted L217) waited likewise
+  (quiet window L219; next turn L220-L242; ran L265). The same was observed on `0.161.0`
+  (`docs/planning/gates/herdr-runs/S3-codex-2026-10-08.md`; `11-risks.md` row 66).
+- **The queue is durable and shared: any client of the daemon can list, update, reorder or
+  delete queued items through `thread/queue/{list,update,reorder,delete}`. Confirmed live.** An
+  item reported as `handed-to-harness` can therefore be altered or dropped by another daemon
+  client while it is held, and OAC cannot prevent it: the queue is Codex's, and the daemon
+  serves these methods to every client of it. `handed-to-harness` promises only the hand-off,
+  as the paragraph after this list states. On `0.166.0`, a second client that never started or
+  resumed the thread (L376-L399) listed the held items (L381, L383), updated one (L384, L388),
+  reordered them (L389, L392) and deleted one (L393, L395), and dispatch followed: the thread
+  ran item 3, then item 2 as updated, and the deleted item never ran (L474). The four methods
+  are experimental, like `thread/queue/add`. The run showed this on items held after an
+  interrupted turn, the window in which a queued item waits; it did not show it on items held
+  in any other way.
+- **An add to a thread that is not loaded stays queued until the thread is loaded and idle.
+  Confirmed live.** A live OAC session's thread is loaded, so this needs a thread that was
+  unloaded after presence was announced. On `0.166.0`, after the thread was unloaded (L266-L276,
+  not in `thread/loaded/list`), an add was accepted (L277, L279) and nothing ran or was reported
+  through the quiet window (L280-L283); a `thread/resume` (L289, L297) then loaded the thread,
+  and the item ran (L329).
 
 None of the three makes OAC hold an envelope: each is the harness's own queue. They are what
 `handed-to-harness` leaves open for Codex: §8.1 states that the state proves only that the
-input call completed.
+input call completed, so a later stall, edit, reordering or removal of the held item does not
+make the reported state wrong.
 
 ## 9. Resolution of conflict-register row C5
 
@@ -1677,14 +1725,14 @@ rows record the closure with a dated note in the same change.
 | One Codex legacy-era MCP connection carries calls from several threads (a thread id is sent per call) | source at `rust-v0.161.0` says no: the MCP runtime is per thread (§4.5.1, fact C2); runtime UNVERIFIED; owner #69. §4.5 does not depend on it for attribution | `docs/planning/STATUS.md` entry reworded in binding revision 0.2's change; `11-risks.md` RISK-G4 |
 | Codex emits a call's `item/started` before the call and its `item/completed`, with the returned result, before the model sees the result (§4.5.1, fact C5) | source only at `rust-v0.161.0`; runtime UNVERIFIED (new, §4.5); owner #69 | added to `docs/planning/STATUS.md` and `11-risks.md` RISK-G4 in binding revision 0.2's change |
 | A carrier subscribed to a TUI-hosted thread with `thread/resume` receives that thread's `mcpToolCall` items (§4.5.1, fact C6) | other item types recorded (G2, `0.154.0`); `mcpToolCall` confirmed live on `0.163.0` (one run, on a TUI-hosted thread, the G8 S1 run of 2026-10-23: `docs/planning/v0.1/11-risks.md` row 72); owner #69 | added to `docs/planning/STATUS.md` and `11-risks.md` RISK-G4 in binding revision 0.2's change |
-| Whether the app-server applies `thread/resume` setting overrides to a loaded thread ([MCPB-CDX-006]) | UNVERIFIED (new, §8.2.1); owner G7 (#68) | added to `docs/planning/STATUS.md` in binding revision 0.2's change |
+| Whether the app-server applies `thread/resume` setting overrides to a loaded thread ([MCPB-CDX-006]) | observed once, wire level only, Codex `0.166.0`, Windows, n = 1 (herdr run `20261031T094523Z-f1de3d`, #470, 2026-10-31): an `approvalPolicy` override was ignored for a loaded, idle thread with subscribers, and applied and kept for a loaded, idle thread with no subscriber and for an unloaded thread; no turn followed an override, so the effect on a turn is not observed, and persistence across unload or restart is not shown; matches source at `rust-v0.166.0` (`codex-rs/app-server/src/request_processors/thread_processor.rs` L4697-L4748, read 2026-10-31); owner G7 (#68) (§8.2.1) | `docs/planning/gates/herdr-runs/G7-recheck-2026-10-31.md` (Judgments rows 73 branch 1 to 3); `11-risks.md` row 73; `docs/planning/STATUS.md`; recorded in binding revision 0.7's change |
 | Which operating-system call yields the peer process of the carrier and of a Codex connection, and their ancestry, on each platform (§4.5.3) | UNVERIFIED; the same item as the Claude pairing's (`spec/session-channels.md` §6.7.2); owner G9 (#70) | already in `docs/planning/STATUS.md`; `11-risks.md` RISK-LOCAL-IPC |
 | A call with no arguments is reported with `arguments: null` and sent without an `arguments` member, so the two match (§4.5.2; §4.5.1 fact C9) | source only at `rust-v0.161.0`; runtime UNVERIFIED (new, §4.5); availability only: if a version sends `{}` instead, such calls are refused for want of a confirmation; owner G8 (#69) | added to `docs/planning/STATUS.md` and `11-risks.md` row 75 in binding revision 0.2's change |
 | The F9 fake app-server emits `mcpToolCall` items, as every `TODO(fixture)` of §4.5 needs | not yet built; owners G8 (#69) and F9 (#58) | `docs/planning/STATUS.md`; `11-risks.md` row 74 |
 | A legacy client other than Codex `0.157.1` ignores an `extensions` member in an `initialize` result | UNVERIFIED (new, [MCPB-ERA-008]) | added to `docs/planning/STATUS.md` in this change |
 | A Codex `turn/start` sent during a regular turn steers it; `thread/queue/add` never does; a steering `turn/start` applies its setting overrides (§8.2.1) | verified from source at `rust-v0.160.0` and the upstream test; observed live once at `0.160.0` (E1 run) | #224 step-1 findings; `docs/planning/STATUS.md` (the S10 item closes in #274's change) |
 | Which `thread/queue/add` errors, if any, mean "not now" ([SC-DLV-008]) | UNVERIFIED (#274); owner G7 (#68) | added to `docs/planning/STATUS.md` in #274's change |
-| Runtime behaviour of the queue caveats of §8.2.1: no dispatch after an interrupted turn, including adds made later to an idle thread, until a turn completes uninterrupted; edits by other daemon clients; unloaded threads; and what the app-server does with an extra member in a `thread/queue/add` request | UNVERIFIED (#274; source only); owner G7 (#68) | added to `docs/planning/STATUS.md` in #274's change |
+| Runtime behaviour of the queue caveats of §8.2.1: no dispatch after an interrupted turn, including adds made later to an idle thread, until a turn completes uninterrupted; edits by other daemon clients; unloaded threads; and what the app-server does with an extra member in a `thread/queue/add` request | confirmed live on Codex `0.166.0` (Windows, n = 1; herdr run `20261031T094523Z-f1de3d`, #470, 2026-10-31): (a) no dispatch after an interrupt, for items already queued and for a later add; (b) a second daemon client that never started or resumed the thread listed, updated, reordered and deleted held items through the experimental `thread/queue/{list,update,reorder,delete}`, and dispatch followed (an item reported `handed-to-harness` can be altered or dropped while held; shown on items held after an interrupt); (c) an add to an unloaded thread waits and runs once the thread is loaded; (d) an extra member in `thread/queue/add` is accepted and ignored. (a), (c) and (d) were also observed on `0.161.0` (S3 runs, 2026-10-07 and 2026-10-08). Still not shown: another platform or version, a repeat, and the stability of the experimental methods (§8.2.1); owner G7 (#68) | `docs/planning/gates/herdr-runs/G7-recheck-2026-10-31.md` (Judgments rows `66a-*`, `66b-queue-management`, `66c-unloaded-thread`, `66d-extra-member`); `11-risks.md` row 66; `docs/planning/STATUS.md`; recorded in binding revision 0.7's change |
 
 ## 11. Boundary self-check (`oac-boundaries`)
 
@@ -1920,3 +1968,4 @@ Binding revision 0.1 had no table of its own; its history is in `docs/planning/S
 | 0.4 | 2026-10-15 | #70 (G9; the shim's hello line, §8.1; in force from the merge of PR #424): adds MCPB-CLD-011 to MCPB-CLD-016. A Claude Code channel shim whose environment holds a non-empty `CLAUDE_CODE_SESSION_ID` sends, as the first bytes of its connection and before any byte of the harness's stream, one hello line, `{"oac_hello":1,"session_id":"<the value>"}`, and sends none when the variable is unset, empty, longer than 256 octets in UTF-8 or not a string that I-JSON allows; an OAC server that accepts hello lines does not pass the line to the MCP server, takes any first line that is not exactly that form as not a hello, reports the line's `session_id` as the cross-check value of the attachment in `attachment-opened`, and reports none for a connection that began with no hello. Each id is `TODO(fixture)` (§12.3). The evidence (the first-party environment-variable reference and the changelog) is stated in the paragraph after MCPB-CLD-016. The reference implementation's connection places (four channel servers, three for hook carriers and unclassified connections; seven in all) are stated in the reference implementation note there and are not requirements. Stated plainly: MCPB-CLD-011 is a new `MUST` that a `0.3` shim does not meet (it sends no hello), and a `0.4` shim that talks to a `0.3` server hands the hello line to the MCP server, which is not an MCP frame; §5.3 item 11 would classify that as breaking for a local implementation, and it is classified a minor revision under E7 §7 item 2 by the lead (decision D7, 2026-10-14), as `0.3` was. The hello runs between two parts of one OAC install, the shim and the OAC server, over local IPC, and never across implementations, so no peer observes it and no wire form of the protocol changes; the only effect of a missing hello is the absence of a cross-check value (`spec/session-channels.md` case 3(c)). Matching changes: `spec/interfaces.md` 0.10 (Appendix C owners for MCPB-CLD-011 to MCPB-CLD-016) and `tests/protocol/runner/run.mjs` (`spec_revision` `0.4` accepted for this document). It closes 11-risks row 87 and, with the places, row 86. |
 | 0.5 (in force from the merge of PR #454, Refs #69) | 2026-10-22 | #69 (G8 slice S4, PR #454): minor revision under G8 approval 6 (2026-10-21): Appendix A lists three new fixtures for MCPB-TOOL-005, `MCPB-TOOL-005.p02-reply-with-to-and-no-in-reply-to` and `MCPB-TOOL-005.p03-reply-with-in-reply-to-and-no-to` (a `reply` that names its `to` or its `in_reply_to` satisfies its `inputSchema`) and `MCPB-TOOL-005.n03-reply-with-neither-served` (a `reply` that names neither fails the reply tool's argument rule, enforced by the server: the published `inputSchema` of `reply` requires `content` only, since a top-level `anyOf` is commonly rejected when a harness converts the schema for its model). No requirement changed and no wire form changes. The `reply` tool's `in_reply_to` is optional under G8 approval 5 (2026-10-21): this document never required it (§5.1 only names it, and `spec/session-channels.md` §8.2.2 says the harness may name the message), so no normative text is edited. A reply without `in_reply_to` names its `to` and is sent uncorrelated ([SC-RCP-052], [SC-RCP-055]). Matching changes: `tests/protocol/runner/mcpb.mjs` (`failsInputSchema`) and `tests/protocol/runner/revisions.mjs` (`0.5` accepted for this document). No other spec document needs a row: no requirement, owner or definition elsewhere changes. |
 | 0.6 (in force from the merge of PR #464, Refs #68, #69) | 2026-10-29 | #68 (G7 slice 2, branch `docs/68-g7-reconcile`): a minor revision, editorial: no requirement added or removed, no requirement's level or owner changed, no wire form changed (`docs/planning/decisions/E7-interface-freeze.md` §7 items 1 and 2; G8 approval 6, under which spec index cells take a version bump). MCPB-CDX-002 to MCPB-CDX-006 keep their `TODO(fixture)` and add the adapter-half tests that run against the F9 fake: `tests/security/tests/never_steer.rs` (`row12_codex_*`) and `adapters/codex/tests/` (`a_served_thread_reports_turns_and_authoritative_items_only`, `the_requests_the_client_builds_fit_their_shapes`). No conformance fixture is added, because app-server traffic is outside the `mcp-binding` stage (§12.2). The settings threat row (§4.5.5) and the `mcpToolCall` fact row (§10) cite the same tests and the 0.163.0 live observation. Matching change: `tests/protocol/runner/revisions.mjs` (`0.6` accepted for this document). No owner changes. |
+| 0.7 (in force from the merge of PR #PRNUM, Refs #479, #68) | 2026-10-31 | #479 (lead decision of 2026-10-31 to note risk row 66(b); branch `spec/479-queue-edit-note`), with #470 (the G7 recheck, PR #477): a minor revision, editorial: no requirement added or removed, no requirement's level or owner changed, no wire form changed (`docs/planning/decisions/E7-interface-freeze.md` §7 items 1 and 2). It records the live results of `docs/planning/gates/herdr-runs/G7-recheck-2026-10-31.md` (Codex `0.166.0`, Windows, n = 1) and edits no MUST or MUST NOT sentence. §8.2.1, "What the harness then holds": the three consequences are confirmed live instead of runtime-UNVERIFIED, and it states plainly that an item reported `handed-to-harness` can be altered or dropped by another daemon client while it is held, that OAC cannot prevent it, and that `handed-to-harness` promises only the hand-off. §8.2.1, the notes after [MCPB-CDX-005] and [MCPB-CDX-006]: the extra member of `thread/queue/add` is accepted and ignored; an `approvalPolicy` override on `thread/resume` was ignored for a loaded, idle thread with subscribers, and applied and kept for a loaded, idle thread with no subscriber and for an unloaded thread (wire level only). §4.5.5 threat table: one new row for a held queue item altered or removed by another daemon client, and the settings row's residual risk updated. §10: the two rows that were UNVERIFIED are updated. Matching change: `tests/protocol/runner/revisions.mjs` (`0.7` accepted for this document). No fixture is added, and no other spec document needs a row: no requirement, owner or definition elsewhere changes. |
