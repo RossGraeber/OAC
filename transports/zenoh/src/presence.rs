@@ -71,6 +71,24 @@ impl Watchers {
         if handlers.is_empty() {
             return;
         }
+        // The pass is held while every handler runs, and `PeerTransport::shutdown` waits for
+        // it (`Gate::close`) before the native session goes. The core's handler for a carrier
+        // appearance passes a set of announcements to this transport in that time (#473), so
+        // the wait is bounded as follows, and does not wait on a peer or on the size of the set:
+        //
+        // - `shutdown` takes the state to `ShutDown` before it closes the gate, so every
+        //   transport call the handler makes from then on (`send_presence`, `put`) is refused
+        //   at once, with no native call.
+        // - `Pipelines::shutdown` unbinds every session before it calls `shutdown` on the
+        //   transport, and the core issues an announcement only for a session still
+        //   registered, so the rest of a set already passes nothing by then. It holds no lock of
+        //   its own across the transport call, so the handler is not waiting on it.
+        // - The one send that can be in flight is a native put with congestion control `Drop`
+        //   and the core's deadline checked before it: a local admission, not a wait on a peer.
+        //
+        // So `shutdown` waits for at most one such put and the lock-only iterations of the rest
+        // of the set. Shown by `liveness_tests::shutdown_completes_while_a_carrier_appearance_
+        // is_being_handled`.
         let Some(_pass) = gate.enter() else { return };
         for handler in handlers {
             handler(event());

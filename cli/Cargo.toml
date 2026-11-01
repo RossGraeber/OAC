@@ -66,3 +66,8 @@ windows-sys = { version = "=0.61.2", default-features = false, features = [
 # is ever built into the `oac` binary (scripts/check-crate-deps.mjs).
 oac-transport-memory = { path = "../transports/memory" }
 oac-fake-claude = { path = "../tests/fakes/claude" }
+
+# The daemon timer's test (tests/appearance_timer.rs, #473) runs on tokio's paused clock, so
+# that no test waits on a timer for real. Test-only, as the two above: it adds no package
+# (the crate is the one above, at the same version) and is not built into `oac`.
+tokio = { version = "=1.53.2", features = ["test-util"] }

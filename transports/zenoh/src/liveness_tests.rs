@@ -883,6 +883,78 @@ fn no_loss_reaches_a_watcher_once_shutdown_has_begun() {
     relay.shutdown();
 }
 
+/// [IFC-TRN-071], #473 item 3: `shutdown` is not held up by an appearance being handled. The
+/// handler of a carrier appearance holds a pass through the gate while it runs, and
+/// `shutdown` waits for it (`Gate::close`). The core's handler passes a set of announcements
+/// in that time; here the handler is held in flight, `shutdown` starts, and the handler then
+/// does what the core's does, a send through the transport. Once `shutdown` has begun that
+/// send is refused at once, with no native call (the state is `ShutDown` before the gate is
+/// closed), so `shutdown` completes as soon as the handler returns. See
+/// `Watchers::report` for the whole bound.
+#[test]
+fn shutdown_completes_while_a_carrier_appearance_is_being_handled() {
+    let mut c = conf("appear-shutdown");
+    let (watching, peer) = (PeerTransport::new(), PeerTransport::new());
+    c.start_first(|conf| watching.start(&key('a'), conf.clone().wrap()))
+        .unwrap();
+    let (entered_tx, entered) = mpsc::channel();
+    let (release_tx, release) = mpsc::channel::<()>();
+    let (sent_tx, sent) = mpsc::channel();
+    let (entered_tx, release, sent_tx) = (
+        Mutex::new(entered_tx),
+        Mutex::new(release),
+        Mutex::new(sent_tx),
+    );
+    let in_handler = watching.clone();
+    watching
+        .watch_presence(Arc::new(move |event| {
+            if !matches!(event, PresenceEvent::CarrierAppeared { .. }) {
+                return;
+            }
+            // In flight: the handler holds its pass until it is released.
+            entered_tx.lock().unwrap().send(()).unwrap();
+            let _ = release
+                .lock()
+                .unwrap()
+                .recv_timeout(Duration::from_secs(20));
+            // As the core's handler does in a set: a send through the transport.
+            let result = in_handler.send_presence(
+                &Destination::Device(key('b')),
+                Payload::new(PayloadKind::Sealed, vec![0u8; 16]),
+                later(),
+            );
+            let _ = sent_tx.lock().unwrap().send(result);
+        }))
+        .unwrap();
+    peer.start(&key('b'), c.clone().wrap()).unwrap();
+    entered
+        .recv_timeout(Duration::from_secs(15))
+        .expect("the appearance reaches the handler");
+
+    let closing = {
+        let watching = watching.clone();
+        thread::spawn(move || watching.shutdown())
+    };
+    // `shutdown` takes the state before it closes the gate: once the transport reports itself
+    // shut down it is closing the gate, and the handler still holds its pass.
+    wait_for("shutdown to begin", Duration::from_secs(15), || {
+        watching.health().state == oac_core::health::HealthState::Unavailable
+    });
+    assert!(
+        !closing.is_finished(),
+        "shutdown returned while a handler held its pass"
+    );
+    release_tx.send(()).unwrap();
+    assert_eq!(
+        sent.recv_timeout(Duration::from_secs(15))
+            .expect("the handler's send returns"),
+        oac_core::transport::PublishResult::NotTaken,
+        "a send after shutdown began must be refused"
+    );
+    closing.join().unwrap();
+    peer.shutdown();
+}
+
 // ---- acceptance 4: nothing Zenoh-specific is visible ------------------------------------
 
 /// The token key, its opaque name and the native ids are held by the transport only: none
