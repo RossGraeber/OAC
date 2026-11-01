@@ -68,6 +68,8 @@ oac-transport-memory = { path = "../transports/memory" }
 oac-fake-claude = { path = "../tests/fakes/claude" }
 
 # The daemon timer's test (tests/appearance_timer.rs, #473) runs on tokio's paused clock, so
-# that no test waits on a timer for real. Test-only, as the two above: it adds no package
-# (the crate is the one above, at the same version) and is not built into `oac`.
+# that no test waits on a timer for real. Feature `test-util`, a dev-dependency of this crate
+# only, approved by the lead by merging PR #484 (07 section 5, tokio row); it adds no package
+# (the crate is the one above, at the same version, `Cargo.lock` unchanged) and is in no
+# non-test build.
 tokio = { version = "=1.53.2", features = ["test-util"] }

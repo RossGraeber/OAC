@@ -25,11 +25,17 @@
 //!
 //! The production daemon runs on the multi-thread runtime of `commands::daemon_runtime`; the
 //! paused clock needs a current-thread one. The `timers` task is the same code on both. The
-//! double has no Zenoh in it, so the current-thread runtime is allowed.
+//! double is not the reference transport, which refuses a current-thread runtime; the double
+//! does not, so the current-thread runtime is allowed.
 //!
-//! Three phases of the daemon's own tick are run (the appearance arrives at the start of a
-//! tick, partway through, and at its very end), because the daemon's sleep in flight when an
-//! appearance arrives is not shortened: only the sleep after it is.
+//! Three phases of the daemon's own tick are run (the appearances arrive with the whole tick
+//! still to run, with 300 ms of it gone, and 5 ms into it), because the daemon's sleep in
+//! flight when an appearance arrives is not shortened: only the sleep after it is. In the
+//! last phase the wait that remains is under the timer's 10 ms floor, so the set begins 5 ms
+//! after the instant the core named, which is what the allowance below is for.
+//!
+//! After the second set a third appearance is held back in turn: no set begins less than the
+//! hold-off after the one before it ([IFC-TRN-125]).
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -67,7 +73,9 @@ const FAILING_RUN_BOUND: Duration = Duration::from_secs(10);
 /// has 1 ms granularity: the set begins at the hold-off's end plus at most this.
 const SLACK: Duration = Duration::from_millis(11);
 
-/// The tick of the daemon's timer (`daemon::TICK`).
+/// The tick of the daemon's timer: a copy of `TICK` in `cli/src/daemon.rs`, which is private.
+/// The three phases below are chosen against it (the first sleep is one tick long), so a
+/// change to `TICK` there needs this and the phases changed with it.
 const TICK: Duration = Duration::from_secs(1);
 
 /// The core's monotonic clock: tokio's clock, which is paused in these tests. Blocking
@@ -376,12 +384,35 @@ async fn the_daemon_begins_the_held_back_set_within_the_bound(offset: Duration) 
     );
     // The timer was armed at the instant the core named, not at the next whole tick: the
     // sleep in flight when the appearance arrived ended early in its tick for every offset
-    // but zero, and the daemon armed a shorter one after it.
+    // but zero, and the daemon armed a shorter one after it (at least the timer's 10 ms).
     assert!(
         second - due <= SLACK,
         "the set began {:?} after the instant the core named",
         second - due
     );
+
+    // [IFC-TRN-125]: a set has begun, so an appearance now is held back for the hold-off that
+    // set started; no set begins before it ends, and the daemon's timer begins one then.
+    transport.appear("link-3");
+    assert!(
+        began.try_recv().is_err(),
+        "a set began in the hold-off after the second"
+    );
+    let third = tokio::time::timeout(FAILING_RUN_BOUND, began.recv())
+        .await
+        .expect("the daemon's timer begins the set for the third appearance")
+        .expect("the transport double is alive");
+    assert!(
+        third >= second + CARRIER_APPEARANCE_HOLD_OFF,
+        "a set began {:?} before the hold-off after the second ended",
+        second + CARRIER_APPEARANCE_HOLD_OFF - third
+    );
+    assert!(
+        third - second <= CARRIER_APPEARANCE_BOUND,
+        "the third set began {:?} after the second, beyond the bound",
+        third - second
+    );
+    assert_eq!(pipes.next_appearance_set_at(), None, "nothing is left due");
 
     daemon.shutdown().await;
 }
@@ -397,6 +428,6 @@ async fn the_daemon_begins_the_held_back_set_with_the_tick_partly_gone() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn the_daemon_begins_the_held_back_set_with_the_tick_almost_over() {
-    the_daemon_begins_the_held_back_set_within_the_bound(Duration::from_millis(999)).await;
+async fn the_daemon_begins_the_held_back_set_with_the_tick_just_begun() {
+    the_daemon_begins_the_held_back_set_within_the_bound(Duration::from_millis(5)).await;
 }

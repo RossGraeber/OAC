@@ -889,8 +889,12 @@ fn no_loss_reaches_a_watcher_once_shutdown_has_begun() {
 /// in that time; here the handler is held in flight, `shutdown` starts, and the handler then
 /// does what the core's does, a send through the transport. Once `shutdown` has begun that
 /// send is refused at once, with no native call (the state is `ShutDown` before the gate is
-/// closed), so `shutdown` completes as soon as the handler returns. See
-/// `Watchers::report` for the whole bound.
+/// closed), so `shutdown` completes as soon as the handler returns. A send with the same
+/// payload and destination before `shutdown` is taken, so the refusal can only come from
+/// `shutdown`. That `shutdown` waits for a pass is the gate's own test
+/// (`gate::tests::close_waits_for_a_pass_held_elsewhere`); here it is only checked that it
+/// has not returned while the handler is in flight. See `Watchers::report` for the whole
+/// bound.
 #[test]
 fn shutdown_completes_while_a_carrier_appearance_is_being_handled() {
     let mut c = conf("appear-shutdown");
@@ -906,6 +910,7 @@ fn shutdown_completes_while_a_carrier_appearance_is_being_handled() {
         Mutex::new(sent_tx),
     );
     let in_handler = watching.clone();
+    let payload = || Payload::new(PayloadKind::Sealed, vec![0u8; 16]);
     watching
         .watch_presence(Arc::new(move |event| {
             if !matches!(event, PresenceEvent::CarrierAppeared { .. }) {
@@ -918,11 +923,8 @@ fn shutdown_completes_while_a_carrier_appearance_is_being_handled() {
                 .unwrap()
                 .recv_timeout(Duration::from_secs(20));
             // As the core's handler does in a set: a send through the transport.
-            let result = in_handler.send_presence(
-                &Destination::Device(key('b')),
-                Payload::new(PayloadKind::Sealed, vec![0u8; 16]),
-                later(),
-            );
+            let result =
+                in_handler.send_presence(&Destination::Device(key('b')), payload(), later());
             let _ = sent_tx.lock().unwrap().send(result);
         }))
         .unwrap();
@@ -930,6 +932,12 @@ fn shutdown_completes_while_a_carrier_appearance_is_being_handled() {
     entered
         .recv_timeout(Duration::from_secs(15))
         .expect("the appearance reaches the handler");
+    // Control: the same send, before `shutdown`, is taken.
+    assert_eq!(
+        watching.send_presence(&Destination::Device(key('b')), payload(), later()),
+        oac_core::transport::PublishResult::Taken,
+        "the control send must be taken while the transport runs"
+    );
 
     let closing = {
         let watching = watching.clone();
