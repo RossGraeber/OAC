@@ -16,7 +16,8 @@
 //   - the C4 section 6 rule, as the fake-harness test registration.rs asserts it: a resumed or
 //     continued Claude session is a NEW OAC session (its OAC session id differs from every earlier one);
 //   - what Claude Code itself reported as its session id for each run (whether --resume and --continue
-//     kept run A's), from its `--output-format json` result. Recorded, not judged: OAC does not depend on it;
+//     kept run A's), from its `--output-format json` result. The value is recorded, not judged (OAC does not
+//     depend on it); that each run produced a result with a session id is judged;
 //   - the daemon's own count (six connections accepted and six ended: a shim and a hook handler per
 //     run), its binding log (no `Finding`), and, per run, the SC-ID-142 diagnostics. Those diagnostics
 //     are recorded and never fail the run.
@@ -26,12 +27,18 @@
 //     that is unique to the run, and everything the scenario reads from the pane (the result JSON, the
 //     `missing operand` check, the capture) is the text from that command line on, so a run with no
 //     result of its own cannot inherit an earlier run's `session_id`.
-//   - The session list is sampled while each run is alive, twice, on events of the daemon's own output:
-//     after its first `accepted` event of the run, and after the first `freed a connection` log line of
-//     the run (the hook handler's connection; `cli/src/daemon.rs` documents that line as the one to
-//     wait on instead of polling for the binding). A third sample follows the shim's `freed` line, after
-//     the run exited. No timer is involved: every wait is a herdr wait-output on an event line whose
-//     `unix_ms` is later than the daemon's last event before the run started.
+//   - The session list is sampled while each run is alive, at least twice, on events of the daemon's own
+//     output: after its first `accepted` event of the run, and after the first `freed a connection` log
+//     line of the run (the hook handler's connection). That line is NOT a bind signal: `cli/src/daemon.rs`
+//     writes it after `disconnect` returned, and in the committed events of run C the bind decision comes
+//     after it. The daemon writes no event for an ordinary bind (only for the SC-ID diagnostics), so when the
+//     hook-freed sample lists nothing and the run is still alive, up to `MAX_BIND_RETRIES` more samples are
+//     taken, each started by the completion of the previous sample's command (a round trip through the ops
+//     pane, not a timer), stopping at the first alive sample that lists a session. That sample is the one the
+//     bound-session criteria are judged on. A last sample follows the shim's `freed` line, after the run
+//     exited. No timer is involved: every wait is a herdr wait-output (`recent-unwrapped`, so a long line
+//     is not cut by the pane width) on an event line whose `unix_ms` is later than the daemon's last event
+//     before the run started.
 //   - Every session id and Claude session id is registered for redaction the moment it is first seen,
 //     and each `sessions-*` capture is written at its own step, so a run that fails keeps its evidence.
 //
@@ -53,6 +60,12 @@ import { regexLiteral } from '../lib/pane-shell.mjs';
 // Three runs, a shim and a hook handler each.
 export const RUNS = 3;
 export const EXPECTED_CONNECTIONS = 2 * RUNS;
+// Extra session-list samples after the hook-freed one while a run is alive and nothing is listed yet.
+export const MAX_BIND_RETRIES = 5;
+
+// An OAC session id (core/src/ids.rs is_session_id): 26 characters, the first 0-7, the rest lower-case Crockford base32.
+export const OAC_ID_SHAPE = /(?<![0-9a-z])[0-7][0-9a-hjkmnp-tv-z]{25}(?![0-9a-z])/g;
+export const oacIdsIn = (text) => [...text.matchAll(OAC_ID_SHAPE)].map((m) => m[0]);
 
 export function jsonLines(text) {
   const out = [];
@@ -132,12 +145,15 @@ export function sessionIdsIn(text) {
   return [...text.matchAll(/"session_id"\s*:\s*"([^"]+)"/g)].map((m) => m[1]);
 }
 
-// What one run showed, from its samples. `samples` are the session lists taken while it was alive, in order, the
-// one after the hook handler's connection was freed having trigger 'hook-freed'; `after` the list after it exited.
+// A sample taken while the run was alive that lists at least one session: the one the bound-session criteria use.
+export const isBoundSample = (s) => Boolean(s.alive && s.code === 0 && s.o && s.o.sessions_total >= 1);
+
+// What one run showed, from its samples. `samples` are the session lists taken while it was alive, in order; the
+// bound sample is the first alive one that lists a session; `after` is the list after it exited.
 export function summarizeRun(run) {
   const samples = run.samples ?? [];
   const alive = samples.filter((s) => s.alive);
-  const bound = samples.find((s) => s.trigger === 'hook-freed') ?? null;
+  const bound = samples.find(isBoundSample) ?? null;
   const listed = bound?.o?.sessions ?? [];
   const sum = (o) => (Array.isArray(o?.unbound) ? o.unbound.reduce((n, u) => n + (Number.isInteger(u?.unbound_attachments) ? u.unbound_attachments : 1), 0) : null);
   const idsAlive = [...new Set(alive.flatMap((s) => (s.o?.sessions ?? []).map((x) => x?.session_id)))];
@@ -145,7 +161,7 @@ export function summarizeRun(run) {
     label: run.label,
     samples: samples.map((s) => ({ n: s.n, trigger: s.trigger, alive: s.alive, total: s.o?.sessions_total ?? null, unbound: sum(s.o) })),
     aliveSamples: alive.length,
-    listedDuring: bound && bound.code === 0 && bound.o ? bound.o.sessions_total : 0,
+    listedDuring: bound ? bound.o.sessions_total : 0,
     bound: Boolean(bound),
     oacSessionId: listed.length === 1 && bound?.o?.sessions_total === 1 ? listed[0].session_id : null,
     harness: listed[0]?.harness ?? null,
@@ -179,7 +195,8 @@ export function observedRun(sum, runAId) {
 }
 
 // The stricter pass criteria (#472). Returns the list of unmet ones, as finding texts; empty means the leg passed.
-// Neither the SC-ID-142 diagnostics nor Claude Code's own session ids are judged.
+// The SC-ID-142 diagnostics are not judged, and neither is the value of Claude Code's own session ids (that a result
+// with a session id is present, is).
 export function judgeG5(runs, daemon) {
   const problems = [];
   const sums = runs.map(summarizeRun);
@@ -213,7 +230,8 @@ export function daemonSummary(eventsText, runs) {
   const lines = all.filter((e) => e.event === 'log' && typeof e.line === 'string').map((e) => e.line);
   const bindingLines = lines.filter((l) => /binding/.test(l));
   const starts = runs.map((r) => ({ label: r.label, t0: r.t0 }));
-  const owner = (ms) => starts.filter((s) => s.t0 !== null && s.t0 <= ms).at(-1)?.label ?? null;
+  // An event at exactly a run's t0 is the previous run's: t0 is the daemon's clock at its last event before the run.
+  const owner = (ms) => starts.filter((s) => s.t0 !== null && s.t0 < ms).at(-1)?.label ?? null;
   const perRun = Object.fromEntries(starts.map((s) => [s.label, { accepted: 0, ended: 0, sc142: [] }]));
   for (const e of all) {
     const label = owner(e.unix_ms);
@@ -277,7 +295,7 @@ export default {
       }
     }
     function learnOac(label, text, o) {
-      const ids = [...(Array.isArray(o?.sessions) ? o.sessions.map((s) => s?.session_id) : []), ...sessionIdsIn(text)];
+      const ids = [...(Array.isArray(o?.sessions) ? o.sessions.map((s) => s?.session_id) : []), ...sessionIdsIn(text), ...oacIdsIn(text)];
       for (const id of ids) {
         if (typeof id !== 'string' || !id || oacIds.has(id) || claudeIds.has(id)) continue;
         const k = (oacPerLabel.get(label) ?? 0) + 1;
@@ -286,6 +304,15 @@ export default {
         oacIds.set(id, placeholder);
         ctx.redactLiteral(id, placeholder);
       }
+    }
+    // A text for the run manifest with every id learned so far replaced (the driver redacts the manifest as well; this is
+    // so that nothing here depends on that).
+    const scrub = (t) => [...claudeIds, ...oacIds].reduce((acc, [id, ph]) => acc.split(id).join(ph), t);
+    // Text that may hold either kind of id (Claude prints the whoami OAC id in prose; the daemon's binding lines print
+    // session=...): the Claude ids by their key, and every token of the OAC session id shape (core/src/ids.rs).
+    function learnText(label, text) {
+      learnClaude(text);
+      learnOac(label, text, null);
     }
 
     // Pane A: the live daemon, in the foreground. `stopped` is true once there is no daemon left to type `stop` into:
@@ -309,21 +336,26 @@ export default {
         return;
       }
       await herdr.paneRun(wsA.paneId, 'stop');
-      await herdr.paneWaitOutput(wsA.paneId, { regex: regexLiteral('"event":"stopped"'), timeoutMs: waitMs });
+      await herdr.paneWaitOutput(wsA.paneId, { regex: regexLiteral('"event":"stopped"'), source: 'recent-unwrapped', timeoutMs: waitMs });
       stopped = true;
     };
     let daemonCaptured = false;
     async function captureDaemon() {
       if (daemonCaptured) return null;
       daemonCaptured = true;
-      ctx.capture('pane-daemon-herdr.txt', await readDaemon(200));
+      const pane = await readDaemon(200);
+      learnText('daemon', pane);
+      ctx.capture('pane-daemon-herdr.txt', pane);
       let text = null;
       try {
         text = readFileSync(events, 'utf8');
       } catch {
         /* the daemon never wrote an events file */
       }
-      if (text !== null) ctx.capture('events.jsonl.txt', text);
+      if (text !== null) {
+        learnText('daemon', text);
+        ctx.capture('events.jsonl.txt', text);
+      }
       return text;
     }
 
@@ -332,9 +364,14 @@ export default {
     try {
       await herdr.paneRun(wsA.paneId, ctx.quoteForPane([params.daemon, '--namespace', ns, '--events', events]));
       try {
-        await herdr.paneWaitOutput(wsA.paneId, { regex: regexLiteral('"event":"ready"'), timeoutMs: waitMs });
+        await herdr.paneWaitOutput(wsA.paneId, { regex: regexLiteral('"event":"ready"'), source: 'recent-unwrapped', timeoutMs: waitMs });
       } catch (err) {
-        ctx.capture('pane-daemon-not-ready-herdr.txt', await readDaemon(200));
+        const pane = await readDaemon(200);
+        learnText('daemon', pane);
+        ctx.capture('pane-daemon-not-ready-herdr.txt', pane);
+        daemonCaptured = true; // this is the daemon evidence of this path: no second, duplicate capture of the pane
+        // A timeout halts the driver's input, so the stop in the error path below is refused then; teardown's process
+        // accounting ends the daemon (and every other pane process) on that path.
         throw err;
       }
 
@@ -396,18 +433,26 @@ export default {
         const ownText = async () => sliceFromToken(await readClaude(), begin);
         try {
           // While it is alive, on the daemon's events: its first connection accepted, then the hook handler's freed.
-          for (const [trigger, regex] of [['accepted', eventAfterRegex('accepted', t0)], ['hook-freed', freedAfterRegex(t0)]]) {
-            await herdr.paneWaitOutput(wsA.paneId, { regex, timeoutMs: claudeWaitMs });
+          const take = async (trigger) => {
             const s = await sessions(label, 'during', trigger);
             // Alive only if the run's done marker has not appeared by the end of the sample.
             s.alive = !hasLine((await ownText()) ?? '', mark);
             run.samples.push(s);
+            return s;
+          };
+          for (const [trigger, regex] of [['accepted', eventAfterRegex('accepted', t0)], ['hook-freed', freedAfterRegex(t0)]]) {
+            await herdr.paneWaitOutput(wsA.paneId, { regex, source: 'recent-unwrapped', timeoutMs: claudeWaitMs });
+            await take(trigger);
           }
+          // The hook's freed line comes after its disconnect, not at the bind (see the header): when nothing is listed
+          // yet and the run is still alive, re-list a bounded number of times, each started by the previous sample.
+          for (let k = 1; k <= MAX_BIND_RETRIES && !run.samples.some(isBoundSample) && run.samples.at(-1).alive; k += 1) await take(`bind-retry-${k}`);
           await herdr.paneWaitOutput(wsB.paneId, { regex: `^\\s*${regexLiteral(mark)}\\s*$`, timeoutMs: claudeWaitMs });
         } catch (err) {
           try {
-            const text = (await ownText()) ?? '';
-            learnClaude(text);
+            // Without the begin marker (scrolled away, say) the whole pane is the evidence: its ids are learned first.
+            const text = (await ownText()) ?? (await readClaude());
+            learnText(label, text);
             ctx.capture(`pane-claude-${label}-not-done-herdr.txt`, text);
           } catch {
             /* the evidence is best effort on this path; the original error is the one to report */
@@ -416,14 +461,14 @@ export default {
         }
         const claudeText = await ownText();
         if (claudeText === null) throw new Error(`run ${label}: its begin marker was not found in the Claude pane text; its own text cannot be cut out`);
-        learnClaude(claudeText);
+        learnText(label, claudeText);
         ctx.capture(`pane-claude-${label}-herdr.txt`, claudeText);
         run.claudeSessionId = claudeResults(claudeText).at(-1)?.session_id ?? null;
         run.sleepFailed = /missing operand/i.test(claudeText);
 
         // After it exited: the shim's connection freed (the daemon's own "freed" line, after `disconnect` returned).
         const hookFreed = firstFreedAfter(await readDaemon(400), t0);
-        await herdr.paneWaitOutput(wsA.paneId, { regex: freedAfterRegex(hookFreed ?? t0), timeoutMs: waitMs });
+        await herdr.paneWaitOutput(wsA.paneId, { regex: freedAfterRegex(hookFreed ?? t0), source: 'recent-unwrapped', timeoutMs: waitMs });
         run.after = await sessions(label, 'after', 'shim-freed');
         return run;
       }
@@ -446,14 +491,14 @@ export default {
       ctx.record('daemon', {
         accepted: daemon.accepted,
         ended: daemon.ended,
-        bindingLines: daemon.bindingLines,
-        bindingFindings: daemon.bindingFindings,
-        perRun: daemon.perRun,
+        bindingLines: daemon.bindingLines.map(scrub),
+        bindingFindings: daemon.bindingFindings.map(scrub),
+        perRun: Object.fromEntries(Object.entries(daemon.perRun).map(([k, v]) => [k, { ...v, sc142: v.sc142.map(scrub) }])),
         stopped: daemon.stopped,
       });
 
       const problems = judgeG5(runs, daemon);
-      problems.forEach((p) => ctx.finding(p));
+      problems.forEach((p) => ctx.finding(scrub(p)));
       if (problems.length) throw new Error('G5 resume leg expectations not met; see the findings and the captures');
     } catch (err) {
       if (!observedRecorded && runs.length) ctx.record('observed', { incomplete: true, runs: runs.map((r) => observedRun(summarizeRun(r), runs[0]?.claudeSessionId)) });

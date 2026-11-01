@@ -18,7 +18,7 @@ import { fileURLToPath } from 'node:url';
 
 import { quoteCommand } from '../lib/pane-shell.mjs';
 import scenario, {
-  EXPECTED_CONNECTIONS, unixMsAfterPattern, eventAfterRegex, freedAfterRegex, daemonClockMs, firstFreedAfter, sliceFromToken, hasLine, claudeResults, sessionIdsIn, summarizeRun, judgeG5, daemonSummary, daemonEvents,
+  EXPECTED_CONNECTIONS, MAX_BIND_RETRIES, oacIdsIn, unixMsAfterPattern, eventAfterRegex, freedAfterRegex, daemonClockMs, firstFreedAfter, sliceFromToken, hasLine, claudeResults, sessionIdsIn, summarizeRun, judgeG5, daemonSummary, daemonEvents,
 } from '../scenarios/g5-claude-resume.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -30,8 +30,11 @@ const BASE_MS = 1793421493982;
 const LABELS = ['A', 'B', 'C'];
 const CLAUDE_ID = '3f0c1e52-9a77-4c1d-8d2e-5b6a7c8d9e01';
 const claudeIdOf = (L, distinct) => (distinct ? `3f0c1e52-9a77-4c1d-8d2e-5b6a7c8d9e0${LABELS.indexOf(L) + 1}` : CLAUDE_ID);
-const oacIdOf = (L) => `bqvr6ndjfdd6qp3h38ajjakan${LABELS.indexOf(L) + 1}${L.toLowerCase()}`.slice(0, 26);
-const extraIdOf = (L) => `zzzzzzzzzzzzzzzzzzzzzzzz${L.toLowerCase()}9`;
+// OAC session ids have the shape core/src/ids.rs is_session_id checks: 26 characters, the first 0-7, the rest Crockford base32.
+const oacIdOf = (L) => `3qvr6ndjfdd6qp3h38ajjakan${LABELS.indexOf(L) + 1}`;
+const extraIdOf = (L) => `7${'z'.repeat(23)}${L.toLowerCase()}9`;
+const PROSE_ID = `5${'p'.repeat(25)}`;
+const LOG_ID = `6${'q'.repeat(25)}`;
 
 class Timeout extends Error {}
 class Refused extends Error {}
@@ -50,6 +53,7 @@ function makeWorld(root, opts = {}) {
   let session = null; // the bound session now listed, or null
   let unbound = 0;
   let queue = [];
+  let pendingBind = null;
   let current = null;
   const pane = (id) => panes.get(id);
   const add = (id, line) => pane(id).lines.push(line);
@@ -88,9 +92,15 @@ function makeWorld(root, opts = {}) {
         emit('ended', { label: 'claude', peer: peer(index * 2 + 2) });
         emitLog('freed a connection on claude');
         if (opts.sc142 === label) emitLog('binding Diagnostic SC-ID-142 Bound attachment=Some(ConnectionHandle(#5)) session=None');
+        if (opts.logId === label) emitLog(`binding Diagnostic SC-ID-140 Bound attachment=Some(ConnectionHandle(#5)) session=Some(SessionId("${LOG_ID}"))`);
         if (opts.findingLine === label) emitLog('binding Finding SC-ID-130 Withheld attachment=Some(ConnectionHandle(#5)) session=None');
-        session = { label, id: opts.sameOacId ? oacIdOf('A') : oacIdOf(label) };
+        const bind = () => {
+          session = { label, id: opts.sameOacId ? oacIdOf('A') : oacIdOf(label) };
+        };
         unbound = opts.unboundDuring ?? 0;
+        // The bind decision can come after the hook's freed line (the committed run C's does, by 18 ms).
+        if (opts.lateBind || opts.neverBind) pendingBind = { after: opts.neverBind ? Infinity : opts.lateBind, bind };
+        else bind();
         if (opts.markEarly === label) finishPane();
       },
       // stage 3: Claude Code finishes (the done marker is printed) ...
@@ -111,6 +121,7 @@ function makeWorld(root, opts = {}) {
       {
         emit('ended', { label: 'claude', peer: peer(index * 2 + 1) });
         emitLog('freed a connection on claude');
+        pendingBind = null;
         if (opts.staleAfter !== label) session = null;
         unbound = opts.unboundAfter ?? 0;
         if (opts.selfStop && label === 'C') {
@@ -126,7 +137,7 @@ function makeWorld(root, opts = {}) {
     if (!c || c.finished) return;
     c.finished = true;
     if (opts.sleepFailed?.includes(c.label)) p.lines.push('sleep: missing operand');
-    if (!opts.noResult?.includes(c.label)) p.lines.push(JSON.stringify({ type: 'result', subtype: 'success', is_error: false, session_id: c.cid, result: 'whoami text' }));
+    if (!opts.noResult?.includes(c.label)) p.lines.push(JSON.stringify({ type: 'result', subtype: 'success', is_error: false, session_id: c.cid, result: `whoami ${oacIdOf(c.label)}${opts.proseId === c.label ? ` ${PROSE_ID}` : ''}` }));
     if (opts.doneMissing !== c.label) p.lines.push(c.mark);
     p.lines.push('PS C:\\scratch\\claude-cwd>');
   }
@@ -172,6 +183,12 @@ function makeWorld(root, opts = {}) {
         const m = /^echo (G5R-[^ ;]+)-BEGIN; (.*); echo (G5R-[^ ;]+)-EXIT-(\$\?|\$LASTEXITCODE)$/.exec(command);
         if (!m) throw new Error(`ops pane: unexpected command ${command}`);
         log.opsCommands += 1;
+        if (pendingBind) {
+          if (pendingBind.after <= 0) {
+            pendingBind.bind();
+            pendingBind = null;
+          } else pendingBind.after -= 1;
+        }
         add(id, `PS C:\\scratch\\g5r> ${command}`);
         add(id, `${m[1]}-BEGIN`);
         add(id, 'oac sessions: using the test namespace "g5r"');
@@ -188,13 +205,14 @@ function makeWorld(root, opts = {}) {
       current.mark = m[4];
     },
     async paneRead(id, { lines } = {}) {
-      const all = pane(id).lines;
+      let all = pane(id).lines;
+      if (pane(id).role === 'claude' && opts.hideBegin && current?.label === opts.hideBegin) all = all.filter((l) => !l.includes(`G5R-${opts.hideBegin}-BEGIN-`));
       return (lines ? all.slice(-lines) : all).join('\n');
     },
-    async paneWaitOutput(id, { regex, match }) {
+    async paneWaitOutput(id, { regex, match, source }) {
       const p = pane(id);
       const re = regex ? new RegExp(regex) : null;
-      log.waits.push({ role: p.role, regex: regex ?? null, match: match ?? null });
+      log.waits.push({ role: p.role, regex: regex ?? null, match: match ?? null, source: source ?? null });
       if (opts.readyWaitError && /"event":"ready"/.test(regex ?? '')) throw new Error('herdr: the pane is gone');
       for (;;) {
         if (p.lines.some((l) => (re ? re.test(l) : l.includes(match)))) return { type: 'pane_output_matched' };
@@ -257,6 +275,8 @@ export async function runScenario(root, opts = {}, params = {}, shell = 'posix')
 const allIds = (opts = {}) => [
   ...LABELS.map((L) => oacIdOf(L)),
   ...LABELS.map((L) => extraIdOf(L)),
+  PROSE_ID,
+  LOG_ID,
   ...LABELS.map((L) => claudeIdOf(L, opts.distinctClaudeIds)),
 ];
 const rawLeaks = (r, opts) => {
@@ -444,8 +464,65 @@ export async function g5resumeUnit(check) {
     check('g5resume summary: connections and SC-ID-142 diagnostics are assigned to a run by the daemon\'s clock at the run\'s start', sm.accepted === 3 && sm.ended === 2 && sm.perRun.A.accepted === 2 && sm.perRun.A.sc142.length === 1 && sm.perRun.B.accepted === 1 && sm.perRun.B.sc142.length === 0 && sm.stopped === true && sm.bindingFindings.length === 0);
   }
 
+  // --- binding after the hook's freed line, sources, redaction of ids by shape, the not-done and not-ready evidence ---
+  {
+    const root2 = mkdtempSync(join(tmpdir(), 'oac-g5resume2-'));
+    const sub2 = (name) => {
+      const d = join(root2, name);
+      mkdirSync(d, { recursive: true });
+      return d;
+    };
+    try {
+      const lateB = await runScenario(sub2('late-bind'), { lateBind: 1 });
+      const lo = lateB.out.records.get('observed');
+      check('g5resume bind: when the bind decision comes one step after the hook freed line, the leg still passes: the hook-freed sample lists nothing, one bind-retry sample lists the session, and that one is judged', lateB.error === null && lateB.out.findings.length === 0 && lo.runs.every((r) => r.samples.map((x) => x.trigger).join() === 'accepted,hook-freed,bind-retry-1' && r.samples[1].total === 0 && r.samples[2].total === 1 && r.listedDuring === 1 && r.bound === true && r.aliveSamples === 3), lateB.error?.stack ?? JSON.stringify(lo?.runs[0].samples));
+      const lateTwo = await runScenario(sub2('late-bind-3'), { lateBind: 3 });
+      check('g5resume bind: a bind three samples late is still found (retries stop at the first sample that lists a session)', lateTwo.error === null && lateTwo.out.records.get('observed').runs.every((r) => r.samples.map((x) => x.trigger).join() === 'accepted,hook-freed,bind-retry-1,bind-retry-2,bind-retry-3'), lateTwo.error?.stack);
+      const never = await runScenario(sub2('never-bind'), { neverBind: true });
+      check('g5resume bind: a session that is never listed fails the run after a bounded number of retries (' + MAX_BIND_RETRIES + ' extra samples per run), with the listed-0 finding', never.error && /expectations not met/.test(never.error.message) && never.world.log.opsCommands === 3 * (2 + MAX_BIND_RETRIES + 1) && never.out.findings.some((f) => /^run A: oac sessions did not list exactly one bound session while it was alive \(listed 0\)/.test(f)), 'ops ' + never.world.log.opsCommands + ' ' + never.error);
+      const promptly = await runScenario(sub2('prompt-bind'), {});
+      check('g5resume bind: a session bound by the hook-freed sample takes no retry sample', promptly.out.records.get('observed').runs.every((r) => r.samples.length === 2));
+
+      const okSrc = await runScenario(sub2('sources'), {});
+      const dw = okSrc.world.log.waits.filter((w) => w.role === 'daemon');
+      check('g5resume sources: every wait on the daemon pane (ready, accepted, freed, stopped) asks for recent-unwrapped, so a long event line is not cut by the pane width', dw.length >= 10 && dw.every((w) => w.source === 'recent-unwrapped'), JSON.stringify(dw.filter((w) => w.source !== 'recent-unwrapped')));
+
+      const shape = await runScenario(sub2('shape'), { proseId: 'B', logId: 'C', distinctClaudeIds: true });
+      const everything = [...shape.out.captures.values()].join('\n') + JSON.stringify([...shape.out.records]) + shape.out.findings.join('\n');
+      check('g5resume redaction by shape: an OAC session id that only appears in the prose of Claude or in a daemon binding line (never listed by oac sessions) is redacted before the capture and the record', shape.error === null && !everything.includes(PROSE_ID) && !everything.includes(LOG_ID) && shape.out.literals.some(([v]) => v === PROSE_ID) && shape.out.literals.some(([v]) => v === LOG_ID) && rawLeaks(shape, { distinctClaudeIds: true }).length === 0, shape.error?.stack ?? rawLeaks(shape, { distinctClaudeIds: true }).join());
+      check('g5resume redaction by shape: the shape is the one of core/src/ids.rs (26 characters, first 0-7, Crockford base32), as a whole token', oacIdsIn('x ' + PROSE_ID + ' y "' + LOG_ID + '"').join() === PROSE_ID + ',' + LOG_ID && oacIdsIn('8' + 'p'.repeat(25)).length === 0 && oacIdsIn('5' + 'p'.repeat(26)).length === 0 && oacIdsIn('5' + 'p'.repeat(24) + 'i').length === 0 && oacIdsIn('5' + 'P'.repeat(25)).length === 0 && oacIdsIn('a5' + 'p'.repeat(25)).length === 0);
+
+      const hidden = await runScenario(sub2('hidden'), { doneMissing: 'B', hideBegin: 'B', distinctClaudeIds: true });
+      const nd = hidden.out.captures.get('pane-claude-B-not-done-herdr.txt') ?? '';
+      check('g5resume failure path: with the begin marker gone from the pane the not-done capture is the whole pane (not empty), its ids learned first', hidden.error instanceof Timeout && nd.length > 0 && nd.includes('<CLAUDE_SESSION_2>') && rawLeaks(hidden, { distinctClaudeIds: true }).length === 0, rawLeaks(hidden, { distinctClaudeIds: true }).join());
+      const nr = await runScenario(sub2('notready'), { daemonNeverReady: true });
+      const gn = await runScenario(sub2('gone'), { readyWaitError: true });
+      check('g5resume failure path: on the not-ready path the daemon pane is captured once, as pane-daemon-not-ready-herdr.txt, with no duplicate pane-daemon-herdr.txt', nr.out.captures.has('pane-daemon-not-ready-herdr.txt') && !nr.out.captures.has('pane-daemon-herdr.txt') && gn.out.captures.has('pane-daemon-not-ready-herdr.txt') && !gn.out.captures.has('pane-daemon-herdr.txt'));
+    } finally {
+      rmSync(root2, { recursive: true, force: true });
+    }
+    const tie = daemonSummary(
+      [{ event: 'accepted', unix_ms: 120 }, { event: 'ended', unix_ms: 200 }, { event: 'ended', unix_ms: 201 }, { event: 'accepted', unix_ms: 300 }].map((e) => JSON.stringify(e)).join('\n'),
+      [{ label: 'B', t0: 100 }, { label: 'C', t0: 200 }],
+    );
+    check('g5resume summary: an event at exactly the t0 of a run (the daemon last event before it) is the previous run, not the next one', tie.perRun.B.ended === 1 && tie.perRun.C.ended === 1 && tie.perRun.B.accepted === 1 && tie.perRun.C.accepted === 1);
+    {
+      // The committed run's own events, with each run's t0 taken as the scenario takes it: the daemon's last event before the run.
+      const text = readFileSync(join(FIXTURES, 'events.jsonl.txt'), 'utf8');
+      const evs = daemonEvents(text);
+      const accepted = evs.map((e, i) => (e.event === 'accepted' ? i : -1)).filter((i) => i >= 0);
+      const t0s = [0, 2, 4].map((k) => Math.max(...evs.slice(0, accepted[k]).map((e) => e.unix_ms)));
+      const real = daemonSummary(text, ['A', 'B', 'C'].map((label, i) => ({ label, t0: t0s[i] })));
+      check('g5resume summary: on the events of the committed run each run owns two accepted and two ended connections, and the one SC-ID-142 line is run C', ['A', 'B', 'C'].every((L) => real.perRun[L].accepted === 2 && real.perRun[L].ended === 2) && real.perRun.C.sc142.length === 1 && real.perRun.A.sc142.length === 0 && real.perRun.B.sc142.length === 0 && real.accepted === 6 && real.ended === 6 && real.bindingFindings.length === 0 && real.stopped === true, JSON.stringify(real.perRun));
+    }
+    const ts = (arr) => arr.map((x, i) => ({ n: i, trigger: 't' + i, alive: true, code: 0, o: x }));
+    const one = { oac_cli: 1, sessions: [{ harness: 'claude', session_id: 'a', state: 'online' }], sessions_total: 1, unbound: [] };
+    const none = { oac_cli: 1, sessions: [], sessions_total: 0, unbound: [] };
+    const sm2 = summarizeRun({ label: 'A', samples: ts([none, none, one, one]), after: null });
+    check('g5resume summary: the bound sample is the first alive one that lists a session (not a fixed trigger), and a sample listing one after the run ended is not it', sm2.oacSessionId === 'a' && sm2.listedDuring === 1 && summarizeRun({ label: 'A', samples: [{ ...ts([one])[0], alive: false }], after: null }).listedDuring === 0);
+  }
+
   // --- the source ----------------------------------------------------------------------------------------------
-  check('g5resume source: ADR-001 boundary 3 and 4: it reads no credential file and keeps to herdr panes and the example daemon (no ~/.claude, auth.json, keyring)', !/auth\.json|\.credentials|keyring|\.claude\.json|CODEX_HOME|\.claude[\\/]/.test(code));
   check('g5resume source: the stop is typed only through stopDaemon, which is guarded by the stopped flag', (code.match(/paneRun\(wsA\.paneId, 'stop'\)/g) ?? []).length === 1 && /if \(stopped \|\| stopTried\) return;/.test(code));
   check('g5resume source: the typed command for each run starts with its own begin marker echo (the slice anchor)', /`echo \$\{begin\}; \$\{claude\}; echo \$\{mark\}`/.test(code));
 }
