@@ -37,13 +37,16 @@ surface (do not read or write it).
 
 ## Queue management methods (experimental; observed on 0.166.0)
 
-Pin: `@openai/codex` 0.166.0 (user agent `codex-tui/0.166.0`, Windows 10, x86_64), live G7
+Pin: `@openai/codex` 0.166.0 (user agent `codex-tui/0.166.0 (Windows 10.0.26300; x86_64)`; platform Windows 11, x64), live G7
 recheck 2026-10-31. Sources: `docs/planning/gates/herdr-runs/G7-recheck-2026-10-31.md`
 (Judgments row 66(b)); transcript `docs/planning/gates/fixtures/g7-codex-recheck/transcript-g7recheck-2026-10-31-0.166.0-herdr.jsonl`,
 lines 376-399 (requests and responses) and 474 (dispatch); risk row 66(b) in
-`docs/planning/v0.1/11-risks.md`. One run, one daemon, one machine.
+`docs/planning/v0.1/11-risks.md`. Schema evidence: `tools/herdr/scenarios/g7-codex-recheck.mjs`
+L39-L44 (`ThreadQueue*Params` in `generate-json-schema --experimental`, checked on 0.165.0 and
+0.166.0, read at rust-v0.166.0). One run, one daemon, one machine.
 
-- `thread/queue/list` `{threadId}` -> `{data: [{id, input, clientUserMessageId}]}`.
+- `thread/queue/list` `{threadId}` -> `{data: [{id, input, clientUserMessageId}], nextCursor}`
+  (`nextCursor` was `null` here; paging not exercised; transcript lines 382 and 398).
 - `thread/queue/update` `{threadId, queuedSubmissionId, input}` -> `{queuedSubmission}`; the id is kept.
 - `thread/queue/reorder` `{threadId, queuedSubmissionIds}` -> `{}`.
 - `thread/queue/delete` `{threadId, queuedSubmissionId}` -> `{deleted: true}`.
@@ -53,7 +56,7 @@ lines 376-399 (requests and responses) and 474 (dispatch); risk row 66(b) in
 
 Shown: a second client that never started or resumed the thread listed, updated, reordered
 and deleted three items queued before `turn/interrupt`. The listing showed each change, and
-the next uninterrupted turn dispatched ITEM 3, then ITEM 2 UPDATED; the deleted item never ran.
+after the next uninterrupted turn completed, ITEM 3 then ITEM 2 UPDATED ran; the deleted item never ran.
 
 Not shown: other versions or platforms, the stability of these methods, error responses, and
 any item not held after an interrupted turn.

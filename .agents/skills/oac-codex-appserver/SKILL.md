@@ -1,6 +1,6 @@
 ---
 name: oac-codex-appserver
-description: Codex `app-server` JSON-RPC surface — transport/handshake, thread/turn model, live-inject daemon, thread/queue/{add,list,update,reorder,delete} vs turn/steer vs turn/start, auth boundary, schema artifacts. Load for area:adapter-codex work items and gate G2.
+description: Codex `app-server` JSON-RPC surface — transport/handshake, thread/turn model, live-inject daemon, thread/queue/* vs turn/steer vs turn/start, auth boundary, schema artifacts. Load for area:adapter-codex work items and gate G2.
 ---
 
 Holds the version-pinned Codex `app-server` protocol detail, loaded for `area:adapter-codex`
@@ -82,28 +82,28 @@ a fourth option:
 |---|---|---|
 | Idle (no turn in flight) | `turn/start` | Starts a new turn, but **steers** a turn running when it lands; no idle check is atomic with it (#224). **Never for OAC delivery (MCPB-CDX-003).** |
 | Every OAC delivery, idle or busy (MCPB-CDX-002) | `thread/queue/add` | Experimental (G6 shim); queued until idle; waits after an interrupted turn. |
-| Any daemon client, on a held queued item (not OAC) | `thread/queue/list`, `thread/queue/update`, `thread/queue/reorder`, `thread/queue/delete` | Experimental (needs `capabilities.experimentalApi`). **Never called by OAC for delivery.** Another client can edit or drop the item; see below. |
 | A turn is actively in flight | `turn/steer` | Appends into the *in-flight* turn. **Never for OAC delivery (MCPB-CDX-004); no setting enables it.** Unauthorized steer is a code-execution risk (PLANNING-PROMPT.md §7) — see `oac-security-work`. |
 
-A second daemon client can list, update, reorder or delete an item OAC queued while it is held
-(e.g. after an interrupted turn), and dispatch follows the edit (risk row 66(b),
+A second daemon client can call the experimental `thread/queue/list`, `thread/queue/update`,
+`thread/queue/reorder` and `thread/queue/delete` on an item OAC queued while it is held (shown
+only after an interrupted turn), and dispatch follows the edit (risk row 66(b),
 `docs/planning/v0.1/11-risks.md`; 0.166.0 only, n = 1, Windows; `references/events-and-schema.md`).
-So `handed-to-harness` promises only the hand-off; OAC cannot prevent the edit. OAC sends only
-`thread/queue/add` (§8.2.1).
+OAC never calls them; it sends only `thread/queue/add` (`spec/bindings/mcp.md` §8.2.1), so
+`handed-to-harness` promises only the hand-off.
 
-Implicit daemon attach ran at runtime on 0.154.0 (G2 PASS, 2026-09-25; Windows, default
+Implicit daemon attach ran at runtime on 0.154.0 (G2 PASS, 2026-09-25; Windows only, default
 `CODEX_HOME`, non-elevated terminal). **Codex is floating**: a version other than PINS.md's last
 tested one warns, never gates (#216). `thread/queue/add` is absent from the default checked-in
 schema; `codex app-server generate-json-schema --experimental` gives its shape (`threadId`,
 `clientUserMessageId`, `input`).
 
-Experimental methods (`thread/queue/add`, any other `capabilities.experimentalApi` method)
+Experimental methods (`thread/queue/add`, any other `capabilities.experimentalApi` method) must
 sit behind a named, version-pinned shim per backlog G6 and PLANNING-PROMPT.md §10; never call
 them from adapter code directly.
 
 ## Cross-process resume does not attach
 
-The Constraints entry above applies (openai/codex #21743). Codex Desktop uses a private
+The Constraints entry above applies (openai/codex #21743; PLANNING-PROMPT.md Appendix B). Codex Desktop uses a private
 stdio app-server and does not expose the control socket (**UNVERIFIED for current builds**).
 
 ## Remote TUI — the documented G2 fallback
