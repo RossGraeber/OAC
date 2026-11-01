@@ -85,6 +85,7 @@ import { g8liveUnit } from './g8live-tests.mjs';
 import { ciUnit, ciLifecycle } from './ci-tests.mjs';
 import { g4Unit, g4Cases } from './g4-tests.mjs';
 import { g5Unit, g5Cases } from './g5-tests.mjs';
+import { g5resumeUnit } from './g5resume-tests.mjs';
 import { l3Unit, l3ScenarioUnit, l3Cases } from './l3-tests.mjs';
 import { teardownUnit } from './teardown-tests.mjs';
 import { identityUnit } from './identity-tests.mjs';
@@ -1172,6 +1173,7 @@ export async function runSelfTest() {
   await g8liveUnit(check);
   await g4Unit(check);
   await g5Unit(check);
+  await g5resumeUnit(check);
   l3Unit(check);
   await l3ScenarioUnit(check);
   ciUnit(check);
