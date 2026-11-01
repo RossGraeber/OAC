@@ -33,6 +33,7 @@ export async function startFakeG7Daemon({ overrideLoaded = 'real', queueMgmt = t
   const threads = new Map();
   const conns = new Set();
   const received = []; // every message a client sent: { conn, msg }
+  const waiters = new Set(); // whenReceived() registrations still waiting
   const overrideLog = []; // each resume that carried an override: the thread's state when it arrived
   let joinedTurns = false; // a turn/start arrived while the thread had a turn running (a steer)
   let n = 0;
@@ -94,6 +95,7 @@ export async function startFakeG7Daemon({ overrideLoaded = 'real', queueMgmt = t
 
   function handle(c, msg) {
     received.push({ conn: c.name, connId: c.id, msg });
+    for (const w of [...waiters]) if (msg.method === w.method) w.fire(true);
     const { id, method, params } = msg;
     if (method === undefined) return; // a response to a request of ours: never expected
     if (method === 'initialized') {
@@ -233,6 +235,25 @@ export async function startFakeG7Daemon({ overrideLoaded = 'real', queueMgmt = t
     url: server.url,
     port: Number(new URL(server.url).port),
     received,
+    // Event hook, not a poll: a promise that resolves true when a client message with this method has
+    // been received (at once if one already was), or false after timeoutMs. .cancel() drops it.
+    whenReceived(method, timeoutMs) {
+      let w;
+      const p = new Promise((resolveWait) => {
+        const done = (v) => {
+          if (!waiters.delete(w)) return;
+          clearTimeout(w.timer);
+          resolveWait(v);
+        };
+        w = { method, fire: done, timer: setTimeout(() => done(false), timeoutMs) };
+        waiters.add(w);
+        if (received.some(({ msg }) => msg.method === method)) done(true);
+      });
+      p.cancel = () => {
+        if (waiters.delete(w)) clearTimeout(w.timer);
+      };
+      return p;
+    },
     overrideLog,
     get joinedTurns() {
       return joinedTurns;

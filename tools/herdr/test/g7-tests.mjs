@@ -49,7 +49,10 @@ function shimDir(dir) {
 }
 
 // Run the real client (copied from the working tree) against a fake daemon. -> { exit, stdout, entries }
-function runClient(dir, bin, port, set, quietMs = 150, deadlineMs = null, { killAfterMs = null } = {}) {
+// killAfterMs: SIGTERM after a fixed delay. killWhen: a promise (daemon.whenReceived(...)) that resolves
+// true when the awaited event happened, false when its bound passed; SIGTERM is sent either way, and
+// the result's killTrigger says which ('event' | 'timeout'; null when neither option was given).
+function runClient(dir, bin, port, set, quietMs = 150, deadlineMs = null, { killAfterMs = null, killWhen = null } = {}) {
   mkdirSync(dir, { recursive: true });
   copyFileSync(join(REPO, COMMITTED_CLIENT), join(dir, 'client.mjs'));
   return new Promise((resolveRun) => {
@@ -57,11 +60,19 @@ function runClient(dir, bin, port, set, quietMs = 150, deadlineMs = null, { kill
     let stdout = '';
     p.stdout.on('data', (d) => (stdout += d));
     const timer = setTimeout(() => p.kill(), 90000);
+    let killTrigger = null;
     if (killAfterMs !== null) setTimeout(() => p.kill('SIGTERM'), killAfterMs);
+    if (killWhen) {
+      killWhen.then((fired) => {
+        killTrigger = fired ? 'event' : 'timeout';
+        p.kill('SIGTERM');
+      });
+    }
     p.on('exit', (exit) => {
       clearTimeout(timer);
+      killWhen?.cancel?.();
       const tp = join(dir, 'transcript.jsonl');
-      resolveRun({ exit, stdout, text: existsSync(tp) ? readFileSync(tp, 'utf8') : '', entries: existsSync(tp) ? parseG2Transcript(readFileSync(tp, 'utf8')) : [] });
+      resolveRun({ exit, killTrigger, stdout, text: existsSync(tp) ? readFileSync(tp, 'utf8') : '', entries: existsSync(tp) ? parseG2Transcript(readFileSync(tp, 'utf8')) : [] });
     });
   });
 }
@@ -238,8 +249,11 @@ export async function g7Unit(check) {
     await d2c.close();
     if (process.platform !== 'win32') {
       const d2d = await startFakeG7Daemon();
-      const r2d = await runClient(join(root, 'sigterm'), bin, d2d.port, 'all', 20000, null, { killAfterMs: 2500 });
-      check('g7 exit paths (N1): SIGTERM mid-case archives the client\'s threads before it exits (143)', r2d.exit === 143 && d2d.threads.size >= 1 && [...d2d.threads.values()].every((t) => t.archived));
+      // SIGTERM once the double has received the client's first thread/start (the client waits for a start
+      // in flight, then archives); 20 s is only the bound after which the check fails, not a delay.
+      const r2d = await runClient(join(root, 'sigterm'), bin, d2d.port, 'all', 20000, null, { killWhen: d2d.whenReceived('thread/start', 20000) });
+      const archivedFlags = [...d2d.threads.values()].map((t) => t.archived);
+      check('g7 exit paths (N1): SIGTERM mid-case archives the client\'s threads before it exits (143)', r2d.killTrigger === 'event' && r2d.exit === 143 && d2d.threads.size >= 1 && archivedFlags.every(Boolean), JSON.stringify({ trigger: r2d.killTrigger === 'event' ? 'event (first thread/start)' : 'timed out after 20000 ms without a thread/start', exit: r2d.exit, threads: d2d.threads.size, archived: archivedFlags }));
       await d2d.close();
     }
     {
