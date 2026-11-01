@@ -99,15 +99,15 @@ function makeWorld(root, opts = {}) {
         if (opts.logId === label) emitLog(`binding Diagnostic SC-ID-140 Bound attachment=Some(ConnectionHandle(#5)) session=Some(SessionId("${LOG_ID}"))`);
         if (opts.findingLine === label) emitLog('binding Finding SC-ID-130 Withheld attachment=Some(ConnectionHandle(#5)) session=None');
         if (opts.droppedAtHook) session = null;
-        const bind = () => {
+        const bindSession = () => {
           session = { label, id: opts.sameOacId ? oacIdOf('A') : oacIdOf(label) };
         };
         unbound = opts.unboundDuring ?? 0;
         // The bind decision can come after the hook's freed line (the committed run C's does, by 18 ms).
         if (opts.droppedAtHook) {
           /* bound at the accepted event, gone again by the hook's freed line */
-        } else if (opts.lateBind || opts.neverBind) pendingBind = { after: opts.neverBind ? Infinity : opts.lateBind, bind };
-        else bind();
+        } else if (opts.lateBind || opts.neverBind) pendingBind = { after: opts.neverBind ? Infinity : opts.lateBind, bindSession };
+        else bindSession();
         if (opts.markEarly === label) finishPane();
       },
       // stage 3: Claude Code finishes (the done marker is printed) ...
@@ -192,7 +192,7 @@ function makeWorld(root, opts = {}) {
         log.opsCommands += 1;
         if (pendingBind) {
           if (pendingBind.after <= 0) {
-            pendingBind.bind();
+            pendingBind.bindSession();
             pendingBind = null;
           } else pendingBind.after -= 1;
         }
