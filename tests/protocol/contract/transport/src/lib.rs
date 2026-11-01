@@ -39,7 +39,10 @@
 //! [IFC-TRN-071], [IFC-TRN-080], [IFC-TRN-118], [IFC-TRN-119] and [IFC-NEU-003], plus [IFC-TYP-092] for the transport's
 //! `health` and [IFC-TYP-095], plus [IFC-TRN-104], [IFC-TRN-105], [IFC-TRN-107],
 //! [IFC-TRN-108], [IFC-TRN-109] and [IFC-TRN-113] when sealing is declared, and
-//! [IFC-TRN-110] against the binding. [`run`]
+//! [IFC-TRN-110] against the binding. When the binding reports a carrier appearance
+//! ([`TransportHarness::reports_carrier_appearance`], [IFC-TRN-120]), the transport's part of
+//! [IFC-TRN-121], [IFC-TRN-122], [IFC-TRN-123] and [IFC-TRN-125] too (module `appearance`
+//! says which parts are the transport's). [`run`]
 //! returns one [`Row`] per check; [IFC-TRN-003] passes only when no other row failed. The requirements Appendix C gives the `core` are not
 //! this suite's (they need the core's send and receive paths, F6 and F11), and
 //! [IFC-TRN-090] and [IFC-TRN-117] (a binding document states its clock-skew limit) are the
@@ -68,9 +71,9 @@ use std::time::{Duration, Instant};
 use oac_core::health::HealthStatus;
 use oac_core::ids::{KeyId, SessionId};
 use oac_core::transport::{
-    Deadline, Destination, Inbound, InboundHandler, Payload, PayloadKind, PresenceEvent,
-    PresenceHandler, PublishResult, Reach, Subscription, Transport, TransportCapabilities,
-    TransportConfiguration, TransportError,
+    CarrierHandle, Deadline, Destination, Inbound, InboundHandler, Payload, PayloadKind,
+    PresenceEvent, PresenceHandler, PublishResult, Reach, Subscription, Transport,
+    TransportCapabilities, TransportConfiguration, TransportError,
 };
 
 /// How long the default [`Medium::settle`] waits, for a transport with no settle barrier.
@@ -81,6 +84,14 @@ pub trait TransportHarness: Sync {
     /// Sealing value from the independently reviewed binding (absent means false).
     /// Must not be computed from the implementation's `start` declaration.
     fn binding_sealing(&self) -> bool;
+
+    /// True when the independently reviewed binding says the transport reports a carrier
+    /// appearance as a `carrier-appeared` event ([IFC-TRN-120], a MAY). Absent means false:
+    /// the carrier-appearance rows then report not applicable, since a transport that never
+    /// reports one conforms. Must not be computed from the transport's behaviour.
+    fn reports_carrier_appearance(&self) -> bool {
+        false
+    }
 
     /// A short name for reports.
     fn name(&self) -> String;
@@ -358,6 +369,26 @@ pub const CHECKS: &[(&str, &str, Check)] = &[
         ifc_trn_060,
     ),
     ("IFC-TRN-071", "no-handler-after-shutdown", ifc_trn_071),
+    (
+        "IFC-TRN-121",
+        "carrier-appearance-handed-on-own-initiative",
+        appearance::handed_on_own_initiative,
+    ),
+    (
+        "IFC-TRN-122",
+        "carrier-appeared-carries-only-the-links-handle",
+        appearance::only_its_handle,
+    ),
+    (
+        "IFC-TRN-123",
+        "payloads-cause-no-carrier-appearance",
+        appearance::payloads_are_no_appearance,
+    ),
+    (
+        "IFC-TRN-125",
+        "each-new-link-of-a-cycling-peer-is-reported",
+        appearance::every_new_link_is_reported,
+    ),
     ("IFC-TRN-080", "destination-restricted", ifc_trn_080),
     ("IFC-NEU-003", "no-native-address-to-core", ifc_neu_003),
     (
@@ -651,6 +682,7 @@ macro_rules! fail_if {
 
 // ---- §6.1, §6.5: carrying the three kinds --------------------------------------------
 
+mod appearance;
 mod audit;
 mod sealed;
 

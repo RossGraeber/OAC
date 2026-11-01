@@ -128,6 +128,12 @@ impl TransportHarness for PeerHarness {
         true
     }
 
+    /// The binding reports a carrier appearance from native liveliness, including a peer
+    /// already online when the transport started (`transports/zenoh/src/presence.rs`).
+    fn reports_carrier_appearance(&self) -> bool {
+        true
+    }
+
     fn name(&self) -> String {
         "zenoh peer, local mode (loopback rendezvous)".into()
     }

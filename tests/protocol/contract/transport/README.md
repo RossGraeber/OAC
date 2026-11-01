@@ -227,6 +227,34 @@ logical callback, with no accompanying deadline. Each is caught under its requir
 Deleting each mandatory sealing row from an otherwise passing report is also caught.
 Existing memory breach tests still run unchanged.
 
+## Carrier appearance, 2026-11-01 (#473)
+
+A transport MAY report a carrier appearance (IFC-TRN-120), so the harness says whether its
+binding does, with `TransportHarness::reports_carrier_appearance()` (default false, taken
+from the binding review and never from the transport's behaviour). For a transport that
+does not, the four rows below report not applicable; so they do for a one-implementation
+medium, which has no second implementation whose link could appear. They are added
+rows: no existing row changed. Module `appearance` holds them and says what each covers:
+
+- IFC-TRN-121: a peer that starts under the watch, and a peer already usable before the
+  watch was made, each reach the `watch_presence` handler on the transport's own
+  initiative.
+- IFC-TRN-122: the event is destructured with no `..` (a second member breaks the suite
+  at compile time), its handle is the one that the link's frames carry, and it is not a
+  presence record. That the handle derives from no device or session value is the binding
+  review's (the type has no accessor).
+- IFC-TRN-123, transport half: payloads over an established link (the core's announcements
+  are payloads) cause no further appearance. The core half, a set of announcements within
+  2 seconds, is not observable here.
+- IFC-TRN-125, transport half: each new link of a cycling peer is reported. The 1 second
+  hold-off is the core's and is not observable here.
+
+The sealing stand-in's `watch_presence` (`sealed::Logical`) now also passes
+`carrier-appeared` events through, as it already did `carrier-loss` ones: both carry a handle
+only. The planted breaches in `transports/memory/tests/contract.rs` (`DropsAppearances`,
+`WrongAppearanceHandle`, `AppearsOnPayload`, `SuppressesRepeats`) each fail the row they
+exist for.
+
 Run the default gate on Windows:
 
 ```powershell

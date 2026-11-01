@@ -51,6 +51,11 @@ enum Item {
         source: EndpointId,
         target: EndpointId,
     },
+    /// `source` became usable as a link to `target`'s watchers ([IFC-TRN-120]).
+    CarrierAppeared {
+        source: EndpointId,
+        target: EndpointId,
+    },
 }
 
 impl Item {
@@ -68,6 +73,7 @@ impl Item {
                 *source != endpoint && !recipients.is_empty()
             }
             Item::CarrierLoss { target, .. } => *target != endpoint,
+            Item::CarrierAppeared { source, target } => *source != endpoint && *target != endpoint,
         }
     }
 
@@ -78,7 +84,7 @@ impl Item {
                 recipients.retain(|r| *r != (endpoint, To::Sub(sub)));
                 !recipients.is_empty()
             }
-            Item::CarrierLoss { .. } => true,
+            Item::CarrierLoss { .. } | Item::CarrierAppeared { .. } => true,
         }
     }
 }
@@ -90,6 +96,11 @@ struct Endpoint {
     /// Endpoints that delivered at least one payload here: each is a link whose loss is
     /// reported here when that endpoint leaves ([IFC-TRN-061]).
     links_from: HashSet<EndpointId>,
+    /// Endpoints that became usable as links here (they were running when this endpoint
+    /// joined, or joined after it) and whose appearance has not yet been queued, because
+    /// no `watch_presence` handler is registered. The first handler hears of them
+    /// ([IFC-TRN-121]).
+    unreported: Vec<EndpointId>,
 }
 
 struct State {
@@ -175,7 +186,7 @@ impl Shared {
             .values()
             .filter_map(|item| match item {
                 Item::Copy { deadline, .. } => Some(deadline.instant()),
-                Item::CarrierLoss { .. } => None,
+                Item::CarrierLoss { .. } | Item::CarrierAppeared { .. } => None,
             })
             .min()
     }
@@ -252,6 +263,9 @@ impl Shared {
         st.local_key.get_or_insert_with(|| key.clone());
         st.next_id += 1;
         let id = st.next_id;
+        // Each endpoint already running is a link that is usable to the new one, and the
+        // new one is a link that has become usable to each of them ([IFC-TRN-120]).
+        let peers: Vec<EndpointId> = st.endpoints.keys().copied().collect();
         st.endpoints.insert(
             id,
             Endpoint {
@@ -259,9 +273,38 @@ impl Shared {
                 subs: HashMap::new(),
                 watchers: Vec::new(),
                 links_from: HashSet::new(),
+                unreported: peers.clone(),
             },
         );
+        for peer in peers {
+            if let Some(e) = st.endpoints.get_mut(&peer) {
+                e.unreported.push(id);
+            }
+            self.queue_appearances(&mut st, peer);
+        }
         Ok(id)
+    }
+
+    /// Queue the appearance of each link `target` has not yet been told of, when `target`
+    /// has a `watch_presence` handler. The handler runs on the delivery thread, never in
+    /// the caller's call ([IFC-TRN-121]). With no handler the appearances wait for the
+    /// first one. An appearance carries the handle only ([IFC-TRN-122]).
+    fn queue_appearances(&self, st: &mut State, target: EndpointId) {
+        let Some(e) = st.endpoints.get_mut(&target) else {
+            return;
+        };
+        if e.watchers.is_empty() || e.unreported.is_empty() {
+            return;
+        }
+        let sources = std::mem::take(&mut e.unreported);
+        let now = self.now(st);
+        for source in sources {
+            st.next_id += 1;
+            let seq = st.next_id;
+            st.queue
+                .insert((now, seq), Item::CarrierAppeared { source, target });
+        }
+        self.wake.notify_all();
     }
 
     /// The endpoint leaves: every copy it sent or would receive is dropped
@@ -273,6 +316,9 @@ impl Shared {
             return;
         }
         st.queue.retain(|_, item| item.forget_endpoint(id));
+        for e in st.endpoints.values_mut() {
+            e.unreported.retain(|peer| *peer != id);
+        }
         let now = self.now(&st);
         let peers: Vec<EndpointId> = st
             .endpoints
@@ -416,6 +462,7 @@ impl Shared {
             .get_mut(&endpoint)
             .ok_or(TransportError::NotStarted)?;
         e.watchers.push(handler);
+        self.queue_appearances(&mut st, endpoint);
         Ok(())
     }
 
@@ -481,6 +528,23 @@ impl Shared {
                 Some((
                     Box::new(move || {
                         call_each(&watchers, || PresenceEvent::CarrierLoss {
+                            carrier: carrier.clone(),
+                        })
+                    }),
+                    (target, None),
+                ))
+            }
+            Item::CarrierAppeared { source, target } => {
+                let e = st.endpoints.get_mut(&target)?;
+                let watchers = e.watchers.clone();
+                // The link that appeared is the link whose loss follows when `source`
+                // leaves, under the same handle ([IFC-TRN-061]).
+                e.links_from.insert(source);
+                // The handle the link's frames carry at `target` ([IFC-TRN-122]).
+                let carrier = carrier(source, target);
+                Some((
+                    Box::new(move || {
+                        call_each(&watchers, || PresenceEvent::CarrierAppeared {
                             carrier: carrier.clone(),
                         })
                     }),
@@ -679,7 +743,8 @@ impl MemoryNetwork {
         })
     }
 
-    /// For tests: the number of copies in flight, and of carrier losses not yet reported.
+    /// For tests: the number of copies in flight, and of carrier events (losses and
+    /// appearances) not yet reported.
     pub fn in_flight(&self) -> usize {
         self.inner.shared.lock().queue.len()
     }

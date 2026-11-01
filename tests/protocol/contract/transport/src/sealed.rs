@@ -202,7 +202,12 @@ impl Transport for Logical {
         )?;
         self.watches.lock().unwrap().push(s);
         self.raw.watch_presence(Arc::new(move |e| {
-            if matches!(e, PresenceEvent::CarrierLoss { .. }) {
+            // Link events carry a handle only and pass through unchanged ([IFC-TRN-108],
+            // [IFC-TRN-122]); records are rebuilt above from the opened frames.
+            if matches!(
+                e,
+                PresenceEvent::CarrierLoss { .. } | PresenceEvent::CarrierAppeared { .. }
+            ) {
                 h(e);
             }
         }))
