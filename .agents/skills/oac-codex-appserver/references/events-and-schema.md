@@ -35,6 +35,29 @@ Thread ids are UUIDv7 strings and survive restarts. Rollouts persist under
 `CODEX_HOME/sessions/`; the file format there is explicitly not a supported
 surface (do not read or write it).
 
+## Queue management methods (experimental; observed on 0.166.0)
+
+Pin: `@openai/codex` 0.166.0 (user agent `codex-tui/0.166.0`, Windows 10, x86_64), live G7
+recheck 2026-10-31. Sources: `docs/planning/gates/herdr-runs/G7-recheck-2026-10-31.md`
+(Judgments row 66(b)); transcript `docs/planning/gates/fixtures/g7-codex-recheck/transcript-g7recheck-2026-10-31-0.166.0-herdr.jsonl`,
+lines 376-399 (requests and responses) and 474 (dispatch); risk row 66(b) in
+`docs/planning/v0.1/11-risks.md`. One run, one daemon, one machine.
+
+- `thread/queue/list` `{threadId}` -> `{data: [{id, input, clientUserMessageId}]}`.
+- `thread/queue/update` `{threadId, queuedSubmissionId, input}` -> `{queuedSubmission}`; the id is kept.
+- `thread/queue/reorder` `{threadId, queuedSubmissionIds}` -> `{}`.
+- `thread/queue/delete` `{threadId, queuedSubmissionId}` -> `{deleted: true}`.
+- The daemon sent `thread/queue/changed` `{threadId}` to the main client after each write.
+- The observing client declared `capabilities.experimentalApi: true` at `initialize`. The
+  record reads the methods as experimental in the schema.
+
+Shown: a second client that never started or resumed the thread listed, updated, reordered
+and deleted three items queued before `turn/interrupt`. The listing showed each change, and
+the next uninterrupted turn dispatched ITEM 3, then ITEM 2 UPDATED; the deleted item never ran.
+
+Not shown: other versions or platforms, the stability of these methods, error responses, and
+any item not held after an interrupted turn.
+
 ## Daemon and live-inject detail
 
 - Start: `codex app-server daemon start`.
