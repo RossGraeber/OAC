@@ -761,7 +761,7 @@ which needs `mcpToolCall` items added for it (`docs/planning/v0.1/11-risks.md` r
 | Unauthorized routing or discovery; cross-project disclosure | A bound Codex session sends, or calls `list_sessions` | Unchanged: default deny and working-directory scoping (`spec/security.md` §9); refusals on an unbound connection name no session ([MCPB-TOOL-021]) | as `spec/security.md` §13 | As there |
 | Tampering, replay of envelopes, compromised transport, a transport peer id taken as identity | Attacker on the transport | Unchanged: envelope signatures (`spec/security.md` §6, §8) | as `spec/security.md` §13 | As there |
 | Leaked credentials | An adapter reads Codex's login | Unchanged: nothing here reads or holds a credential ([IFC-ADP-005]); a pairing value authenticates nothing outside one pairing window | as `spec/security.md` §13 | None added |
-| Held queue item altered or removed by another daemon client | OAC handed a message off with `thread/queue/add` and Codex holds it (shown after an interrupted turn); another client of the same daemon calls `thread/queue/{list,update,reorder,delete}` | None in OAC's power: the queue is Codex's, and the daemon serves these methods to every client of it. `handed-to-harness` promises only the hand-off (`spec/session-channels.md` §8.1, [SC-DLV-007]; §8.2.1) | None: not testable on OAC's side. Observed live once, `0.166.0`, Windows, n = 1: `docs/planning/gates/herdr-runs/G7-recheck-2026-10-31.md`, Judgments row `66b-queue-management` (transcript L376-L474); `11-risks.md` row 66 | The held item can be edited, reordered or deleted before it runs, and the sender sees `handed-to-harness` either way (§8.2.1). The same-user local boundary of [SEC-AUZ-030]. The four methods are experimental |
+| Held queue item altered or removed by another daemon client | OAC handed a message off with `thread/queue/add` and Codex holds it (shown after an interrupted turn); another client of the same daemon calls `thread/queue/{list,update,reorder,delete}` | None in OAC's power: the queue is Codex's, and the daemon serves these methods to any client of it that opts into the experimental API (the run's second client did). `handed-to-harness` promises only the hand-off (`spec/session-channels.md` §8.1, [SC-DLV-007]; §8.2.1) | None: not testable on OAC's side. Observed live once, `0.166.0`, Windows, n = 1: `docs/planning/gates/herdr-runs/G7-recheck-2026-10-31.md`, Judgments row `66b-queue-management` (transcript L376-L474); `11-risks.md` row 66 | The held item can be edited, reordered or deleted before it runs, and the sender sees `handed-to-harness` either way (§8.2.1). Any such client is the same-user local boundary of [SEC-AUZ-030]. The four methods are experimental |
 | Steering through `turn/steer` | Delivery to a running turn | Unchanged: §8.2.1 ([MCPB-CDX-002] to [MCPB-CDX-005]) | as there | As there |
 | Permission relay; bypass of the Claude development-channel confirmation | Claude path only | Not touched by this section | as `spec/security.md` §13 | As there |
 
@@ -1499,7 +1499,8 @@ override fields are sent.
   the check at `#L477`). On a busy thread, or an idle one whose last turn was interrupted,
   the item waits for a later idle that an interrupt did not cause (`#L405-L470`,
   `#L549-L566`). The G2 `busyqueue` step showed the busy case live
-  (`docs/planning/gates/G2-result.md`); the interrupted case is from source only.
+  (`docs/planning/gates/G2-result.md`); the interrupted case was observed live on `0.161.0` (S3) and on
+  `0.166.0` (the G7 recheck; "What the harness then holds", below).
 - **Checking for a running turn first does not help (C6).** `thread/status/changed`,
   `turn/started` and `Thread.status` all tell a client about a turn, but none is atomic
   with a later `turn/start`. The steer-or-start choice is made under Core's `active_turn`
@@ -1566,9 +1567,10 @@ not observed. This matches the source at `rust-v0.166.0`
 has no subscriber and is not running is shut down and resumed afresh with the override, and any
 other loaded thread ignores the override with a warning and is rejoined. A subscribing
 `thread/resume` that carried a setting member could therefore change a thread's settings when
-the thread had no subscriber; [MCPB-CDX-006] forbids sending one in every state. A request carrying only `threadId`, or `threadId` and `excludeTurns`, satisfies
-it; G2 subscribed with exactly those two (`docs/planning/gates/fixtures/g2-codex-inject/transcript.jsonl`
-line 51). It is scoped to an adapter that pairs, so that an adapter conformant to revision
+the thread had no subscriber; [MCPB-CDX-006] forbids sending one in every state. A request
+carrying only `threadId`, or `threadId` and `excludeTurns`, satisfies it; G2 subscribed
+with exactly those two
+(`docs/planning/gates/fixtures/g2-codex-inject/transcript.jsonl` line 51). It is scoped to an adapter that pairs, so that an adapter conformant to revision
 0.1, which does not, stays conformant (`spec/session-channels.md` §5.3, item 11).
 
 The `turn/steer` and `turn/start` entries in §2.3 stay because they are app-server inbound
@@ -1640,19 +1642,22 @@ version, or a repeat.
   one per idle, in order, after the next uninterrupted turn (L55-L77; ran L102 and L127); an add
   to an idle thread after an interrupt (interrupted L213, add accepted L217) waited likewise
   (quiet window L219; next turn L220-L242; ran L265). The same was observed on `0.161.0`
-  (`docs/planning/gates/herdr-runs/S3-codex-2026-10-08.md`; `11-risks.md` row 66).
-- **The queue is durable and shared: any client of the daemon can list, update, reorder or
-  delete queued items through `thread/queue/{list,update,reorder,delete}`. Confirmed live.** An
-  item reported as `handed-to-harness` can therefore be altered or dropped by another daemon
-  client while it is held, and OAC cannot prevent it: the queue is Codex's, and the daemon
-  serves these methods to every client of it. `handed-to-harness` promises only the hand-off,
-  as the paragraph after this list states. On `0.166.0`, a second client that never started or
+  (`docs/planning/gates/herdr-runs/S3-codex-2026-10-08.md` for items queued before the
+  interrupt, and `docs/planning/gates/herdr-runs/S3-codex-2026-10-07.md` for the add after it,
+  transcript-2026-10-07 L901-L955; `11-risks.md` row 66).
+- **The queue is shared: any client of the daemon can list, update, reorder or delete queued
+  items through `thread/queue/{list,update,reorder,delete}`. Confirmed live.** (That the queue
+  is also durable is from source only.) An item reported as `handed-to-harness` can therefore be
+  altered or dropped by another daemon client while it is held, and OAC cannot prevent it: the
+  queue is Codex's, and the daemon serves these methods to any client of it that opts into the
+  experimental API (the run's second client did, L377). `handed-to-harness` promises only the
+  hand-off, as the paragraph after this list states. On `0.166.0`, a second client that never started or
   resumed the thread (L376-L399) listed the held items (L381, L383), updated one (L384, L388),
   reordered them (L389, L392) and deleted one (L393, L395), and dispatch followed: the thread
   ran item 3, then item 2 as updated, and the deleted item never ran (L474). The four methods
   are experimental, like `thread/queue/add`. The run showed this on items held after an
-  interrupted turn, the window in which a queued item waits; it did not show it on items held
-  in any other way.
+  interrupted turn, one of the windows in which a queued item waits (a busy thread and an
+  unloaded thread are others); it did not show it on items held in any other way.
 - **An add to a thread that is not loaded stays queued until the thread is loaded and idle.
   Confirmed live.** A live OAC session's thread is loaded, so this needs a thread that was
   unloaded after presence was announced. On `0.166.0`, after the thread was unloaded (L266-L276,
