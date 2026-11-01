@@ -84,6 +84,10 @@ function makeWorld(root, opts = {}) {
     current = { label, index, cid, hookSeen: false };
     log.runs.push({ label, args });
     unbound = 1;
+    if (opts.boundAtAccepted) {
+      session = { label, id: oacIdOf(label) };
+      unbound = 0;
+    }
     emit('accepted', { label: 'claude', peer: peer(index * 2 + 1), chain: [{ pid: 1, image: 'claude.exe' }], paired: false });
     queue = [
       // stage 2: the hook handler pairs, ends and is freed; the session is bound
@@ -94,12 +98,15 @@ function makeWorld(root, opts = {}) {
         if (opts.sc142 === label) emitLog('binding Diagnostic SC-ID-142 Bound attachment=Some(ConnectionHandle(#5)) session=None');
         if (opts.logId === label) emitLog(`binding Diagnostic SC-ID-140 Bound attachment=Some(ConnectionHandle(#5)) session=Some(SessionId("${LOG_ID}"))`);
         if (opts.findingLine === label) emitLog('binding Finding SC-ID-130 Withheld attachment=Some(ConnectionHandle(#5)) session=None');
+        if (opts.droppedAtHook) session = null;
         const bind = () => {
           session = { label, id: opts.sameOacId ? oacIdOf('A') : oacIdOf(label) };
         };
         unbound = opts.unboundDuring ?? 0;
         // The bind decision can come after the hook's freed line (the committed run C's does, by 18 ms).
-        if (opts.lateBind || opts.neverBind) pendingBind = { after: opts.neverBind ? Infinity : opts.lateBind, bind };
+        if (opts.droppedAtHook) {
+          /* bound at the accepted event, gone again by the hook's freed line */
+        } else if (opts.lateBind || opts.neverBind) pendingBind = { after: opts.neverBind ? Infinity : opts.lateBind, bind };
         else bind();
         if (opts.markEarly === label) finishPane();
       },
@@ -481,6 +488,12 @@ export async function g5resumeUnit(check) {
       const never = await runScenario(sub2('never-bind'), { neverBind: true });
       check('g5resume bind: a session that is never listed fails the run after a bounded number of retries (' + MAX_BIND_RETRIES + ' extra samples per run), with the listed-0 finding', never.error && /expectations not met/.test(never.error.message) && never.world.log.opsCommands === 3 * (2 + MAX_BIND_RETRIES + 1) && never.out.findings.some((f) => /^run A: oac sessions did not list exactly one bound session while it was alive \(listed 0\)/.test(f)), 'ops ' + never.world.log.opsCommands + ' ' + never.error);
       const promptly = await runScenario(sub2('prompt-bind'), {});
+      const early = await runScenario(sub2('bound-early'), { boundAtAccepted: true });
+      check('g5resume bind: a session already bound at the accepted sample, and still listed at the hook-freed one, passes', early.error === null && early.out.records.get('observed').runs.every((r) => r.samples.length === 2 && r.samples[0].total === 1 && r.samples[1].total === 1), early.error?.stack);
+      const dropped = await runScenario(sub2('dropped'), { boundAtAccepted: true, droppedAtHook: true });
+      check('g5resume bind: a session bound at the accepted sample and gone at the hook-freed one FAILS (every alive sample after the bound one must list exactly it, no unbound attachment)', dropped.error && /expectations not met/.test(dropped.error.message) && dropped.out.findings.some((f) => /^run A: 1 sample\(s\) taken while it was alive after the session was bound did not list exactly that session/.test(f)), String(dropped.error) + JSON.stringify(dropped.out.findings));
+      const leftover = await runScenario(sub2('leftover'), { boundAtAccepted: true, unboundDuring: 1 });
+      check('g5resume bind: an unbound attachment in a later alive sample also fails the run', leftover.error && leftover.out.findings.some((f) => /^run A: 1 sample\(s\) taken while it was alive after the session was bound/.test(f)), JSON.stringify(leftover.out.findings));
       check('g5resume bind: a session bound by the hook-freed sample takes no retry sample', promptly.out.records.get('observed').runs.every((r) => r.samples.length === 2));
 
       const okSrc = await runScenario(sub2('sources'), {});
@@ -498,6 +511,9 @@ export async function g5resumeUnit(check) {
       const nr = await runScenario(sub2('notready'), { daemonNeverReady: true });
       const gn = await runScenario(sub2('gone'), { readyWaitError: true });
       check('g5resume failure path: on the not-ready path the daemon pane is captured once, as pane-daemon-not-ready-herdr.txt, with no duplicate pane-daemon-herdr.txt', nr.out.captures.has('pane-daemon-not-ready-herdr.txt') && !nr.out.captures.has('pane-daemon-herdr.txt') && gn.out.captures.has('pane-daemon-not-ready-herdr.txt') && !gn.out.captures.has('pane-daemon-herdr.txt'));
+      check('g5resume failure path: the events file is still captured on the not-ready path (only the duplicate pane capture is skipped)', nr.out.captures.has('events.jsonl.txt') && gn.out.captures.has('events.jsonl.txt') && /"event":"ready"/.test(gn.out.captures.get('events.jsonl.txt')));
+      const blind = await runScenario(sub2('blind'), { markEarly: 'B', hideBegin: 'B' });
+      check('g5resume alive check: with the begin marker missing from the pane, the done marker is looked for in the whole pane: a sample taken after the run ended is not alive', /begin marker was not found/.test(blind.error?.message ?? '') && blind.out.records.get('observed')?.runs[1].aliveSamples === 1, String(blind.error) + JSON.stringify(blind.out.records.get('observed')?.runs[1]));
     } finally {
       rmSync(root2, { recursive: true, force: true });
     }

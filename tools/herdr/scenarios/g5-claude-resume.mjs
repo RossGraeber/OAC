@@ -157,7 +157,13 @@ export function summarizeRun(run) {
   const listed = bound?.o?.sessions ?? [];
   const sum = (o) => (Array.isArray(o?.unbound) ? o.unbound.reduce((n, u) => n + (Number.isInteger(u?.unbound_attachments) ? u.unbound_attachments : 1), 0) : null);
   const idsAlive = [...new Set(alive.flatMap((s) => (s.o?.sessions ?? []).map((x) => x?.session_id)))];
+  // Once a session was listed, every later sample taken while the run was alive must list that session and nothing
+  // else, with no unbound attachment: a session that is dropped again, or an attachment left over, is not "registered".
+  const boundId = bound && listed.length === 1 && bound.o.sessions_total === 1 ? listed[0].session_id : null;
+  const afterBound = bound ? samples.slice(samples.indexOf(bound) + 1).filter((s) => s.alive) : [];
+  const unsteady = afterBound.filter((s) => !(s.code === 0 && s.o && s.o.sessions_total === 1 && s.o.sessions?.length === 1 && s.o.sessions[0]?.session_id === boundId && sum(s.o) === 0)).length;
   return {
+    unsteadyAfterBound: unsteady,
     label: run.label,
     samples: samples.map((s) => ({ n: s.n, trigger: s.trigger, alive: s.alive, total: s.o?.sessions_total ?? null, unbound: sum(s.o) })),
     aliveSamples: alive.length,
@@ -208,6 +214,7 @@ export function judgeG5(runs, daemon) {
     else {
       if (r.harness !== 'claude' || r.state !== 'online') problems.push(`${L}: the bound session reported harness ${JSON.stringify(r.harness)} and state ${JSON.stringify(r.state)} (expected "claude" and "online")`);
       if (r.unboundDuring !== 0) problems.push(`${L}: oac sessions reported unbound_attachments ${r.unboundDuring} once the session was bound (expected 0)`);
+      if (r.unsteadyAfterBound) problems.push(`${L}: ${r.unsteadyAfterBound} sample(s) taken while it was alive after the session was bound did not list exactly that session with no unbound attachment`);
       const others = r.idsAlive.filter((id) => id !== r.oacSessionId);
       if (others.length) problems.push(`${L}: the samples taken while it was alive listed ${others.length} other session id(s) besides the bound one`);
     }
@@ -340,12 +347,15 @@ export default {
       stopped = true;
     };
     let daemonCaptured = false;
+    let notReadyCaptured = false;
     async function captureDaemon() {
       if (daemonCaptured) return null;
       daemonCaptured = true;
-      const pane = await readDaemon(200);
-      learnText('daemon', pane);
-      ctx.capture('pane-daemon-herdr.txt', pane);
+      if (!notReadyCaptured) {
+        const pane = await readDaemon(200);
+        learnText('daemon', pane);
+        ctx.capture('pane-daemon-herdr.txt', pane);
+      }
       let text = null;
       try {
         text = readFileSync(events, 'utf8');
@@ -369,7 +379,7 @@ export default {
         const pane = await readDaemon(200);
         learnText('daemon', pane);
         ctx.capture('pane-daemon-not-ready-herdr.txt', pane);
-        daemonCaptured = true; // this is the daemon evidence of this path: no second, duplicate capture of the pane
+        notReadyCaptured = true; // the pane is captured here: no second, duplicate capture of it (the events file still is)
         // A timeout halts the driver's input, so the stop in the error path below is refused then; teardown's process
         // accounting ends the daemon (and every other pane process) on that path.
         throw err;
@@ -436,7 +446,7 @@ export default {
           const take = async (trigger) => {
             const s = await sessions(label, 'during', trigger);
             // Alive only if the run's done marker has not appeared by the end of the sample.
-            s.alive = !hasLine((await ownText()) ?? '', mark);
+            s.alive = !hasLine((await ownText()) ?? (await readClaude()), mark);
             run.samples.push(s);
             return s;
           };
