@@ -5,10 +5,11 @@
 //! A transport MAY report a carrier appearance ([IFC-TRN-120]), so the rows apply only to a
 //! transport whose binding says it does ([`TransportHarness::reports_carrier_appearance`],
 //! required of every harness, as `binding_sealing` is). For any other they are
-//! [`Verdict::NotApplicable`], never a pass, except that the [IFC-TRN-122] row then also
-//! checks the binding: a transport whose binding says it reports none must report none. The
-//! rows also need a second implementation whose link can appear, so a single-implementation
-//! medium reports them not applicable too.
+//! [`Verdict::NotApplicable`], never a pass. The rows also need a second implementation whose
+//! link can appear, so a single-implementation medium reports them not applicable too.
+//! [IFC-TRN-090] requires the binding document to state whether the transport reports a
+//! carrier appearance; the one observable half of that is its own row,
+//! `binding-states-carrier-appearance`, below.
 //!
 //! Only [IFC-TRN-121] and [IFC-TRN-122] are transport requirements. [IFC-TRN-123],
 //! [IFC-TRN-124] and [IFC-TRN-125] are the core's (Appendix C), so this suite has no row under
@@ -33,8 +34,12 @@
 //!   file at compile time, and the handle is the one that the frames of that link carry. That
 //!   the handle derives from no device or session value cannot be read from outside, because
 //!   `CarrierHandle` has no accessor, so that part rests on the type and the binding document
-//!   ([IFC-TRN-108] for a sealing transport). When the binding says the transport reports no
-//!   appearance, the same row fails if one is observed.
+//!   ([IFC-TRN-108] for a sealing transport).
+//! - [IFC-TRN-090] `binding-states-carrier-appearance`: when the harness says the transport
+//!   reports no appearance, none is observed, for a peer that starts under the watch or for
+//!   one already up before it. Not applicable when the harness says it reports them, and on a
+//!   one-implementation medium. A transport that reports none while its binding says it does
+//!   is the [IFC-TRN-121] rows' to catch.
 
 use super::*;
 
@@ -141,10 +146,10 @@ pub(crate) fn handed_on_own_initiative(h: &dyn TransportHarness) -> Verdict {
 }
 
 /// [IFC-TRN-122]: the event has the carrier handle as its only member, and that handle names
-/// the link whose frames follow. With a binding that reports no appearance, none is observed.
+/// the link whose frames follow.
 pub(crate) fn only_its_handle(h: &dyn TransportHarness) -> Verdict {
-    if !h.reports_carrier_appearance() {
-        return none_reported(h);
+    if let Some(v) = gate(h) {
+        return v;
     }
     let w = World::first_only(h);
     if let Some(v) = single(&w) {
@@ -188,10 +193,18 @@ pub(crate) fn only_its_handle(h: &dyn TransportHarness) -> Verdict {
     )
 }
 
-/// The binding says the transport reports no appearance. The row then fails when one is
-/// observed, for a peer that starts under the watch and for one already up before it, so a
-/// wrong binding cannot switch the other appearance rows off.
-fn none_reported(h: &dyn TransportHarness) -> Verdict {
+/// [IFC-TRN-090]: the binding states whether the transport reports a carrier appearance, and
+/// the transport does not report one that the binding denies. The row fails when the harness
+/// says none is reported and one is observed, for a peer that starts under the watch and for
+/// one already up before it, so a wrong binding cannot switch the other appearance rows off.
+pub(crate) fn binding_states_appearance(h: &dyn TransportHarness) -> Verdict {
+    if h.reports_carrier_appearance() {
+        return Verdict::NotApplicable(
+            "the binding says the transport reports a carrier appearance: nothing denied, and \
+             the IFC-TRN-121 rows hold it to that"
+                .into(),
+        );
+    }
     let w = World::first_only(h);
     if let Some(v) = single(&w) {
         return v;

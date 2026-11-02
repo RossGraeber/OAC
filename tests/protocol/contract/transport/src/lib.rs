@@ -41,12 +41,14 @@
 //! [IFC-TRN-108], [IFC-TRN-109] and [IFC-TRN-113] when sealing is declared, and
 //! [IFC-TRN-110] against the binding. When the binding reports a carrier appearance
 //! ([`TransportHarness::reports_carrier_appearance`], [IFC-TRN-120]), [IFC-TRN-121] and
-//! [IFC-TRN-122] too, and when it does not, [IFC-TRN-122] fails if one is observed (module
-//! `appearance`; [IFC-TRN-123] to [IFC-TRN-125] are the core's and have no row). [`run`]
+//! [IFC-TRN-122] too (module `appearance`; [IFC-TRN-123] to [IFC-TRN-125] are the core's and
+//! have no row), and [IFC-TRN-090] against the binding for that one statement. [`run`]
 //! returns one [`Row`] per check; [IFC-TRN-003] passes only when no other row failed. The requirements Appendix C gives the `core` are not
 //! this suite's (they need the core's send and receive paths, F6 and F11), and
 //! [IFC-TRN-090] and [IFC-TRN-117] (a binding document states its clock-skew limit) are the
-//! binding document's, reviewed by reading it, so this suite has no row for them.
+//! binding document's, reviewed by reading it, so this suite has no row for them, except for
+//! the one observable half of [IFC-TRN-090]: the binding says whether the transport reports a
+//! carrier appearance, and the transport must not report one that the binding denies.
 //! [IFC-TRN-038] is a SHOULD, with no fixture (Appendix A).
 //!
 //! [IFC-TRN-034] is checked at the sending end only (revision 0.7): a payload passed at or
@@ -88,7 +90,7 @@ pub trait TransportHarness: Sync {
     /// True when the independently reviewed binding says the transport reports a carrier
     /// appearance as a `carrier-appeared` event ([IFC-TRN-120], a MAY). Required, as
     /// `binding_sealing` is. When false the carrier-appearance rows report not applicable,
-    /// since a transport that never reports one conforms, and the [IFC-TRN-122] row fails
+    /// since a transport that never reports one conforms, and the [IFC-TRN-090] row fails
     /// if one is observed. Must not be computed from the transport's behaviour.
     fn reports_carrier_appearance(&self) -> bool;
 
@@ -387,6 +389,11 @@ pub const CHECKS: &[(&str, &str, Check)] = &[
         "IFC-TRN-122",
         "carrier-appeared-carries-only-the-links-handle",
         appearance::only_its_handle,
+    ),
+    (
+        "IFC-TRN-090",
+        "binding-states-carrier-appearance",
+        appearance::binding_states_appearance,
     ),
     ("IFC-TRN-080", "destination-restricted", ifc_trn_080),
     ("IFC-NEU-003", "no-native-address-to-core", ifc_neu_003),
