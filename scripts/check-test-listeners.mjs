@@ -392,6 +392,7 @@ export const REVIEWED = [
   { path: "core/src/session_binding.rs", rule: "rust-bind", line: P("Some(StartKind::Transition", ") => bind(if any_differs {"), why: "Local BindingDecision closure; only constructs a session-binding decision, no socket" },
   { path: "core/src/session_binding.rs", rule: "rust-bind", line: P("bind(Vec", "::new())"), why: "Local BindingDecision closure; no socket" },
   { path: "core/src/session_binding.rs", rule: "rust-bind", line: P("bind(vec![diagnos", "tic(\"SC-ID-141\")])"), why: "Local BindingDecision closure; no socket" },
+  { path: "cli/tests/appearance_timer.rs", rule: "rust-bind", line: P("pipes.bind(&attachment, &re", "cord, None).unwrap();"), why: "Pipelines attachment binding in the daemon-timer appearance test (#473); no socket" },
   { path: "core/tests/sealing.rs", rule: "rust-bind", line: P("n.pipes.bind(&a, &re", "cord, None).unwrap();"), why: "Pipelines attachment binding; no socket" },
   { path: "core/tests/sealing.rs", rule: "rust-bind", line: P("t.z.pipes.with_engine(|", "e| e.bind(&t.sy, &yk));"), why: "AuthorizationEngine session/key binding; no socket" },
   { path: "tests/security/src/sealing.rs", rule: "rust-bind", line: P("self.pipes.bind(&a, &reco", "rd, None).expect(\"bound\");"), why: "Pipelines attachment binding; no socket" },
