@@ -2,31 +2,43 @@
 
 //! The carrier-appearance rows (`spec/interfaces.md` §6.6, revision 0.13; #473).
 //!
-//! A transport MAY report a carrier appearance ([IFC-TRN-120]), so these rows apply only to
-//! a transport whose binding says it does ([`TransportHarness::reports_carrier_appearance`]);
-//! for any other they are [`Verdict::NotApplicable`], never a pass. They also need a second
-//! implementation whose link can appear, so a single-implementation medium reports them not
-//! applicable too.
+//! A transport MAY report a carrier appearance ([IFC-TRN-120]), so the rows apply only to a
+//! transport whose binding says it does ([`TransportHarness::reports_carrier_appearance`],
+//! required of every harness, as `binding_sealing` is). For any other they are
+//! [`Verdict::NotApplicable`], never a pass, except that the [IFC-TRN-122] row then also
+//! checks the binding: a transport whose binding says it reports none must report none. The
+//! rows also need a second implementation whose link can appear, so a single-implementation
+//! medium reports them not applicable too.
 //!
-//! What each row covers, and what stays outside a transport suite:
+//! Only [IFC-TRN-121] and [IFC-TRN-122] are transport requirements. [IFC-TRN-123],
+//! [IFC-TRN-124] and [IFC-TRN-125] are the core's (Appendix C), so this suite has no row under
+//! those ids. The transport behaviour that the explanatory text of [IFC-TRN-123] and
+//! [IFC-TRN-125] relies on is checked here as completeness of [IFC-TRN-121]: a transport that
+//! reports appearances reports the ones that follow from a link coming up, and none from a
+//! payload.
 //!
-//! - [IFC-TRN-121]: the appearance of a peer that starts while this transport runs, and of a
-//!   peer already usable before the watch was made, each reaches the `watch_presence`
-//!   handler with no call from the test in between except the medium's own settle barrier.
+//! - [IFC-TRN-121] `carrier-appearance-handed-on-own-initiative`: the appearance of a peer that
+//!   starts while this transport runs, and of a peer already usable before the watch was made
+//!   (the lead's reading, 2026-11-01: a transport that reports appearances reports every one
+//!   it finds), each reaches the `watch_presence` handler with no call from the test in
+//!   between except the medium's own settle barrier.
+//! - [IFC-TRN-121] `payloads-cause-no-carrier-appearance`: presence records and envelopes sent
+//!   over a link that is already up cause no further appearance (an announcement is a payload,
+//!   not a link event; `spec/interfaces.md` §6.6, after [IFC-TRN-123]). The core's 2 second
+//!   bound is not observable here.
+//! - [IFC-TRN-121] `each-new-link-of-a-cycling-peer-is-reported`: a peer that leaves and starts
+//!   again is reported for each new link, which the core's per-transport hold-off of
+//!   [IFC-TRN-125] presumes. The hold-off itself is not observable here.
 //! - [IFC-TRN-122]: the event is destructured with no `..`, so a second member breaks this
-//!   file at compile time; the handle is the one that the frames of that link carry; and the
-//!   appearance is not a presence record. That the handle derives from no device or session
-//!   value cannot be read from outside, because `CarrierHandle` has no accessor, so that
-//!   part rests on the binding document ([IFC-TRN-108] for a sealing transport).
-//! - [IFC-TRN-123], the transport half: the announcements the core sends are payloads, and
-//!   sending payloads over a link that is already up reports no further appearance. The core
-//!   half (a set of announcements within 2 seconds of an appearance) is not observable here.
-//! - [IFC-TRN-125], the transport half: a peer that cycles its links is reported afresh each
-//!   time. The hold-off of 1 second is the core's and is not observable here.
+//!   file at compile time, and the handle is the one that the frames of that link carry. That
+//!   the handle derives from no device or session value cannot be read from outside, because
+//!   `CarrierHandle` has no accessor, so that part rests on the type and the binding document
+//!   ([IFC-TRN-108] for a sealing transport). When the binding says the transport reports no
+//!   appearance, the same row fails if one is observed.
 
 use super::*;
 
-/// Why a row does not apply to this harness or medium, if it does not.
+/// Why a row does not apply to this harness, if it does not.
 fn gate(h: &dyn TransportHarness) -> Option<Verdict> {
     if !h.reports_carrier_appearance() {
         return Some(Verdict::NotApplicable(
@@ -128,11 +140,11 @@ pub(crate) fn handed_on_own_initiative(h: &dyn TransportHarness) -> Verdict {
     )
 }
 
-/// [IFC-TRN-122]: the event has the carrier handle as its only member, that handle names the
-/// link whose frames follow, and the appearance is not itself a presence record.
+/// [IFC-TRN-122]: the event has the carrier handle as its only member, and that handle names
+/// the link whose frames follow. With a binding that reports no appearance, none is observed.
 pub(crate) fn only_its_handle(h: &dyn TransportHarness) -> Verdict {
-    if let Some(v) = gate(h) {
-        return v;
+    if !h.reports_carrier_appearance() {
+        return none_reported(h);
     }
     let w = World::first_only(h);
     if let Some(v) = single(&w) {
@@ -145,11 +157,8 @@ pub(crate) fn only_its_handle(h: &dyn TransportHarness) -> Verdict {
         !w.eventually(|| !seen.appearances().is_empty()),
         "no carrier-appeared event to inspect"
     );
-    fail_if!(
-        !seen.records().is_empty(),
-        "an appearance was reported as a presence record"
-    );
-    // The link's own frames: one presence record from the peer over the link that appeared.
+    // The link's own frames: a presence record from the peer over the link that appeared.
+    // (Duplicates of it are allowed, so only that one arrived is asked.)
     peer.t.send_presence(
         &Destination::Device(w.a.key.clone()),
         payload(PayloadKind::Presence, b"p-122"),
@@ -171,21 +180,47 @@ pub(crate) fn only_its_handle(h: &dyn TransportHarness) -> Verdict {
         !seen.appearances().contains(&frame_carrier),
         "no carrier-appeared event named the handle that the peer's frames carry"
     );
-    fail_if!(
-        seen.records().len() != 1,
-        "{} presence record(s) arrived for one sent",
-        seen.records().len()
-    );
     Verdict::Pass(
-        "carrier-appeared holds only a handle, equal to the handle of the link's frames, and is \
-         not a presence record (that the handle derives from no device or session value is \
-         the binding review's: the type has no accessor)"
+        "carrier-appeared holds only a handle, equal to the handle of the link's frames (that \
+         the handle derives from no device or session value is the type's and the binding \
+         review's: the type has no accessor)"
             .into(),
     )
 }
 
-/// [IFC-TRN-123], the transport half: the core's announcements are payloads, and a payload
-/// sent over a link that is already up is no link event. Neither side sees a further
+/// The binding says the transport reports no appearance. The row then fails when one is
+/// observed, for a peer that starts under the watch and for one already up before it, so a
+/// wrong binding cannot switch the other appearance rows off.
+fn none_reported(h: &dyn TransportHarness) -> Verdict {
+    let w = World::first_only(h);
+    if let Some(v) = single(&w) {
+        return v;
+    }
+    let live = Seen::default();
+    w.watch(&w.a, live.watcher());
+    let _peer = w.start_peer(2);
+    let w2 = World::first_only(h);
+    let _peer2 = w2.start_peer(2);
+    w2.quiet();
+    let late = Seen::default();
+    w2.watch(&w2.a, late.watcher());
+    w.quiet();
+    w2.quiet();
+    let seen = live.appearances().len() + late.appearances().len();
+    fail_if!(
+        seen > 0,
+        "the binding says the transport reports no carrier appearance, but {seen} \
+         carrier-appeared event(s) were handed over (binding mismatch)"
+    );
+    Verdict::NotApplicable(
+        "the binding does not report a carrier appearance ([IFC-TRN-120] is a MAY), and none \
+         was observed"
+            .into(),
+    )
+}
+
+/// [IFC-TRN-121], completeness: the core's announcements are payloads, and a payload sent
+/// over a link that is already up is no link event. Neither side sees a further
 /// carrier-appeared event for presence records and envelopes sent in both directions.
 pub(crate) fn payloads_are_no_appearance(h: &dyn TransportHarness) -> Verdict {
     if let Some(v) = gate(h) {
@@ -255,10 +290,9 @@ pub(crate) fn payloads_are_no_appearance(h: &dyn TransportHarness) -> Verdict {
     ))
 }
 
-/// [IFC-TRN-125], the transport half: a peer that cycles its links (leaves and starts again)
-/// is reported again for each new link, so the core's per-transport hold-off has something
-/// to apply to. Every cycle adds at least one further appearance, and no appearance is
-/// swallowed because the same device reappears.
+/// [IFC-TRN-121], completeness: a peer that cycles its links (leaves and starts again) is
+/// reported again for each new link. Every cycle adds at least one further appearance, and no
+/// appearance is swallowed because the same device reappears.
 pub(crate) fn every_new_link_is_reported(h: &dyn TransportHarness) -> Verdict {
     if let Some(v) = gate(h) {
         return v;

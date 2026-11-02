@@ -229,31 +229,34 @@ Existing memory breach tests still run unchanged.
 
 ## Carrier appearance, 2026-11-01 (#473)
 
-A transport MAY report a carrier appearance (IFC-TRN-120), so the harness says whether its
-binding does, with `TransportHarness::reports_carrier_appearance()` (default false, taken
-from the binding review and never from the transport's behaviour). For a transport that
-does not, the four rows below report not applicable; so they do for a one-implementation
-medium, which has no second implementation whose link could appear. They are added
-rows: no existing row changed. Module `appearance` holds them and says what each covers:
+A transport MAY report a carrier appearance (IFC-TRN-120), so every harness says whether its
+binding does, with `TransportHarness::reports_carrier_appearance()` (required, as
+`binding_sealing()` is; taken from the binding review, never from the transport's
+behaviour). For a transport whose binding says it does not, the IFC-TRN-121 rows report not
+applicable, and the IFC-TRN-122 row fails if an appearance is observed all the same (a wrong
+binding cannot switch the rows off). A one-implementation medium has no second
+implementation whose link could appear, so the rows report not applicable there too. They
+are added rows: no existing row changed. Module `appearance` holds them and says what each
+covers. Only IFC-TRN-121 and IFC-TRN-122 are transport requirements; IFC-TRN-123, -124
+and -125 are the core's (Appendix C) and have no row here.
 
-- IFC-TRN-121: a peer that starts under the watch, and a peer already usable before the
-  watch was made, each reach the `watch_presence` handler on the transport's own
-  initiative.
-- IFC-TRN-122: the event is destructured with no `..` (a second member breaks the suite
-  at compile time), its handle is the one that the link's frames carry, and it is not a
-  presence record. That the handle derives from no device or session value is the binding
-  review's (the type has no accessor).
-- IFC-TRN-123, transport half: payloads over an established link (the core's announcements
-  are payloads) cause no further appearance. The core half, a set of announcements within
-  2 seconds, is not observable here.
-- IFC-TRN-125, transport half: each new link of a cycling peer is reported. The 1 second
-  hold-off is the core's and is not observable here.
+- IFC-TRN-121 (three rows): a peer that starts under the watch, and a peer already usable
+  before the watch was made, each reach the `watch_presence` handler on the transport's own
+  initiative; and, as completeness of the same duty, payloads over an established link cause
+  no further appearance and each new link of a cycling peer is reported. The last two rest
+  on the explanatory text after IFC-TRN-123 and -125; the 2 second bound and the 1 second
+  hold-off themselves are the core's and are not observable here.
+- IFC-TRN-122: the event is destructured with no `..` (a second member breaks the suite at
+  compile time) and its handle is the one that the link's frames carry. That the handle
+  derives from no device or session value is the type's and the binding review's
+  (`CarrierHandle` has no accessor).
 
 The sealing stand-in's `watch_presence` (`sealed::Logical`) now also passes
 `carrier-appeared` events through, as it already did `carrier-loss` ones: both carry a handle
 only. The planted breaches in `transports/memory/tests/contract.rs` (`DropsAppearances`,
-`WrongAppearanceHandle`, `AppearsOnPayload`, `SuppressesRepeats`) each fail the row they
-exist for.
+`WrongAppearanceHandle`, `AppearsOnPayload`, `SuppressesRepeats`, and a binding that denies
+appearances) are each caught by the row they exist for. `DropsAppearances` also fails the
+other rows, which have no appearance to start from; each of the others fails its own row alone.
 
 Run the default gate on Windows:
 
