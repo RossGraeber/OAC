@@ -275,6 +275,8 @@ leak Zenoh-specific concepts into the neutral protocol."
 
 Not delivered, by design: a pairing verb (#437), a verb that reads the log, `oac status` for other devices, and the Codex endpoint (#433).
 
+**Pairing verbs (dated note, 2026-11-03, #437, S0 design note; proposed, lead approval of the slices pending; documentation only).** The reserved pairing row above is designed in `docs/planning/decisions/G-437-pairing.md`: `oac pair`, `oac pair --respond`, `oac unpair <key_id>` and `oac pair --list`, all with `--json`, over new ops under `oac_control:1` (one long-lived control connection per pairing, the 2 s deadline on the first line only), with the operator carrying the exchange as pasted blobs (lead decision 2026-11-03; no spec change), a durable trust store and a durable agreement-key store. The exit codes are the set above. Grant verbs are #492. Nothing in that record is delivered yet; its slices S1 to S6 are in its §10.
+
 Two documented one-line launch commands, verified against first-party docs rather than
 copied from the presumptive shape in the task breakdown:
 
