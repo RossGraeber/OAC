@@ -293,7 +293,9 @@ fn arguments() -> Result<Arguments, String> {
 
 /// Sends on `gone` once the process `pid` has ended (or is replaced by another with its id).
 /// `None` when there is no such process now. It checks once a second: an end is not an event
-/// the table gives, and a daemon left a second too long is harmless.
+/// the table gives, and a daemon left a second too long is harmless. On Windows a backward
+/// wall-clock step can hide a live owner from `lookup` (inherited from `SystemTable`), which
+/// only ends a test daemon early.
 fn watch_owner(pid: u32) -> Option<tokio::sync::oneshot::Receiver<()>> {
     let owner = peer::SystemTable::new().ok()?.lookup(pid)?.id;
     let (gone_tx, gone_rx) = tokio::sync::oneshot::channel::<()>();
