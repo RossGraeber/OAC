@@ -19,8 +19,9 @@ use oac_contract_transport::{Fate, FaultControl, Medium, Report, TransportHarnes
 use oac_core::health::HealthStatus;
 use oac_core::ids::KeyId;
 use oac_core::transport::{
-    Deadline, Destination, InboundHandler, Payload, PayloadKind, PresenceHandler, PublishResult,
-    Reach, Subscription, Transport, TransportCapabilities, TransportConfiguration, TransportError,
+    CarrierHandle, Deadline, Destination, InboundHandler, Payload, PayloadKind, PresenceEvent,
+    PresenceHandler, PublishResult, Reach, Subscription, Transport, TransportCapabilities,
+    TransportConfiguration, TransportError,
 };
 use oac_transport_memory::{
     MemoryConfiguration, MemoryNetwork, MemoryTransport, NoFaults, ScriptedFaults,
@@ -63,6 +64,13 @@ impl FaultControl for Faults {
 impl TransportHarness for MemoryHarness {
     fn binding_sealing(&self) -> bool {
         false
+    }
+
+    /// The in-memory transport reports a carrier appearance to the watchers of an endpoint
+    /// for each endpoint that joins its network, including one already running when the
+    /// watch is made (`transports/memory/src/network.rs`).
+    fn reports_carrier_appearance(&self) -> bool {
+        true
     }
 
     fn name(&self) -> String {
@@ -167,8 +175,15 @@ fn the_memory_transport_passes_the_contract_suite() {
         // it report it not applicable.
         // [IFC-TRN-119] binds only a transport that declares `reliability`, and the memory
         // transport does not.
-        let mut expected = vec!["IFC-TRN-080"];
+        // The carrier-appearance rows (three under IFC-TRN-121, one under IFC-TRN-122) need a
+        // second implementation whose link can appear, so a one-implementation medium reports
+        // them not applicable; on a two-implementation medium they pass. The IFC-TRN-090 row
+        // is not applicable whenever the harness says the transport reports appearances, as
+        // the memory harness does.
+        let mut expected = vec!["IFC-TRN-090", "IFC-TRN-080"];
         if h.reach == Reach::LocalOnly {
+            let rows = ["IFC-TRN-121", "IFC-TRN-121", "IFC-TRN-121", "IFC-TRN-122"];
+            expected.splice(0..0, rows);
             expected.insert(0, "IFC-TRN-043");
         }
         if !h.scripted {
@@ -267,6 +282,20 @@ enum Breach {
     /// Positive control, not a breach: declares `reliability` present and, on a medium with no
     /// faults, loses nothing. [IFC-TRN-119] must pass it, not skip it (#421).
     ClaimsReliabilityHonestly,
+    /// Never hands a `carrier-appeared` event to the watcher ([IFC-TRN-121]).
+    DropsAppearances,
+    /// Hands over a `carrier-appeared` event with a handle that is not the one the link's
+    /// frames carry ([IFC-TRN-122]).
+    WrongAppearanceHandle,
+    /// Reports a `carrier-appeared` event for each presence record that arrives, as if an
+    /// announcement were a link event. The completeness check under [IFC-TRN-121] catches it
+    /// (an announcement is a payload, not a link event; IFC-TRN-123 itself is the core's).
+    AppearsOnPayload,
+    /// Reports only the first appearance a watcher is given and swallows every later one, as
+    /// if the device cycling its links were already known. The completeness check under
+    /// [IFC-TRN-121] catches it (each new link of a cycling peer is reported; the hold-off of
+    /// IFC-TRN-125 is the core's).
+    SuppressesRepeats,
 }
 
 /// The limit below the declared maximum at which `UnderSize` and `UnderSizeNonEnvelope`
@@ -287,6 +316,8 @@ struct Broken {
     inner: Arc<MemoryTransport>,
     breach: Breach,
     shared: Arc<Shared>,
+    /// Set once `SuppressesRepeats` has passed its one appearance.
+    reported: Arc<AtomicBool>,
 }
 
 fn dest_key(d: &Destination) -> String {
@@ -425,6 +456,39 @@ impl Transport for Broken {
     }
 
     fn watch_presence(&self, handler: PresenceHandler) -> Result<(), TransportError> {
+        let (breach, reported) = (self.breach, self.reported.clone());
+        let handler: PresenceHandler = match breach {
+            Breach::DropsAppearances => Arc::new(move |e| {
+                if !matches!(e, PresenceEvent::CarrierAppeared { .. }) {
+                    handler(e)
+                }
+            }),
+            Breach::WrongAppearanceHandle => Arc::new(move |e| match e {
+                PresenceEvent::CarrierAppeared { .. } => handler(PresenceEvent::CarrierAppeared {
+                    carrier: CarrierHandle::from_opaque(vec![0xAA]),
+                }),
+                other => handler(other),
+            }),
+            Breach::AppearsOnPayload => Arc::new(move |e| {
+                let record_carrier = match &e {
+                    PresenceEvent::Record { carrier, .. } => Some(carrier.clone()),
+                    _ => None,
+                };
+                handler(e);
+                if let Some(carrier) = record_carrier {
+                    handler(PresenceEvent::CarrierAppeared { carrier });
+                }
+            }),
+            Breach::SuppressesRepeats => Arc::new(move |e| {
+                if matches!(e, PresenceEvent::CarrierAppeared { .. })
+                    && reported.swap(true, Ordering::SeqCst)
+                {
+                    return;
+                }
+                handler(e)
+            }),
+            _ => handler,
+        };
         self.inner.watch_presence(handler)
     }
 
@@ -459,6 +523,11 @@ impl TransportHarness for BrokenHarness {
         false
     }
 
+    /// The wrapper claims what the memory transport does, so the appearance rows apply.
+    fn reports_carrier_appearance(&self) -> bool {
+        true
+    }
+
     fn name(&self) -> String {
         format!("{:?} over {}", self.breach, self.base.name())
     }
@@ -478,6 +547,7 @@ impl Medium for BrokenMedium {
             inner: Arc::new(MemoryTransport::new()),
             breach: self.breach,
             shared: self.shared.clone(),
+            reported: Arc::default(),
         })
     }
     fn configuration(&self) -> TransportConfiguration {
@@ -573,6 +643,125 @@ fn a_late_hand_over_is_caught_by_the_row_that_observes_it() {
         for row in passes {
             assert!(!failed(row), "{breach:?} wrongly failed {row}: {report}");
         }
+    }
+}
+
+/// The carrier-appearance rows (interfaces 0.13, #473) each catch the breach they exist for. A
+/// transport that never hands over an appearance fails the delivery row; one that hands over
+/// a handle that is not the link's fails the handle row; one that reports an appearance for a
+/// presence record fails the payload row; and one that swallows the second appearance of a
+/// cycling peer fails the cycling row. Apart from the first, which also leaves the other
+/// rows without an appearance to start from, each fails that row alone. The unbroken
+/// transport passes all four. The payload and cycling rows are completeness checks under
+/// IFC-TRN-121: IFC-TRN-123 and IFC-TRN-125 are the core's and have no row.
+#[test]
+fn a_missing_or_wrong_appearance_is_caught_by_the_row_that_observes_it() {
+    const DELIVERED: (&str, &str) = ("IFC-TRN-121", "carrier-appearance-handed-on-own-initiative");
+    const PAYLOAD: (&str, &str) = ("IFC-TRN-121", "payloads-cause-no-carrier-appearance");
+    const CYCLING: (&str, &str) = ("IFC-TRN-121", "each-new-link-of-a-cycling-peer-is-reported");
+    const HANDLE: (&str, &str) = (
+        "IFC-TRN-122",
+        "carrier-appeared-carries-only-the-links-handle",
+    );
+    const ROWS: [(&str, &str); 4] = [DELIVERED, PAYLOAD, CYCLING, HANDLE];
+    let verdict = |report: &Report, row: (&str, &str)| {
+        report
+            .rows
+            .iter()
+            .find(|r| (r.id, r.check) == row)
+            .unwrap_or_else(|| panic!("no row {row:?}:\n{report}"))
+            .verdict
+            .clone()
+    };
+    // No IFC-TRN-123 or IFC-TRN-125 row: they are the core's.
+    let any = run(&MEDIA[1]);
+    assert!(any.verdicts("IFC-TRN-123").is_empty(), "{any}");
+    assert!(any.verdicts("IFC-TRN-125").is_empty(), "{any}");
+    for base in [MEDIA[1], MEDIA[3]] {
+        let plain = run(&base);
+        for row in ROWS {
+            assert!(
+                matches!(verdict(&plain, row), Verdict::Pass(_)),
+                "{row:?}: {plain}"
+            );
+        }
+        for (breach, fails) in [
+            (Breach::DropsAppearances, DELIVERED),
+            (Breach::WrongAppearanceHandle, HANDLE),
+            (Breach::AppearsOnPayload, PAYLOAD),
+            (Breach::SuppressesRepeats, CYCLING),
+        ] {
+            let report = run(&BrokenHarness { base, breach });
+            assert!(
+                verdict(&report, fails).is_fail(),
+                "{breach:?} not caught by {fails:?}:\n{report}"
+            );
+            assert!(report.failed("IFC-TRN-003"), "{report}");
+            if breach != Breach::DropsAppearances {
+                for row in ROWS.into_iter().filter(|row| *row != fails) {
+                    assert!(
+                        !verdict(&report, row).is_fail(),
+                        "{breach:?} also failed {row:?}:\n{report}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// A binding that says the transport reports no appearance, over a transport that does, is
+/// caught by the IFC-TRN-090 row on a medium with two implementations; the IFC-TRN-121 and
+/// IFC-TRN-122 rows stay not applicable. On a one-implementation medium there is nothing to
+/// observe. As a negative control, the same binding over a transport that really drops every
+/// appearance is not caught: the row fails only for an appearance that is observed.
+#[test]
+fn a_binding_that_denies_a_reported_appearance_is_caught() {
+    const BINDING: &str = "binding-states-carrier-appearance";
+    struct DeniesAppearances<H>(H);
+    impl<H: TransportHarness> TransportHarness for DeniesAppearances<H> {
+        fn binding_sealing(&self) -> bool {
+            false
+        }
+        fn reports_carrier_appearance(&self) -> bool {
+            false
+        }
+        fn name(&self) -> String {
+            format!("binding denies appearances over {}", self.0.name())
+        }
+        fn medium(&self) -> Box<dyn Medium> {
+            self.0.medium()
+        }
+    }
+    let row = |report: &Report| {
+        report
+            .rows
+            .iter()
+            .find(|r| (r.id, r.check) == ("IFC-TRN-090", BINDING))
+            .unwrap_or_else(|| panic!("no IFC-TRN-090 row:\n{report}"))
+            .verdict
+            .clone()
+    };
+    for base in MEDIA {
+        let report = run(&DeniesAppearances(base));
+        let caught = base.reach == Reach::CrossImplementation;
+        assert_eq!(row(&report).is_fail(), caught, "{report}");
+        assert!(!report.failed("IFC-TRN-122"), "{report}");
+        assert!(!report.failed("IFC-TRN-121"), "{report}");
+        for v in report.verdicts("IFC-TRN-121") {
+            assert!(matches!(v, Verdict::NotApplicable(_)), "{report}");
+        }
+        // Negative control: a transport that drops every appearance, under a binding that
+        // says it reports none, observes none, so the row is not applicable and the report
+        // as a whole conforms.
+        let honest = run(&DeniesAppearances(BrokenHarness {
+            base,
+            breach: Breach::DropsAppearances,
+        }));
+        assert!(
+            matches!(row(&honest), Verdict::NotApplicable(_)),
+            "{honest}"
+        );
+        honest.assert_conformant();
     }
 }
 
@@ -805,6 +994,10 @@ impl TransportHarness for LazyHarness {
         false
     }
 
+    fn reports_carrier_appearance(&self) -> bool {
+        self.0.reports_carrier_appearance()
+    }
+
     fn name(&self) -> String {
         format!("asynchronous subscriptions over {}", self.0.name())
     }
@@ -930,6 +1123,11 @@ struct SealingTransport {
 }
 impl TransportHarness for SealingHarness {
     fn binding_sealing(&self) -> bool {
+        true
+    }
+
+    /// The stand-in wraps the in-memory transport, which reports a carrier appearance.
+    fn reports_carrier_appearance(&self) -> bool {
         true
     }
 

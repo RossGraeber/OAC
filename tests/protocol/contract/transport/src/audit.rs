@@ -86,6 +86,9 @@ impl TransportHarness for Harness<'_> {
     fn binding_sealing(&self) -> bool {
         self.inner.binding_sealing()
     }
+    fn reports_carrier_appearance(&self) -> bool {
+        self.inner.reports_carrier_appearance()
+    }
     fn name(&self) -> String {
         self.inner.name()
     }

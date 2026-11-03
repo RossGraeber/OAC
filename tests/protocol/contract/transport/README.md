@@ -227,6 +227,41 @@ logical callback, with no accompanying deadline. Each is caught under its requir
 Deleting each mandatory sealing row from an otherwise passing report is also caught.
 Existing memory breach tests still run unchanged.
 
+## Carrier appearance, 2026-11-01 (#473)
+
+A transport MAY report a carrier appearance (IFC-TRN-120), so every harness says whether its
+binding does, with `TransportHarness::reports_carrier_appearance()` (required, as
+`binding_sealing()` is; taken from the binding review, never from the transport's
+behaviour). For a transport whose binding says it does not, the IFC-TRN-121 rows report not
+applicable, and a separate row, IFC-TRN-090 `binding-states-carrier-appearance`, fails if an
+appearance is observed all the same (a wrong binding cannot switch the rows off). IFC-TRN-090
+requires the binding document to state whether the transport reports a carrier appearance;
+that row is the one observable half of it, and is not applicable when the harness says the
+transport does report. A one-implementation medium has no second
+implementation whose link could appear, so the rows report not applicable there too. They
+are added rows: no existing row changed. Module `appearance` holds them and says what each
+covers. Only IFC-TRN-121 and IFC-TRN-122 are transport requirements; IFC-TRN-123, -124
+and -125 are the core's (Appendix C) and have no row here.
+
+- IFC-TRN-121 (three rows): a peer that starts under the watch, and a peer already usable
+  before the watch was made, each reach the `watch_presence` handler on the transport's own
+  initiative; and, as completeness of the same duty, payloads over an established link cause
+  no further appearance and each new link of a cycling peer is reported. The last two rest
+  on the explanatory text after IFC-TRN-123 and -125; the 2 second bound and the 1 second
+  hold-off themselves are the core's and are not observable here.
+- IFC-TRN-122: the event is destructured with no `..` (a second member breaks the suite at
+  compile time) and its handle is the one that the link's frames carry. That the handle
+  derives from no device or session value is the type's and the binding review's
+  (`CarrierHandle` has no accessor). The row checks only the event's content.
+
+The sealing stand-in's `watch_presence` (`sealed::Logical`) now also passes
+`carrier-appeared` events through, as it already did `carrier-loss` ones: both carry a handle
+only. The planted breaches in `transports/memory/tests/contract.rs` (`DropsAppearances`,
+`WrongAppearanceHandle`, `AppearsOnPayload`, `SuppressesRepeats`, and a binding that denies
+appearances, with a negative control: the same binding over a transport that really drops
+appearances is not flagged) are each caught by the row they exist for. `DropsAppearances` also fails the
+other rows, which have no appearance to start from; each of the others fails its own row alone.
+
 Run the default gate on Windows:
 
 ```powershell

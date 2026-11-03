@@ -94,6 +94,25 @@ impl Seen<PresenceEvent> {
         let s = self.clone();
         Arc::new(move |e| s.push(e))
     }
+
+    /// The events other than `carrier-appeared` ones ([IFC-TRN-120]), in order.
+    fn without_appearances(&self) -> Vec<PresenceEvent> {
+        self.get()
+            .into_iter()
+            .filter(|e| !matches!(e, PresenceEvent::CarrierAppeared { .. }))
+            .collect()
+    }
+
+    /// The handles of the `carrier-appeared` events, in order.
+    fn appearances(&self) -> Vec<CarrierHandle> {
+        self.get()
+            .into_iter()
+            .filter_map(|e| match e {
+                PresenceEvent::CarrierAppeared { carrier } => Some(carrier),
+                _ => None,
+            })
+            .collect()
+    }
 }
 
 fn cross() -> MemoryNetwork {
@@ -266,7 +285,8 @@ fn carries_each_kind_exactly_on_its_own_initiative() {
     assert_eq!(envelopes.get()[0].payload, envelope_odd);
     assert_eq!(receipts.get().len(), 1);
     assert_eq!(receipts.get()[0].payload, receipt);
-    let got = presence.get();
+    // The watch also heard of the link from a, which was running first ([IFC-TRN-120]).
+    let got = presence.without_appearances();
     assert_eq!(got.len(), 1);
     let PresenceEvent::Record { payload, carrier } = &got[0] else {
         panic!("expected a record");
@@ -275,6 +295,7 @@ fn carries_each_kind_exactly_on_its_own_initiative() {
     // One link from a to b: every payload over it names the same carrier.
     assert_eq!(carrier, &envelopes.get()[0].carrier);
     assert_eq!(carrier, &receipts.get()[0].carrier);
+    assert_eq!(presence.appearances(), vec![carrier.clone()]);
     // Handed over by the transport's thread, not inside the publisher's call.
     let me = thread::current().id();
     assert!(envelopes.threads.lock().unwrap().iter().all(|t| *t != me));
@@ -974,7 +995,7 @@ fn reports_carrier_loss_for_a_link_that_ends() {
     a.shutdown();
     network.settle();
 
-    let got = seen_b.get();
+    let got = seen_b.without_appearances();
     assert_eq!(got.len(), 2);
     let PresenceEvent::Record { carrier: over, .. } = &got[0] else {
         panic!("expected a record first");
@@ -985,8 +1006,15 @@ fn reports_carrier_loss_for_a_link_that_ends() {
             carrier: over.clone()
         }
     );
-    // c never received anything from a: no link, no loss.
-    assert!(seen_c.get().is_empty());
+    // c never received anything from a, but a's link to c was reported usable
+    // ([IFC-TRN-120]) and so its end is reported, under the same handle; no record.
+    let got_c = seen_c.without_appearances();
+    assert_eq!(got_c.len(), 1);
+    let PresenceEvent::CarrierLoss { carrier: lost } = &got_c[0] else {
+        panic!("expected a carrier loss, got {:?}", got_c[0]);
+    };
+    assert!(seen_c.appearances().contains(lost));
+    assert_ne!(lost, over);
 
     // A restarted a is a new link.
     a.start(&key('a'), MemoryConfiguration::wrap(&network))
@@ -997,11 +1025,126 @@ fn reports_carrier_loss_for_a_link_that_ends() {
         d,
     );
     network.settle();
-    let PresenceEvent::Record { carrier: again, .. } = &seen_b.get()[2] else {
+    let PresenceEvent::Record { carrier: again, .. } = &seen_b.without_appearances()[2] else {
         panic!("expected a record");
     };
     assert_ne!(again, over);
     let _: &CarrierHandle = again;
+}
+
+// --- carrier appearance (§6.6; IFC-TRN-120 to IFC-TRN-122) -----------------------------
+
+#[test]
+fn reports_a_carrier_appearance_to_a_watcher_for_each_other_endpoint() {
+    // [IFC-TRN-120], [IFC-TRN-121], [IFC-TRN-122]: a peer that joins under the watch, and a
+    // peer already running when the watch is made, each appear to the watcher, once, with the
+    // handle the link's frames carry.
+    let network = cross();
+    let early = started(&network, 'a');
+    let watching = started(&network, 'b');
+    let seen = Seen::<PresenceEvent>::default();
+    watching.watch_presence(seen.handler()).unwrap();
+    network.settle();
+    // The peer that was running before the watch.
+    assert_eq!(seen.appearances().len(), 1);
+    let later = started(&network, 'c');
+    network.settle();
+    // The peer that joined after it.
+    assert_eq!(seen.appearances().len(), 2);
+    // Only appearances: no record, no loss.
+    assert_eq!(seen.get().len(), 2);
+    // The handle is the one frames from each peer carry.
+    let frames = Seen::<Inbound>::default();
+    let _s = watching
+        .subscribe(&Destination::Device(key('b')), frames.handler())
+        .unwrap();
+    let d = deadline(&network, 60 * SEC);
+    for t in [&early, &later] {
+        t.publish(
+            &Destination::Device(key('b')),
+            Payload::new(PayloadKind::Receipt, b"x".to_vec()),
+            d,
+        );
+    }
+    network.settle();
+    let frame_carriers: Vec<_> = frames.get().into_iter().map(|i| i.carrier).collect();
+    let appeared = seen.appearances();
+    assert_eq!(frame_carriers.len(), 2);
+    for c in &frame_carriers {
+        assert!(appeared.contains(c));
+    }
+}
+
+#[test]
+fn an_appearance_waits_for_the_first_watcher_and_is_handed_over_by_the_transport() {
+    // [IFC-TRN-121]: no handler, nothing handed over, nothing lost; the first handler hears
+    // of it on the transport's thread, not inside `watch_presence`.
+    let network = cross();
+    let a = started(&network, 'a');
+    let _b = started(&network, 'b');
+    network.settle();
+    let seen = Seen::<PresenceEvent>::default();
+    a.watch_presence(seen.handler()).unwrap();
+    network.settle();
+    assert_eq!(seen.appearances().len(), 1);
+    let me = thread::current().id();
+    assert!(seen.threads.lock().unwrap().iter().all(|t| *t != me));
+    // A second watcher gets only what appears after it: the first has already been told.
+    let second = Seen::<PresenceEvent>::default();
+    a.watch_presence(second.handler()).unwrap();
+    network.settle();
+    assert!(second.get().is_empty());
+}
+
+#[test]
+fn a_peer_that_leaves_before_the_watch_is_not_reported_and_one_that_returns_is() {
+    // [IFC-TRN-121]: only a link usable now is reported; a restarted peer is a new link.
+    let network = cross();
+    let a = started(&network, 'a');
+    let b = started(&network, 'b');
+    b.shutdown();
+    network.settle();
+    let seen = Seen::<PresenceEvent>::default();
+    a.watch_presence(seen.handler()).unwrap();
+    network.settle();
+    assert!(seen.get().is_empty());
+    b.start(&key('b'), MemoryConfiguration::wrap(&network))
+        .unwrap();
+    network.settle();
+    assert_eq!(seen.appearances().len(), 1);
+}
+
+#[test]
+fn an_appearance_is_followed_by_its_loss_under_the_same_handle() {
+    // [IFC-TRN-061]: the link that appeared is the link whose loss follows.
+    let network = cross();
+    let a = started(&network, 'a');
+    let seen = Seen::<PresenceEvent>::default();
+    a.watch_presence(seen.handler()).unwrap();
+    let b = started(&network, 'b');
+    network.settle();
+    b.shutdown();
+    network.settle();
+    let got = seen.get();
+    assert_eq!(got.len(), 2);
+    let (
+        PresenceEvent::CarrierAppeared { carrier: up },
+        PresenceEvent::CarrierLoss { carrier: down },
+    ) = (&got[0], &got[1])
+    else {
+        panic!("expected an appearance and then a loss, got {got:?}");
+    };
+    assert_eq!(up, down);
+}
+
+#[test]
+fn a_one_implementation_network_has_no_peer_to_appear() {
+    let network = MemoryNetwork::new();
+    let t = started(&network, '1');
+    let seen = Seen::<PresenceEvent>::default();
+    t.watch_presence(seen.handler()).unwrap();
+    network.settle();
+    assert!(seen.get().is_empty());
 }
 
 #[test]
