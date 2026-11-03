@@ -66,10 +66,13 @@ are #492. `oac doctor` warns about a paired key that no grant names (§8).
 - **L6.** No keyed tag on `trust.json`. A plain `device_key_id` member is added, for
   diagnosis only (§5.2). S1 does not depend on S1b.
 - **L7.** The agreement-key file is named by the device key id (§7). A regenerated device
-  key starts its own `seq` at 0: this is conformant, because [SEC-SEL-040] and
+  key starts its own `seq` at 0: this is conformant **on an interpretation**: [SEC-SEL-040] and
   [SEC-SEL-043] count what **this device key** issued ([SEC-KEY-002]; [SEC-SEL-043] keeps the
   count "as durably as its device key"; a peer that never paired the new key admits no
-  statement for it, [SEC-SEL-049]). Files for other key ids are ignored and never deleted.
+  statement for it, [SEC-SEL-049]). The text says "every agreement statement it issued before"
+  (`spec/security.md:1727-1728`) and does not say what a regenerated device key does; the
+  reading that the count is per device key is the lead's, not stated in the spec, and S6 adds a
+  clarifying sentence (§10). Files for other key ids are ignored and never deleted.
   The daemon refuses to start only when the **current** key id's file fails authentication.
   `trust.json` is not bound to the device key; doctor says peers must pair again after a
   regeneration.
@@ -449,7 +452,7 @@ there being no device-key file. **The file is named by the device key id** (L7):
 - `DeviceKey` exposes no seed (`core/src/keys.rs`: `sign` is private); `core/src/keys.rs:5-16`
   states that the seed leaves the crate only through `SecretSeed::expose`, which a `KeyStore`
   calls, and `cli/src/keystore.rs:8-10` that the stores own no key material. The daemon reads
-  the credential store **once**, at `cli/src/daemon.rs:466`.
+  the credential store **once**, in `DeviceKey::load_or_generate` at `cli/src/daemon.rs:467` (L466 is the comment above it, and `DeviceIdentity::new` is L468).
 
 | Option | New crate? | New feature? | Where it works | What it gives | Verdict |
 |---|---|---|---|---|---|
@@ -490,11 +493,18 @@ labelled input, so it meets that.
 - *Seed containment (review should-fix 1).* The seed does not leave `oac-core`. A function
   inside `core/src/keys.rs` (for example `DeviceIdentity::at_rest()`, built from
   `DeviceKey`'s `SigningKey::as_bytes`, `ed25519-dalek-3.0.0/src/signing.rs:131`) derives the
-  storage key pair and the PSK and returns an opaque handle, `AtRest`, that offers
-  `seal(kind, key_id, plaintext)` and `open(kind, key_id, bytes)` and no accessor for the
-  derived material (zeroized on drop). `Daemon::start` builds the identity at `daemon.rs:466-467`
+  storage key pair and the PSK and returns an opaque handle, `AtRest`. **The handle fixes its own device key id at construction**
+  (taken from the identity it is derived from); it takes no `key_id` argument, so a caller
+  cannot ask it to seal or open for another id, and it writes that id into the header and the
+  associated data itself. **Serialization is in core too (my choice):** the handle offers
+  `seal_agreement_state(&AgreementKeyState) -> Vec<u8>` and
+  `open_agreement_state(&[u8]) -> Result<AgreementKeyState, _>` and no accessor for the derived
+  material (zeroized on drop), so the `cli/` file store handles only ciphertext, and no
+  plaintext private key or canonical JSON of one is ever built outside core. The cost is about
+  60 more lines in core (S1b is about 500); the gain is that `AgreementPrivateKey::expose`
+  (`core/src/sealing.rs:188`) is called only inside core for this store. `Daemon::start` builds the identity at `daemon.rs:467-468`
   and then calls a constructor in `Parts::agreement_store` with that handle. The credential
-  store is read once, at `daemon.rs:466`, and the `cli/` file store holds the handle, never the
+  store is read once, at `daemon.rs:467`, and the `cli/` file store holds the handle, never the
   seed. Tests keep passing `MemoryAgreementKeyStore`.
 
 **What it buys, stated plainly.** The file is as strong as the device key. It inherits the
@@ -503,6 +513,13 @@ T7), exactly as it can already sign as this device. It adds protection against t
 leaving the host, and against a writer who does not hold the seed. It adds **no** protection
 against rollback (T10). The seed is used only as input to a domain-separated derivation inside
 core; it is not disclosed ([SEC-KEY-004]).
+
+**Condition of the S1b lead merge (subject to the lead's answer on Q-D).** In place of an outside
+cryptographic review, the S1b PR must include: (1) the RFC 9180 Appendix A test vector for
+DHKEM(X25519, HKDF-SHA256) + HKDF-SHA256 + ChaCha20Poly1305 in **PSK mode**, run against
+`hpke` 0.12; (2) negative tests: a file sealed in `Base` mode, under the wrong PSK, under the
+wrong `info`, or renamed to another key id is refused; (3) one review by a reviewer with a
+cryptographic background. This note does not record the condition as decided.
 
 **Regeneration and other key ids (L7).** The current key id's file is the only one read. A
 regenerated device key has a new key id, so its file starts empty and its statements start at
@@ -519,12 +536,20 @@ version). A missing file for the current key id is a first start, below.
 | A validly sealed **older** file returns (a backup restored, or an undone rename, §5.3) | Opens, and **cannot be told from the current one**: `highest_seq` is lower than what was issued, and a key erased under [SEC-SEL-018] is back on disk | Not detectable from the file alone. The next statement reuses a `seq` that peers hold, so they refuse it (fail closed); erased keys are erased again at the next `erase_replaced` |
 
 **Mitigation available without a new crate (slice S1c, optional, §10).** Also record the
-highest issued `seq` as `agreement_seq_floor` in `trust.json`, written *before* the statement
-exists. The file store's `load()` then returns `highest_seq = max(file, floor)` and, when the
-file is missing or older, an empty key list; the existing arm of `load_or_generate` for "every
+highest issued `seq` in `trust.json` as `agreement_seq_floor`, **an object `{"key_id":...,"seq":...}`**
+written *before* the statement exists. `trust.json` is deliberately not bound to the device key
+(L7), so the floor names the key id it belongs to and **is ignored when that id is not the
+running device key's**; otherwise a regenerated key would start at `floor + 1` instead of 0,
+contradicting L7. For the current key id the file store's `load()` returns
+`highest_seq = max(file, floor)` and, when the file is missing or older, an empty key list; the existing arm of `load_or_generate` for "every
 key was erased, the count stays" (`sealing.rs:1143-1146`) then issues `floor + 1` under a new
 key. That is conformant ([SEC-SEL-040]: higher than any before) and needs no re-pairing. It
 does not help when both files return together (both renames undone) or are deleted together.
+A same-user write can also raise the floor to the maximum `seq`: `next_seq` then fails with
+`SeqExhausted` (`core/src/sealing.rs:1151-1157`) and the start is refused until the operator
+takes the [SEC-SEL-052] restart (`AgreementKeys::restart_count`, allowed at the maximum, and
+useful only after the consumers removed the key and paired again). That is a denial of service
+by a same-user write to `trust.json`, inside the accepted L6 residual (T7).
 A third copy in the credential-store entry would survive both, but it changes the one-entry
 credential boundary (C4 §12), so it is **not proposed**; it is a question for the lead (Q-B).
 
@@ -601,18 +626,28 @@ The lead approves the JSON shapes.
 inventory coverage that follows names every other row of the `oac-security-work` §2
 checklist and says why this feature does not change it.
 
+**Two accepted same-user residuals bypass a `MUST NOT` of the specification** (stated once here):
+(1) a write to `trust.json` that enables `relay_enabled` bypasses [SEC-AUZ-021] ("MUST NOT relay a
+peer message as an answer to a harness's permission or approval request unless an operator
+enabled that relay for the addressed session as a decision of its own"), because `restore` loads
+the list as if an operator had enabled it (T7); (2) pairing with a daemon the same user
+controls bypasses the operator confirmation that [SEC-KEY-032] requires before a key is added,
+because the process types the code, not an operator (T5). The lead accepted both as same-user
+residuals (L5, L6). The specification's threat model assumes the device's own user is trusted;
+the reference implementation cannot enforce the operator's presence against that user.
+
 | # | Attack | Precondition | Mitigation | Proving test | Residual risk |
 |---|---|---|---|---|---|
 | T1 | The channel the operator carries blobs over swaps a key (MITM between two honest devices) | The attacker sees or edits the pasted blobs, and does not control either device | Commit-then-reveal; the code covers both principals, both keys, both statements and both nonces; the operator types the **other** device's code; five tries, 120 s ([SEC-KEY-032]; C5 §10(b), F5-1) | Existing: `tests/security/tests/keys_and_pairing.rs` `s13_pairing_mitm_substitution_is_caught_by_the_code`. Planned (S3): `a_substituted_key_in_the_pasted_blob_gives_codes_that_differ` | 10^-6 per operator-visible exchange |
 | T2 | Grinding: restart exchanges until the responder's code matches the one the initiator shows (N1); or present a second response to the initiator after `Ni` is revealed | The attacker can send offers or responses | One offer per operator-started pairing; a second offer, a disconnect, expiry, an own key or a bad reveal each end the pairing and are shown; **a second response ends the pairing** (§4) | Existing: `s13_second_offer_ends_the_pairing`. Planned (S3): `a_second_offer_ends_the_pairing_and_the_verb_shows_it`, `a_second_response_ends_the_pairing`, `a_disconnect_abandons_the_pairing`, `the_pairing_expires_at_120_seconds`, `an_offer_carrying_this_devices_key_ends_the_pairing`, `a_tampered_reveal_ends_the_pairing` | An attacker who also blocks the operator's view of the end |
 | T3 | An attacker **between two honest devices** guesses the six digits | The attacker is on the channel and sees neither device's screen | Five wrong entries then `aborted`; the code is on the other device's screen; 120 s | Existing: `s13_five_wrong_codes_abort_and_the_window_expires`. Planned (S3): `five_wrong_entries_abort_over_the_control_connection` | 10^-6 per try, five tries per pairing. **It does not apply to a same-user process that controls a device: that process sees the code and types it (T5)** |
 | T4 | A statement is stripped from the exchange so an older one is accepted later ([SEC-SEL-044], [SEC-SEL-045]) | The attacker alters the pasted blobs | Statements enter the commitment and the code; the daemon judges a statement before showing the code ([SEC-SEL-051]); confirmed values are saved with the key ([SEC-SEL-046]) | Existing: `s13_a_statement_stripped_from_the_response_is_a_mismatch`. Planned (S3): `a_stripped_statement_gives_codes_that_differ`; (S1) `confirmed_values_survive_a_restart_and_an_older_statement_is_refused` | The operator who confirms without comparing the statement values the verb prints |
-| T5 | **A same-user process, a prompt-injected model's tool shell included, adds a trusted key through the `control` endpoint with no operator** (L5). It pairs this device with a second `oac` daemon it controls, for example on loopback under its own `OAC_SCOPE`, or with any program that speaks the public exchange, and types both codes. It can also `unpair`, start and abandon pairings, and read `pairings` | A process of the user can open the endpoint (the owner and DACL check pass for it) and can run a program | **Visibility only (L5):** one log line for every pairing and unpair (§4); `oac pair --list`; `oac doctor` shows recent pairings (S5). A trusted key receives nothing until a grant names it ([SEC-AUZ-001]; the grant verbs are #492) | Planned (S3): `pairing_completes_between_two_honest_daemons_only_on_the_entered_code` — **this proves only MITM resistance between two honest devices (T1/T3); it proves nothing against a same-user process**. Planned (S3/S5), visibility: `every_pairing_and_unpair_leaves_one_log_line`, `status_reports_recent_pairings`, `doctor_lists_recent_pairings` | **Accepted by the lead (L5).** The operator's typed code does not stop this attacker. Residual: a same-user process can add a trusted key, remove one, and deny the operator's pairing (it can already kill the daemon, `RISK-LOCAL-IPC`) |
+| T5 | **A same-user process, a prompt-injected model's tool shell included, adds a trusted key through the `control` endpoint with no operator** (L5). It pairs this device with a second `oac` daemon it controls, for example on loopback under its own `OAC_SCOPE`, or with any program that speaks the public exchange, and types both codes. It can also `unpair`, start and abandon pairings, and read `pairings` | A process of the user can open the endpoint (the owner and DACL check pass for it) and can run a program | **Visibility only (L5):** one log line for every pairing and unpair (§4); `oac pair --list`; `oac doctor` shows recent pairings (S5). A trusted key receives nothing until a grant names it ([SEC-AUZ-001]; the grant verbs are #492) | Planned (S3): `pairing_completes_between_two_honest_daemons_only_on_the_entered_code` — **this proves only MITM resistance between two honest devices (T1/T3); it proves nothing against a same-user process**. Planned (S3/S5), visibility: `every_pairing_and_unpair_leaves_one_log_line`, `status_reports_recent_pairings`, `doctor_lists_recent_pairings` | **Accepted by the lead (L5).** The operator's typed code does not stop this attacker. **The visibility is best effort:** the same user can truncate or delete the daemon log, and can forge `paired_at` (and the recent events a restart would rebuild from it) in `trust.json`, which is not authenticated (L6). `oac pair --list` asks the running daemon and remains the reliable check. Residual: a same-user process can add a trusted key, remove one, and deny the operator's pairing (it can already kill the daemon, `RISK-LOCAL-IPC`) |
 | T6 | A lost revocation: `unpair` returns, the store did not save, a restart restores the revoked device (N5) | A disk error, a locked file, a scanner | The verb exits 1 and says so; the daemon retries with a bounded backoff; `status` reports it; `doctor` FAILs | Existing: `row08_a_failed_save_still_revokes`, `row08_removal_survives_a_restart`. Planned (S2/S3): `an_unpair_whose_save_fails_exits_1_and_is_retried`, `a_failed_pair_save_adds_no_key` | If the daemon ends before a save succeeds, the revocation is lost until the operator unpairs again |
 | T7 | The trust file or the agreement file is edited or copied by a same-user process | A process of the user can write or read the data directory | Private modes and DACL, refused-not-repaired; the agreement file is sealed under a key derived from the device seed (§7); **the trust file is not authenticated (L6)** | Planned (S1/S1b): `a_loose_mode_is_refused_not_repaired`, `the_dacl_on_trust_json_is_user_only` (Windows), `a_tampered_trust_file_is_refused_when_unparsable`, `the_agreement_file_holds_no_plaintext_key`, `a_file_the_seed_did_not_seal_fails_to_open`, `an_edited_agreement_file_fails_authentication` | **Accepted same-user residual (L6).** A same-user write to `trust.json` can add a trusted key, add a grant, and switch on `relay_enabled`, because `restore` loads it into the engine (`core/src/authorization.rs:1436`). A process that can read the seed (the OS credential store as the user) opens and forges the agreement file: the same residual as the device key |
 | T8 | A crash or power loss leaves a half-written or older store | Power loss, a kill | Temp file, `sync_all`, `rename`, directory `fsync` (Unix); a failed write leaves the previous file | Planned (S1): `a_failed_write_leaves_the_previous_file_whole` (through the fault-injection seam, one case per step) | Windows durability of a completed rename is **UNVERIFIED** (§5.3): an older file may return |
 | T9 | The restart problem: after a restart the device issues `seq` 0 under a new key | The agreement store is in memory | The durable store (§7) | Planned (S1b): `seq_and_key_survive_a_restart` ([SEC-SEL-043]) | A missing file for the current key id is a first start and issues `seq` 0 (§7); an unreadable one stops the start |
-| T10 | **Rollback or loss of the agreement file:** a validly sealed older file (backup restored, or an undone rename) lowers `highest_seq` and brings back keys erased under [SEC-SEL-018]; or the file is deleted | A same-user process, a restore, a power loss | Fail closed at the peers (a repeated `seq` is refused); optional floor in `trust.json` (S1c) issues `floor + 1` | Planned (S1b): `a_missing_file_is_a_first_start`; (S1c, if adopted) `a_rolled_back_file_issues_the_floor_plus_one`, `a_floor_without_a_file_issues_the_floor_plus_one` | An older file cannot be told from the current one; erased keys are back on disk until the next erase; if both files roll back or go together, peers refuse the new statement until a re-pairing ([SEC-SEL-052]). The credential-store copy of the count is not proposed (Q-B) |
+| T10 | **Rollback or loss of the agreement file:** a validly sealed older file (backup restored, or an undone rename) lowers `highest_seq` and brings back keys erased under [SEC-SEL-018]; or the file is deleted | A same-user process, a restore, a power loss | Fail closed at the peers (a repeated `seq` is refused); optional floor in `trust.json` (S1c) issues `floor + 1` | Planned (S1b): `a_missing_file_is_a_first_start`; (S1c, if adopted) `a_rolled_back_file_issues_the_floor_plus_one`, `a_floor_without_a_file_issues_the_floor_plus_one`, `a_floor_for_another_key_id_is_ignored` | An older file cannot be told from the current one; erased keys are back on disk until the next erase; if both files roll back or go together, peers refuse the new statement until a re-pairing ([SEC-SEL-052]). A same-user write can raise the S1c floor to the maximum `seq` and force the [SEC-SEL-052] restart path (L6 residual). The credential-store copy of the count is not proposed (Q-B) |
 | T11 | A pairing or unpair task outlives the daemon and writes the store after the lock is released, racing the next daemon | A control connection open at `oac stop` (`control.rs:266,271` detach connections; `daemon.rs:614-618` does not await them) | Every pairing task watches `stopped` and abandons; the tasks are awaited before the lock is released; a store-writing call is refused after shutdown begins (§4) | Planned (S3): `stop_ends_an_open_pairing`, `no_store_write_follows_the_shutdown` | None known once built |
 | T12 | The typed code is brute-forced through the verb by a same-user process | Control access | Five entries, then `aborted`; but see T5: it needs no guessing | Planned (S3): as T3 | Covered by T5 |
 
@@ -648,13 +683,13 @@ need a real credential store stay opt-in (`#[ignore]`, `OAC_TEST_REAL_KEYRING=1`
 |---|---|---|---|---|
 | **S0.5** | Lift the private-file helpers (`make_private_directory`, `open_private_file`, `is_private`, the Unix and Windows `mod os` of `cli/src/logfile.rs`) to a shared `cli/src/private_file.rs`; the log keeps working | 120 | no | The existing `cli/tests/logfile.rs` passes unchanged; `a_loose_mode_is_refused_not_repaired` (Unix) and `the_dacl_is_user_only` (Windows) move with the helper |
 | **S1** | `cli/src/trust_store.rs`: the durable `PairingStore` (§5), its fault-injection seam; the daemon keeps the store; `oac start` passes the file store. Depends on S0.5 only | 500 | no | `snapshot_round_trips_every_grant_and_record`; `relay_enabled_round_trips`; `a_missing_file_is_an_empty_store`; `a_corrupt_or_unknown_version_file_stops_the_daemon_and_is_not_reset`; `an_oversize_file_is_refused`; `a_loose_mode_is_refused_not_repaired`; `the_dacl_on_trust_json_is_user_only` (Windows); `a_failed_write_leaves_the_previous_file_whole` (one case per step of the seam: create, write, sync, rename, directory sync); `a_foreign_device_key_id_is_reported_not_refused`; **SEC-SEL-046** `confirmed_values_survive_a_restart_and_an_older_statement_is_refused` (pair with a statement, stop the daemon, start another on the same file, `admit_statement` of a lower `seq` is `BelowConfirmed`); **SEC-SEL-047** `after_removal_and_restart_the_record_and_confirmed_values_are_gone` |
-| **S1b** | The durable `AgreementKeyStore` (§7): the `oac-core` at-rest handle, `cli/src/agreement_file.rs`, the `Parts` constructor, the daemon keeps the store. Depends on S0.5 only, so S1 and S1b are independent | 450 | **yes**, credential boundary | **SEC-SEL-043** `seq_and_key_survive_a_restart` (same statement after restart; after a `replace`, the next start issues `seq` 1 not 0); `the_agreement_file_holds_no_plaintext_key`; `a_file_the_seed_did_not_seal_fails_to_open` (a file sealed in `Base` mode, or under another PSK, is refused: review blocker B2); `an_edited_agreement_file_fails_authentication`; `a_file_renamed_to_another_key_id_fails_to_open` (the header is the AAD); `each_write_draws_a_fresh_enc`; `the_info_is_not_the_payload_info`; `a_regenerated_key_starts_its_own_file_at_seq_0_and_leaves_the_old_file`; `a_missing_file_is_a_first_start`; `the_file_is_private_and_written_atomically`; no `hkdf`, `chacha20poly1305` or `hmac` direct dependency and `Cargo.lock` unchanged (`scripts/check-crate-deps.mjs`); no `SecretSeed` in any `cli/` signature |
-| **S1c** (optional) | `agreement_seq_floor` in `trust.json` (§7). Depends on S1 and S1b | 120 | no | `a_rolled_back_file_issues_the_floor_plus_one`; `a_floor_without_a_file_issues_the_floor_plus_one`; `the_floor_is_written_before_the_statement_exists` |
+| **S1b** | The durable `AgreementKeyStore` (§7): the `oac-core` at-rest handle (it fixes its own key id; state serialization in core), `cli/src/agreement_file.rs` (ciphertext only), the `Parts` constructor, the daemon keeps the store. Depends on S0.5 only, so S1 and S1b are independent. **Lead-merge condition, subject to the lead's answer on Q-D:** the PR carries the RFC 9180 test vector and the negative tests below and one review by a reviewer with a cryptographic background (§7) | 500 | **yes**, credential boundary | **SEC-SEL-043** `seq_and_key_survive_a_restart` (same statement after restart; after a `replace`, the next start issues `seq` 1 not 0); `the_agreement_file_holds_no_plaintext_key`; `rfc9180_appendix_a_psk_vector_passes_on_hpke_0_12` (the RFC 9180 Appendix A vector for DHKEM(X25519, HKDF-SHA256) + HKDF-SHA256 + ChaCha20Poly1305 in PSK mode, run against `hpke` 0.12); negative tests, each refused: `a_file_sealed_in_base_mode_is_refused`, `a_file_sealed_under_the_wrong_psk_is_refused`, `a_file_sealed_under_the_wrong_info_is_refused`, `a_file_renamed_to_another_key_id_is_refused` (the header is the AAD); `a_file_the_seed_did_not_seal_fails_to_open` (review blocker B2); `an_edited_agreement_file_fails_authentication`; `the_handle_has_no_key_id_parameter` (source check); `each_write_draws_a_fresh_enc`; `the_info_is_not_the_payload_info`; `a_regenerated_key_starts_its_own_file_at_seq_0_and_leaves_the_old_file`; `a_missing_file_is_a_first_start`; `the_file_is_private_and_written_atomically`; no `hkdf`, `chacha20poly1305` or `hmac` direct dependency and `Cargo.lock` unchanged (`scripts/check-crate-deps.mjs`); no `SecretSeed` in any `cli/` signature |
+| **S1c** (optional) | `agreement_seq_floor` (`{key_id, seq}`) in `trust.json` (§7). Depends on S1 and S1b | 120 | no | `a_rolled_back_file_issues_the_floor_plus_one`; `a_floor_without_a_file_issues_the_floor_plus_one`; `the_floor_is_written_before_the_statement_exists`; `a_floor_for_another_key_id_is_ignored` (a regenerated key still starts at `seq` 0, with the S1b test of L7); `a_floor_at_the_maximum_seq_refuses_the_start_until_the_restart` |
 | **S2** | Core `Pipelines::pair` / `unpair`: presence release and withdrawal, save-retry bookkeeping, the `closed` flag. Independent of S1 | 250 | no | `pair_releases_an_existing_sessions_presence_to_the_new_key` (grant loaded with `with_engine`); `unpair_withdraws_then_removes_and_drops_the_announcement_records`; `an_unpair_whose_save_fails_reports_not_durable_and_retry_clears_it` (paused clock, bounded backoff); `a_failed_pair_save_adds_no_key`; `a_store_writing_call_is_refused_after_shutdown_begins` |
 | **S3** | `cli/src/device_pairing.rs`: the control ops and the state machine (§4); the C2 §4 amendment; the `control.rs` invariant reworded. Depends on S1 and S2 | 600 | no | The N1 cases: `a_second_offer_ends_the_pairing`; `a_second_response_ends_the_pairing`; `a_disconnect_abandons_the_pairing`; `the_pairing_expires_at_120_seconds` (the 2 s deadline applies to the first line only); `an_offer_carrying_this_devices_key_ends_the_pairing`; `a_tampered_reveal_ends_the_pairing`; `five_wrong_entries_abort`; `a_second_pairing_is_busy`. `a_stripped_statement_gives_codes_that_differ`. `the_offer_reply_carries_no_Ni` (the reply holds the commitment; `Ni` appears only in the reveal, after the response). `pairing_completes_between_two_honest_daemons_only_on_the_entered_code` (proves only MITM resistance between honest devices); `AlreadyTrusted_is_its_own_outcome`; `an_unpair_whose_save_fails_exits_1_and_is_retried` (N5). **Shutdown:** `stop_ends_an_open_pairing`; `no_store_write_follows_the_shutdown`. **Size:** `the_worst_case_blob_with_128_octet_principals_fits_a_control_line` (measured; asserts it is under 4 KiB and reports its size). **Visibility:** `every_pairing_and_unpair_leaves_one_log_line`; `no_log_line_holds_a_blob_nonce_code_or_statement` |
 | **S4** | The verbs (§6). Depends on S3 | 550 | no | Each verb through its `_with` function with in-memory streams: exit codes `0/1/2/3/4`; `--json` shapes; `oac_pair_never_builds_a_key_store` (no `KeyStore` symbol in the client path: source check); a wrong blob kind is diagnosed without a state change; `a_blob_wrapped_over_several_lines_is_accepted`; `a_blob_printed_by_the_verb_has_no_line_over_64_characters`; `the_prompt_names_the_empty_line_that_ends_a_blob` |
 | **S5** | Doctor and status changes (§8); the `08` §5/§6, C2 §6, `11-risks` and STATUS documentation. Depends on S4 | 350 | lead approves the JSON shapes | `doctor` cases for `pairing`: grants and no device is PASS; a paired key no grant names is WARN; no pairings and no grants is WARN; unsaved is FAIL; `trust_store_foreign_key` is WARN; the detail lists recent pairings; `status` carries `paired_without_grant`, `recent_pairings`, `trust_unsaved`; documentation sweep of the `pairing verb (#437)` mentions |
-| **S6** | `spec/security.md` editorial revision: the Appendix A cells for [SEC-KEY-032] (about L2250), [SEC-SEL-046] and [SEC-SEL-047] (about L2389-2390), the stale §13 rows "Trust on first use" and "Leaked device key" (about L1576-1577), and the §5.3 reference-implementation note at L396-400, whose "a six-digit code derived from both devices' key ids" (L397) is stale (the code covers the nonces and the statements) | n/a | **yes** | The cells name the S1/S3 tests; `node tests/protocol/runner/run.mjs` stays green; a minor revision under E7 §7 |
+| **S6** | `spec/security.md` editorial revision: the Appendix A cells for [SEC-KEY-032] (about L2250), [SEC-SEL-046] and [SEC-SEL-047] (about L2389-2390), the stale §13 rows "Trust on first use" and "Leaked device key" (about L1576-1577), a clarifying sentence at [SEC-SEL-043] that the count is kept per device key and that a regenerated device key starts its own count (the L7 interpretation, §1), and the §5.3 reference-implementation note at L396-400, whose "a six-digit code derived from both devices' key ids" (L397) is stale (the code covers the nonces and the statements) | n/a | **yes** | The cells name the S1/S3 tests; `node tests/protocol/runner/run.mjs` stays green; a minor revision under E7 §7 |
 
 **Order.** S0.5 first. Then S1, S1b and S2 in any order or in parallel (S1 and S1b depend on
 S0.5 and on nothing else; S2 is core only). S1c after S1 and S1b, if adopted. S3 after S1 and
@@ -678,7 +713,9 @@ window (kept). Still open:
 4. **Q-D: review of the `Psk`-mode seal.** `Psk` is the mode defined for a secret both ends
    hold, and the construction uses only `derive_keypair`, SHA-256 and `single_shot_seal`; there
    is no first-party text on sealing a file to a key derived from a seed. S1b is a lead merge;
-   a cryptographic review is a condition the lead may want to set.
+   the proposed S1b merge condition (§7: the RFC 9180 PSK test vector, the negative tests, and one
+   review by a reviewer with a cryptographic background) replaces an outside cryptographic
+   review. Whether the lead sets it is this question; the note does not record it as decided.
 5. **Q-E: a pairing holds one of four control permits for up to 120 s** (§4). #438 sizes the
    endpoint; this note does not change the number.
 
@@ -723,7 +760,7 @@ L405, L486, L698, L868, L963-L981, L1004, L1080, L1147, L1181, L1200); `core/src
 `core/src/pipeline.rs` (L868-L886, L1315, L1335-L1348, L1414, L2301-L2308, L2401-L2460,
 L2465-L2477); `core/src/sealing.rs` (L66-L71, L882, L910, L1135-L1150); `core/src/keys.rs`
 (L5-L16, `DeviceIdentity` L343); `core/src/clock.rs` (`ManualClock` L53); `cli/src/control.rs`
-(L8-L14, L266, L271); `cli/src/daemon.rs` (L317, L439, L466, L471-L476, L614-L618);
+(L8-L14, L266, L271); `cli/src/daemon.rs` (L317, L439, L466-L468, L471-L476, L614-L618);
 `cli/src/commands.rs` (L860-L864); `cli/src/doctor.rs` (L485-L505); `cli/src/keystore.rs`
 (L8-L14, L81-L82, L573); `cli/src/logfile.rs`; `cli/Cargo.toml`; `core/Cargo.toml`;
 `Cargo.lock`; `spec/security.md` [SEC-KEY-002], [SEC-KEY-032], [SEC-SEL-040], [SEC-SEL-043] to
