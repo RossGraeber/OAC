@@ -22,6 +22,7 @@ use std::future::Future;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::{Duration, Instant};
 
@@ -140,7 +141,10 @@ struct TempDir(PathBuf);
 
 impl TempDir {
     fn new(tag: &str) -> TempDir {
-        let dir = std::env::temp_dir().join(format!("oac-doctor-{tag}-{}", std::process::id()));
+        // Tests run on parallel threads of one process, so the pid alone would share a directory.
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let n = NEXT.fetch_add(1, Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!("oac-doctor-{tag}-{}-{n}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         TempDir(dir)
