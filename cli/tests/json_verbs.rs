@@ -194,6 +194,8 @@ impl Daemon {
             .arg(&events)
             .arg("--state-dir")
             .arg(&state)
+            // Ends with this process even when it is killed with its guards unrun.
+            .args(["--exit-with", &std::process::id().to_string()])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null());
@@ -232,14 +234,54 @@ impl Drop for Daemon {
     }
 }
 
-/// `oac stop` for the namespace, bounded: ends a daemon that was started detached.
-struct StopOnDrop(String);
+/// A daemon started by `start_detached_command_to`, which keeps no handle on it. When this
+/// drops, the daemon is asked to stop with `oac stop` (bounded) and, if it is still the same
+/// process, killed and waited for; its events file and state directory are removed. The
+/// process is the one in the `ready` event of the events file; a daemon that never got there
+/// is left to `--exit-with`, which ends it with this test process.
+struct DetachedDaemon {
+    namespace: String,
+    events: std::path::PathBuf,
+    state: std::path::PathBuf,
+}
 
-impl Drop for StopOnDrop {
+impl DetachedDaemon {
+    /// The id of the daemon and its start time, once it has said it is ready; `None` when it
+    /// failed, or is not ready in [`WAIT`].
+    fn process(&self) -> Option<oac_cli::peer::ProcessId> {
+        let end = Instant::now() + WAIT;
+        let pid = loop {
+            let events = std::fs::read_to_string(&self.events).unwrap_or_default();
+            if let Some(line) = events.lines().find(|l| l.contains("\"event\":\"ready\"")) {
+                let pid = line.split("\"pid\":").nth(1)?;
+                break pid
+                    .split(|c: char| !c.is_ascii_digit())
+                    .next()?
+                    .parse()
+                    .ok()?;
+            }
+            if events.contains("\"event\":\"failed\"") || Instant::now() >= end {
+                return None;
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        };
+        Self::alive(pid)
+    }
+
+    /// The process `pid` if it is a `live_daemon` now: a recycled id is not the daemon.
+    fn alive(pid: u32) -> Option<oac_cli::peer::ProcessId> {
+        use oac_cli::peer::ProcessTable;
+        let info = oac_cli::peer::SystemTable::new().ok()?.lookup(pid)?;
+        info.image.starts_with("live_daemon").then_some(info.id)
+    }
+}
+
+impl Drop for DetachedDaemon {
     fn drop(&mut self) {
+        let daemon = self.process();
         if let Ok(mut stop) = Command::new(oac())
             .args(["stop", "--json"])
-            .env("OAC_SCOPE", &self.0)
+            .env("OAC_SCOPE", &self.namespace)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -252,6 +294,30 @@ impl Drop for StopOnDrop {
             let _ = stop.kill();
             let _ = stop.wait();
         }
+        // `oac stop` ended a daemon that was serving; one that was not, or that did not
+        // answer, is ended here, and waited for.
+        let end = Instant::now() + WAIT;
+        while let Some(daemon) = daemon
+            && Self::alive(daemon.pid) == Some(daemon)
+            && Instant::now() < end
+        {
+            #[cfg(windows)]
+            let mut kill = Command::new("taskkill");
+            #[cfg(windows)]
+            kill.args(["/F", "/PID"]);
+            #[cfg(unix)]
+            let mut kill = Command::new("kill");
+            #[cfg(unix)]
+            kill.arg("-KILL");
+            let _ = kill
+                .arg(daemon.pid.to_string())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status();
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        let _ = std::fs::remove_file(&self.events);
+        let _ = std::fs::remove_dir_all(&self.state);
     }
 }
 
@@ -261,8 +327,12 @@ impl Drop for StopOnDrop {
 fn a_detached_start_prints_one_object_with_the_pid_and_the_log_and_a_second_says_already_running() {
     let ns = Namespace::new("s");
     let scope = ns.scope();
-    let _stop = StopOnDrop(ns.name.clone());
     let (mut command, events, state) = Daemon::command(&ns, "start");
+    let _stop = DetachedDaemon {
+        namespace: ns.name.clone(),
+        events: events.clone(),
+        state: state.clone(),
+    };
     let log = state.join("the-log");
     let mut said = Vec::new();
     let mut out = Vec::new();
@@ -319,8 +389,6 @@ fn a_detached_start_prints_one_object_with_the_pid_and_the_log_and_a_second_says
     let object = cli_object(text.trim_end());
     assert!(flag_of(&object, "already_running"), "{text}");
     assert_eq!(number_of(&object, "pid"), pid, "{text}");
-    let _ = std::fs::remove_file(events);
-    let _ = std::fs::remove_dir_all(state);
 }
 
 #[test]
