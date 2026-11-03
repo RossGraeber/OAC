@@ -20,7 +20,7 @@
 //!   the harness, whether it paired, and the core's binding lines.
 //!
 //! ```text
-//! cargo run -p oac-cli --example live_daemon -- --namespace g9a --events <file> [--state-dir <dir>]
+//! cargo run -p oac-cli --example live_daemon -- --namespace g9a --events <file> [--state-dir <dir>] [--exit-with <pid>]
 //! ```
 //!
 //! Its log lines also go to the daemon log file of the namespace (`oac_cli::logfile`, G10 #71):
@@ -32,7 +32,10 @@
 //!
 //! It stops on Ctrl-C, when a line `stop` is read on its standard input, or when `oac stop`
 //! asks over the control endpoint (G10, #71; a `stop_requested` event), and writes a
-//! `stopped` event after the clean shutdown. The end of its standard input (a closed or empty
+//! `stopped` event after the clean shutdown. With `--exit-with <pid>` it also stops (an
+//! `owner_gone` event) once that process has ended: a test that spawns it passes its own id, so
+//! that a test process killed without running its guards (Ctrl-C, a timeout) cannot leave this
+//! daemon behind, which a detached start (no console, no job) would otherwise outlive. The end of its standard input (a closed or empty
 //! input) does not stop it: a run that gives it no input stops it with Ctrl-C or by ending
 //! the process. It is built from `cli/examples/`, which only
 //! `cargo` builds on request: the `oac` binary does not contain it, and it depends on the
@@ -259,18 +262,24 @@ struct Arguments {
     namespace: String,
     events: Option<PathBuf>,
     state_dir: Option<PathBuf>,
+    exit_with: Option<u32>,
 }
 
 fn arguments() -> Result<Arguments, String> {
     let mut namespace = None;
     let mut events = None;
     let mut state_dir = None;
+    let mut exit_with = None;
     let mut args = std::env::args().skip(1);
     while let Some(flag) = args.next() {
         match flag.as_str() {
             "--namespace" => namespace = args.next(),
             "--events" => events = args.next().map(PathBuf::from),
             "--state-dir" => state_dir = args.next().map(PathBuf::from),
+            "--exit-with" => {
+                let pid = args.next().and_then(|p| p.parse().ok());
+                exit_with = Some(pid.ok_or("--exit-with <pid> takes a process id")?);
+            }
             other => return Err(format!("unknown argument {other:?}")),
         }
     }
@@ -278,7 +287,31 @@ fn arguments() -> Result<Arguments, String> {
         namespace: namespace.ok_or("--namespace <name> is required")?,
         events,
         state_dir,
+        exit_with,
     })
+}
+
+/// Sends on `gone` once the process `pid` has ended (or is replaced by another with its id).
+/// `None` when there is no such process now. It checks once a second: an end is not an event
+/// the table gives, and a daemon left a second too long is harmless. On Windows a backward
+/// wall-clock step can hide a live owner from `lookup` (inherited from `SystemTable`), which
+/// only ends a test daemon early.
+fn watch_owner(pid: u32) -> Option<tokio::sync::oneshot::Receiver<()>> {
+    let owner = peer::SystemTable::new().ok()?.lookup(pid)?.id;
+    let (gone_tx, gone_rx) = tokio::sync::oneshot::channel::<()>();
+    std::thread::spawn(move || {
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(1));
+            let Ok(table) = peer::SystemTable::new() else {
+                continue;
+            };
+            if table.lookup(pid).map(|info| info.id) != Some(owner) {
+                let _ = gone_tx.send(());
+                return;
+            }
+        }
+    });
+    Some(gone_rx)
 }
 
 fn main() {
@@ -286,7 +319,7 @@ fn main() {
         Ok(a) => a,
         Err(e) => {
             eprintln!(
-                "live_daemon: {e}\nusage: live_daemon --namespace <name> [--events <file>] [--state-dir <dir>]"
+                "live_daemon: {e}\nusage: live_daemon --namespace <name> [--events <file>] [--state-dir <dir>] [--exit-with <pid>]"
             );
             std::process::exit(2);
         }
@@ -416,6 +449,29 @@ fn main() {
             std::thread::park();
         }
     });
+    // The process this one ends with, if one was named; a name that is not a process is an error.
+    let owner_gone = match args.exit_with {
+        Some(pid) => match watch_owner(pid) {
+            Some(gone) => Some(gone),
+            None => {
+                // As for a start that fails: said on standard error, in the log and as an event.
+                let error = format!("--exit-with: no process {pid}");
+                eprintln!("live_daemon: {error}");
+                failure_log.plain(&format!("live_daemon: {error}"));
+                events.emit("failed", &format!("\"error\":{}", json_string(&error)));
+                std::process::exit(1);
+            }
+        },
+        None => None,
+    };
+    let owner_gone = async {
+        match owner_gone {
+            Some(gone) => {
+                let _ = gone.await;
+            }
+            None => std::future::pending().await,
+        }
+    };
     let code = runtime.block_on(async {
         match Daemon::start(parts).await {
             Ok(daemon) => {
@@ -441,6 +497,7 @@ fn main() {
                         // `oac stop` over the control endpoint, as for `oac start`.
                         events.emit("stop_requested", "");
                     }
+                    () = owner_gone => events.emit("owner_gone", ""),
                 }
                 daemon.shutdown().await;
                 events.emit("stopped", "");

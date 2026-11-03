@@ -55,6 +55,8 @@ impl Daemon {
             .args(["--namespace", namespace])
             .arg("--state-dir")
             .arg(&state)
+            // Ends with this process even when it is killed with its guards unrun.
+            .args(["--exit-with", &std::process::id().to_string()])
             .stdin(stdin)
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())

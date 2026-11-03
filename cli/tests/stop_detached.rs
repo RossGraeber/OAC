@@ -81,6 +81,8 @@ fn oac_stop_stops_a_detached_daemon_cleanly() {
         .arg(&events)
         .arg("--state-dir")
         .arg(&state)
+        // Detached, so nothing but this ends it if the test is killed with its guard unrun.
+        .args(["--exit-with", &std::process::id().to_string()])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());

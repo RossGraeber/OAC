@@ -202,6 +202,8 @@ fn lines_survive_a_daemon_that_is_killed_hard() {
         .arg(&events)
         .arg("--state-dir")
         .arg(&state)
+        // Ends with this process even when it is killed with its guards unrun.
+        .args(["--exit-with", &std::process::id().to_string()])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -484,6 +486,7 @@ fn a_detached_start_that_fails_relays_the_childs_reason_and_names_the_log() {
     command
         .args(["--namespace", &namespace, "--state-dir"])
         .arg(&state)
+        .args(["--exit-with", &std::process::id().to_string()])
         .stdin(Stdio::null())
         .stdout(Stdio::null());
     let mut said = Vec::new();
