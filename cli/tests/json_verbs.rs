@@ -271,8 +271,35 @@ impl DetachedDaemon {
     /// The process `pid` if it is a `live_daemon` now: a recycled id is not the daemon.
     fn alive(pid: u32) -> Option<oac_cli::peer::ProcessId> {
         use oac_cli::peer::ProcessTable;
+        // (On Windows the table has no entry for a process once the wall clock has stepped
+        // back past its start time, as `SystemTable` does; that reads as gone, and the
+        // daemon is then left to `--exit-with`.)
         let info = oac_cli::peer::SystemTable::new().ok()?.lookup(pid)?;
-        info.image.starts_with("live_daemon").then_some(info.id)
+        // Windows image names are not case-sensitive.
+        let image = info.image.to_ascii_lowercase();
+        image.starts_with("live_daemon").then_some(info.id)
+    }
+
+    /// Whether `daemon` is still running. On Unix `spawn_detached` makes it our own child
+    /// (`setsid` only starts a session) and `wait_for_start` dropped the `Child` without
+    /// reaping it, so an ended daemon stays a zombie, which the process table still lists
+    /// with its old name and start time. It is reaped here, with `waitpid` on a pid just
+    /// checked to be that daemon (`libc` is already a dependency of this crate); reading the
+    /// zombie state out of `/proc` instead would be a second reading of the table beside
+    /// `SystemTable`.
+    fn running(daemon: oac_cli::peer::ProcessId) -> bool {
+        if Self::alive(daemon.pid) != Some(daemon) {
+            return false;
+        }
+        #[cfg(unix)]
+        {
+            let pid = daemon.pid as libc::pid_t;
+            // SAFETY: `waitpid` with a null status and WNOHANG touches no memory of ours.
+            if unsafe { libc::waitpid(pid, std::ptr::null_mut(), libc::WNOHANG) } == pid {
+                return false;
+            }
+        }
+        true
     }
 }
 
@@ -294,27 +321,34 @@ impl Drop for DetachedDaemon {
             let _ = stop.kill();
             let _ = stop.wait();
         }
-        // `oac stop` ended a daemon that was serving; one that was not, or that did not
-        // answer, is ended here, and waited for.
-        let end = Instant::now() + WAIT;
-        while let Some(daemon) = daemon
-            && Self::alive(daemon.pid) == Some(daemon)
-            && Instant::now() < end
-        {
-            #[cfg(windows)]
-            let mut kill = Command::new("taskkill");
-            #[cfg(windows)]
-            kill.args(["/F", "/PID"]);
-            #[cfg(unix)]
-            let mut kill = Command::new("kill");
-            #[cfg(unix)]
-            kill.arg("-KILL");
-            let _ = kill
-                .arg(daemon.pid.to_string())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .status();
-            std::thread::sleep(Duration::from_millis(100));
+        // `oac stop` returns after the daemon's shutdown and the process follows at once: it
+        // is given a moment to end on its own. Only a daemon still there after that (one that
+        // was not serving yet, or did not answer) is killed, and then waited for. The id is
+        // checked just before each kill, but a daemon that ends in between could have its id
+        // reused before `taskkill` or `kill` runs; that window is as short as a process
+        // creation, and the kill reaches only a process of this user.
+        if let Some(daemon) = daemon {
+            let grace = Instant::now() + Duration::from_secs(2);
+            while Self::running(daemon) && Instant::now() < grace {
+                std::thread::sleep(Duration::from_millis(25));
+            }
+            let end = Instant::now() + WAIT;
+            while Self::running(daemon) && Instant::now() < end {
+                #[cfg(windows)]
+                let mut kill = Command::new("taskkill");
+                #[cfg(windows)]
+                kill.args(["/F", "/PID"]);
+                #[cfg(unix)]
+                let mut kill = Command::new("kill");
+                #[cfg(unix)]
+                kill.arg("-KILL");
+                let _ = kill
+                    .arg(daemon.pid.to_string())
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status();
+                std::thread::sleep(Duration::from_millis(100));
+            }
         }
         let _ = std::fs::remove_file(&self.events);
         let _ = std::fs::remove_dir_all(&self.state);

@@ -452,7 +452,11 @@ fn main() {
         Some(pid) => match watch_owner(pid) {
             Some(gone) => Some(gone),
             None => {
-                eprintln!("live_daemon: --exit-with: no process {pid}");
+                // As for a start that fails: said on standard error, in the log and as an event.
+                let error = format!("--exit-with: no process {pid}");
+                eprintln!("live_daemon: {error}");
+                failure_log.plain(&format!("live_daemon: {error}"));
+                events.emit("failed", &format!("\"error\":{}", json_string(&error)));
                 std::process::exit(1);
             }
         },
