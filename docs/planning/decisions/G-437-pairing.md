@@ -514,7 +514,7 @@ leaving the host, and against a writer who does not hold the seed. It adds **no*
 against rollback (T10). The seed is used only as input to a domain-separated derivation inside
 core; it is not disclosed ([SEC-KEY-004]).
 
-**Condition of the S1b lead merge (subject to the lead's answer on Q-D).** In place of an outside
+**Condition of the S1b lead merge (lead decision L9, 2026-11-03).** In place of an outside
 cryptographic review, the S1b PR must include: (1) the RFC 9180 Appendix A test vector for
 DHKEM(X25519, HKDF-SHA256) + HKDF-SHA256 + ChaCha20Poly1305 in **PSK mode**, run against
 `hpke` 0.12; (2) negative tests: a file sealed in `Base` mode, under the wrong PSK, under the
@@ -683,7 +683,7 @@ need a real credential store stay opt-in (`#[ignore]`, `OAC_TEST_REAL_KEYRING=1`
 |---|---|---|---|---|
 | **S0.5** | Lift the private-file helpers (`make_private_directory`, `open_private_file`, `is_private`, the Unix and Windows `mod os` of `cli/src/logfile.rs`) to a shared `cli/src/private_file.rs`; the log keeps working | 120 | no | The existing `cli/tests/logfile.rs` passes unchanged; `a_loose_mode_is_refused_not_repaired` (Unix) and `the_dacl_is_user_only` (Windows) move with the helper |
 | **S1** | `cli/src/trust_store.rs`: the durable `PairingStore` (§5), its fault-injection seam; the daemon keeps the store; `oac start` passes the file store. Depends on S0.5 only | 500 | no | `snapshot_round_trips_every_grant_and_record`; `relay_enabled_round_trips`; `a_missing_file_is_an_empty_store`; `a_corrupt_or_unknown_version_file_stops_the_daemon_and_is_not_reset`; `an_oversize_file_is_refused`; `a_loose_mode_is_refused_not_repaired`; `the_dacl_on_trust_json_is_user_only` (Windows); `a_failed_write_leaves_the_previous_file_whole` (one case per step of the seam: create, write, sync, rename, directory sync); `a_foreign_device_key_id_is_reported_not_refused`; **SEC-SEL-046** `confirmed_values_survive_a_restart_and_an_older_statement_is_refused` (pair with a statement, stop the daemon, start another on the same file, `admit_statement` of a lower `seq` is `BelowConfirmed`); **SEC-SEL-047** `after_removal_and_restart_the_record_and_confirmed_values_are_gone` |
-| **S1b** | The durable `AgreementKeyStore` (§7): the `oac-core` at-rest handle (it fixes its own key id; state serialization in core), `cli/src/agreement_file.rs` (ciphertext only), the `Parts` constructor, the daemon keeps the store. Depends on S0.5 only, so S1 and S1b are independent. **Lead-merge condition, subject to the lead's answer on Q-D:** the PR carries the RFC 9180 test vector and the negative tests below and one review by a reviewer with a cryptographic background (§7) | 500 | **yes**, credential boundary | **SEC-SEL-043** `seq_and_key_survive_a_restart` (same statement after restart; after a `replace`, the next start issues `seq` 1 not 0); `the_agreement_file_holds_no_plaintext_key`; `rfc9180_appendix_a_psk_vector_passes_on_hpke_0_12` (the RFC 9180 Appendix A vector for DHKEM(X25519, HKDF-SHA256) + HKDF-SHA256 + ChaCha20Poly1305 in PSK mode, run against `hpke` 0.12); negative tests, each refused: `a_file_sealed_in_base_mode_is_refused`, `a_file_sealed_under_the_wrong_psk_is_refused`, `a_file_sealed_under_the_wrong_info_is_refused`, `a_file_renamed_to_another_key_id_is_refused` (the header is the AAD); `a_file_the_seed_did_not_seal_fails_to_open` (review blocker B2); `an_edited_agreement_file_fails_authentication`; `the_handle_has_no_key_id_parameter` (source check); `each_write_draws_a_fresh_enc`; `the_info_is_not_the_payload_info`; `a_regenerated_key_starts_its_own_file_at_seq_0_and_leaves_the_old_file`; `a_missing_file_is_a_first_start`; `the_file_is_private_and_written_atomically`; no `hkdf`, `chacha20poly1305` or `hmac` direct dependency and `Cargo.lock` unchanged (`scripts/check-crate-deps.mjs`); no `SecretSeed` in any `cli/` signature |
+| **S1b** | The durable `AgreementKeyStore` (§7): the `oac-core` at-rest handle (it fixes its own key id; state serialization in core), `cli/src/agreement_file.rs` (ciphertext only), the `Parts` constructor, the daemon keeps the store. Depends on S0.5 only, so S1 and S1b are independent. **Lead-merge condition (L9):** the PR carries the RFC 9180 test vector and the negative tests below and one review by a reviewer with a cryptographic background (§7) | 500 | **yes**, credential boundary | **SEC-SEL-043** `seq_and_key_survive_a_restart` (same statement after restart; after a `replace`, the next start issues `seq` 1 not 0); `the_agreement_file_holds_no_plaintext_key`; `rfc9180_appendix_a_psk_vector_passes_on_hpke_0_12` (the RFC 9180 Appendix A vector for DHKEM(X25519, HKDF-SHA256) + HKDF-SHA256 + ChaCha20Poly1305 in PSK mode, run against `hpke` 0.12); negative tests, each refused: `a_file_sealed_in_base_mode_is_refused`, `a_file_sealed_under_the_wrong_psk_is_refused`, `a_file_sealed_under_the_wrong_info_is_refused`, `a_file_renamed_to_another_key_id_is_refused` (the header is the AAD); `a_file_the_seed_did_not_seal_fails_to_open` (review blocker B2); `an_edited_agreement_file_fails_authentication`; `the_handle_has_no_key_id_parameter` (source check); `each_write_draws_a_fresh_enc`; `the_info_is_not_the_payload_info`; `a_regenerated_key_starts_its_own_file_at_seq_0_and_leaves_the_old_file`; `a_missing_file_is_a_first_start`; `the_file_is_private_and_written_atomically`; no `hkdf`, `chacha20poly1305` or `hmac` direct dependency and `Cargo.lock` unchanged (`scripts/check-crate-deps.mjs`); no `SecretSeed` in any `cli/` signature |
 | **S1c** (optional) | `agreement_seq_floor` (`{key_id, seq}`) in `trust.json` (§7). Depends on S1 and S1b | 120 | no | `a_rolled_back_file_issues_the_floor_plus_one`; `a_floor_without_a_file_issues_the_floor_plus_one`; `the_floor_is_written_before_the_statement_exists`; `a_floor_for_another_key_id_is_ignored` (a regenerated key still starts at `seq` 0, with the S1b test of L7); `a_floor_at_the_maximum_seq_refuses_the_start_until_the_restart` |
 | **S2** | Core `Pipelines::pair` / `unpair`: presence release and withdrawal, save-retry bookkeeping, the `closed` flag. Independent of S1 | 250 | no | `pair_releases_an_existing_sessions_presence_to_the_new_key` (grant loaded with `with_engine`); `unpair_withdraws_then_removes_and_drops_the_announcement_records`; `an_unpair_whose_save_fails_reports_not_durable_and_retry_clears_it` (paused clock, bounded backoff); `a_failed_pair_save_adds_no_key`; `a_store_writing_call_is_refused_after_shutdown_begins` |
 | **S3** | `cli/src/device_pairing.rs`: the control ops and the state machine (§4); the C2 §4 amendment; the `control.rs` invariant reworded. Depends on S1 and S2 | 600 | no | The N1 cases: `a_second_offer_ends_the_pairing`; `a_second_response_ends_the_pairing`; `a_disconnect_abandons_the_pairing`; `the_pairing_expires_at_120_seconds` (the 2 s deadline applies to the first line only); `an_offer_carrying_this_devices_key_ends_the_pairing`; `a_tampered_reveal_ends_the_pairing`; `five_wrong_entries_abort`; `a_second_pairing_is_busy`. `a_stripped_statement_gives_codes_that_differ`. `the_offer_reply_carries_no_Ni` (the reply holds the commitment; `Ni` appears only in the reveal, after the response). `pairing_completes_between_two_honest_daemons_only_on_the_entered_code` (proves only MITM resistance between honest devices); `AlreadyTrusted_is_its_own_outcome`; `an_unpair_whose_save_fails_exits_1_and_is_retried` (N5). **Shutdown:** `stop_ends_an_open_pairing`; `no_store_write_follows_the_shutdown`. **Size:** `the_worst_case_blob_with_128_octet_principals_fits_a_control_line` (measured; asserts it is under 4 KiB and reports its size). **Visibility:** `every_pairing_and_unpair_leaves_one_log_line`; `no_log_line_holds_a_blob_nonce_code_or_statement` |
@@ -701,23 +701,25 @@ S5 after S4. S6 last, naming the tests that exist.
 Resolved by the lead's decisions of 2026-11-03: the tag on `trust.json` (L6: none); a store for
 another device key (L7); the C2 §4 amendment (L8); where the helper lives, `AlreadyTrusted`'s
 exit code, the `--json` stream, the Windows rename durability (accepted defaults); the 120 s
-window (kept). Still open:
+window (kept).
 
-1. **Q-A: adopt S1c** (the `agreement_seq_floor` in `trust.json`), which reduces T10 without a
-   new crate or a boundary change? Recommended: yes, as a small follow-up after S1 and S1b.
-2. **Q-B: a copy of the highest `seq` in the credential-store entry.** It would survive the
-   loss of both files, and it changes the one-entry credential boundary (C4 §12) that decision 2
-   keeps. Recommended: no.
-3. **Q-C: the numbers for visibility.** The last 16 events kept in memory, three shown by
-   doctor, and the backoff of 1 s doubling to 60 s are defaults of this note.
-4. **Q-D: review of the `Psk`-mode seal.** `Psk` is the mode defined for a secret both ends
-   hold, and the construction uses only `derive_keypair`, SHA-256 and `single_shot_seal`; there
-   is no first-party text on sealing a file to a key derived from a seed. S1b is a lead merge;
-   the proposed S1b merge condition (§7: the RFC 9180 PSK test vector, the negative tests, and one
-   review by a reviewer with a cryptographic background) replaces an outside cryptographic
-   review. Whether the lead sets it is this question; the note does not record it as decided.
-5. **Q-E: a pairing holds one of four control permits for up to 120 s** (§4). #438 sizes the
-   endpoint; this note does not change the number.
+Lead decisions of 2026-11-03, round 3:
+
+- **L9 (Q-D):** no outside cryptographic review. The S1b lead merge is conditional on the three
+  items in §7: the RFC 9180 Appendix A PSK-mode test vector run against `hpke` 0.12; the
+  negative tests (`Base` mode, wrong PSK, wrong `info`, a file renamed to another key id);
+  and one review by a reviewer with a cryptographic background. An outside review is revisited
+  only if the construction changes.
+- **L10 (Q-A, Q-B):** S1c is adopted, after S1 and S1b. The `agreement_seq_floor` is
+  `{key_id, seq}` in `trust.json`. No copy goes in the credential-store entry, which keeps
+  the one-entry boundary (C4 §12). The loss of both files together stays a residual (T10).
+
+Defaults of this note, open to the lead's objection at review:
+
+1. **Q-C: the numbers for visibility.** The last 16 events kept in memory, three shown by
+   doctor, and the backoff of 1 s doubling to 60 s. None bears on security.
+2. **Q-E: a pairing holds one of four control permits for up to 120 s** (§4). It costs
+   availability only, one pairing per daemon bounds it, and #438 sizes the endpoint.
 
 ## 12. Gaps recorded
 
