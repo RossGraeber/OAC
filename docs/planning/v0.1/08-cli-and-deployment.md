@@ -195,6 +195,8 @@ The `status` op is bounded like `stop`: a request of at most 1 KiB within 2 s, a
 
 (Dated note, 2026-10-18, #71: `oac stop` and the reserved `control` endpoint are on this branch of G10 slice 1. `oac start --detach` probes the `control` endpoint, not the `claude` endpoint, for "already running" and for "now serving", so the probe no longer takes an adapter place (`11-risks.md` row 86).)
 
+(Dated note, 2026-11-03, #437, S0 design note; proposed, nothing delivered: the reserved pairing row of the table above is designed in `docs/planning/decisions/G-437-pairing.md`. The verbs are `oac pair`, `oac pair --respond`, `oac unpair <key_id>` and `oac pair --list`, all with `--json`; the exit codes are the set above (`0` paired, `1` ended, mismatch, not saved or already trusted, `2` usage, `3` no daemon, `4` incompatible or busy). The `pairing` row of section 6 then reads WARN only for a paired key that no grant names (the grant verbs are #492; grants with no paired device stay PASS, the single-device setup, C5 §10(a)), lists the recent pairings (a same-user process can pair with no operator, lead decision L5), and FAILs when the trust store is unsaved. The `--json` shapes are the lead's to approve in slice S5.)
+
 ---
 
 ## 6. `oac doctor` check list
@@ -420,6 +422,9 @@ Scoped to what shapes v0.1 architecture only, per the task breakdown.
 - **The CLI hook is the reserved pairing subcommand** named in §5's table — named here,
   semantics owned by `docs/planning/decisions/C5-envelope-auth.md` §10(b), not designed
   in this file.
+  (Dated note, 2026-11-03, #437: the reserved subcommand is designed in
+  `docs/planning/decisions/G-437-pairing.md`. v0.1 has no LAN configuration, so the proof is
+  two daemons on loopback and no LAN certificate is issued by `oac pair`.)
 - **LAN mode is off unless explicitly configured.** Per §3's zero-file default: no
   LAN/remote transport is enabled without explicit configuration.
 - **Federation, routing, and multi-hop are deferred**, per `oac-boundaries` 11 — this

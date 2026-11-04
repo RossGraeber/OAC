@@ -685,6 +685,8 @@ devices is the lowest-friction "explicit" step available.
   6-digit, 120-second and 5-attempt parameters are unchanged.
   `spec/security.md` [SEC-KEY-032] to [SEC-KEY-034] are met as frozen. The §5.3 informative
   note's follow-up is recorded for the #308 batch.*
+
+  *Dated note, 2026-11-03 (#437, `docs/planning/decisions/G-437-pairing.md`; lead decisions of the same day). The reference implementation carries the exchange as pasted blobs (an offer, a response and a reveal), so pairing needs a **text channel between the two devices that the operator controls** (a shared clipboard, a chat, a terminal session on the other device). The 120-second window above is per device, from that device's own verb; it covers every paste and both typed codes, and it is kept for v0.1. The parameter lives in this decision and in the informative reference-implementation note at `spec/security.md` L396-L400, not in a normative requirement. The typed code defends against a man-in-the-middle between two honest devices. It does not prove that a human took part: a process of the same user that controls a device sees that device's code and can type it, and the lead accepted that as a residual (G-437 §1 item 3).*
 - **Where LAN certificates come from, and the common-name link (forward reference to
   §12).** Where pairing issues LAN certificates for the Zenoh TLS/QUIC transport, the
   certificate's common name is **derived from the device public key fingerprint** —
