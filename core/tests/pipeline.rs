@@ -37,6 +37,7 @@ use oac_core::pipeline::{
 };
 use oac_core::presence::PresenceKind;
 use oac_core::receipt::DeliveryReceipt;
+use oac_core::sealing::{AgreementKeys, MemoryAgreementKeyStore};
 use oac_core::session_binding::{
     BindingLog, BindingLogEntry, BindingResult, MemoryBindingLog, PairingKey, PeerObservation,
     RecordKind,
@@ -5479,20 +5480,26 @@ fn pair_without_a_grant_releases_nothing() {
     assert!(bus.presence_from(y.pipes.device().key_id()).is_empty());
 }
 
-/// An unpair sends the withdrawal of each session announced to the device while the key is
-/// still trusted (afterwards [SEC-AUZ-011] would not let one go), then removes the key with
-/// its grants, and forgets the announcement records so no refresh names the device.
+/// An unpair issues the withdrawal of each session announced to the device, removes the key
+/// with its grants and forgets the announcement records so no refresh names the device, all
+/// under one lock (as `unbind` does); the withdrawals are passed afterwards. So nothing can
+/// be announced to the device between its withdrawal and its removal: an event handed while
+/// the withdrawal is being passed (here a carrier appearance, which announces to every
+/// trusted device) finds the key already gone and the withdrawal is the last record it gets.
 #[test]
 fn unpair_withdraws_then_removes_and_drops_the_announcement_records() {
     let t = pairable(None);
     t.y.pipes.pair(peer_of(&t.x), &t.y.store).unwrap();
     let announced = record_of(&t.bus.presence_from(&t.yk)[0]);
     assert!(t.y.pipes.next_presence_refresh_at().is_some());
-    // At the moment the withdrawal is passed, the key is still trusted.
+    // While the withdrawal is being passed, a carrier appearance asks for a set of
+    // announcements.
     let seen = Arc::new(Mutex::new(None));
     let (pipes, key, flag) = (t.y.pipes.clone(), t.xk.clone(), seen.clone());
+    let (bus, yk) = (t.bus.clone(), t.yk.clone());
     t.bus.0.lock().unwrap().on_presence = Some(Box::new(move || {
         *flag.lock().unwrap() = Some(pipes.with_engine(|e| e.trusted_keys().get(&key).is_some()));
+        bus.appear(&yk, "link-1");
     }));
     let done =
         t.y.pipes
@@ -5504,13 +5511,13 @@ fn unpair_withdraws_then_removes_and_drops_the_announcement_records() {
     assert_eq!(removal.grants.len(), 1);
     assert_eq!(
         *seen.lock().unwrap(),
-        Some(true),
-        "withdrawn before the removal"
+        Some(false),
+        "the removal stands when the withdrawal is passed"
     );
     // The withdrawal went to the unpaired device for the announced session, newer than the
-    // announcement.
+    // announcement, and nothing followed it, the appearance's set included.
     let pairs = t.bus.presence_pairs_from(&t.yk);
-    assert_eq!(pairs.len(), 2);
+    assert_eq!(pairs.len(), 2, "{pairs:?}");
     assert_eq!(pairs[1], (t.sy.clone(), t.xk.clone()));
     let withdrawn = record_of(&t.bus.presence_from(&t.yk)[1]);
     assert!(matches!(withdrawn.kind(), PresenceKind::Withdrawal));
@@ -5609,6 +5616,37 @@ fn a_later_successful_pair_saves_the_unsaved_removal() {
     assert!(!t.y.pipes.status().trust_unsaved);
     assert!(!stored(&t.y, &t.xk));
     assert!(stored(&t.y, z.pipes.device().key_id()));
+}
+
+/// A peer's statement admitted and saved by `admit_statement` also writes the whole
+/// snapshot, so it too ends the retry of an unsaved removal.
+#[test]
+fn a_later_successful_admit_statement_saves_the_unsaved_removal() {
+    let t = pairable(None);
+    t.y.pipes.pair(peer_of(&t.x), &t.y.store).unwrap();
+    // Device `z` pairs with a statement, and later issues a newer one.
+    let z = node(&t.bus, "device-z", PipelineConfig::default());
+    let keys_store = MemoryAgreementKeyStore::new();
+    let mut keys =
+        AgreementKeys::load_or_generate(&keys_store, z.pipes.device(), &SystemClock.now()).unwrap();
+    let first = keys.statement().clone();
+    t.y.pipes
+        .pair(peer_of(&z).with_agreement_statement(first), &t.y.store)
+        .unwrap();
+    let newer = keys
+        .replace(&keys_store, z.pipes.device(), &SystemClock.now())
+        .unwrap()
+        .clone();
+    t.y.store.fail_saves(true);
+    t.y.pipes
+        .unpair(&t.xk, OperatorConfirmed::by_operator(), &t.y.store)
+        .unwrap();
+    assert!(t.y.pipes.status().trust_unsaved);
+    t.y.store.fail_saves(false);
+    t.y.pipes.admit_statement(&newer, &t.y.store).unwrap();
+    assert!(!t.y.pipes.status().trust_unsaved);
+    assert_eq!(t.y.pipes.next_trust_retry_in(), None);
+    assert!(!stored(&t.y, &t.xk));
 }
 
 /// The engine adds a key only once the store has saved it: a failed save adds no key and

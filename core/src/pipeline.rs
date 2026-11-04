@@ -708,7 +708,8 @@ struct TrustSaveRetry {
 }
 
 impl Core {
-    /// A save failed at `now`: the next retry is due after 1 s, then 2 s, doubling to 60 s.
+    /// A save failed at `now`: the next retry is due after 1 s, and the wait doubles with each
+    /// further failure, up to 60 s, until a save succeeds.
     fn trust_save_failed(&mut self, now: Instant) {
         let failures = self.trust_retry.map_or(1, |r| r.failures.saturating_add(1));
         let wait = TRUST_SAVE_RETRY_FIRST
@@ -952,6 +953,11 @@ impl Pipelines {
         let (held, sessions) = {
             let mut core = self.inner.lock();
             let held = core.engine.admit_statement(statement, store)?.clone();
+            if held.key_id() != self.inner.identity.key_id() {
+                // A peer's statement was saved: the store holds the whole snapshot, an
+                // earlier unsaved removal included. (This device's own is not saved here.)
+                core.trust_retry = None;
+            }
             let sessions: Vec<SessionId> = core.sessions.keys().cloned().collect();
             (held, sessions)
         };
@@ -969,7 +975,7 @@ impl Pipelines {
     /// pairing would otherwise reach the device only at the next carrier appearance.
     ///
     /// Pairing grants nothing ([SEC-AUZ-001]): until a grant allows it, no announcement is
-    /// released. The save runs under the core lock, as [`Pipelines::admit_statement`]'s does.
+    /// released. The save runs under the core lock, so delivery waits for the disk meanwhile.
     ///
     /// # Errors
     ///
@@ -998,11 +1004,16 @@ impl Pipelines {
     /// Removes the trusted key `key_id` with its grants, bindings and agreement values
     /// ([`AuthorizationEngine::remove_key`]), saving the change to `store`.
     ///
-    /// Before the removal, the announcement records that name the device are forgotten and
-    /// each of those sessions' withdrawal is sent to it, as [`Pipelines::unbind`] would, best
-    /// effort: afterwards [SEC-AUZ-011] no longer lets one go to it, and the device would
-    /// hold the announcements until they lapse ([SC-DLV-055]). Nothing that waits on the
-    /// transport runs under the core lock.
+    /// In the same step, the announcement records that name the device are forgotten and the
+    /// withdrawal of each of those sessions is issued, as [`Pipelines::unbind`] does for a
+    /// session, and passed to the device best effort once the lock is released; the device
+    /// would otherwise hold the announcements until they lapse ([SC-DLV-055]). The
+    /// withdrawals are issued, with their carriage, while the key is still trusted
+    /// ([SEC-SEL-024]); passing one asks the engine for nothing. Because the issue and the
+    /// removal share one lock, no announcement to the device can be issued between them, and
+    /// none after ([SEC-AUZ-011]); an announcement issued earlier and still in flight carries
+    /// a lower `seq` than the withdrawal. Nothing that waits on the transport runs under the
+    /// core lock.
     ///
     /// A removal that stands but did not save ([`Unpaired::NotDurable`]) marks the trusted
     /// keys unsaved ([`CoreStatus::trust_unsaved`]): the owner retries with
@@ -1019,7 +1030,11 @@ impl Pipelines {
         store: &dyn PairingStore,
     ) -> Result<Unpaired, TrustChangeError> {
         let inner = &self.inner;
-        let withdrawals = {
+        let now = (inner.monotonic)();
+        // One lock for the checks, the withdrawals' issue and the removal, as `unbind` does
+        // for a session: no announcement to the device can be issued between the withdrawal
+        // and the removal. The withdrawals are passed after the lock is released.
+        let (outcome, withdrawals) = {
             let mut core = inner.lock();
             if core.closed {
                 return Err(TrustChangeError::Closed);
@@ -1030,8 +1045,23 @@ impl Pipelines {
             if core.engine.trusted_keys().get(key_id).is_none() {
                 return Err(TrustChangeError::Remove(RemoveKeyError::NotTrusted));
             }
-            inner.withdrawals_to(&mut core, key_id)
+            let withdrawals = inner.withdrawals_to(&mut core, key_id);
+            let outcome = match core.engine.remove_key(key_id, confirmed, store) {
+                Ok(removal) => {
+                    core.trust_retry = None;
+                    Unpaired::Durable(Box::new(removal))
+                }
+                Err(RemoveKeyError::NotSaved(e)) => {
+                    core.trust_save_failed(now);
+                    Unpaired::NotDurable(e)
+                }
+                // Checked above, under the same lock.
+                Err(e) => return Err(TrustChangeError::Remove(e)),
+            };
+            (outcome, withdrawals)
         };
+        // Issued while the key was trusted, with the carriage resolved then; passing a
+        // withdrawal asks the engine for nothing, so the removal does not stop it.
         for (carriage, destination, payload) in withdrawals {
             let _ = inner.pass(
                 carriage,
@@ -1041,24 +1071,7 @@ impl Pipelines {
                 inner.control_deadline(),
             );
         }
-        let now = (inner.monotonic)();
-        let mut core = inner.lock();
-        if core.closed {
-            return Err(TrustChangeError::Closed);
-        }
-        // An announcement may have been recorded between the two locks.
-        core.announced.retain(|(_, d), _| d != key_id);
-        match core.engine.remove_key(key_id, confirmed, store) {
-            Ok(removal) => {
-                core.trust_retry = None;
-                Ok(Unpaired::Durable(Box::new(removal)))
-            }
-            Err(RemoveKeyError::NotSaved(e)) => {
-                core.trust_save_failed(now);
-                Ok(Unpaired::NotDurable(e))
-            }
-            Err(e) => Err(TrustChangeError::Remove(e)),
-        }
+        Ok(outcome)
     }
 
     /// Saves the whole trust snapshot again after an unpair whose save failed; a no-op when
@@ -1634,7 +1647,9 @@ impl Pipelines {
     /// ([`AuthorizationEngine::add_grant`] and the rest). Do not call into the pipelines
     /// from `f`. A pairing or removal of a key goes through [`Pipelines::pair`] and
     /// [`Pipelines::unpair`], which also release or withdraw presence and keep the save
-    /// retry; calls here change trust and release nothing.
+    /// retry; calls here change trust and release nothing. A save made here is not seen by
+    /// that retry: [`CoreStatus::trust_unsaved`] stays set, and the next
+    /// [`Pipelines::retry_save`] saves again (harmless), until one succeeds.
     pub fn with_engine<R>(&self, f: impl FnOnce(&mut AuthorizationEngine) -> R) -> R {
         f(&mut self.inner.lock().engine)
     }
@@ -2694,8 +2709,6 @@ impl Inner {
         }
     }
 
-    /// Releases `session`'s announcement to each trusted device that may see it
-    /// ([SC-DLV-051], [SEC-AUZ-011]).
     /// Forgets the announcement records that name `device` and issues the withdrawal of each
     /// session that was announced to it, to pass to the transport after the lock is released.
     /// The carriage is read now, before the device's statement can go with its key
@@ -2718,6 +2731,9 @@ impl Inner {
         };
         let mut withdrawals = Vec::new();
         for session in sessions {
+            // `ended` is false: the session lives on. The issuer clears the session's
+            // `announced_at` for every device, which nothing in the pipelines reads (they
+            // keep `Core::announced`), so the other devices' refreshes are unaffected.
             let Some(record) = core.issuer.withdraw(&session, self.clock.now(), false) else {
                 continue;
             };
@@ -2730,6 +2746,8 @@ impl Inner {
         withdrawals
     }
 
+    /// Releases `session`'s announcement to each trusted device that may see it
+    /// ([SC-DLV-051], [SEC-AUZ-011]).
     fn release_presence(&self, session: &SessionId) {
         let own = self.identity.key_id().clone();
         let devices: Vec<KeyId> = self
