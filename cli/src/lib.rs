@@ -36,6 +36,7 @@ pub mod ipc;
 pub mod keystore;
 pub mod logfile;
 pub mod peer;
+mod private_file;
 pub mod relay;
 pub mod shim;
 pub mod status;
