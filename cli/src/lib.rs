@@ -16,6 +16,8 @@
 //! - [`status`]: the daemon's status report and `oac status`'s rendering of it (G10, #71).
 //! - [`doctor`]: `oac doctor`'s checks and their report (G10, #71).
 //! - [`logfile`]: the daemon's crash-safe, size-bounded, user-private log file (G10, #71).
+//! - `private_file`: files and directories private to the user, shared by the log and the
+//!   pairing stores (#437).
 //! - [`hook`]: the `oac hook` handler that carries a Claude Code `SessionStart` input to the
 //!   daemon as a native signal (G9, #70; `spec/bindings/mcp.md` §8.1).
 //! - [`verbs`]: the verbs that exist so far and their dispatch.

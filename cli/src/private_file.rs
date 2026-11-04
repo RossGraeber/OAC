@@ -32,7 +32,8 @@ pub(crate) fn is_private(path: &Path) -> io::Result<bool> {
 /// # Errors
 ///
 /// The operating system's error, or [`io::ErrorKind::PermissionDenied`] when a directory is a
-/// link, is not the user's or is open to others: it is refused, never repaired.
+/// link or is not the user's, or on Unix is open to others: on Unix it is refused, never
+/// repaired; on Windows the DACL is replaced, then read back and checked.
 pub(crate) fn make_private_directory(directory: &Path, top: &Path, what: &str) -> io::Result<()> {
     os::make_private_directory(directory, top, what)
 }
@@ -42,8 +43,9 @@ pub(crate) fn make_private_directory(directory: &Path, top: &Path, what: &str) -
 ///
 /// # Errors
 ///
-/// The operating system's error, or [`io::ErrorKind::PermissionDenied`] when `path` is a link,
-/// is not the user's or is open to others.
+/// The operating system's error, or [`io::ErrorKind::PermissionDenied`] when `path` is a link
+/// or is not the user's, or on Unix is open to others: on Unix it is refused, never repaired;
+/// on Windows the DACL is replaced, then read back and checked.
 pub(crate) fn open_private_file(
     path: &Path,
     truncate: bool,
@@ -73,8 +75,8 @@ mod os {
         Ok(!meta.file_type().is_symlink() && meta.uid() == euid() && meta.mode() & 0o077 == 0)
     }
 
-    /// Creates `directory` (and the parents) `0700` and checks it, and `top`, the log
-    /// directory, which `directory` is or is inside.
+    /// Creates `directory` (and the parents) `0700` and checks it, and `top`, which
+    /// `directory` is or is inside.
     pub(super) fn make_private_directory(
         directory: &Path,
         top: &Path,
@@ -317,8 +319,8 @@ mod os {
         Ok(private)
     }
 
-    /// Makes `directory` (and the parents), gives the log directory `top` and `directory` the
-    /// user-only DACL, and checks both.
+    /// Makes `directory` (and the parents), gives `top` and `directory` the user-only DACL,
+    /// and checks both.
     pub(super) fn make_private_directory(
         directory: &Path,
         top: &Path,
@@ -433,5 +435,9 @@ mod tests {
         let (_handle, size) = open_private_file(&file, false, "file").unwrap();
         assert_eq!(size, 0);
         assert!(is_private(&file).unwrap());
+        // A file outside the private directory inherits the temp directory's several ACEs.
+        let loose = temp.0.join("loose");
+        std::fs::write(&loose, "").unwrap();
+        assert!(!is_private(&loose).unwrap());
     }
 }

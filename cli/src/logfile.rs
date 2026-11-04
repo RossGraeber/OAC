@@ -275,8 +275,7 @@ fn render(text: &str) -> String {
 
 /// Whether `path` (a file or a directory) is private to the user: on Unix owned by the user
 /// with no access for group or others, on Windows owned by the user or by Administrators
-/// with a DACL of exactly one ACE, for the user. For a test and for the checks that open the
-/// file.
+/// with a DACL of exactly one ACE, for the user. For the tests.
 ///
 /// # Errors
 ///
