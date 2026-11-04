@@ -169,14 +169,21 @@ pub const CARRIER_APPEARANCE_HOLD_OFF: Duration = Duration::from_secs(1);
 /// the set begins in time: the hold-off ends before this bound does.
 pub const CARRIER_APPEARANCE_BOUND: Duration = Duration::from_secs(2);
 
+/// The wait before the first retry of a trust-store save that failed
+/// ([`Pipelines::retry_save`]); each failure doubles it, up to [`TRUST_SAVE_RETRY_CAP`].
+pub const TRUST_SAVE_RETRY_FIRST: Duration = Duration::from_secs(1);
+
+/// The longest wait between two retries of a trust-store save that keeps failing.
+pub const TRUST_SAVE_RETRY_CAP: Duration = Duration::from_secs(60);
+
 use crate::adapter::{
     AdapterEvent, Attachment, Connection, ConnectionHandle, DiscoveryRequest,
     DiscoveryRequestResult, HandOff, HandOffOutcome, NativeSignal, ProviderAdapter, ReceiptStream,
     RequestSink, SendRequest, SendRequestResult,
 };
 use crate::authorization::{
-    AuthorizationEngine, AuthorizationRequest, AuthorizedMessage, Binding, HandOffRecord, Kind,
-    Requester, SentRecord,
+    AuthorizationEngine, AuthorizationRequest, AuthorizedMessage, Binding, HandOffRecord,
+    KeyRemoval, Kind, OperatorConfirmed, PairError, RemoveKeyError, Requester, SentRecord,
 };
 use crate::capabilities::{CapabilitiesEntry, Implemented, SessionCapabilities, SessionDescriptor};
 use crate::clock::Clock;
@@ -186,7 +193,7 @@ use crate::ids::{EXTENSION_ID_V0, IMPLEMENTED_VERSION, KeyId, SessionId, Token};
 use crate::issued_pairing::{PairingWindows, RevealOutcome};
 use crate::json::{self, Json};
 use crate::keys::DeviceIdentity;
-use crate::pairing::PairingStore;
+use crate::pairing::{PairedPeer, PairingStore, PairingStoreError};
 use crate::presence_auth::{AuthenticatedPresenceRecord, accept_authenticated_record};
 use crate::receipt::DeliveryReceipt;
 use crate::receipt_auth::{AuthenticatedReceipt, accept_receipt};
@@ -362,6 +369,46 @@ impl fmt::Display for PipelineError {
 }
 
 impl std::error::Error for PipelineError {}
+
+/// Why a call that changes the trusted keys ([`Pipelines::pair`], [`Pipelines::unpair`],
+/// [`Pipelines::retry_save`]) was refused. Nothing was written to the store.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TrustChangeError {
+    /// Shutdown has begun; no call writes the store any more.
+    Closed,
+    /// The pairing was refused: the key is already trusted, or the store did not save it
+    /// (the key is then not added).
+    Pair(PairError),
+    /// The key is this device's own, or is not trusted. A removal that stands but was not
+    /// saved is not this error: it is [`Unpaired::NotDurable`].
+    Remove(RemoveKeyError),
+    /// The retried save failed again; it is retried on a longer wait.
+    Store(PairingStoreError),
+}
+
+impl fmt::Display for TrustChangeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            TrustChangeError::Closed => f.write_str("the core is shutting down"),
+            TrustChangeError::Pair(e) => fmt::Display::fmt(e, f),
+            TrustChangeError::Remove(e) => fmt::Display::fmt(e, f),
+            TrustChangeError::Store(e) => fmt::Display::fmt(e, f),
+        }
+    }
+}
+
+impl std::error::Error for TrustChangeError {}
+
+/// What [`Pipelines::unpair`] did. The key is removed from the trusted keys in both cases.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Unpaired {
+    /// The store holds the removal.
+    Durable(Box<KeyRemoval>),
+    /// The store did not save the removal: a restart before a retry succeeds would restore
+    /// the revoked device. The core retries ([`Pipelines::retry_save`]) and
+    /// [`CoreStatus::trust_unsaved`] says so; the operator is told loudly.
+    NotDurable(PairingStoreError),
+}
 
 struct AttachmentEntry {
     adapter: AdapterId,
@@ -642,6 +689,36 @@ struct Core {
     carriers: HashMap<ConnectionHandle, AdapterId>,
     /// The pairing windows of issued values (`spec/bindings/mcp.md` §4.5).
     pairing: PairingWindows<Attachment>,
+    /// Set when shutdown begins. A call that writes the pairing store checks it under the
+    /// lock it saves under, so none writes once the owner may hand the store to another
+    /// process ([`Pipelines::pair`], [`Pipelines::unpair`], [`Pipelines::retry_save`]).
+    closed: bool,
+    /// Set while the trusted keys changed in memory and the store may not hold the change
+    /// (an unpair whose save failed).
+    trust_retry: Option<TrustSaveRetry>,
+}
+
+/// A trust-store save that failed and is retried ([`Pipelines::retry_save`]).
+#[derive(Clone, Copy, Debug)]
+struct TrustSaveRetry {
+    /// How many saves have failed since the store was last known whole, at least 1.
+    failures: u32,
+    /// When the next retry is due, on the core's monotonic clock.
+    due: Instant,
+}
+
+impl Core {
+    /// A save failed at `now`: the next retry is due after 1 s, then 2 s, doubling to 60 s.
+    fn trust_save_failed(&mut self, now: Instant) {
+        let failures = self.trust_retry.map_or(1, |r| r.failures.saturating_add(1));
+        let wait = TRUST_SAVE_RETRY_FIRST
+            .saturating_mul(1 << (failures - 1).min(16))
+            .min(TRUST_SAVE_RETRY_CAP);
+        self.trust_retry = Some(TrustSaveRetry {
+            failures,
+            due: now + wait,
+        });
+    }
 }
 
 // Final closure is authoritative independently of a lock held by ordinary core work.
@@ -794,6 +871,8 @@ impl Pipelines {
             next_signal_seq: 0,
             carriers: HashMap::new(),
             pairing: PairingWindows::new(config.pairing_window),
+            closed: false,
+            trust_retry: None,
         };
         Pipelines {
             inner: Arc::new(Inner {
@@ -882,6 +961,149 @@ impl Pipelines {
             }
         }
         Ok(held)
+    }
+
+    /// Adds the key of a pairing an operator confirmed ([`AuthorizationEngine::pair`]), saving
+    /// it to `store`, then announces each own session to that device, where its release is
+    /// authorized ([SC-DLV-051], [SEC-AUZ-011]). A session that registered before the
+    /// pairing would otherwise reach the device only at the next carrier appearance.
+    ///
+    /// Pairing grants nothing ([SEC-AUZ-001]): until a grant allows it, no announcement is
+    /// released. The save runs under the core lock, as [`Pipelines::admit_statement`]'s does.
+    ///
+    /// # Errors
+    ///
+    /// [`TrustChangeError::Pair`] when the key is already trusted or the store did not save
+    /// it (no key is added then); [`TrustChangeError::Closed`] once shutdown has begun.
+    pub fn pair(&self, peer: PairedPeer, store: &dyn PairingStore) -> Result<(), TrustChangeError> {
+        let key = peer.key_id();
+        let sessions: Vec<SessionId> = {
+            let mut core = self.inner.lock();
+            if core.closed {
+                return Err(TrustChangeError::Closed);
+            }
+            core.engine
+                .pair(peer, store)
+                .map_err(TrustChangeError::Pair)?;
+            // The store holds the whole snapshot now, an earlier unsaved removal included.
+            core.trust_retry = None;
+            core.sessions.keys().cloned().collect()
+        };
+        for s in sessions {
+            self.inner.announce_to(&s, &key, false);
+        }
+        Ok(())
+    }
+
+    /// Removes the trusted key `key_id` with its grants, bindings and agreement values
+    /// ([`AuthorizationEngine::remove_key`]), saving the change to `store`.
+    ///
+    /// Before the removal, the announcement records that name the device are forgotten and
+    /// each of those sessions' withdrawal is sent to it, as [`Pipelines::unbind`] would, best
+    /// effort: afterwards [SEC-AUZ-011] no longer lets one go to it, and the device would
+    /// hold the announcements until they lapse ([SC-DLV-055]). Nothing that waits on the
+    /// transport runs under the core lock.
+    ///
+    /// A removal that stands but did not save ([`Unpaired::NotDurable`]) marks the trusted
+    /// keys unsaved ([`CoreStatus::trust_unsaved`]): the owner retries with
+    /// [`Pipelines::retry_save`] at [`Pipelines::next_trust_retry_in`] until it succeeds.
+    ///
+    /// # Errors
+    ///
+    /// [`TrustChangeError::Remove`] for this device's own key or one that is not trusted
+    /// (nothing is sent); [`TrustChangeError::Closed`] once shutdown has begun.
+    pub fn unpair(
+        &self,
+        key_id: &KeyId,
+        confirmed: OperatorConfirmed,
+        store: &dyn PairingStore,
+    ) -> Result<Unpaired, TrustChangeError> {
+        let inner = &self.inner;
+        let withdrawals = {
+            let mut core = inner.lock();
+            if core.closed {
+                return Err(TrustChangeError::Closed);
+            }
+            if key_id == inner.identity.key_id() {
+                return Err(TrustChangeError::Remove(RemoveKeyError::OwnKey));
+            }
+            if core.engine.trusted_keys().get(key_id).is_none() {
+                return Err(TrustChangeError::Remove(RemoveKeyError::NotTrusted));
+            }
+            inner.withdrawals_to(&mut core, key_id)
+        };
+        for (carriage, destination, payload) in withdrawals {
+            let _ = inner.pass(
+                carriage,
+                key_id,
+                &destination,
+                payload,
+                inner.control_deadline(),
+            );
+        }
+        let now = (inner.monotonic)();
+        let mut core = inner.lock();
+        if core.closed {
+            return Err(TrustChangeError::Closed);
+        }
+        // An announcement may have been recorded between the two locks.
+        core.announced.retain(|(_, d), _| d != key_id);
+        match core.engine.remove_key(key_id, confirmed, store) {
+            Ok(removal) => {
+                core.trust_retry = None;
+                Ok(Unpaired::Durable(Box::new(removal)))
+            }
+            Err(RemoveKeyError::NotSaved(e)) => {
+                core.trust_save_failed(now);
+                Ok(Unpaired::NotDurable(e))
+            }
+            Err(e) => Err(TrustChangeError::Remove(e)),
+        }
+    }
+
+    /// Saves the whole trust snapshot again after an unpair whose save failed; a no-op when
+    /// nothing is unsaved. A failure doubles the wait to the next retry, from
+    /// [`TRUST_SAVE_RETRY_FIRST`] up to [`TRUST_SAVE_RETRY_CAP`]. The owner arms one timer at
+    /// [`Pipelines::next_trust_retry_in`] and calls this when it fires; nothing here runs a
+    /// timer.
+    ///
+    /// # Errors
+    ///
+    /// [`TrustChangeError::Store`] when the save failed again; [`TrustChangeError::Closed`]
+    /// once shutdown has begun.
+    pub fn retry_save(&self, store: &dyn PairingStore) -> Result<(), TrustChangeError> {
+        let now = (self.inner.monotonic)();
+        let mut core = self.inner.lock();
+        if core.closed {
+            return Err(TrustChangeError::Closed);
+        }
+        if core.trust_retry.is_none() {
+            return Ok(());
+        }
+        match core.engine.save(store) {
+            Ok(()) => {
+                core.trust_retry = None;
+                Ok(())
+            }
+            Err(e) => {
+                core.trust_save_failed(now);
+                Err(TrustChangeError::Store(e))
+            }
+        }
+    }
+
+    /// The instant the next [`Pipelines::retry_save`] is due, on the core's monotonic clock;
+    /// `None` when nothing is unsaved.
+    pub fn next_trust_retry_at(&self) -> Option<Instant> {
+        self.inner.lock().trust_retry.map(|r| r.due)
+    }
+
+    /// How long from now until [`Pipelines::next_trust_retry_at`]; zero when it has passed,
+    /// `None` when nothing is unsaved. The owner arms its timer with this, so that its clock
+    /// and the core's are one.
+    pub fn next_trust_retry_in(&self) -> Option<Duration> {
+        let at = self.next_trust_retry_at()?;
+        Some(at.saturating_duration_since((self.inner.monotonic)()))
     }
 
     /// How many frames from a sealing transport opened under no agreement key held, and were
@@ -1408,9 +1630,11 @@ impl Pipelines {
         &self.inner.identity
     }
 
-    /// Runs `f` on the authorization engine, for an operator's grants, pairings and relay
-    /// settings ([`AuthorizationEngine::add_grant`] and the rest). Do not call into the
-    /// pipelines from `f`.
+    /// Runs `f` on the authorization engine, for an operator's grants and relay settings
+    /// ([`AuthorizationEngine::add_grant`] and the rest). Do not call into the pipelines
+    /// from `f`. A pairing or removal of a key goes through [`Pipelines::pair`] and
+    /// [`Pipelines::unpair`], which also release or withdraw presence and keep the save
+    /// retry; calls here change trust and release nothing.
     pub fn with_engine<R>(&self, f: impl FnOnce(&mut AuthorizationEngine) -> R) -> R {
         f(&mut self.inner.lock().engine)
     }
@@ -1444,7 +1668,7 @@ impl Pipelines {
     /// [IFC-TYP-092]).
     pub fn status(&self) -> CoreStatus {
         let inner = &self.inner;
-        let (adapters, sessions, mut counts, unbound) = {
+        let (adapters, sessions, mut counts, unbound, trust_unsaved) = {
             let core = inner.lock();
             let sessions: Vec<SessionStatus> = core
                 .registry
@@ -1494,7 +1718,14 @@ impl Pipelines {
                         .count()
                 })
                 .collect();
-            (core.adapters.clone(), sessions, counts, unbound)
+            let trust_unsaved = core.trust_retry.is_some();
+            (
+                core.adapters.clone(),
+                sessions,
+                counts,
+                unbound,
+                trust_unsaved,
+            )
         };
         counts.discarded_frames = self.discarded_frames();
         // No lock is held from here on.
@@ -1513,6 +1744,7 @@ impl Pipelines {
             adapters,
             sessions,
             counts,
+            trust_unsaved,
         }
     }
 
@@ -1532,6 +1764,8 @@ impl Pipelines {
     /// transport shuts down.
     pub fn shutdown(&self) {
         let inner = &self.inner;
+        // First, so that no pairing, unpair or retry writes the store from here on.
+        inner.lock().closed = true;
         for admission in &inner.lock().admissions {
             admission.stop();
         }
@@ -2462,6 +2696,40 @@ impl Inner {
 
     /// Releases `session`'s announcement to each trusted device that may see it
     /// ([SC-DLV-051], [SEC-AUZ-011]).
+    /// Forgets the announcement records that name `device` and issues the withdrawal of each
+    /// session that was announced to it, to pass to the transport after the lock is released.
+    /// The carriage is read now, before the device's statement can go with its key
+    /// ([SEC-SEL-024]); none is issued without one. The sessions are not withdrawn for any
+    /// other device, so only the device's records are forgotten ([SC-DLV-055]).
+    fn withdrawals_to(
+        &self,
+        core: &mut Core,
+        device: &KeyId,
+    ) -> Vec<(Carriage, Destination, Payload)> {
+        let sessions: Vec<SessionId> = core
+            .announced
+            .keys()
+            .filter(|(_, d)| d == device)
+            .map(|(s, _)| s.clone())
+            .collect();
+        core.announced.retain(|(_, d), _| d != device);
+        let Some(carriage) = Inner::carriage(core, device) else {
+            return Vec::new();
+        };
+        let mut withdrawals = Vec::new();
+        for session in sessions {
+            let Some(record) = core.issuer.withdraw(&session, self.clock.now(), false) else {
+                continue;
+            };
+            if let Some((destination, payload)) =
+                AuthenticatedPresenceRecord::issue(&self.identity, &record, device).to_payload()
+            {
+                withdrawals.push((carriage, destination, payload));
+            }
+        }
+        withdrawals
+    }
+
     fn release_presence(&self, session: &SessionId) {
         let own = self.identity.key_id().clone();
         let devices: Vec<KeyId> = self
