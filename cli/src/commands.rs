@@ -20,7 +20,6 @@ use oac_core::adapter::ProviderAdapter;
 use oac_core::clock::{Clock, SystemClock};
 use oac_core::ids::Token;
 use oac_core::keys::KeyStore;
-use oac_core::pairing::MemoryPairingStore;
 use oac_core::pipeline::{MonotonicClock, PipelineConfig};
 use oac_core::sealing::MemoryAgreementKeyStore;
 use oac_transport_zenoh::{PeerConfiguration, PeerTransport};
@@ -33,6 +32,7 @@ use crate::keystore::{self, FallbackKeyStore, OsKeyStore};
 use crate::logfile;
 use crate::shim;
 use crate::status;
+use crate::trust_store::FileTrustStore;
 use crate::verbs::{EXIT_FAILED, EXIT_NOT_RUNNING, EXIT_OK, EXIT_UNREACHABLE};
 
 /// Exit status for a usage error.
@@ -854,10 +854,26 @@ fn serve_in_foreground(
             adapter: codex_adapter.clone(),
             opener: crate::codex::control_socket_opener(path),
         });
+    // The durable trust store (#437, S1): nothing is read or made until the daemon holds the
+    // lock. A device with no data directory would have a store that is silently empty after a
+    // restart, so it does not start.
+    let pairing_store = match FileTrustStore::for_user(scope.namespace()) {
+        Ok(store) => store.with_warning_sink({
+            let log = log.clone();
+            Arc::new(move |line: &str| log.line(line))
+        }),
+        Err(e) => {
+            let _ = writeln!(stderr, "oac start: the trust store: {e}");
+            if json {
+                print_json(stdout, &start_error_json("failed", &e.to_string()));
+            }
+            return 1;
+        }
+    };
     let parts = Parts {
         scope,
         key_store,
-        pairing_store: Box::new(MemoryPairingStore::new()),
+        pairing_store: Box::new(pairing_store),
         agreement_store: Box::new(MemoryAgreementKeyStore::new()),
         principal: Token::parse("device").expect("a valid token"),
         transport: Arc::new(PeerTransport::new()),

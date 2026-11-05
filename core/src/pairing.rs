@@ -1192,6 +1192,16 @@ pub trait PairingStore {
     ///
     /// [`PairingStoreError`] when the store cannot be written.
     fn save(&self, snapshot: &PairingSnapshot) -> Result<(), PairingStoreError>;
+
+    /// Tells the store which device key the daemon runs with, once, after the first
+    /// [`PairingStore::load`] and before the first save. A store that records the key id of
+    /// the key that wrote it, **for diagnosis only**, writes this one from now on and returns
+    /// the id an earlier run recorded when it differs, which means the peers in the store
+    /// trust a key id this device no longer has. Nothing is refused and nothing is
+    /// authenticated by it (#437, lead decisions L6 and L7). The default does nothing.
+    fn note_device_key(&self, _key_id: &KeyId) -> Option<KeyId> {
+        None
+    }
 }
 
 /// A [`PairingStore`] in this process's memory: nothing outlives the process. The test
