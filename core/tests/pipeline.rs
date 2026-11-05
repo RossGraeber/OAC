@@ -21,8 +21,8 @@ use oac_core::adapter::{
     ProviderAdapter, RequestSink, SendRequest, SendRequestResult, StartKind,
 };
 use oac_core::authorization::{
-    AuthorizationEngine, Binding, Grant, LocalSide, MemoryDecisionLog, OperatorConfirmed, PeerSide,
-    REPLY_PERIOD_MS,
+    AuthorizationEngine, Binding, Grant, LocalSide, MemoryDecisionLog, OperatorConfirmed,
+    PairError, PeerSide, REPLY_PERIOD_MS, RemoveKeyError,
 };
 use oac_core::clock::{Clock, ManualClock, SystemClock};
 use oac_core::delivery::{DeliveryState, ErrorCode, Observer, Scope};
@@ -30,9 +30,14 @@ use oac_core::envelope::{ContentPart, TextPart};
 use oac_core::health::{HealthState, HealthStatus};
 use oac_core::ids::{KeyId, SessionId, Token};
 use oac_core::keys::{DeviceIdentity, DeviceKey};
-use oac_core::pairing::{MemoryPairingStore, PairedPeer};
-use oac_core::pipeline::{AdapterId, PipelineConfig, PipelineError, Pipelines};
+use oac_core::pairing::{MemoryPairingStore, PairedPeer, PairingStore};
+use oac_core::pipeline::{
+    AdapterId, PipelineConfig, PipelineError, Pipelines, TRUST_SAVE_RETRY_CAP,
+    TRUST_SAVE_RETRY_FIRST, TrustChangeError, Unpaired,
+};
+use oac_core::presence::PresenceKind;
 use oac_core::receipt::DeliveryReceipt;
+use oac_core::sealing::{AgreementKeys, MemoryAgreementKeyStore};
 use oac_core::session_binding::{
     BindingLog, BindingLogEntry, BindingResult, MemoryBindingLog, PairingKey, PeerObservation,
     RecordKind,
@@ -5360,4 +5365,349 @@ fn a_set_holds_one_announcement_per_session_per_admitted_device() {
         set.iter().all(|(s, d)| s != &s3 && d != &keys[2]),
         "{set:?}"
     );
+}
+
+// ---- pairing and unpairing through the pipelines (#437, S2) ------------------------------
+
+/// The pairing of `y`'s key, as another device's operator confirms it.
+fn peer_of(y: &Node) -> PairedPeer {
+    PairedPeer::by_key_id_comparison(
+        y.pipes.device().principal().clone(),
+        *y.pipes.device().public_key(),
+        y.pipes.device().key_id(),
+        SystemClock.now(),
+        OperatorConfirmed::by_operator(),
+    )
+    .unwrap()
+}
+
+fn trusts(n: &Node, key: &KeyId) -> bool {
+    n.pipes.with_engine(|e| e.trusted_keys().get(key).is_some())
+}
+
+fn stored(n: &Node, key: &KeyId) -> bool {
+    n.store
+        .load()
+        .unwrap()
+        .paired
+        .iter()
+        .any(|r| &r.key_id() == key)
+}
+
+/// Device `y` with two own sessions, `sy`, which an inbound grant on `y` lets a session of
+/// device `x` write to ([SEC-AUZ-011]), and `sz`, which no grant covers; and device `x`,
+/// not yet paired with `y`. The grant is loaded with `with_engine` before any pairing.
+struct Pairable {
+    bus: Bus,
+    y: Node,
+    x: Node,
+    xk: KeyId,
+    yk: KeyId,
+    sy: SessionId,
+}
+
+fn pairable(mono: Option<&Mono>) -> Pairable {
+    let bus = Bus::default();
+    let x = node(&bus, "device-x", PipelineConfig::default());
+    let y = match mono {
+        Some(m) => node_mono(
+            &bus,
+            "device-y",
+            PipelineConfig::default(),
+            Arc::new(SystemClock),
+            m.clock(),
+        ),
+        None => node(&bus, "device-y", PipelineConfig::default()),
+    };
+    let (xk, yk) = (
+        x.pipes.device().key_id().clone(),
+        y.pipes.device().key_id().clone(),
+    );
+    let sy = SessionId::from_random_octets([2; 16]);
+    grant(
+        &y,
+        Grant::Inbound {
+            writer: PeerSide::session(xk.clone(), SessionId::from_random_octets([1; 16])),
+            target: LocalSide::Session(sy.clone()),
+        },
+    );
+    session(&y, 2);
+    session(&y, 3);
+    Pairable {
+        bus,
+        y,
+        x,
+        xk,
+        yk,
+        sy,
+    }
+}
+
+/// An announcement is released to a device when it is paired, not only at the next carrier
+/// appearance: a session that registered before the pairing reaches the new key at once, and
+/// only where a grant allows it ([SC-DLV-051], [SEC-AUZ-011]). The grant is loaded through
+/// `with_engine`, as the grant verbs will.
+#[test]
+fn pair_releases_an_existing_sessions_presence_to_the_new_key() {
+    let t = pairable(None);
+    assert!(
+        t.bus.presence_from(&t.yk).is_empty(),
+        "no device to release to yet"
+    );
+    t.y.pipes.pair(peer_of(&t.x), &t.y.store).unwrap();
+    assert!(trusts(&t.y, &t.xk));
+    assert!(stored(&t.y, &t.xk));
+    // Session `sy` only: no grant covers the other.
+    assert_eq!(
+        t.bus.presence_pairs_from(&t.yk),
+        [(t.sy.clone(), t.xk.clone())]
+    );
+    assert!(matches!(
+        record_of(&t.bus.presence_from(&t.yk)[0]).kind(),
+        PresenceKind::Announcement { .. }
+    ));
+}
+
+/// [SEC-AUZ-001]: a pairing alone releases nothing.
+#[test]
+fn pair_without_a_grant_releases_nothing() {
+    let bus = Bus::default();
+    let x = node(&bus, "device-x", PipelineConfig::default());
+    let y = node(&bus, "device-y", PipelineConfig::default());
+    session(&y, 2);
+    y.pipes.pair(peer_of(&x), &y.store).unwrap();
+    assert!(trusts(&y, x.pipes.device().key_id()));
+    assert!(bus.presence_from(y.pipes.device().key_id()).is_empty());
+}
+
+/// An unpair issues the withdrawal of each session announced to the device, removes the key
+/// with its grants and forgets the announcement records so no refresh names the device, all
+/// under one lock (as `unbind` does); the withdrawals are passed afterwards. So nothing can
+/// be announced to the device between its withdrawal and its removal: an event handed while
+/// the withdrawal is being passed (here a carrier appearance, which announces to every
+/// trusted device) finds the key already gone and the withdrawal is the last record it gets.
+#[test]
+fn unpair_withdraws_then_removes_and_drops_the_announcement_records() {
+    let t = pairable(None);
+    t.y.pipes.pair(peer_of(&t.x), &t.y.store).unwrap();
+    let announced = record_of(&t.bus.presence_from(&t.yk)[0]);
+    assert!(t.y.pipes.next_presence_refresh_at().is_some());
+    // While the withdrawal is being passed, a carrier appearance asks for a set of
+    // announcements.
+    let seen = Arc::new(Mutex::new(None));
+    let (pipes, key, flag) = (t.y.pipes.clone(), t.xk.clone(), seen.clone());
+    let (bus, yk) = (t.bus.clone(), t.yk.clone());
+    t.bus.0.lock().unwrap().on_presence = Some(Box::new(move || {
+        *flag.lock().unwrap() = Some(pipes.with_engine(|e| e.trusted_keys().get(&key).is_some()));
+        bus.appear(&yk, "link-1");
+    }));
+    let done =
+        t.y.pipes
+            .unpair(&t.xk, OperatorConfirmed::by_operator(), &t.y.store)
+            .unwrap();
+    let Unpaired::Durable(removal) = done else {
+        panic!("{done:?}")
+    };
+    assert_eq!(removal.grants.len(), 1);
+    assert_eq!(
+        *seen.lock().unwrap(),
+        Some(false),
+        "the removal stands when the withdrawal is passed"
+    );
+    // The withdrawal went to the unpaired device for the announced session, newer than the
+    // announcement, and nothing followed it, the appearance's set included.
+    let pairs = t.bus.presence_pairs_from(&t.yk);
+    assert_eq!(pairs.len(), 2, "{pairs:?}");
+    assert_eq!(pairs[1], (t.sy.clone(), t.xk.clone()));
+    let withdrawn = record_of(&t.bus.presence_from(&t.yk)[1]);
+    assert!(matches!(withdrawn.kind(), PresenceKind::Withdrawal));
+    assert!(withdrawn.seq() > announced.seq());
+    // Removed, saved, and no announcement record names the device any more.
+    assert!(!trusts(&t.y, &t.xk));
+    assert!(!stored(&t.y, &t.xk));
+    assert!(t.y.pipes.next_presence_refresh_at().is_none());
+    t.y.pipes.refresh_presence();
+    assert_eq!(t.bus.presence_pairs_from(&t.yk).len(), 2);
+    assert!(!t.y.pipes.status().trust_unsaved);
+}
+
+#[test]
+fn unpair_refuses_an_untrusted_key_and_the_own_key_and_sends_nothing() {
+    let t = pairable(None);
+    t.y.pipes.pair(peer_of(&t.x), &t.y.store).unwrap();
+    let base = t.bus.presence_from(&t.yk).len();
+    let ok = OperatorConfirmed::by_operator;
+    let stranger = KeyId::parse(&"0".repeat(64)).unwrap();
+    assert_eq!(
+        t.y.pipes.unpair(&stranger, ok(), &t.y.store),
+        Err(TrustChangeError::Remove(RemoveKeyError::NotTrusted))
+    );
+    assert_eq!(
+        t.y.pipes.unpair(&t.yk, ok(), &t.y.store),
+        Err(TrustChangeError::Remove(RemoveKeyError::OwnKey))
+    );
+    assert_eq!(t.bus.presence_from(&t.yk).len(), base);
+    assert!(trusts(&t.y, &t.xk));
+}
+
+/// N5 (#71): a removal that stands but did not save is reported as not durable, shown in
+/// `status`, and retried on a bounded backoff (1 s doubling to 60 s) on the core's monotonic
+/// clock, which this test moves by hand: no sleeping. The retry that succeeds clears it and
+/// the store no longer holds the revoked device.
+#[test]
+fn an_unpair_whose_save_fails_reports_not_durable_and_retry_clears_it() {
+    let mono = Mono::new();
+    let t = pairable(Some(&mono));
+    t.y.pipes.pair(peer_of(&t.x), &t.y.store).unwrap();
+    assert_eq!(t.y.pipes.next_trust_retry_in(), None);
+    t.y.store.fail_saves(true);
+    let done =
+        t.y.pipes
+            .unpair(&t.xk, OperatorConfirmed::by_operator(), &t.y.store)
+            .unwrap();
+    assert!(matches!(done, Unpaired::NotDurable(_)), "{done:?}");
+    // Revoked in memory (fail closed); the store still holds the device.
+    assert!(!trusts(&t.y, &t.xk));
+    assert!(stored(&t.y, &t.xk));
+    assert!(t.y.pipes.status().trust_unsaved);
+    // Each failed retry doubles the wait, up to the cap.
+    let mut waits = Vec::new();
+    for _ in 0..9 {
+        let wait = t.y.pipes.next_trust_retry_in().unwrap();
+        waits.push(wait.as_secs());
+        mono.advance(wait);
+        assert_eq!(t.y.pipes.next_trust_retry_in(), Some(Duration::ZERO));
+        assert!(matches!(
+            t.y.pipes.retry_save(&t.y.store),
+            Err(TrustChangeError::Store(_))
+        ));
+    }
+    assert_eq!(waits, [1, 2, 4, 8, 16, 32, 60, 60, 60]);
+    assert_eq!(waits[0], TRUST_SAVE_RETRY_FIRST.as_secs());
+    assert_eq!(waits[8], TRUST_SAVE_RETRY_CAP.as_secs());
+    assert!(t.y.pipes.status().trust_unsaved);
+    assert!(stored(&t.y, &t.xk));
+    // The store recovers: the next retry saves the whole snapshot.
+    t.y.store.fail_saves(false);
+    mono.advance(TRUST_SAVE_RETRY_CAP);
+    t.y.pipes.retry_save(&t.y.store).unwrap();
+    assert!(!t.y.pipes.status().trust_unsaved);
+    assert_eq!(t.y.pipes.next_trust_retry_in(), None);
+    assert!(!stored(&t.y, &t.xk));
+    // Nothing unsaved: a retry touches no store.
+    t.y.store.fail_saves(true);
+    t.y.pipes.retry_save(&t.y.store).unwrap();
+}
+
+/// Any later successful save writes the whole snapshot, so a pairing made while a removal
+/// is unsaved also saves the removal and ends the retry.
+#[test]
+fn a_later_successful_pair_saves_the_unsaved_removal() {
+    let t = pairable(None);
+    t.y.pipes.pair(peer_of(&t.x), &t.y.store).unwrap();
+    t.y.store.fail_saves(true);
+    t.y.pipes
+        .unpair(&t.xk, OperatorConfirmed::by_operator(), &t.y.store)
+        .unwrap();
+    assert!(t.y.pipes.status().trust_unsaved);
+    t.y.store.fail_saves(false);
+    let z = node(&t.bus, "device-z", PipelineConfig::default());
+    t.y.pipes.pair(peer_of(&z), &t.y.store).unwrap();
+    assert!(!t.y.pipes.status().trust_unsaved);
+    assert!(!stored(&t.y, &t.xk));
+    assert!(stored(&t.y, z.pipes.device().key_id()));
+}
+
+/// A peer's statement admitted and saved by `admit_statement` also writes the whole
+/// snapshot, so it too ends the retry of an unsaved removal.
+#[test]
+fn a_later_successful_admit_statement_saves_the_unsaved_removal() {
+    let t = pairable(None);
+    t.y.pipes.pair(peer_of(&t.x), &t.y.store).unwrap();
+    // Device `z` pairs with a statement, and later issues a newer one.
+    let z = node(&t.bus, "device-z", PipelineConfig::default());
+    let keys_store = MemoryAgreementKeyStore::new();
+    let mut keys =
+        AgreementKeys::load_or_generate(&keys_store, z.pipes.device(), &SystemClock.now()).unwrap();
+    let first = keys.statement().clone();
+    t.y.pipes
+        .pair(peer_of(&z).with_agreement_statement(first), &t.y.store)
+        .unwrap();
+    let newer = keys
+        .replace(&keys_store, z.pipes.device(), &SystemClock.now())
+        .unwrap()
+        .clone();
+    t.y.store.fail_saves(true);
+    t.y.pipes
+        .unpair(&t.xk, OperatorConfirmed::by_operator(), &t.y.store)
+        .unwrap();
+    assert!(t.y.pipes.status().trust_unsaved);
+    t.y.store.fail_saves(false);
+    t.y.pipes.admit_statement(&newer, &t.y.store).unwrap();
+    assert!(!t.y.pipes.status().trust_unsaved);
+    assert_eq!(t.y.pipes.next_trust_retry_in(), None);
+    assert!(!stored(&t.y, &t.xk));
+}
+
+/// The engine adds a key only once the store has saved it: a failed save adds no key and
+/// releases nothing, and a later pairing succeeds.
+#[test]
+fn a_failed_pair_save_adds_no_key() {
+    let t = pairable(None);
+    t.y.store.fail_saves(true);
+    let refused = t.y.pipes.pair(peer_of(&t.x), &t.y.store).unwrap_err();
+    assert!(
+        matches!(refused, TrustChangeError::Pair(PairError::NotSaved(_))),
+        "{refused:?}"
+    );
+    assert!(!trusts(&t.y, &t.xk));
+    assert!(!stored(&t.y, &t.xk));
+    assert_eq!(t.y.pipes.status().counts.trusted_devices, 0);
+    assert!(!t.y.pipes.status().trust_unsaved, "nothing was removed");
+    assert!(t.bus.presence_from(&t.yk).is_empty());
+    t.y.store.fail_saves(false);
+    t.y.pipes.pair(peer_of(&t.x), &t.y.store).unwrap();
+    assert!(trusts(&t.y, &t.xk));
+    assert_eq!(t.bus.presence_from(&t.yk).len(), 1);
+    // A repeated pairing is refused, and releases nothing more.
+    let again = t.y.pipes.pair(peer_of(&t.x), &t.y.store).unwrap_err();
+    assert!(
+        matches!(again, TrustChangeError::Pair(PairError::AlreadyTrusted(_))),
+        "{again:?}"
+    );
+    assert_eq!(t.bus.presence_from(&t.yk).len(), 1);
+}
+
+/// T11 (#437 design note): once shutdown begins, no call writes the store. The refusal is
+/// made under the lock the save runs under, so a task that outlives the daemon cannot write
+/// while another process holds the store.
+#[test]
+fn a_store_writing_call_is_refused_after_shutdown_begins() {
+    let t = pairable(None);
+    t.y.pipes.pair(peer_of(&t.x), &t.y.store).unwrap();
+    // An unsaved removal is pending when shutdown begins.
+    t.y.store.fail_saves(true);
+    let z = node(&t.bus, "device-z", PipelineConfig::default());
+    t.y.pipes
+        .unpair(&t.xk, OperatorConfirmed::by_operator(), &t.y.store)
+        .unwrap();
+    t.y.pipes.shutdown();
+    t.y.store.fail_saves(false);
+    assert_eq!(
+        t.y.pipes.pair(peer_of(&z), &t.y.store),
+        Err(TrustChangeError::Closed)
+    );
+    assert_eq!(
+        t.y.pipes
+            .unpair(&t.xk, OperatorConfirmed::by_operator(), &t.y.store),
+        Err(TrustChangeError::Closed)
+    );
+    assert_eq!(
+        t.y.pipes.retry_save(&t.y.store),
+        Err(TrustChangeError::Closed)
+    );
+    // Nothing was written: the store still holds the revoked device and not the new one.
+    assert!(stored(&t.y, &t.xk));
+    assert!(!stored(&t.y, z.pipes.device().key_id()));
+    assert!(!trusts(&t.y, z.pipes.device().key_id()));
 }

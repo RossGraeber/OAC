@@ -120,4 +120,8 @@ pub struct CoreStatus {
     pub sessions: Vec<SessionStatus>,
     /// What the core holds.
     pub counts: StatusCounts,
+    /// An unpair removed a key in memory and the store did not save it: a restart before a
+    /// retry succeeds would restore the revoked device
+    /// ([`Pipelines::unpair`](crate::pipeline::Pipelines::unpair)).
+    pub trust_unsaved: bool,
 }
