@@ -8,14 +8,20 @@
 //! `Endpoint::serve` / `Listener::accept` as a harness endpoint, so the owner/DACL check, the
 //! Unix modes and `SO_PEERCRED` check and the client's server check all apply unchanged. It
 //! is not a harness: **a control connection is never handed to `Pipelines::connect_observed`**.
-//! It has no adapter and no session, so it cannot send or receive a message, and nothing a
-//! peer writes to it reaches the core.
+//! It has no adapter and no session and carries no message. **Two ops, `pair` and `unpair`,
+//! change the core's trust state, through `Pipelines::pair` and `Pipelines::unpair`
+//! (`crate::device_pairing`, #437); nothing else a peer writes reaches the core.** (The
+//! earlier wording, that nothing a peer writes to it reaches the core, held until those ops
+//! existed: `docs/planning/decisions/C2-process-model.md` §4, dated note of 2026-11-03.)
 //!
 //! **Protocol** (internal to `cli/`; not a part of the Session Channels specification). A
 //! request is one JSON line, `{"oac_control":1,"op":"stop"}`; every reply is a JSON line.
-//! Bounds: a request is at most [`MAX_REQUEST`] bytes and must arrive within
-//! [`READ_DEADLINE`]; at most [`MAX_CONNECTIONS`] control connections are served at once
-//! (a further one is answered `busy` and closed). Scalability beyond that is measured in #438.
+//! Bounds: the first line of a connection is at most [`MAX_REQUEST`] bytes and must arrive
+//! within [`READ_DEADLINE`]; at most [`MAX_CONNECTIONS`] control connections are served at
+//! once (a further one is answered `busy` and closed). Scalability beyond that is measured
+//! in #438. After a `pair`, the connection stays open for that pairing: its lines may be
+//! [`crate::device_pairing::MAX_LINE`] bytes each and each read is bounded by the time left
+//! of the 120 s pairing deadline (the 2 s bound is the first line's only).
 //!
 //! **Stop.** The daemon answers `{"oac_control":1,"pid":<pid>,"stopping":true}` and signals
 //! its owner ([`Control::stop_requested`]); the owner runs the daemon's shutdown (endpoints
@@ -37,7 +43,13 @@
 //! the client); once the one in flight is past its deadline every request is answered
 //! `timeout` at once, so there is never more than one stuck thread.
 //!
-//! A same-user process can already end the daemon by killing it, so this adds no authority
+//! **Pairing** (#437, S3). `pair`, `unpair` and `pairings` are served by
+//! [`crate::device_pairing`]: a `pair` holds its connection (and one of the
+//! [`MAX_CONNECTIONS`] permits) for up to 120 s; `unpair` and `pairings` answer one line.
+//! A same-user process can use them (`RISK-LOCAL-IPC`, lead decision L5); the log line each
+//! leaves is the visibility that relies on.
+//!
+//! A same-user process can already end the daemon by killing it, so `stop` adds no authority
 //! the user's processes did not have; it only makes the stop clean (`RISK-LOCAL-IPC`).
 
 use std::future::Future;
@@ -51,6 +63,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, watch};
 
 use crate::daemon::LogSink;
+use crate::device_pairing::DevicePairing;
 use crate::ipc::{Accept, AsyncStream, ConnectError, Endpoint, Listener};
 use crate::status::DaemonStatus;
 
@@ -61,7 +74,7 @@ pub const MAX_REQUEST: usize = 1024;
 /// How long a connection has to deliver its request line.
 pub const READ_DEADLINE: Duration = Duration::from_secs(2);
 /// How long a reply write may take before the connection is dropped.
-const WRITE_DEADLINE: Duration = Duration::from_secs(2);
+pub(crate) const WRITE_DEADLINE: Duration = Duration::from_secs(2);
 /// The most control connections served at once.
 pub const MAX_CONNECTIONS: usize = 4;
 
@@ -76,7 +89,7 @@ pub const STATUS_REQUEST: &str = "{\"oac_control\":1,\"op\":\"status\"}\n";
 pub const STOP_REQUEST: &str = "{\"oac_control\":1,\"op\":\"stop\"}\n";
 /// The reply that confirms the daemon has finished stopping.
 pub const STOPPED_REPLY: &str = "{\"stopped\":true}\n";
-const BUSY_REPLY: &str = "{\"error\":\"busy\",\"oac_control\":1}\n";
+pub(crate) const BUSY_REPLY: &str = "{\"error\":\"busy\",\"oac_control\":1}\n";
 const TOO_LARGE_REPLY: &str = "{\"error\":\"too_large\",\"oac_control\":1}\n";
 const MALFORMED_REPLY: &str = "{\"error\":\"malformed\",\"oac_control\":1}\n";
 const UNKNOWN_OP_REPLY: &str = "{\"error\":\"unknown_op\",\"oac_control\":1}\n";
@@ -84,12 +97,18 @@ const TIMEOUT_REPLY: &str = "{\"error\":\"timeout\",\"oac_control\":1}\n";
 const VERSION_REPLY: &str = "{\"error\":\"version\",\"oac_control\":1,\"supported\":1}\n";
 
 /// A request the daemon understands.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Request {
     /// Stop the daemon cleanly.
     Stop,
     /// Answer with a status snapshot.
     Status,
+    /// Open the one pairing of this daemon, in this role (`crate::device_pairing`).
+    Pair(crate::device_pairing::Role),
+    /// Remove a trusted key (`crate::device_pairing`).
+    Unpair(oac_core::ids::KeyId),
+    /// Answer with the trusted keys and the recent pairing events.
+    Pairings,
 }
 
 /// Why a request is refused.
@@ -138,6 +157,18 @@ pub fn parse_request(line: &[u8]) -> Result<Request, Refusal> {
     match object.get("op").and_then(Json::as_str) {
         Some("stop") => Ok(Request::Stop),
         Some("status") => Ok(Request::Status),
+        Some("pairings") => Ok(Request::Pairings),
+        Some("pair") => match object.get("role").and_then(Json::as_str) {
+            Some("initiator") => Ok(Request::Pair(crate::device_pairing::Role::Initiator)),
+            Some("responder") => Ok(Request::Pair(crate::device_pairing::Role::Responder)),
+            _ => Err(Refusal::Malformed),
+        },
+        Some("unpair") => object
+            .get("key_id")
+            .and_then(Json::as_str)
+            .and_then(oac_core::ids::KeyId::parse)
+            .map(Request::Unpair)
+            .ok_or(Refusal::Malformed),
         Some(_) => Err(Refusal::UnknownOp),
         None => Err(Refusal::Malformed),
     }
@@ -153,8 +184,9 @@ enum ReadEnd {
     Refused(Refusal),
 }
 
-/// Reads one request line, bounded in size and time.
-async fn read_request(stream: &mut dyn AsyncStream) -> Result<Vec<u8>, ReadEnd> {
+/// Reads one request line, bounded in size and time: the line, and what the peer sent after
+/// it in the same reads (a pairing connection goes on from there).
+async fn read_request(stream: &mut dyn AsyncStream) -> Result<(Vec<u8>, Vec<u8>), ReadEnd> {
     let read = async {
         let mut data: Vec<u8> = Vec::with_capacity(128);
         let mut chunk = [0u8; 256];
@@ -170,8 +202,9 @@ async fn read_request(stream: &mut dyn AsyncStream) -> Result<Vec<u8>, ReadEnd> 
             data.extend_from_slice(&chunk[..n]);
             match data.iter().position(|b| *b == b'\n') {
                 Some(i) if i <= MAX_REQUEST => {
+                    let rest = data.split_off(i + 1);
                     data.truncate(i);
-                    return Ok(data);
+                    return Ok((data, rest));
                 }
                 Some(_) => return Err(ReadEnd::Refused(Refusal::TooLarge)),
                 None if data.len() > MAX_REQUEST => {
@@ -188,7 +221,7 @@ async fn read_request(stream: &mut dyn AsyncStream) -> Result<Vec<u8>, ReadEnd> 
 }
 
 /// Writes `text` and flushes, within [`WRITE_DEADLINE`]; whether it was written.
-async fn write_line(stream: &mut dyn AsyncStream, text: &str) -> bool {
+pub(crate) async fn write_line(stream: &mut dyn AsyncStream, text: &str) -> bool {
     let write = async {
         stream.write_all(text.as_bytes()).await?;
         stream.flush().await
@@ -215,12 +248,19 @@ pub struct Control {
     status_inflight: Arc<Mutex<Option<Instant>>>,
     status_deadline: Duration,
     status: Arc<DaemonStatus>,
+    /// The pairing ops (#437): the one place a control connection changes the core's trust.
+    pairing: Arc<DevicePairing>,
     log: LogSink,
 }
 
 impl Control {
     /// A control endpoint's state.
-    pub fn new(log: LogSink, status: Arc<DaemonStatus>, status_deadline: Duration) -> Arc<Control> {
+    pub fn new(
+        log: LogSink,
+        status: Arc<DaemonStatus>,
+        status_deadline: Duration,
+        pairing: Arc<DevicePairing>,
+    ) -> Arc<Control> {
         Arc::new(Control {
             permits: Arc::new(Semaphore::new(MAX_CONNECTIONS)),
             stop: watch::channel(false).0,
@@ -231,6 +271,7 @@ impl Control {
             status_inflight: Arc::new(Mutex::new(None)),
             status_deadline,
             status,
+            pairing,
             log,
         })
     }
@@ -246,7 +287,8 @@ impl Control {
     }
 
     /// Serves control connections until `stopped` changes. Each is authenticated by the
-    /// local IPC before it is accepted; none reaches the core.
+    /// local IPC before it is accepted; none is given to the core as a connection, and only
+    /// `pair` and `unpair` change its trust state.
     pub async fn accept_loop(
         self: Arc<Self>,
         mut listener: Listener,
@@ -293,9 +335,26 @@ impl Control {
         permit: OwnedSemaphorePermit,
     ) {
         let refusal = match read_request(&mut *stream).await {
-            Ok(line) => match parse_request(&line) {
+            Ok((line, rest)) => match parse_request(&line) {
                 Ok(Request::Stop) => return self.stop_requested_by(stream, permit).await,
                 Ok(Request::Status) => return self.status_requested_by(stream, permit).await,
+                Ok(Request::Pair(role)) => {
+                    return self
+                        .pairing
+                        .clone()
+                        .pair_connection(role, stream, rest, permit)
+                        .await;
+                }
+                Ok(Request::Unpair(key_id)) => {
+                    let reply = self.pairing.unpair_reply(key_id).await;
+                    write_line(&mut *stream, &reply).await;
+                    return;
+                }
+                Ok(Request::Pairings) => {
+                    let reply = self.pairing.pairings_reply();
+                    write_line(&mut *stream, &reply).await;
+                    return;
+                }
                 Err(refusal) => refusal,
             },
             Err(ReadEnd::Silent) => return,

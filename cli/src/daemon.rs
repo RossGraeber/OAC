@@ -10,7 +10,7 @@
 //!    the key**, so a second `oac start` stops here and creates no second peer (box 5);
 //! 2. loads or makes the device key, the only place key material is read (box 2: the shims and
 //!    the hook handler never see it), and builds the identity and the authorization engine
-//!    from the pairing store, which is empty (default deny) until the pairing verbs exist (D8);
+//!    from the pairing store (empty is default deny; `crate::device_pairing` adds to it, #437);
 //! 3. builds the core `Pipelines` over the transport it was given, gives it the agreement
 //!    keys a sealing transport needs, and starts the transport;
 //! 4. adds each provider adapter, binds one IPC endpoint per harness label, and serves them;
@@ -62,6 +62,7 @@ use tokio::task::JoinHandle;
 
 use crate::codex::{CarrierDriver, CarrierWiring};
 use crate::control::Control;
+use crate::device_pairing::DevicePairing;
 use crate::ipc::{
     Accept, Accepted, BindError, CONTROL_LABEL, DaemonLock, Endpoint, Listener, Scope,
     harness_label_is_valid,
@@ -432,6 +433,9 @@ pub struct Daemon {
     tasks: Vec<JoinHandle<()>>,
     endpoints: Vec<String>,
     control: Arc<Control>,
+    /// The pairing ops' state (#437, S3): shutdown waits for its tasks before the core is
+    /// closed and the lock released.
+    pairing: Arc<DevicePairing>,
     log: LogSink,
     /// The agreement-key store the daemon was started with, kept for every later save
     /// (`AgreementKeys::replace` and `erase_replaced` take it; #437 S1b).
@@ -518,6 +522,7 @@ impl Daemon {
             .map_err(StartError::Agreement)?;
 
         // 3. The core, over the transport.
+        let pairing_clock = clock.clone();
         let pipelines = Arc::new(Pipelines::new(
             identity, engine, clock, monotonic, transport, config,
         ));
@@ -595,7 +600,19 @@ impl Daemon {
             started,
             log.clone(),
         ));
-        let control = Control::new(log.clone(), status, options.status_deadline);
+        let pairing = DevicePairing::new(
+            pipelines.clone(),
+            pairing_store.clone(),
+            pairing_clock,
+            log.clone(),
+            stopped.clone(),
+        );
+        let control = Control::new(
+            log.clone(),
+            status,
+            options.status_deadline,
+            pairing.clone(),
+        );
         let control_endpoint = scope.endpoint(CONTROL_LABEL);
         match control_endpoint.serve(&lock).await {
             Ok(listener) => {
@@ -626,6 +643,7 @@ impl Daemon {
             tasks,
             endpoints,
             control,
+            pairing,
             log,
             agreement_store,
             lock,
@@ -645,6 +663,12 @@ impl Daemon {
     /// agreement keys (`AgreementKeys::replace`, `erase_replaced`).
     pub fn agreement_store(&self) -> &(dyn AgreementKeyStore + Send) {
         &*self.agreement_store
+    }
+
+    /// The pairing ops' state: the recent pairing events, and the operations the control ops
+    /// are made of (#437, S3).
+    pub fn pairing(&self) -> &Arc<DevicePairing> {
+        &self.pairing
     }
 
     /// The core, for status and for tests.
@@ -680,6 +704,10 @@ impl Daemon {
         for task in self.tasks {
             let _ = task.await;
         }
+        // Every pairing, unpair and save-retry task ends (they watch the stop signal), and
+        // none starts again, before the core is closed and the lock released: none writes
+        // the trust store after the lock is gone (#437, T11).
+        self.pairing.close().await;
         if shutdown_pipelines(self.pipelines).await {
             self.log
                 .line("shut down: withdrawals sent, transport shut down");

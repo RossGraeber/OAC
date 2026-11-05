@@ -20,6 +20,8 @@
 //! - [`logfile`]: the daemon's crash-safe, size-bounded, user-private log file (G10, #71).
 //! - `private_file`: files and directories private to the user, shared by the log and the
 //!   pairing stores (#437).
+//! - [`device_pairing`]: the control ops that pair two devices and remove a paired key, and the
+//!   daemon's pairing state machine (#437).
 //! - [`hook`]: the `oac hook` handler that carries a Claude Code `SessionStart` input to the
 //!   daemon as a native signal (G9, #70; `spec/bindings/mcp.md` §8.1).
 //! - [`verbs`]: the verbs that exist so far and their dispatch.
@@ -35,6 +37,7 @@ pub mod codex;
 pub mod commands;
 pub mod control;
 pub mod daemon;
+pub mod device_pairing;
 pub mod doctor;
 pub mod hook;
 pub mod ipc;
