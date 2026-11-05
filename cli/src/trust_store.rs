@@ -170,28 +170,35 @@ pub trait WriteSteps: Send + Sync {
 #[derive(Clone, Copy, Debug, Default)]
 pub struct OsSteps;
 
+/// Creates `path` exclusively, private to the user, and returns it open for writing; `what`
+/// names the file in a refusal ("trust file", "agreement-key file"). A file this call made is
+/// removed again when it fails.
+pub(crate) fn create_private_exclusive(path: &Path, what: &str) -> io::Result<File> {
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let file = options.open(path)?;
+    // Harden and check what was made: on Windows the file inherited the directory's one
+    // ACE and gets its own protected DACL here (it is the temporary file's descriptor
+    // that the final file keeps across the rename); on Unix the mode and owner are
+    // checked. The second handle is only for that; the first is the one written.
+    match crate::private_file::open_private_file(path, false, what) {
+        Ok(_) => Ok(file),
+        Err(e) => {
+            drop(file);
+            let _ = fs::remove_file(path);
+            Err(e)
+        }
+    }
+}
+
 impl WriteSteps for OsSteps {
     fn create(&self, path: &Path) -> io::Result<File> {
-        let mut options = OpenOptions::new();
-        options.write(true).create_new(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o600);
-        }
-        let file = options.open(path)?;
-        // Harden and check what was made: on Windows the file inherited the directory's one
-        // ACE and gets its own protected DACL here (it is the temporary file's descriptor
-        // that the final `trust.json` keeps across the rename); on Unix the mode and owner are
-        // checked. The second handle is only for that; the first is the one written.
-        match crate::private_file::open_private_file(path, false, FILE) {
-            Ok(_) => Ok(file),
-            Err(e) => {
-                drop(file);
-                let _ = fs::remove_file(path);
-                Err(e)
-            }
-        }
+        create_private_exclusive(path, FILE)
     }
 
     fn write(&self, file: &mut File, bytes: &[u8]) -> io::Result<()> {
@@ -532,7 +539,7 @@ fn is_temp_name(name: &str) -> bool {
 }
 
 /// The data directory of the user, and the one of OAC's own that is the first made private.
-fn default_directories(namespace: Option<&str>) -> io::Result<(PathBuf, PathBuf)> {
+pub(crate) fn default_directories(namespace: Option<&str>) -> io::Result<(PathBuf, PathBuf)> {
     let top = {
         #[cfg(windows)]
         {

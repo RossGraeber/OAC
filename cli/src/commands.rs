@@ -21,9 +21,9 @@ use oac_core::clock::{Clock, SystemClock};
 use oac_core::ids::Token;
 use oac_core::keys::KeyStore;
 use oac_core::pipeline::{MonotonicClock, PipelineConfig};
-use oac_core::sealing::MemoryAgreementKeyStore;
 use oac_transport_zenoh::{PeerConfiguration, PeerTransport};
 
+use crate::agreement_file::AgreementFileSource;
 use crate::control::{self, StatusOutcome, StopOutcome};
 use crate::daemon::{Daemon, LogSink, Parts, StartError};
 use crate::doctor;
@@ -870,11 +870,27 @@ fn serve_in_foreground(
             return 1;
         }
     };
+    // The durable agreement-key store (#437, S1b): nothing is read or made until the daemon holds
+    // the lock and has the device key. A device with no data directory would issue `seq` 0 under
+    // a new key at every start, which peers holding a higher `seq` refuse, so it does not start.
+    let agreement_log = log.clone();
+    let agreement_store = match AgreementFileSource::for_user(scope.namespace(), move |warning| {
+        agreement_log.line(warning);
+    }) {
+        Ok(store) => store,
+        Err(e) => {
+            let _ = writeln!(stderr, "oac start: the agreement-key file: {e}");
+            if json {
+                print_json(stdout, &start_error_json("failed", &e.to_string()));
+            }
+            return 1;
+        }
+    };
     let parts = Parts {
         scope,
         key_store,
         pairing_store: Box::new(pairing_store),
-        agreement_store: Box::new(MemoryAgreementKeyStore::new()),
+        agreement_store: Box::new(agreement_store),
         principal: Token::parse("device").expect("a valid token"),
         transport: Arc::new(PeerTransport::new()),
         transport_configuration: PeerConfiguration::local().wrap(),

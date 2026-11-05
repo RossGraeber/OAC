@@ -217,7 +217,7 @@ fn public_of(octets: &[u8; 32]) -> Option<(<Kem as KemTrait>::PrivateKey, [u8; 3
 }
 
 /// The operating system's CSPRNG, for the `hpke` crate's ephemeral keys ([SEC-SEL-021]).
-struct OsRng;
+pub(crate) struct OsRng;
 
 impl hpke::rand_core::RngCore for OsRng {
     fn next_u32(&mut self) -> u32 {

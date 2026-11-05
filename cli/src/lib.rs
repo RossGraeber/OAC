@@ -8,6 +8,8 @@
 //! - [`keystore`]: the device-key stores, the operating system's credential store and the
 //!   encrypted-file fallback (#52, F3; `docs/planning/decisions/C4-session-identity.md`
 //!   §10-§11).
+//! - [`agreement_file`]: the durable agreement-key store, ciphertext only (#437 S1b;
+//!   `docs/planning/decisions/G-437-pairing.md` §7).
 //! - [`codex`]: the Codex carrier, the daemon's connection to Codex's app-server control socket (G8 S5, #433).
 //! - [`commands`]: `start`, `mcp-shim` and the hook handler's connector, wired to the real
 //!   transport, key stores and adapters.
@@ -28,6 +30,7 @@
 //! - [`peer`]: what the daemon observes about the process at the other end of a local
 //!   connection (pairing key, harness working directory) from the operating system (G9, #70).
 
+pub mod agreement_file;
 pub mod codex;
 pub mod commands;
 pub mod control;

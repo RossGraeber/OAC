@@ -10,7 +10,10 @@
 //! `Debug` that shows the seed, and both are zeroized when dropped. The seed leaves this
 //! crate in one place only: [`SecretSeed::expose`], which a [`KeyStore`] calls to write it
 //! to the operating system's credential store or the encrypted-file fallback of the same
-//! process ([SEC-KEY-004]; `docs/planning/decisions/C4-session-identity.md` §10-§11).
+//! process ([SEC-KEY-004]; `docs/planning/decisions/C4-session-identity.md` §10-§11). The
+//! one other use of it is inside this crate: [`DeviceIdentity::at_rest`] derives, under
+//! domain-separation labels, the values that seal the agreement-key file, and returns a
+//! handle that cannot give them back (#437 S1b).
 //! Nothing here writes a seed to a log, a receipt, an envelope, a peer, a harness, a
 //! session or a model. A session gets no signing key of its own: it is bound to the device
 //! key by a registration record ([SEC-KEY-005], [`crate::registration`]).
@@ -356,6 +359,13 @@ impl DeviceIdentity {
     /// The device key's public half.
     pub fn public_key(&self) -> &PublicKey {
         self.key.public_key()
+    }
+
+    /// What seals and opens this device's agreement-key file (#437 S1b). The seed is used only
+    /// as input to two domain-separated derivations inside this crate and is not disclosed
+    /// ([SEC-KEY-004]); the handle fixes this device's key id (see [`crate::at_rest`]).
+    pub fn at_rest(&self) -> crate::at_rest::AtRest {
+        crate::at_rest::AtRest::derive(self.key.signing.as_bytes(), self.key_id().clone())
     }
 
     /// The device key's key id.

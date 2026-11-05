@@ -75,6 +75,10 @@
 //! the sealed frame; [`pipeline`] seals every payload it passes to, and opens every payload
 //! it takes from, a transport that declares `sealing`.
 //!
+//! Added by #437 (S1b): [`at_rest`], the bytes of the file that keeps the device's agreement
+//! keys across a restart, sealed under values derived from the device key's seed inside this
+//! crate (`docs/planning/decisions/G-437-pairing.md` §7).
+//!
 //! Added by G10 (#71): [`status`], the snapshot [`pipeline::Pipelines::status`] returns for an
 //! operator's `status` verb: transport and adapter health, this device's own sessions, and
 //! counters, with no harness-native id and no working directory.
@@ -83,6 +87,7 @@
 
 pub mod adapter;
 mod adapter_boundary;
+pub mod at_rest;
 pub mod authorization;
 mod base64url;
 pub mod canonical;
