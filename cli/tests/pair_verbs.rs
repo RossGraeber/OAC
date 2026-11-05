@@ -825,6 +825,8 @@ fn a_wrong_blob_kind_sends_nothing_at_all() {
         done.stderr
     );
     assert!(done.stderr.contains("input ended"), "{}", done.stderr);
+    // Without `--json` the sentences are the whole story.
+    assert!(!done.stdout.contains("rejected"), "{}", done.stdout);
 }
 
 #[test]
@@ -1039,6 +1041,12 @@ fn already_trusted_is_its_own_outcome_and_the_operator_is_told_before_the_code()
         "{}",
         done.stderr
     );
+    assert!(!done.stderr.contains("<key_id>"), "{}", done.stderr);
+    assert!(
+        done.stderr[before_code..prompt].contains(&format!("`oac unpair {KEY}`")),
+        "the warning names the real key: {}",
+        done.stderr
+    );
     assert!(done.stderr.contains("#430"), "{}", done.stderr);
     // In `--json` the code step says so and the error carries the key id.
     let mut script = Script::lines([
@@ -1094,6 +1102,9 @@ async fn five_wrong_codes_exit_1_and_a_malformed_entry_costs_no_try() {
     let (mut va, mut vb) = (p.a, p.b);
     for left in (1..=4).rev() {
         va.type_line("12x45");
+        let rejected = va.out.json();
+        assert_eq!(rejected.str("step"), "rejected", "{}", rejected.line);
+        assert_eq!(rejected.str("reason"), "not_six_digits");
         va.type_line(&other_than(&code_b));
         let mismatch = va.out.json();
         assert_eq!(mismatch.str("step"), "mismatch");
@@ -1156,6 +1167,10 @@ async fn without_a_daemon_every_verb_exits_3() {
     let (status, out, _) = v.end();
     assert_eq!(status, 3);
     assert!(out.contains("\"error\":\"not_running\""), "{out}");
+    assert!(
+        out.contains(&format!("\"key_id\":\"{KEY}\"")),
+        "every unpair failure carries the key: {out}"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -1288,6 +1303,11 @@ async fn an_unpair_whose_save_fails_exits_1_and_is_retried() {
     assert_eq!(list.end().0, 0);
     let human = Verb::pair(&a.scope, PairCommand::List, false).end();
     assert_eq!(human.0, 0);
+    assert!(
+        human.2.contains("NOT saved"),
+        "also on standard error: {}",
+        human.2
+    );
     assert!(human.1.contains("NOT saved"), "{}", human.1);
     a.shutdown().await;
     b.shutdown().await;
@@ -1404,12 +1424,12 @@ async fn a_human_pairing_shows_the_codes_and_never_a_blob_on_standard_error() {
 /// ADR-001 and the design note §3 (default J): the client path holds no key.
 #[test]
 fn oac_pair_never_builds_a_key_store() {
-    let source = include_str!("../src/pair_verbs.rs");
-    // Everything before the unit tests is the client path.
-    let client: String = source
-        .split("#[cfg(test)]")
-        .next()
-        .unwrap()
+    let source = include_str!("../src/pair_verbs.rs").replace("\r\n", "\n");
+    // Everything before the unit tests module is the client path; comments are not code.
+    let tests_at = source
+        .rfind("#[cfg(test)]\nmod tests {")
+        .expect("the unit tests module");
+    let client: String = source[..tests_at]
         .lines()
         .filter(|l| !l.trim_start().starts_with("//"))
         .collect::<Vec<_>>()
@@ -1440,23 +1460,32 @@ fn oac_pair_never_builds_a_key_store() {
             "the client path mentions `{forbidden}`"
         );
     }
-    // It reaches into the crate for the control endpoint, the blob decoder and the exit
-    // codes, and nothing else.
-    let allowed = [
-        "crate::control::",
-        "crate::device_pairing::",
-        "crate::ipc::",
-        "crate::verbs::",
-    ];
-    for line in client
-        .lines()
-        .filter(|l| l.trim_start().starts_with("use crate::"))
-    {
+    // Every reference into the crate, `use` or path, is to the control endpoint, the blob
+    // decoder, the local IPC, the text cleaner or the verbs' shared items; and the core is
+    // reached for JSON and ids only.
+    let modules = |prefix: &str| -> Vec<String> {
+        client
+            .match_indices(prefix)
+            .map(|(i, _)| {
+                client[i + prefix.len()..]
+                    .chars()
+                    .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+                    .collect()
+            })
+            .collect()
+    };
+    let crate_modules = modules("crate::");
+    assert!(!crate_modules.is_empty());
+    for module in &crate_modules {
         assert!(
-            allowed
-                .iter()
-                .any(|a| line.trim_start()[4..].starts_with(a)),
-            "an import outside the client path: {line}"
+            ["control", "device_pairing", "ipc", "status", "verbs"].contains(&module.as_str()),
+            "a reference outside the client path: crate::{module}"
+        );
+    }
+    for module in modules("oac_core::") {
+        assert!(
+            ["json", "ids"].contains(&module.as_str()),
+            "a reference to the core outside json and ids: oac_core::{module}"
         );
     }
     let blob_imports = client
@@ -1470,6 +1499,70 @@ fn oac_pair_never_builds_a_key_store() {
     // And the binary's arms call this module, not the commands that build a key store.
     let main = include_str!("../src/main.rs");
     assert!(main.contains("pair_verbs::pair(") && main.contains("pair_verbs::unpair("));
+    // The way the scope is made is shared through `verbs`, not taken from `commands`.
+    assert!(client.contains("user_scope") && !client.contains("commands"));
+}
+
+/// Under `--json` standard output is the only thing a driving program reads: an input that is
+/// asked for again must be announced there, or the program waits for a step that never comes.
+#[test]
+fn under_json_every_input_that_is_asked_again_is_a_rejected_step() {
+    let (offer, response, reveal) = blobs();
+    let paired = format!("{{\"key_id\":\"{KEY}\",\"oac_control\":1,\"pair\":\"paired\"}}");
+    let mut script = Script::lines([
+        waiting_line(),
+        "{\"error\":\"bad_blob\",\"oac_control\":1}",
+        "{\"blob\":\"oacpair1.x\",\"oac_control\":1,\"pair\":\"response\"}",
+        &code_line(false),
+        "{\"error\":\"bad_code\",\"oac_control\":1}",
+        &paired,
+    ]);
+    let big = "A".repeat(5000);
+    let input = format!(
+        "{response}\n\ngarbage\n\n{big}\n\n{offer}\n\n{offer}\n\n{reveal}\n\n12345\n111111\n222222\n"
+    );
+    let done = run_pair(&mut script, PairRole::Responder, true, &input);
+    assert_eq!(done.status, 0, "{}", done.stderr);
+    let steps: Vec<Obj> = done
+        .stdout
+        .lines()
+        .map(|line| Obj {
+            object: json::parse(line.as_bytes()).unwrap().into_object().unwrap(),
+            line: line.to_owned(),
+        })
+        .collect();
+    let sequence: Vec<String> = steps
+        .iter()
+        .map(|o| {
+            if o.object.contains("step") {
+                match o.str("step").as_str() {
+                    "rejected" => format!("rejected:{}", o.str("reason")),
+                    other => other.to_owned(),
+                }
+            } else {
+                "result".to_owned()
+            }
+        })
+        .collect();
+    assert_eq!(
+        sequence,
+        [
+            "waiting",
+            "rejected:wrong_kind",
+            "rejected:not_a_blob",
+            "rejected:too_large",
+            "rejected:bad_blob",
+            "response",
+            "code",
+            "rejected:not_six_digits",
+            "rejected:bad_code",
+            "result",
+        ]
+    );
+    assert_eq!(steps[1].names(), ["oac_cli", "reason", "step"]);
+    // Nothing the operator pasted is echoed, in either stream.
+    assert!(!done.stdout.contains("garbage") && !done.stderr.contains("garbage"));
+    assert!(!done.stdout.contains(&big[..64]) && !done.stderr.contains(&big[..64]));
 }
 
 /// Every answer the daemon can give to an unpair, with the exit status and the words.
@@ -1551,6 +1644,7 @@ fn every_unpair_answer_has_a_message_a_code_and_an_exit_status() {
             }
             if json {
                 let result = done.json();
+                assert_eq!(result.str("key_id"), KEY, "{}", result.line);
                 assert_eq!(result.flag("ok"), status == 0, "{}", result.line);
                 if status != 0 {
                     assert_eq!(result.str("error"), code, "{}", result.line);
@@ -1568,5 +1662,6 @@ fn every_unpair_answer_has_a_message_a_code_and_an_exit_status() {
         let done = run_unpair(&mut script, KEY, true);
         assert_eq!(done.status, 1);
         assert_eq!(done.json().str("error"), code);
+        assert_eq!(done.json().str("key_id"), KEY);
     }
 }

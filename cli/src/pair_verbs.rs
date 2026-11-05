@@ -35,10 +35,13 @@ use std::time::{Duration, Instant};
 
 use oac_core::json::{self, Json, JsonObject};
 
-use crate::control::{canonical_text, cli_object, is_hostile, json_string};
-use crate::device_pairing::{Blob, MAX_LINE, PAIRING_DEADLINE, decode_blob};
+use crate::control::{canonical_text, cli_object, json_string};
+use crate::device_pairing::{Blob, End, MAX_LINE, PAIRING_DEADLINE, decode_blob};
 use crate::ipc::{CONTROL_LABEL, ClientStream, ConnectError, Scope};
-use crate::verbs::{EXIT_FAILED, EXIT_NOT_RUNNING, EXIT_OK, EXIT_UNREACHABLE, EXIT_USAGE};
+use crate::status::clean;
+use crate::verbs::{
+    EXIT_FAILED, EXIT_NOT_RUNNING, EXIT_OK, EXIT_UNREACHABLE, EXIT_USAGE, user_scope,
+};
 
 /// The width a blob is printed at: the line limit of a macOS terminal is 1024 bytes in
 /// canonical mode, and a wrapped blob is easier to carry than one 1 KiB line.
@@ -311,19 +314,6 @@ impl Failure {
     }
 }
 
-/// Text from the daemon, made safe to show: no control or direction-changing character.
-fn clean(text: &str) -> String {
-    text.chars()
-        .map(|c| {
-            if c.is_control() || is_hostile(c) {
-                '?'
-            } else {
-                c
-            }
-        })
-        .collect()
-}
-
 /// A refusal the daemon gave in place of a step (`{"error":...}`).
 fn from_error(code: &str) -> Failure {
     let (exit, message) = match code {
@@ -386,68 +376,51 @@ fn from_error(code: &str) -> Failure {
     Failure::new(code, exit, message)
 }
 
+/// Every way a pairing ends without trusting the key; `End::name` is the daemon's word.
+const ENDS: [End; 13] = [
+    End::SecondOffer,
+    End::SecondResponse,
+    End::SecondReveal,
+    End::RevealWithoutOffer,
+    End::Abandoned,
+    End::Expired,
+    End::OwnKey,
+    End::CommitmentMismatch,
+    End::Aborted,
+    End::AlreadyTrusted,
+    End::NotSaved,
+    End::BadLine,
+    End::Shutdown,
+];
+
 /// How a pairing ended without trusting the key (an `end`, or one of the terminal steps).
-fn from_end(end: &str, window: u64) -> Failure {
-    let message = match end {
-        "second_offer" => {
-            "a second offer reached this device, so the pairing was ended. A device you did not start may be sending offers; run `oac pair --respond` again".to_owned()
-        }
-        "second_response" => {
-            "a second response reached this device, so the pairing was ended. A device you did not start may be answering; run `oac pair` again".to_owned()
-        }
-        "second_reveal" => {
-            "a second reveal reached this device after its code was shown, so the pairing was ended; run it again".to_owned()
-        }
-        "reveal_without_offer" => {
-            "a reveal arrived before this device had answered an offer, so the pairing was ended; paste the offer first".to_owned()
-        }
-        "abandoned" => {
-            "the pairing was abandoned: the connection dropped, or the window ran out while this device waited for the next step".to_owned()
-        }
-        "expired" => format!(
-            "the {window} s window ran out; no key was added. Run both verbs again and paste faster (start `oac pair --respond` on the other device first)"
-        ),
-        "own_key" => {
-            "the other device presented this device's own key: both are the same device or share a device key. Pair two different devices".to_owned()
-        }
-        "commitment_mismatch" => {
-            "the reveal does not match the offer it answers: a blob was altered or came from another pairing. No key was added; start over".to_owned()
-        }
-        "aborted" => {
-            "five wrong codes: the pairing was aborted and no key was added on this device. If the other device reported `paired`, it trusts this device and this one does not trust it: run `oac pair --list` there and `oac unpair` this device's key, then pair again".to_owned()
-        }
-        "already_trusted" => {
-            "this key is already trusted; confirming its agreement values without removing it is #430; to pair again now, run `oac unpair <key_id>` (this deletes its grants and bindings)".to_owned()
-        }
-        "not_saved" => {
-            "the codes matched, but the trust store could not be saved, so the key was NOT added. See the daemon's log, fix the cause (disk, permissions) and pair again".to_owned()
-        }
-        "bad_line" => {
-            "the daemon could not read a request of this client (a bug or a version mismatch); the pairing was dropped".to_owned()
-        }
-        "shutdown" => "the daemon is stopping; the pairing was dropped".to_owned(),
-        other => format!("the pairing ended: {}", clean(other)),
+fn from_end(end: &str) -> Failure {
+    let Some(known) = ENDS.iter().find(|e| e.name() == end).copied() else {
+        return Failure::new(
+            "ended",
+            EXIT_FAILED,
+            format!("the pairing ended: {}", clean(end)),
+        );
     };
-    let known = [
-        "second_offer",
-        "second_response",
-        "second_reveal",
-        "reveal_without_offer",
-        "abandoned",
-        "expired",
-        "own_key",
-        "commitment_mismatch",
-        "aborted",
-        "already_trusted",
-        "not_saved",
-        "bad_line",
-        "shutdown",
-    ];
-    Failure::new(
-        if known.contains(&end) { end } else { "ended" },
-        EXIT_FAILED,
-        message,
-    )
+    let message: String = match known {
+        End::SecondOffer => "a second offer reached this device, so the pairing was ended. A device you did not start may be sending offers; run `oac pair --respond` again".into(),
+        End::SecondResponse => "a second response reached this device, so the pairing was ended. A device you did not start may be answering; run `oac pair` again".into(),
+        End::SecondReveal => "a second reveal reached this device after its code was shown, so the pairing was ended; run it again".into(),
+        End::RevealWithoutOffer => "a reveal arrived before this device had answered an offer, so the pairing was ended; paste the offer first".into(),
+        End::Abandoned => "the pairing was abandoned: the connection dropped, or the window ran out while this device waited for the next step".into(),
+        End::Expired => format!(
+            "the {} s window ran out; no key was added. Run both verbs again and paste faster (start `oac pair --respond` on the other device first)",
+            PAIRING_DEADLINE.as_secs()
+        ),
+        End::OwnKey => "the other device presented this device's own key: both are the same device or share a device key. Pair two different devices".into(),
+        End::CommitmentMismatch => "the reveal does not match the offer it answers: a blob was altered or came from another pairing. No key was added; start over".into(),
+        End::Aborted => "five wrong codes: the pairing was aborted and no key was added on this device. If the other device reported `paired`, it trusts this device and this one does not trust it: run `oac pair --list` there and `oac unpair` this device's key, then pair again".into(),
+        End::AlreadyTrusted => "this key is already trusted; confirming its agreement values without removing it is #430; to pair again now, run `oac unpair <key_id>` (this deletes its grants and bindings)".into(),
+        End::NotSaved => "the codes matched, but the trust store could not be saved, so the key was NOT added. See the daemon's log, fix the cause (disk, permissions) and pair again".into(),
+        End::BadLine => "the daemon could not read a request of this client (a bug or a version mismatch); the pairing was dropped".into(),
+        End::Shutdown => "the daemon is stopping; the pairing was dropped".into(),
+    };
+    Failure::new(known.name(), EXIT_FAILED, message)
 }
 
 // ---- one reply ------------------------------------------------------------------------------
@@ -466,7 +439,6 @@ impl Reply {
                     EXIT_FAILED,
                     "the daemon's answer was not understood",
                 )
-                .detail("the daemon's answer was not understood".to_owned())
             })
     }
     fn str(&self, name: &str) -> Option<&str> {
@@ -713,7 +685,7 @@ fn closed(send_failed: bool) -> Failure {
     } else {
         "the daemon closed the connection without an answer; the pairing is over (its window may have run out)"
     };
-    Failure::new("connection_closed", EXIT_FAILED, message).detail(message.to_owned())
+    Failure::new("connection_closed", EXIT_FAILED, message)
 }
 
 // ---- oac pair -----------------------------------------------------------------------------------
@@ -725,7 +697,6 @@ struct Run<'a, 'b> {
     json: bool,
     first_wait: Duration,
     window_end: Option<Instant>,
-    window: u64,
     peer_key: Option<String>,
 }
 
@@ -737,6 +708,12 @@ impl Run<'_, '_> {
     }
     fn diagnose(&mut self, text: &str) {
         let _ = writeln!(self.t.stderr, "oac pair: {text}");
+    }
+    /// An input that is asked for again: under `--json` a `rejected` step on standard
+    /// output (a program that drives the verb must be told), and always the sentence.
+    fn reject(&mut self, reason: &str, text: &str) {
+        self.step("rejected", &[("reason", json_string(reason))]);
+        self.diagnose(text);
     }
     fn print(&mut self, text: &str) {
         if !self.json {
@@ -794,9 +771,9 @@ impl Run<'_, '_> {
             return Err(from_error(code));
         }
         match reply.kind() {
-            Some("ended") => Err(from_end(reply.str("end").unwrap_or("ended"), self.window)),
+            Some("ended") => Err(from_end(reply.str("end").unwrap_or("ended"))),
             Some(end @ ("aborted" | "expired" | "already_trusted" | "not_saved")) => {
-                Err(from_end(end, self.window).key(if end == "already_trusted" {
+                Err(from_end(end).key(if end == "already_trusted" {
                     self.peer_key.clone()
                 } else {
                     None
@@ -817,7 +794,6 @@ impl Run<'_, '_> {
     fn open_window(&mut self, reply: &Reply) {
         let ms = reply.number("expires_ms").unwrap_or(0);
         self.window_end = Some(Instant::now() + Duration::from_millis(ms));
-        self.window = PAIRING_DEADLINE.as_secs();
     }
 
     /// A pasted blob of kind `expected`; text that is not one is explained, never echoed,
@@ -836,22 +812,31 @@ impl Run<'_, '_> {
                     ));
                 }
                 BlobInput::TooLarge => {
-                    self.diagnose(&format!(
-                        "that paste is longer than a pairing blob ({MAX_BLOB} characters); paste only the {expected} blob. Nothing was sent."
-                    ));
+                    self.reject(
+                        "too_large",
+                        &format!(
+                            "that paste is longer than a pairing blob ({MAX_BLOB} characters); paste only the {expected} blob. Nothing was sent."
+                        ),
+                    );
                     continue;
                 }
                 BlobInput::Text(t) => t,
             };
             match decode_blob(&text) {
                 Ok(blob) if kind_name(&blob) == expected => return Ok(text),
-                Ok(blob) => self.diagnose(&format!(
-                    "that is a {} blob, and this step needs the {expected} blob {from}. Nothing was sent; nothing changed.",
-                    kind_name(&blob)
-                )),
-                Err(e) => self.diagnose(&format!(
-                    "that is not a pairing blob ({e}); paste the whole {expected} blob {from}, wrapped lines included. Nothing was sent."
-                )),
+                Ok(blob) => self.reject(
+                    "wrong_kind",
+                    &format!(
+                        "that is a {} blob, and this step needs the {expected} blob {from}. Nothing was sent; nothing changed.",
+                        kind_name(&blob)
+                    ),
+                ),
+                Err(e) => self.reject(
+                    "not_a_blob",
+                    &format!(
+                        "that is not a pairing blob ({e}); paste the whole {expected} blob {from}, wrapped lines included. Nothing was sent."
+                    ),
+                ),
             }
         }
     }
@@ -875,33 +860,35 @@ impl Run<'_, '_> {
             if six_digits(code) {
                 return Ok(code.to_owned());
             }
-            self.diagnose(
+            self.reject(
+                "not_six_digits",
                 "a code is exactly six digits (0-9): type the code the other device shows. Nothing was sent and no try was used.",
             );
         }
     }
 
     fn show_code(&mut self, reply: &Reply) -> Result<(), Failure> {
-        let code = reply.str("code").ok_or_else(unexpected)?;
-        let peer = reply.str("peer_key_id").ok_or_else(unexpected)?;
+        let code = clean(reply.str("code").ok_or_else(unexpected)?);
+        let peer = clean(reply.str("peer_key_id").ok_or_else(unexpected)?);
+        let blob = reply.str("blob").map(clean);
         let own = Statement::read(reply.0.get("own_statement").and_then(Json::as_object))?;
         let theirs = Statement::read(reply.0.get("peer_statement").and_then(Json::as_object))?;
         let trusted = reply.flag("already_trusted").ok_or_else(unexpected)?;
-        self.peer_key = Some(peer.to_owned());
+        self.peer_key = Some(peer.clone());
         let mut members = Vec::new();
-        if let Some(blob) = reply.str("blob") {
+        if let Some(blob) = &blob {
             members.push(("blob", json_string(blob)));
         }
         members.extend([
-            ("code", json_string(code)),
-            ("peer_key_id", json_string(peer)),
+            ("code", json_string(&code)),
+            ("peer_key_id", json_string(&peer)),
             ("own_statement", own.json()),
             ("peer_statement", theirs.json()),
             ("already_trusted", trusted.to_string()),
         ]);
         self.step("code", &members);
         if !self.json {
-            if let Some(blob) = reply.str("blob") {
+            if let Some(blob) = &blob {
                 self.say("Give the other device this reveal blob; it then shows its own code:");
                 self.print_blob(blob);
             }
@@ -914,7 +901,9 @@ impl Run<'_, '_> {
             self.print(&format!("  this device: {}", own.human()));
             self.print(&format!("  other device: {}", theirs.human()));
             if trusted {
-                self.say("This key is already trusted on this device. The pairing can still finish on the other device, but this device keeps its record and this run exits 1 (#430 would confirm new agreement values; to pair again now run `oac unpair <key_id>` with that key).");
+                self.say(&format!(
+                    "This key is already trusted on this device. The pairing can still finish on the other device, but this device keeps its record and this run exits 1 (#430 would confirm new agreement values; to pair again now run `oac unpair {peer}`)."
+                ));
             }
         }
         Ok(())
@@ -926,7 +915,8 @@ impl Run<'_, '_> {
             let entered = self.ask_code()?;
             let reply = self.request(&confirm_line(&entered))?;
             match (reply.error(), reply.kind()) {
-                (Some("bad_code"), _) => self.diagnose(
+                (Some("bad_code"), _) => self.reject(
+                    "bad_code",
                     "the daemon says that is not a six-digit code; it was not counted as a try.",
                 ),
                 (_, Some("paired")) => {
@@ -945,6 +935,28 @@ impl Run<'_, '_> {
                 }
                 _ => return Err(unexpected()),
             }
+        }
+    }
+
+    /// Asks for a blob of kind `expected`, sends it as `op`, and returns the reply of kind
+    /// `reply_kind`. A blob the daemon does not accept is asked for again; nothing changed.
+    fn exchange(
+        &mut self,
+        (expected, from): (&str, &str),
+        (op, reply_kind): (&str, &str),
+        hint: &str,
+    ) -> Result<Reply, Failure> {
+        loop {
+            let text = self.ask_blob(expected, from)?;
+            let reply = self.request(&blob_line(op, &text))?;
+            if reply.error() == Some("bad_blob") {
+                self.reject(
+                    "bad_blob",
+                    &format!("the daemon did not accept that blob; nothing changed. {hint}"),
+                );
+                continue;
+            }
+            return self.expect(reply, reply_kind);
         }
     }
 
@@ -971,18 +983,14 @@ impl Run<'_, '_> {
                 ));
                 self.say("Give the other device this offer blob:");
                 self.print_blob(&blob);
-                let reply = loop {
-                    let text = self.ask_blob(
+                let reply = self.exchange(
+                    (
                         "response",
                         "that `oac pair --respond` printed on the other device",
-                    )?;
-                    let reply = self.request(&blob_line("pair_response", &text))?;
-                    if reply.error() == Some("bad_blob") {
-                        self.diagnose("the daemon did not accept that blob; nothing changed. Check that it is the response to this offer.");
-                        continue;
-                    }
-                    break self.expect(reply, "code")?;
-                };
+                    ),
+                    ("pair_response", "code"),
+                    "Check that it is the response to this offer.",
+                )?;
                 self.show_code(&reply)?;
             }
             PairRole::Responder => {
@@ -999,32 +1007,23 @@ impl Run<'_, '_> {
                     "Waiting for an offer: this pairing window closes in {} s. Now run `oac pair` on the other device.",
                     self.left()
                 ));
-                let response = loop {
-                    let text =
-                        self.ask_blob("offer", "that `oac pair` printed on the other device")?;
-                    let reply = self.request(&blob_line("pair_offer", &text))?;
-                    if reply.error() == Some("bad_blob") {
-                        self.diagnose("the daemon did not accept that blob; nothing changed. Check that it is a fresh offer.");
-                        continue;
-                    }
-                    break self.expect(reply, "response")?;
-                };
+                let response = self.exchange(
+                    ("offer", "that `oac pair` printed on the other device"),
+                    ("pair_offer", "response"),
+                    "Check that it is a fresh offer.",
+                )?;
                 let blob = response.str("blob").ok_or_else(unexpected)?.to_owned();
                 self.step("response", &[("blob", json_string(&blob))]);
                 self.say("Give the other device this response blob:");
                 self.print_blob(&blob);
-                let reply = loop {
-                    let text = self.ask_blob(
+                let reply = self.exchange(
+                    (
                         "reveal",
                         "that `oac pair` prints on the other device after it has the response",
-                    )?;
-                    let reply = self.request(&blob_line("pair_reveal", &text))?;
-                    if reply.error() == Some("bad_blob") {
-                        self.diagnose("the daemon did not accept that blob; nothing changed. Check that it is the reveal for this response.");
-                        continue;
-                    }
-                    break self.expect(reply, "code")?;
-                };
+                    ),
+                    ("pair_reveal", "code"),
+                    "Check that it is the reveal for this response.",
+                )?;
                 self.show_code(&reply)?;
             }
         }
@@ -1047,7 +1046,6 @@ pub fn pair_over(
         json,
         first_wait,
         window_end: None,
-        window: PAIRING_DEADLINE.as_secs(),
         peer_key: None,
     };
     match run.pair(role) {
@@ -1209,6 +1207,12 @@ fn list_over(wire: &mut dyn Wire, json: bool, wait: Duration, t: &mut Terminal<'
         }
     }
     let _ = t.stdout.write_all(out.as_bytes());
+    if !saved {
+        let _ = writeln!(
+            t.stderr,
+            "oac pair --list: the trust store is NOT saved: a change is held in memory only, and a restart before the daemon's retry succeeds loses it"
+        );
+    }
     EXIT_OK
 }
 
@@ -1222,7 +1226,6 @@ pub fn unpair_over(
     wait: Duration,
     t: &mut Terminal<'_>,
 ) -> i32 {
-    let key = ("key_id", json_string(key_id));
     let result = ask(wire, &unpair_line(key_id), wait).and_then(|reply| {
         if let Some(code) = reply.error() {
             return Err(from_error(code));
@@ -1242,7 +1245,7 @@ pub fn unpair_over(
                         ("ok", "true".to_owned()),
                         ("unpaired", "true".to_owned()),
                         ("durable", "true".to_owned()),
-                        key,
+                        ("key_id", json_string(key_id)),
                     ])
                 );
             } else {
@@ -1260,7 +1263,8 @@ pub fn unpair_over(
                 format!(
                     "key {key_id} was removed in memory, but NOT saved: the revocation is NOT durable and a restart before it is saved would restore this device. The daemon keeps retrying; after any restart check `oac pair --list` and unpair again if the key is back."
                 ),
-            );
+            )
+            .key(Some(key_id.to_owned()));
             report(
                 t,
                 "unpair",
@@ -1269,11 +1273,16 @@ pub fn unpair_over(
                 &[
                     ("unpaired", "true".to_owned()),
                     ("durable", "false".to_owned()),
-                    key,
                 ],
             )
         }
-        Err(failure) => report(t, "unpair", json, &failure, &[key]),
+        Err(failure) => report(
+            t,
+            "unpair",
+            json,
+            &failure.key(Some(key_id.to_owned())),
+            &[],
+        ),
     }
 }
 
@@ -1336,30 +1345,24 @@ pub fn unpair_with(
                 "declined",
                 EXIT_FAILED,
                 "not confirmed; nothing was removed",
-            );
-            return report(
-                t,
-                "unpair",
-                json,
-                &failure,
-                &[("key_id", json_string(key_id))],
-            );
+            )
+            .key(Some(key_id.to_owned()));
+            return report(t, "unpair", json, &failure, &[]);
         }
     }
     let mut wire = match connect(scope) {
         Ok(w) => w,
-        Err(failure) => return report(t, "unpair", json, &failure, &[]),
+        Err(failure) => {
+            return report(
+                t,
+                "unpair",
+                json,
+                &failure.key(Some(key_id.to_owned())),
+                &[],
+            );
+        }
     };
     unpair_over(&mut wire, key_id, json, wait, t)
-}
-
-/// The user's scope, with a test namespace noted on `stderr`.
-fn user_scope(verb: &str, stderr: &mut dyn Write) -> io::Result<Scope> {
-    let scope = Scope::for_user()?;
-    if let Some(namespace) = scope.namespace() {
-        let _ = writeln!(stderr, "oac {verb}: using the test namespace {namespace:?}");
-    }
-    Ok(scope)
 }
 
 /// `oac pair [--respond | --list] [--json]`.

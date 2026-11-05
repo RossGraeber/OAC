@@ -33,23 +33,10 @@ use crate::logfile;
 use crate::shim;
 use crate::status;
 use crate::trust_store::FileTrustStore;
-use crate::verbs::{EXIT_FAILED, EXIT_NOT_RUNNING, EXIT_OK, EXIT_UNREACHABLE};
+use crate::verbs::{EXIT_FAILED, EXIT_NOT_RUNNING, EXIT_OK, EXIT_UNREACHABLE, user_scope};
 
 /// Exit status for a usage error.
 pub const EXIT_USAGE: i32 = 2;
-
-/// The user's scope, with the namespace in use noted on `diagnostics` when it is not the
-/// ordinary one (it is a test-isolation namespace; see `Scope::for_user_in`).
-fn user_scope(who: &str, diagnostics: &mut dyn Write) -> io::Result<Scope> {
-    let scope = Scope::for_user()?;
-    if let Some(namespace) = scope.namespace() {
-        let _ = writeln!(
-            diagnostics,
-            "oac {who}: using the test namespace {namespace:?}"
-        );
-    }
-    Ok(scope)
-}
 
 /// The arguments of `oac mcp-shim`: `--harness <label>` and, optionally, `--json` (before or
 /// after it). `None` for anything else.
