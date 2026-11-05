@@ -33,7 +33,7 @@ use oac_transport_memory::{MemoryConfiguration, MemoryNetwork, MemoryTransport};
 static NEXT: AtomicU64 = AtomicU64::new(0);
 
 /// A fresh directory under the system's temporary one, removed on drop.
-struct Temp(PathBuf);
+struct Temp(PathBuf, PathBuf);
 
 impl Temp {
     fn new(tag: &str) -> Temp {
@@ -44,11 +44,14 @@ impl Temp {
         ));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
-        Temp(dir)
+        // The data directory is not made here: the stores make it private (Unix: 0700), and
+        // refuse one that is not.
+        let data = dir.join("data");
+        Temp(dir, data)
     }
 
     fn dir(&self) -> &Path {
-        &self.0
+        &self.1
     }
 }
 
@@ -614,7 +617,7 @@ fn parts(namespace: &str, key: &Arc<oac_core::keys::MemoryKeyStore>, dir: &Path)
 #[tokio::test]
 async fn a_daemon_keeps_the_floor_and_starts_above_it_when_the_file_is_gone() {
     let temp = Temp::new("daemon");
-    let dir = temp.dir().join("data");
+    let dir = temp.dir().to_path_buf();
     let seed_key = Arc::new(oac_core::keys::MemoryKeyStore::new());
     seed_key
         .save(&SecretSeed::from_octets(&mut [9; 32]))
