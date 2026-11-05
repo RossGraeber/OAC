@@ -86,6 +86,10 @@ What `node scripts/local-ci.mjs` enforces so they stay opt-in:
 
 ## G3 native TLS two-host leg (#64) - planned, NOT RUN
 
+How to run steps 1 to 6 and 8 on two hosts: `.claude/skills/oac-lan-leg/SKILL.md` (driver
+`transports/zenoh/examples/lan_leg.rs`, wrapper `tools/lan-leg/`). It automates steps 1 to 6
+and 8 in part and records step 7 as NOT RUN; the steps below remain the requirements.
+
 Run only with explicit LAN opt-in (`node scripts/local-ci.mjs --tier lan` for the
 existing host probe); no live harness, no Codex daemon. A future two-host driver must
 also require `OAC_TEST_LAN=1` and reject absent opt-in before opening any LAN listener.

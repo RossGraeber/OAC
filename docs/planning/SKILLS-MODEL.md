@@ -40,7 +40,7 @@ Tier 2 is paid once per work item. Tier 3 is paid per question actually asked.
 
 ## The skill tree
 
-Fifteen skills: one router, two guardrails, seven stage skills, four surface skills, and one meta skill. A typical work item loads three.
+Sixteen skills: one router, two guardrails, seven stage skills, four surface skills, one meta skill, and one operator runbook (`oac-lan-leg`, tier 2e). A typical work item loads three.
 
 ### Tier 1 — router (1)
 
@@ -89,6 +89,12 @@ visibly invalidates it rather than quietly misleading the next agent.
 `oac-authoring-skills`: how to write and maintain the skills above — the tier budget, the
 description-writing rules, when to promote content to a reference file.
 
+### Tier 2e — operator runbook (1)
+
+`oac-lan-leg`: the operator-invoked runbook for the two-host LAN leg (#64 steps 1-7, #63
+step 8), with its driver (`transports/zenoh/examples/lan_leg.rs`) and wrapper
+(`tools/lan-leg/`). Loaded when an operator asks for that leg; it carries no label.
+
 ## Routing: labels are the trigger
 
 The backlog labels double as the routing key, so an agent does not have to guess what to
@@ -132,7 +138,7 @@ because the router will not route it there and `oac-gates` says why.
 | `SKILL.md` body | 200 lines | CI check |
 | `references/*.md` | no cap | loaded individually, never wholesale |
 
-Roughly 350 tokens of always-on cost for fifteen descriptions, against a plan that would
+Roughly 350 tokens of always-on cost for sixteen descriptions, against a plan that would
 otherwise want to be resident in full.
 
 ## Maintenance rule

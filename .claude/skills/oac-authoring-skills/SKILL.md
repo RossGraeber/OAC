@@ -36,7 +36,7 @@ If a skill body is pushing 200 lines, that is a signal to move detail into
 ## 3. Writing the description
 
 The description is the only text resident in every session for every skill —
-fifteen of them, roughly 350 tokens total. It has to let an agent decide to
+sixteen of them, roughly 350 tokens total. It has to let an agent decide to
 load the skill without the router explaining it. Rules:
 
 - Say **what the skill holds** and **when to load it** in the same one or two
@@ -151,7 +151,7 @@ Stage 0 closes:
 - [ ] Confirm it's needed: does an existing skill already cover this, or does
       this duplicate `oac-boundaries` / `oac-evidence` guardrail content?
 - [ ] Pick the tier (guardrail / stage / surface / meta) and confirm it
-      matches one of the fifteen skills named in `SKILLS-MODEL.md` and listed
+      matches one of the sixteen skills named in `SKILLS-MODEL.md` and listed
       in the `EXPECTED` array in `scripts/check-skills.mjs` — that array is
       the enforced authority; a directory present but missing from it fails
       the checker.
