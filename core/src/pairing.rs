@@ -1216,10 +1216,14 @@ pub trait PairingStore {
         Ok(None)
     }
 
-    /// Makes `seq` the durable agreement `seq` floor of the device key `key_id`, in place of
-    /// any floor recorded before (for this or another key id), as one write. It returns once
-    /// the floor is written: the caller issues the statement only after that. The default does
-    /// nothing.
+    /// Raises the durable agreement `seq` floor of the device key `key_id` to `seq`, as one
+    /// write, and **never lowers it**: when the floor already recorded for `key_id` is higher,
+    /// it stays (a stale save must not reopen a rollback). One exception, the restart of
+    /// [SEC-SEL-052]: a floor at the maximum statement `seq` is replaced by `seq`, because the
+    /// restart is allowed only there. A floor recorded for another key id is replaced (a
+    /// regenerated device key starts its own count; the floor names one key id). It returns
+    /// once the floor is written: the caller issues the statement only after that. The default
+    /// does nothing.
     ///
     /// # Errors
     ///

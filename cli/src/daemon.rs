@@ -443,6 +443,8 @@ pub struct Daemon {
     /// The key id a store written under another device key recorded, when it differs from
     /// this daemon's.
     trust_store_foreign_key: Option<KeyId>,
+    /// How many times recording the agreement seq floor at start failed (#437 S1c): 0 or 1.
+    agreement_floor_failures: u64,
 }
 
 impl Daemon {
@@ -526,7 +528,9 @@ impl Daemon {
             .map_err(StartError::Agreement)?;
         // A count kept before the floor existed has none yet: record it now. The daemon runs
         // without it, as before S1c, if the trust store cannot be written.
+        let mut agreement_floor_failures = 0;
         if let Err(e) = agreement_store.ensure_floor(agreement.highest_seq()) {
+            agreement_floor_failures += 1;
             log.line(&format!(
                 "warning: the agreement seq floor could not be recorded in the trust store, so a rolled-back agreement-key file would not be noticed until the next statement is issued: {e}"
             ));
@@ -647,6 +651,7 @@ impl Daemon {
             lock,
             pairing_store,
             trust_store_foreign_key,
+            agreement_floor_failures,
         })
     }
 
@@ -680,6 +685,13 @@ impl Daemon {
     /// records none.
     pub fn trust_store_foreign_key(&self) -> Option<&KeyId> {
         self.trust_store_foreign_key.as_ref()
+    }
+
+    /// How many times recording the agreement seq floor in the trust store failed at start
+    /// (#437 S1c), so that `status` and `doctor` can say a rolled-back agreement-key file would
+    /// not be noticed until the next statement. Nothing reports it yet (S5).
+    pub fn agreement_floor_failures(&self) -> u64 {
+        self.agreement_floor_failures
     }
 
     /// The names of the endpoints served (the harness endpoints, then `control`), for a

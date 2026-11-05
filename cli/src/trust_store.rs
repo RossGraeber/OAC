@@ -31,7 +31,9 @@
 //! `agreement_seq_floor` (optional; #437 S1c) is `{"key_id":..,"seq":..}`: the highest agreement
 //! `seq` the device key `key_id` has issued, written **before** the statement with that `seq`
 //! exists (G-437 §7). `trust.json` is not bound to the device key, so the floor names the key id
-//! it belongs to and is ignored by every other ([`PairingStore::agreement_seq_floor`]). A
+//! it belongs to and is ignored by every other ([`PairingStore::agreement_seq_floor`]). It
+//! holds one key id: recording a floor for another replaces it, so going back to an old device
+//! key finds its floor gone (the L7 residual: that key's own file still carries its count). A
 //! save of the snapshot carries the floor through unchanged; only
 //! [`PairingStore::record_agreement_seq_floor`] changes it. It is read strictly like every other
 //! member: both members are required, `key_id` is a key id and `seq` an integer in the range of
@@ -65,7 +67,8 @@
 //! 1 MiB or has an unknown version is [`PairingStoreError::Corrupt`], and a file that cannot
 //! be read or is not private is [`PairingStoreError::Failed`]; either stops `Daemon::start`
 //! with an error naming the file. **The file is never reset, repaired or renamed away**: the
-//! operator moves it aside by hand. The store creates nothing until the first save or the first recorded floor.
+//! operator moves it aside by hand. The store creates nothing until the first save or the
+//! first recorded floor.
 //!
 //! # Written atomically
 //!
@@ -501,6 +504,26 @@ impl PairingStore for FileTrustStore {
             .state
             .lock()
             .map_err(|_| PairingStoreError::Failed("lock poisoned".into()))?;
+        // Monotonic for this key id: a lower `seq` leaves the floor where it is, except at the
+        // maximum, the only count the [SEC-SEL-052] restart starts again from. Another key
+        // id's floor is replaced.
+        let current = self.known_floor(&mut state)?;
+        let seq = match &current {
+            Some(f)
+                if &f.key_id == key_id
+                    && f.seq > seq
+                    && f.seq < oac_core::sealing::MAX_STATEMENT_SEQ =>
+            {
+                f.seq
+            }
+            _ => seq,
+        };
+        if current
+            .as_ref()
+            .is_some_and(|f| &f.key_id == key_id && f.seq == seq)
+        {
+            return Ok(());
+        }
         // The file is rewritten whole with the snapshot it holds now (the engine's own save
         // writes the snapshot); a missing file is the empty snapshot.
         let (snapshot, held_device_key_id) = match self.read_file()? {

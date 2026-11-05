@@ -17,12 +17,22 @@
 //!   issues `floor + 1` under a new key ([SEC-SEL-040]: higher than any before), with no
 //!   re-pairing. A floor that names another key id is not this key's and is ignored (a
 //!   regenerated device key starts at `seq` 0, L7); the store makes that call.
-//! - **Save.** The floor is recorded as the state's `highest_seq` first, and the file is
+//! - **Save.** The floor is raised to the state's `highest_seq` first, and the file is
 //!   written only after that succeeded. A failed floor write fails the save, so no statement
-//!   is issued ([SEC-SEL-043]). If the file write then fails, the floor is ahead of the file
-//!   and the next start skips a `seq`, which costs nothing. The floor is *set*, not raised:
-//!   `AgreementKeys::restart_count` ([SEC-SEL-052]) replaces everything with a state at `seq` 0
-//!   and the floor follows, which is how a floor at the maximum `seq` is cleared.
+//!   is issued ([SEC-SEL-043]). If the file write then fails, the floor is ahead of the file.
+//!   The next start skips a `seq`, and, because the floor is above the file's count, it
+//!   treats the file as rolled back: `load` gives the floor with **no keys**, so the file's
+//!   current and replaced keys are dropped and frames sealed to them no longer open. That is
+//!   the price of a failed write between the two files, and it is bounded: peers admit the
+//!   new statement and seal to the new key.
+//! - **Monotonic.** The floor is never lowered ([`PairingStore::record_agreement_seq_floor`]):
+//!   a stale save, with a `highest_seq` below the floor, leaves it where it is. The one
+//!   exception is a floor at the maximum `seq`, which the restart replaces:
+//!   `AgreementKeys::restart_count` ([SEC-SEL-052]) saves a state at `seq` 0 and the floor
+//!   follows, which is how a floor at the maximum is cleared.
+//! - **One key id.** The floor holds one key id. Going back to an older device key finds its
+//!   floor gone (a later key's start replaced it), and only that key's own file carries its
+//!   count: the L7 residual.
 //! - **At the maximum.** A floor at `MAX_STATEMENT_SEQ` makes `next_seq` fail with
 //!   `SeqExhausted`, so the start is refused until the operator takes the restart. A same-user
 //!   write to `trust.json` can set it: a denial of service inside the accepted same-user
@@ -98,6 +108,15 @@ impl AgreementKeyStore for FlooredAgreementStore {
             .agreement_seq_floor(&self.key_id)
             .map_err(store_error)?;
         let state = self.inner.load()?;
+        // Keys with no count are a damaged file, not an older one: the floor does not hide it.
+        if state
+            .as_ref()
+            .is_some_and(|s| s.highest_seq.is_none() && !s.keys.is_empty())
+        {
+            return Err(KeyStoreError::Corrupt(
+                "the agreement-key state holds keys but no highest seq".into(),
+            ));
+        }
         Ok(match (state, floor) {
             (state, None) => state,
             // The file is missing: a floor without a file.
@@ -117,6 +136,7 @@ impl AgreementKeyStore for FlooredAgreementStore {
     fn save(&self, state: &AgreementKeyState) -> Result<(), KeyStoreError> {
         // [SEC-SEL-043]: the count is durable before the statement exists. The floor first, so
         // that a failure of either write leaves a floor at or ahead of the file, never behind.
+        // The store keeps it monotonic.
         if let Some(highest) = state.highest_seq {
             self.floor
                 .record_agreement_seq_floor(&self.key_id, highest)

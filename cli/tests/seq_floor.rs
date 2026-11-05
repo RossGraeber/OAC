@@ -444,6 +444,75 @@ fn a_floor_for_another_key_id_is_ignored() {
     assert!(file_store(dir, &old).path().is_file());
 }
 
+/// **T10.** The floor is monotonic: a save with a `highest_seq` below it (a stale state) leaves
+/// it where it is, and the next start is still above it. Only a floor at the maximum is
+/// replaced by a lower one (the restart; the test below).
+#[test]
+fn a_save_with_a_lower_count_leaves_the_floor_where_it_is() {
+    let temp = Temp::new("monotonic");
+    let dir = temp.dir();
+    let id = identity(1);
+    let trust = trust(dir);
+
+    let mut keys = start(dir, &id, &trust, "2026-11-04T10:00:00Z").unwrap();
+    let floored = floored(dir, &id, &trust);
+    keys.replace(&floored, &id, &at("2026-11-04T11:00:00Z"))
+        .unwrap();
+    keys.replace(&floored, &id, &at("2026-11-04T12:00:00Z"))
+        .unwrap();
+    assert_eq!(trust.agreement_seq_floor(id.key_id()).unwrap(), Some(2));
+
+    // A stale state is saved through the wrapper: the count 0, then 1.
+    for stale in [0, 1] {
+        floored
+            .save(&AgreementKeyState {
+                keys: Vec::new(),
+                highest_seq: Some(stale),
+            })
+            .unwrap();
+        assert_eq!(
+            trust.agreement_seq_floor(id.key_id()).unwrap(),
+            Some(2),
+            "a save at {stale} lowered the floor"
+        );
+    }
+    // The same on the store: a lower seq is not recorded, a higher one is.
+    trust.record_agreement_seq_floor(id.key_id(), 1).unwrap();
+    assert_eq!(trust.agreement_seq_floor(id.key_id()).unwrap(), Some(2));
+    trust.record_agreement_seq_floor(id.key_id(), 5).unwrap();
+    assert_eq!(trust.agreement_seq_floor(id.key_id()).unwrap(), Some(5));
+    // And the file on disk says so, not only the store's memory.
+    let reopened = FileTrustStore::new(dir.to_path_buf(), dir.to_path_buf());
+    assert_eq!(reopened.agreement_seq_floor(id.key_id()).unwrap(), Some(5));
+
+    // The next start is above the floor, whatever the file holds.
+    let keys = start(dir, &id, &trust, "2026-11-04T13:00:00Z").unwrap();
+    assert_eq!(seq_of(keys.statement()), 6);
+}
+
+/// Keys with no count are a damaged file, not an older one: a floor does not hide it.
+#[test]
+fn keys_without_a_count_are_corrupt_not_an_older_file() {
+    let temp = Temp::new("nocount");
+    let dir = temp.dir();
+    let id = identity(1);
+    let trust = trust(dir);
+    trust.record_agreement_seq_floor(id.key_id(), 3).unwrap();
+
+    let memory = MemoryAgreementKeyStore::new();
+    AgreementKeys::load_or_generate(&memory, &id, &at("2026-11-04T10:00:00Z")).unwrap();
+    let mut damaged = memory.load().unwrap().unwrap();
+    damaged.highest_seq = None;
+    memory.save(&damaged).unwrap();
+
+    let store = FlooredAgreementStore::new(Box::new(memory), trust.clone(), id.key_id().clone());
+    assert!(matches!(store.load(), Err(KeyStoreError::Corrupt(_))));
+    assert!(matches!(
+        AgreementKeys::load_or_generate(&store, &id, &at("2026-11-04T11:00:00Z")),
+        Err(AgreementKeyError::Store(KeyStoreError::Corrupt(_)))
+    ));
+}
+
 /// **[SEC-SEL-052], L6.** A floor at the maximum `seq` refuses the start; only the restart
 /// clears it, and it clears the floor with the count.
 #[test]
@@ -679,8 +748,62 @@ async fn a_daemon_keeps_the_floor_and_starts_above_it_when_the_file_is_gone() {
         ),
         6
     );
+    assert_eq!(daemon.agreement_floor_failures(), 0);
     daemon.shutdown().await;
     // (A new store: the daemon's own wrote the file, and a store keeps what it last read.)
     let trust = FileTrustStore::new(dir.clone(), dir.clone());
     assert_eq!(trust.agreement_seq_floor(id.key_id()).unwrap(), Some(6));
+
+    // A floor that cannot be recorded at start is a warning and a count, not a refused start:
+    // the file holds the count 6, the trust file has no floor for this key (another key's
+    // replaced it), and the store's floor writes fail.
+    trust
+        .record_agreement_seq_floor(identity(2).key_id(), 1)
+        .unwrap();
+    assert_eq!(trust.agreement_seq_floor(id.key_id()).unwrap(), None);
+    let mut failing = parts(&namespace, &seed_key, &dir);
+    failing.pairing_store = Box::new(FailingRecord(FileTrustStore::new(dir.clone(), dir.clone())));
+    let daemon = Daemon::start(failing)
+        .await
+        .unwrap_or_else(|e| panic!("the daemon starts without a floor: {e}"));
+    assert_eq!(daemon.agreement_floor_failures(), 1);
+    assert_eq!(
+        seq_of(
+            &daemon
+                .pipelines()
+                .agreement_statement()
+                .expect("a statement")
+        ),
+        6
+    );
+    daemon.shutdown().await;
+}
+
+/// A trust store whose floor cannot be written.
+struct FailingRecord(FileTrustStore);
+
+impl PairingStore for FailingRecord {
+    fn load(&self) -> Result<PairingSnapshot, PairingStoreError> {
+        self.0.load()
+    }
+
+    fn save(&self, snapshot: &PairingSnapshot) -> Result<(), PairingStoreError> {
+        self.0.save(snapshot)
+    }
+
+    fn note_device_key(&self, key_id: &KeyId) -> Option<KeyId> {
+        self.0.note_device_key(key_id)
+    }
+
+    fn agreement_seq_floor(&self, key_id: &KeyId) -> Result<Option<u64>, PairingStoreError> {
+        self.0.agreement_seq_floor(key_id)
+    }
+
+    fn record_agreement_seq_floor(
+        &self,
+        _key_id: &KeyId,
+        _seq: u64,
+    ) -> Result<(), PairingStoreError> {
+        Err(PairingStoreError::Failed("the floor write failed".into()))
+    }
 }
