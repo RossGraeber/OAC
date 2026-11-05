@@ -482,7 +482,7 @@ impl Daemon {
         // through it (#437). A file written under another device key is reported, not
         // refused: the peers in it stay trusted (lead decisions L6, L7).
         let pairing_store: Arc<dyn PairingStore + Send + Sync> = Arc::from(pairing_store);
-        let trust_store_foreign_key = pairing_store.device_key_in_use(engine.own_key_id());
+        let trust_store_foreign_key = pairing_store.note_device_key(engine.own_key_id());
         if let Some(foreign) = &trust_store_foreign_key {
             log.line(&format!(
                 "warning: the trust store was written under device key {foreign}, and this daemon runs {}; its peers trust the old key id and must pair with the new one again",

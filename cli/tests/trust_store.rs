@@ -21,7 +21,8 @@ use oac_cli::trust_store::{
     FileTrustStore, MAX_TRUST_FILE_BYTES, OsSteps, TRUST_FILE_NAME, WriteSteps,
 };
 use oac_core::authorization::{
-    Grant, LocalSide, OperatorConfirmed, PeerSide, WorkingDirectoryScope,
+    AuthorizationEngine, Grant, LocalSide, MemoryDecisionLog, OperatorConfirmed, PeerSide,
+    WorkingDirectoryScope,
 };
 use oac_core::clock::{Clock, SystemClock};
 use oac_core::ids::{SessionId, Timestamp, Token};
@@ -621,10 +622,10 @@ fn a_failed_first_write_leaves_no_file() {
 }
 
 #[test]
-fn a_failed_directory_sync_is_reported_and_leaves_a_whole_file() {
-    // The rename has happened: the new file is in place and whole. The save is still an
-    // error, because it is not known to be durable (the revocation or pairing must not be
-    // reported as saved).
+fn a_failed_directory_sync_after_the_rename_is_a_warning_not_an_error() {
+    // The rename is the commit point: the new file is in place and whole. An error here would
+    // make the engine roll back a change that the next start loads from the file, so memory and
+    // file would disagree; the save is Ok, and the failure is counted and warned.
     let previous = PairingSnapshot {
         relay_enabled: vec![sid(1)],
         ..PairingSnapshot::default()
@@ -632,12 +633,64 @@ fn a_failed_directory_sync_is_reported_and_leaves_a_whole_file() {
     let next = full_snapshot();
     let temp = Temp::new("faildir");
     temp.store().save(&previous).unwrap();
+    let warnings = Arc::new(Mutex::new(Vec::<String>::new()));
     let steps = Steps::new(Some(Step::SyncDirectory));
-    let e = store_with(&temp, &steps).save(&next).unwrap_err();
-    assert!(matches!(&e, PairingStoreError::Failed(m) if m.contains("may not be durable")));
+    let store = store_with(&temp, &steps).with_warning_sink({
+        let warnings = warnings.clone();
+        Arc::new(move |line: &str| warnings.lock().unwrap().push(line.to_owned()))
+    });
+    assert_eq!(store.directory_sync_failures(), 0);
+    store.save(&next).unwrap();
     assert_eq!(steps.calls().last(), Some(&Step::SyncDirectory));
     assert_eq!(temp.store().load().unwrap(), next, "whole, and the new one");
     assert_eq!(temp.names(), vec![TRUST_FILE_NAME.to_owned()]);
+    assert_eq!(store.directory_sync_failures(), 1);
+    let warnings = warnings.lock().unwrap();
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert!(
+        warnings[0].contains("may not survive a power loss"),
+        "{warnings:?}"
+    );
+    assert!(warnings[0].contains(TRUST_FILE_NAME));
+}
+
+#[test]
+fn memory_and_file_agree_after_a_pairing_whose_directory_sync_failed() {
+    // Through the engine, as the daemon does: pair with the directory sync failing. The key is
+    // trusted in memory, and trusted again after `restore` from the file.
+    let temp = Temp::new("faildir-engine");
+    let steps = Steps::new(Some(Step::SyncDirectory));
+    let store = store_with(&temp, &steps);
+    let own = identity("own");
+    let peer = identity("peer");
+    let clock: Arc<dyn Clock> = Arc::new(SystemClock);
+    let mut engine =
+        AuthorizationEngine::new(&own, clock.clone(), Box::new(MemoryDecisionLog::new()));
+    let paired = PairedPeer::by_key_id_comparison(
+        peer.principal().clone(),
+        *peer.public_key(),
+        peer.key_id(),
+        now(),
+        OperatorConfirmed::by_operator(),
+    )
+    .unwrap();
+    engine.pair(paired, &store).unwrap();
+    engine
+        .set_relay(sid(3), true, OperatorConfirmed::by_operator(), &store)
+        .unwrap();
+    assert!(engine.trusted_keys().get(peer.key_id()).is_some());
+    assert_eq!(steps.calls().last(), Some(&Step::SyncDirectory));
+    assert_eq!(store.directory_sync_failures(), 2);
+
+    let restored = AuthorizationEngine::restore(
+        &own,
+        &temp.store(),
+        clock,
+        Box::new(MemoryDecisionLog::new()),
+    )
+    .unwrap();
+    assert!(restored.trusted_keys().get(peer.key_id()).is_some());
+    assert_eq!(restored.snapshot(), engine.snapshot());
 }
 
 #[test]
@@ -710,7 +763,7 @@ fn a_foreign_device_key_id_is_reported_not_refused_by_the_store() {
 
     // The writer says which key it runs with; a later save carries the id.
     let writer = temp.store();
-    assert_eq!(writer.device_key_in_use(&old), None, "no file yet");
+    assert_eq!(writer.note_device_key(&old), None, "no file yet");
     writer.save(&snapshot).unwrap();
     let text = fs::read_to_string(temp.file()).unwrap();
     assert!(
@@ -721,10 +774,10 @@ fn a_foreign_device_key_id_is_reported_not_refused_by_the_store() {
     // The same key: nothing to report. Another key: reported, and the peers stay loaded.
     let same = temp.store();
     assert_eq!(same.load().unwrap(), snapshot);
-    assert_eq!(same.device_key_in_use(&old), None);
+    assert_eq!(same.note_device_key(&old), None);
     let other = temp.store();
     assert_eq!(other.load().unwrap(), snapshot, "not refused");
-    assert_eq!(other.device_key_in_use(&new), Some(old));
+    assert_eq!(other.note_device_key(&new), Some(old));
     // From then on the file is written under the new id.
     other.save(&snapshot).unwrap();
     let text = fs::read_to_string(temp.file()).unwrap();
@@ -741,7 +794,7 @@ fn a_foreign_device_key_id_is_reported_not_refused_by_the_store() {
     );
     let bare = temp.store();
     assert!(bare.load().is_ok());
-    assert_eq!(bare.device_key_in_use(&new), None);
+    assert_eq!(bare.note_device_key(&new), None);
     // A member that is not a key id refuses the file.
     overwrite(
         &temp,
@@ -1076,7 +1129,9 @@ async fn a_loose_file_stops_the_daemon_and_is_left_as_it_is() {
         ));
         fs::write(&outside, &before).unwrap();
         if oac_cli::logfile::is_private(&outside).unwrap() {
-            // This temporary directory is itself user-only: nothing loose to make.
+            eprintln!(
+                "SKIPPED a_loose_file_stops_the_daemon_and_is_left_as_it_is: the system temporary directory is user-only, so no loose file can be made in it"
+            );
             let _ = fs::remove_file(&outside);
             return;
         }

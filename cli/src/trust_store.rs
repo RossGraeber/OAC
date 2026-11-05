@@ -31,7 +31,7 @@
 //! `device_key_id` is the key id of the device key that wrote the file, in plain text, **for
 //! diagnosis only** (lead decision L6, L7). It is not checked for integrity and binds the file
 //! to nothing: if it differs from the running daemon's key id the trusted peers stay loaded and
-//! [`PairingStore::device_key_in_use`] reports it. The file carries no tag: a process of the
+//! [`PairingStore::note_device_key`] reports it. The file carries no tag: a process of the
 //! same user that can write it can add a trusted key, a grant and the relay switch (accepted
 //! same-user residual, G-437 §5.4, T7).
 //!
@@ -39,9 +39,16 @@
 //!
 //! Windows `%LOCALAPPDATA%\OAC\trust.json`; Unix `$XDG_DATA_HOME/oac/trust.json`, else
 //! `~/.oac/trust.json`. A test namespace (`OAC_SCOPE`) uses `ns-<name>/` inside that
-//! directory. The directory and the file are private to the user (`crate::private_file`): a
-//! directory or file that is a link, is not the user's, or is open to others is **refused,
-//! never repaired**; on Windows both carry a protected DACL with one ACE.
+//! directory. The directory and the file are private to the user (`crate::private_file`).
+//!
+//! - **Unix:** the directory is `0700` and the file `0600`. A link, a file or directory that is
+//!   not the user's, or one open to others is **refused, never repaired**, by `load` (when the
+//!   file exists) and by `save`.
+//! - **Windows:** `load` refuses a file or directory whose DACL is not a single user ACE (when
+//!   the file exists), and a link. `save` does **not** refuse a directory: every save replaces
+//!   the DACL of the directory and of `top` (`%LOCALAPPDATA%\OAC`) with the protected,
+//!   user-only one, and reads it back. The file itself carries the protected one-ACE DACL of
+//!   its temporary file across the rename; a loose existing file is still refused by `save`.
 //!
 //! # Missing, corrupt, unknown
 //!
@@ -55,10 +62,15 @@
 //!
 //! A save writes a temporary file in the same directory (a random name, created exclusively,
 //! private), `sync_all`, `rename` over the target, then `fsync` of the directory on Unix. A
-//! failure at any step leaves the previous file untouched, with one exception that is stated:
-//! when only the directory sync fails, the rename has already put the new, whole file in place;
-//! the save is still reported as failed because its durability is unproven. The steps are the
-//! methods of [`WriteSteps`], so a test makes each one fail.
+//! failure of the create, write, sync or rename step returns [`PairingStoreError::Failed`]
+//! and leaves the previous file untouched. **The rename is the commit point**: once it has
+//! replaced `trust.json` the change is in place and whole, and `save` returns `Ok`. A failure
+//! of the directory sync after it then only leaves durability across a power loss unproven (as
+//! on Windows, where no directory flush is made): it is counted
+//! ([`FileTrustStore::directory_sync_failures`]) and reported as one warning line to the sink
+//! given with [`FileTrustStore::with_warning_sink`] (the daemon's log). Returning an error
+//! there would make the engine roll back a pairing or grant that the next start loads from the
+//! file. The steps are the methods of [`WriteSteps`], so a test makes each one fail.
 //!
 //! **Windows durability is UNVERIFIED** (G-437 §5.3): that a completed `rename` over an existing
 //! file survives a power loss was not established from a first-party statement, and no flush of
@@ -70,6 +82,7 @@ use std::fmt::Write as _;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use oac_core::authorization::{Grant, LocalSide, PeerSide, WorkingDirectoryScope};
@@ -223,14 +236,37 @@ pub struct FileTrustStore {
     top: PathBuf,
     steps: Arc<dyn WriteSteps>,
     state: Mutex<State>,
+    /// Where a durability warning goes (the daemon's log), if anywhere.
+    warning_sink: Option<WarningSink>,
+    /// How many saves replaced the file but could not sync the directory.
+    directory_sync_failures: AtomicU64,
 }
+
+/// Receives the text of a warning: one line, with no content of the store in it.
+pub type WarningSink = Arc<dyn Fn(&str) + Send + Sync>;
 
 impl FileTrustStore {
     /// The store whose file is `directory/trust.json`. `top` is the directory OAC owns that
-    /// `directory` is or is inside (the first one made private; on Windows its DACL is
-    /// replaced when a save first makes the directory). Nothing is read or made here.
+    /// `directory` is or is inside. Every save makes `directory` and `top` private (Unix:
+    /// created `0700` and checked, never repaired; Windows: **their DACLs are replaced** with
+    /// the protected user-only one, on every save). Nothing is read or made here.
     pub fn new(directory: PathBuf, top: PathBuf) -> FileTrustStore {
         FileTrustStore::with_steps(directory, top, Arc::new(OsSteps))
+    }
+
+    /// This store, with `sink` given a line whenever a save replaced the file but could not
+    /// sync the directory (see the module documentation).
+    #[must_use]
+    pub fn with_warning_sink(mut self, sink: WarningSink) -> FileTrustStore {
+        self.warning_sink = Some(sink);
+        self
+    }
+
+    /// How many saves replaced the file but failed to sync the directory since this store was
+    /// made: their durability across a power loss is unproven. For the daemon's `status` and
+    /// `doctor` to report (S5).
+    pub fn directory_sync_failures(&self) -> u64 {
+        self.directory_sync_failures.load(Ordering::SeqCst)
     }
 
     /// [`FileTrustStore::new`] with `steps` as the write steps, for a test that makes one fail.
@@ -244,11 +280,17 @@ impl FileTrustStore {
             top,
             steps,
             state: Mutex::new(State::default()),
+            warning_sink: None,
+            directory_sync_failures: AtomicU64::new(0),
         }
     }
 
     /// The store in the user's own data directory, for `namespace` (`OAC_SCOPE`) or the
     /// user's ordinary one (`None`). Nothing is read or made here.
+    ///
+    /// **A test must not save to this store**: on Windows a save replaces the DACL of the
+    /// real user's `%LOCALAPPDATA%\OAC`, and on every platform it writes the real user's
+    /// data directory. Tests use [`FileTrustStore::new`] over a temporary path.
     ///
     /// # Errors
     ///
@@ -441,17 +483,26 @@ impl PairingStore for FileTrustStore {
             let _ = fs::remove_file(&temp);
             return Err(self.failed("replacing the file", e));
         }
-        // The new file is in place and whole. If this fails, the save is reported failed: its
-        // durability is not known.
-        self.steps.sync_directory(&self.directory).map_err(|e| {
-            self.failed(
-                "syncing the directory; the new file is in place but may not be durable",
-                e,
-            )
-        })
+        // The rename is the commit point: the new file is in place and whole, so the change
+        // stands (the engine's memory and the file agree). A directory sync that fails
+        // afterwards only leaves its durability across a power loss unproven, as on Windows,
+        // where no directory flush is made at all: a warning and a count, not an error that
+        // would make the engine roll back a change the next start would load.
+        if let Err(e) = self.steps.sync_directory(&self.directory) {
+            self.directory_sync_failures.fetch_add(1, Ordering::SeqCst);
+            if let Some(sink) = &self.warning_sink {
+                sink(&format!(
+                    "warning: the trust store was saved but the directory could not be synced, so the change may not survive a power loss ({}): {e}",
+                    self.path().display()
+                ));
+            }
+        }
+        Ok(())
     }
 
-    fn device_key_in_use(&self, key_id: &KeyId) -> Option<KeyId> {
+    fn note_device_key(&self, key_id: &KeyId) -> Option<KeyId> {
+        // The state is two plain values, each set whole, so a lock poisoned by a panic
+        // elsewhere holds nothing half-written: its contents are used as they are.
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
         state.device_key_id = Some(key_id.clone());
         state.recorded.clone().filter(|recorded| recorded != key_id)
@@ -459,6 +510,10 @@ impl PairingStore for FileTrustStore {
 }
 
 /// `trust.json.<32 hexadecimal digits>.tmp`
+///
+/// The random bytes come from `SecretSeed::generate` (the operating system's generator), as
+/// the age key file's temporary names do: this crate depends on no other random source and
+/// the name is not a secret.
 fn random_temp_name() -> String {
     let seed = SecretSeed::generate();
     let mut name = format!("{TRUST_FILE_NAME}.");

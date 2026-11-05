@@ -858,7 +858,10 @@ fn serve_in_foreground(
     // lock. A device with no data directory would have a store that is silently empty after a
     // restart, so it does not start.
     let pairing_store = match FileTrustStore::for_user(scope.namespace()) {
-        Ok(store) => store,
+        Ok(store) => store.with_warning_sink({
+            let log = log.clone();
+            Arc::new(move |line: &str| log.line(line))
+        }),
         Err(e) => {
             let _ = writeln!(stderr, "oac start: the trust store: {e}");
             if json {

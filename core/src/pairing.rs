@@ -1199,7 +1199,7 @@ pub trait PairingStore {
     /// the id an earlier run recorded when it differs, which means the peers in the store
     /// trust a key id this device no longer has. Nothing is refused and nothing is
     /// authenticated by it (#437, lead decisions L6 and L7). The default does nothing.
-    fn device_key_in_use(&self, _key_id: &KeyId) -> Option<KeyId> {
+    fn note_device_key(&self, _key_id: &KeyId) -> Option<KeyId> {
         None
     }
 }
