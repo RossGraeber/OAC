@@ -3,7 +3,8 @@
 //! The `oac` verbs that exist so far (G9, #70), and their dispatch.
 //!
 //! Only `hook` is here. `start`, `mcp-shim`, `stop`, `status`, `sessions` and `doctor` run a process of their own
-//! and are dispatched by the binary (`crate::commands`). The dispatch takes its streams and the way
+//! and are dispatched by the binary (`crate::commands`); so are `pair` and `unpair`
+//! (`crate::pair_verbs`). The dispatch takes its streams and the way
 //! to reach the daemon as arguments, so a test drives it with in-memory ones and the binary
 //! passes the process's own.
 
