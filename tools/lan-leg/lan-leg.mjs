@@ -142,11 +142,13 @@ export function assemble(A, B) {
   const hostA = get(A, 'host-a')[0], hostB = get(B, 'host-b')[0] ?? get(A, 'host-b')[0];
   if (!envA || !envB) add('1.versions', 1, 'same OAC commit and Zenoh version on both hosts', NOT_RUN, 'no env line from one host');
   else {
+    // Every env line of the run counts: a tree edited mid-run, or a different commit, fails.
+    const envs = [...all(A), ...all(B)].filter((e) => e.event === 'env');
     const shaA = envA.oac_commit?.sha, shaB = envB.oac_commit?.sha;
-    const same = shaA && shaA === shaB && envA.zenoh_version === envB.zenoh_version;
-    const dirty = envA.oac_commit?.tree_dirty || envB.oac_commit?.tree_dirty;
+    const same = shaA && envs.every((e) => e.oac_commit?.sha === shaA && e.zenoh_version === envA.zenoh_version) && shaA === shaB;
+    const dirty = envs.some((e) => e.oac_commit?.tree_dirty !== false);
     add('1.versions', 1, 'same OAC commit and Zenoh version on both hosts, clean trees', status(same && !dirty),
-      `A ${envA.os} ${shaA} ${envA.zenoh_version} dirty=${envA.oac_commit?.tree_dirty}; B ${envB.os} ${shaB} ${envB.zenoh_version} dirty=${envB.oac_commit?.tree_dirty}`);
+      `A ${envA.os} ${shaA} ${envA.zenoh_version} dirty=${envA.oac_commit?.tree_dirty}; B ${envB.os} ${shaB} ${envB.zenoh_version} dirty=${envB.oac_commit?.tree_dirty}; ${envs.length} env line(s), ${envs.filter((e) => e.oac_commit?.tree_dirty !== false).length} dirty or unknown, ${envs.filter((e) => e.oac_commit?.sha !== shaA).length} on another commit`);
   }
   add('1.hosts', 1, 'OS, IPs, firewall policy and UTC offset recorded for both hosts', hostA && hostB ? 'PASS' : NOT_RUN,
     hostA && hostB ? `A offset ${hostA.utc_offset_minutes} min, fw "${hostA.firewall_policy_stated_by_operator}"; B offset ${hostB.utc_offset_minutes} min, fw "${hostB.firewall_policy_stated_by_operator}"` : 'run the host command on each host');
