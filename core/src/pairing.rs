@@ -1202,6 +1202,39 @@ pub trait PairingStore {
     fn note_device_key(&self, _key_id: &KeyId) -> Option<KeyId> {
         None
     }
+
+    /// The highest agreement `seq` this store recorded as issued by the device key `key_id`
+    /// (the agreement-key `seq` floor, #437 S1c), or `None` when it recorded none **for that
+    /// key id**: a floor recorded for another key id is not this key's, and is ignored (lead
+    /// decision L7: a regenerated device key starts its own count). The default records
+    /// nothing.
+    ///
+    /// # Errors
+    ///
+    /// [`PairingStoreError`] when the store cannot be read.
+    fn agreement_seq_floor(&self, _key_id: &KeyId) -> Result<Option<u64>, PairingStoreError> {
+        Ok(None)
+    }
+
+    /// Raises the durable agreement `seq` floor of the device key `key_id` to `seq`, as one
+    /// write, and **never lowers it**: when the floor already recorded for `key_id` is higher,
+    /// it stays (a stale save must not reopen a rollback). One exception, the restart of
+    /// [SEC-SEL-052]: a floor at the maximum statement `seq` is replaced by `seq`, because the
+    /// restart is allowed only there. A floor recorded for another key id is replaced (a
+    /// regenerated device key starts its own count; the floor names one key id). It returns
+    /// once the floor is written: the caller issues the statement only after that. The default
+    /// does nothing.
+    ///
+    /// # Errors
+    ///
+    /// [`PairingStoreError`] when the store cannot be written; the floor is then unchanged.
+    fn record_agreement_seq_floor(
+        &self,
+        _key_id: &KeyId,
+        _seq: u64,
+    ) -> Result<(), PairingStoreError> {
+        Ok(())
+    }
 }
 
 /// A [`PairingStore`] in this process's memory: nothing outlives the process. The test

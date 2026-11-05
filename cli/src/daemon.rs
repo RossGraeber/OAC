@@ -70,6 +70,7 @@ use crate::ipc::{
 use crate::logfile::LogFile;
 use crate::peer::{self, ProcessTable};
 use crate::relay;
+use crate::seq_floor::FlooredAgreementStore;
 use crate::status::DaemonStatus;
 
 /// The longest the timer task sleeps.
@@ -446,6 +447,8 @@ pub struct Daemon {
     /// The key id a store written under another device key recorded, when it differs from
     /// this daemon's.
     trust_store_foreign_key: Option<KeyId>,
+    /// How many times recording the agreement seq floor at start failed (#437 S1c): 0 or 1.
+    agreement_floor_failures: u64,
 }
 
 impl Daemon {
@@ -518,8 +521,25 @@ impl Daemon {
                 engine.own_key_id()
             ));
         }
-        let agreement = AgreementKeys::load_or_generate(&*agreement_store, &identity, &clock.now())
+        // The count is also kept as a floor in the trust store (#437 S1c), written before any
+        // statement exists, so an older valid agreement-key file cannot lower it.
+        let agreement_store = FlooredAgreementStore::new(
+            agreement_store,
+            pairing_store.clone(),
+            engine.own_key_id().clone(),
+        );
+        let agreement = AgreementKeys::load_or_generate(&agreement_store, &identity, &clock.now())
             .map_err(StartError::Agreement)?;
+        // A count kept before the floor existed has none yet: record it now. The daemon runs
+        // without it, as before S1c, if the trust store cannot be written.
+        let mut agreement_floor_failures = 0;
+        if let Err(e) = agreement_store.ensure_floor(agreement.highest_seq()) {
+            agreement_floor_failures += 1;
+            log.line(&format!(
+                "warning: the agreement seq floor could not be recorded in the trust store, so a rolled-back agreement-key file would not be noticed until the next statement is issued: {e}"
+            ));
+        }
+        let agreement_store: Box<dyn AgreementKeyStore + Send> = Box::new(agreement_store);
 
         // 3. The core, over the transport.
         let pairing_clock = clock.clone();
@@ -649,6 +669,7 @@ impl Daemon {
             lock,
             pairing_store,
             trust_store_foreign_key,
+            agreement_floor_failures,
         })
     }
 
@@ -688,6 +709,13 @@ impl Daemon {
     /// records none.
     pub fn trust_store_foreign_key(&self) -> Option<&KeyId> {
         self.trust_store_foreign_key.as_ref()
+    }
+
+    /// How many times recording the agreement seq floor in the trust store failed at start
+    /// (#437 S1c), so that `status` and `doctor` can say a rolled-back agreement-key file would
+    /// not be noticed until the next statement. Nothing reports it yet (S5).
+    pub fn agreement_floor_failures(&self) -> u64 {
+        self.agreement_floor_failures
     }
 
     /// The names of the endpoints served (the harness endpoints, then `control`), for a
