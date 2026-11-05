@@ -185,7 +185,9 @@ impl AtRest {
         let mut digest = hasher.finalize();
         let mut psk = Zeroizing::new([0u8; 32]);
         psk.copy_from_slice(&digest);
-        digest.fill(0);
+        // `zeroize` writes volatile and cannot be optimized away, as a plain `fill(0)` of a
+        // value that is not used again can be.
+        zeroize::Zeroize::zeroize(digest.as_mut_slice());
 
         AtRest {
             key_id,
@@ -215,6 +217,11 @@ impl AtRest {
     /// highest), [`AtRestError::Seal`].
     pub fn seal_agreement_state(&self, state: &AgreementKeyState) -> Result<Vec<u8>, AtRestError> {
         let plaintext = encode_state(state)?;
+        // `hpke` 0.12 does not run RFC 9180's `VerifyPSKInputs` (its `setup.rs` only has the
+        // check as a comment; `op_mode.rs` documents the requirement on the caller). So this
+        // code always supplies a 32-octet PSK and a non-empty `psk_id`: the PSK is the SHA-256
+        // output of `derive`, and the `psk_id` is [`AT_REST_INFO`].
+        debug_assert!(self.psk.len() == 32 && !AT_REST_INFO.is_empty());
         self.seal_raw(
             &self.key_id,
             &OpModeS::Psk(PskBundle {
@@ -321,26 +328,45 @@ fn header(key_id: &KeyId) -> [u8; HEADER_LEN] {
     head
 }
 
-fn encode_state(state: &AgreementKeyState) -> Result<Zeroizing<Vec<u8>>, AtRestError> {
+/// The octets [`encode_state`] writes for `state`, which it reserves exactly: a buffer that
+/// held private keys and then grew would leave its freed predecessor, with the keys in it,
+/// unzeroized. The checks of the writer are here, so the writer cannot fail half-way.
+fn encoded_len(state: &AgreementKeyState) -> Result<usize, AtRestError> {
     if state.keys.len() > MAX_KEYS {
         return Err(AtRestError::TooLarge);
     }
+    let mut total = 1 + 8 + 2;
+    for key in &state.keys {
+        // A reader rejects a key whose `seq` is above the highest recorded one.
+        if state.highest_seq.is_none_or(|h| key.seq > h) {
+            return Err(AtRestError::Corrupt);
+        }
+        let len = key.issued_at.as_str().len();
+        if len == 0 || len > MAX_TIMESTAMP_TEXT {
+            return Err(AtRestError::Corrupt);
+        }
+        total += 32 + 8 + 1 + len;
+    }
+    Ok(total)
+}
+
+fn encode_state(state: &AgreementKeyState) -> Result<Zeroizing<Vec<u8>>, AtRestError> {
+    let total = encoded_len(state)?;
     let count = u16::try_from(state.keys.len()).map_err(|_| AtRestError::TooLarge)?;
-    let mut out = Zeroizing::new(Vec::with_capacity(11 + state.keys.len() * 60));
+    let mut out = Zeroizing::new(Vec::with_capacity(total));
     out.push(u8::from(state.highest_seq.is_some()));
     out.extend_from_slice(&state.highest_seq.unwrap_or(0).to_be_bytes());
     out.extend_from_slice(&count.to_be_bytes());
     for key in &state.keys {
         let text = key.issued_at.as_str().as_bytes();
-        let len = u8::try_from(text.len())
-            .ok()
-            .filter(|&n| usize::from(n) <= MAX_TIMESTAMP_TEXT)
-            .ok_or(AtRestError::Corrupt)?;
+        // `encoded_len` checked the length against [`MAX_TIMESTAMP_TEXT`], below 256.
+        let len = u8::try_from(text.len()).map_err(|_| AtRestError::Corrupt)?;
         out.extend_from_slice(key.private_key.expose());
         out.extend_from_slice(&key.seq.to_be_bytes());
         out.push(len);
         out.extend_from_slice(text);
     }
+    debug_assert_eq!(out.len(), total);
     Ok(out)
 }
 
@@ -679,6 +705,15 @@ mod tests {
         longer.push(0);
         assert!(a.open_agreement_state(&longer).is_err());
         // The edits are refused as authentication failures wherever the structure is intact.
+        // The top bit of the last octet of `enc`, which the loop above (bit `i % 8`) never
+        // reaches: X25519 ignores it, so the edit is refused by the key schedule's other
+        // inputs, not by a parse error.
+        let mut top_bit = file.clone();
+        top_bit[HEADER_LEN + ENC_LEN - 1] ^= 0x80;
+        assert_eq!(
+            a.open_agreement_state(&top_bit).unwrap_err(),
+            AtRestError::Authentication
+        );
         let mut ciphertext = file.clone();
         ciphertext[HEADER_LEN + ENC_LEN] ^= 1;
         assert_eq!(
@@ -732,32 +767,99 @@ mod tests {
     #[test]
     fn the_handle_has_no_key_id_parameter() {
         // A source check, like the one that keeps a seed out of the binary's signatures: no
-        // public item of this module takes a key id, so a caller cannot ask for another one.
+        // item of this module that is visible outside the module takes a key id, or a string
+        // that could carry one, so a caller cannot ask for another device's file. Any form of
+        // visibility counts (`pub`, `pub(crate)`, `pub const`...). The one exception is named:
+        // `derive`, which only `DeviceIdentity::at_rest` calls with the identity's own id.
         let source = include_str!("at_rest.rs");
         let production = source.split("#[cfg(test)]").next().unwrap();
         let mut checked = 0;
-        let mut lines = production.lines().peekable();
+        let mut lines = production.lines();
         while let Some(line) = lines.next() {
-            if !line.trim_start().starts_with("pub fn ") {
+            let Some(after_pub) = line.trim_start().strip_prefix("pub") else {
                 continue;
+            };
+            let mut rest = after_pub;
+            if rest.starts_with('(') {
+                rest = rest.split_once(')').map_or("", |(_, r)| r);
             }
-            // The signature: from `pub fn` to the line that opens the body.
-            let mut signature = line.to_owned();
+            let mut rest = rest.trim_start();
+            while let Some(r) = rest
+                .strip_prefix("const ")
+                .or_else(|| rest.strip_prefix("unsafe "))
+                .or_else(|| rest.strip_prefix("async "))
+            {
+                rest = r.trim_start();
+            }
+            let Some(declaration) = rest.strip_prefix("fn ") else {
+                continue;
+            };
+            // The signature: from `fn` to the line that opens the body.
+            let mut signature = declaration.to_owned();
             while !signature.contains('{') {
                 signature.push_str(lines.next().expect("a body"));
+            }
+            if signature.starts_with("derive(") {
+                // The deliberate exception; it is `pub(crate)`, not reachable from outside.
+                assert!(line.contains("pub(crate)"), "{line}");
+                continue;
             }
             // The parameter list only: from the first `(` to the `->` or the body.
             let parameters = signature
                 .split_once('(')
                 .map(|(_, rest)| rest.split("->").next().unwrap())
                 .unwrap();
-            assert!(
-                !parameters.contains("KeyId") && !parameters.contains("key_id"),
-                "a public fn takes a key id: {signature}"
-            );
+            for forbidden in ["KeyId", "key_id", "&str", "String"] {
+                assert!(
+                    !parameters.contains(forbidden),
+                    "a visible fn takes {forbidden}: {signature}"
+                );
+            }
             checked += 1;
         }
-        assert!(checked >= 4, "{checked} public fns checked");
+        // Not vacuous: the four public methods were looked at.
+        assert!(checked >= 4, "{checked} visible fns checked");
+    }
+
+    #[test]
+    fn encoding_reserves_the_exact_length_so_no_freed_buffer_holds_a_key() {
+        // A `Zeroizing<Vec>` that grows frees its old buffer unzeroized, with the private keys
+        // in it. The capacity reserved up front must be the length written.
+        for count in [0usize, 1, 2, 7] {
+            for text in ["2026-11-03T10:00:00Z", "2026-11-03T10:00:00.123456789Z"] {
+                let st = AgreementKeyState {
+                    keys: (0..count)
+                        .map(|i| key(0x70 + i as u8, i as u64, text))
+                        .collect(),
+                    highest_seq: Some(count as u64),
+                };
+                let reserved = encoded_len(&st).unwrap();
+                let out = encode_state(&st).unwrap();
+                assert_eq!(out.len(), reserved);
+                assert_eq!(out.capacity(), reserved, "the buffer grew: {count} keys");
+            }
+        }
+    }
+
+    #[test]
+    fn a_key_above_the_highest_seq_is_not_written() {
+        let a = handle(1);
+        let above = AgreementKeyState {
+            keys: vec![key(1, 5, "2026-11-03T10:00:00Z")],
+            highest_seq: Some(4),
+        };
+        assert_eq!(
+            a.seal_agreement_state(&above).unwrap_err(),
+            AtRestError::Corrupt
+        );
+        let uncounted = AgreementKeyState {
+            keys: vec![key(1, 0, "2026-11-03T10:00:00Z")],
+            highest_seq: None,
+        };
+        assert_eq!(
+            a.seal_agreement_state(&uncounted).unwrap_err(),
+            AtRestError::Corrupt
+        );
     }
 
     #[test]
@@ -905,13 +1007,53 @@ mod tests {
             psk_id: &psk_id,
         });
         let (got_enc, mut sender) =
-            hpke::setup_sender::<Aead, Kdf, Kem, _>(&mode, &pk_r, &info, &mut Fixed(ikm_e))
+            hpke::setup_sender::<Aead, Kdf, Kem, _>(&mode, &pk_r, &info, &mut Fixed(ikm_e.clone()))
                 .unwrap();
         assert_eq!(got_enc.to_bytes().as_slice(), enc.as_slice());
         let mut out = [0u8; 32];
         sender.export(&[], &mut out).unwrap();
         assert_eq!(out.as_slice(), exported.as_slice());
         assert_eq!(sender.seal(&pt, &aad).unwrap(), ct);
+
+        // The entry points the product uses (`seal_raw` and `open_raw` call exactly these,
+        // with this module's `Aead`, `Kdf` and `Kem`): `single_shot_seal_in_place_detached`
+        // and `single_shot_open_in_place_detached`. They are called here directly, because
+        // `seal_raw` and `open_raw` fix the keys, the `info` and the associated data of a
+        // device's file and cannot take the vector's. Sealing in place with the fixed ephemeral
+        // key gives the vector's `enc` and `ct || tag`...
+        let mut buf = pt.clone();
+        let (enc_in_place, tag) = single_shot_seal_in_place_detached::<Aead, Kdf, Kem, _>(
+            &mode,
+            &pk_r,
+            &info,
+            buf.as_mut_slice(),
+            &aad,
+            &mut Fixed(ikm_e.clone()),
+        )
+        .unwrap();
+        assert_eq!(enc_in_place.to_bytes().as_slice(), enc.as_slice());
+        let mut ct_and_tag = buf.clone();
+        ct_and_tag.extend_from_slice(tag.to_bytes().as_slice());
+        assert_eq!(ct_and_tag, ct);
+        // ...and opening in place the vector's `ct`, split into the ciphertext and its
+        // 16-octet tag as `open_raw` splits a file, gives the vector's plaintext.
+        let (body, tag_octets) = ct.split_at(ct.len() - TAG_LEN);
+        let tag = AeadTag::<Aead>::from_bytes(tag_octets).unwrap();
+        let mut plain = body.to_vec();
+        single_shot_open_in_place_detached::<Aead, Kdf, Kem>(
+            &OpModeR::Psk(PskBundle {
+                psk: &psk,
+                psk_id: &psk_id,
+            }),
+            &sk_r,
+            &<Kem as KemTrait>::EncappedKey::from_bytes(&enc).unwrap(),
+            &info,
+            plain.as_mut_slice(),
+            &aad,
+            &tag,
+        )
+        .unwrap();
+        assert_eq!(plain, pt);
 
         // The receiver's setup opens the RFC's ciphertext (sequence number 0), in PSK mode.
         let receiver_mode = OpModeR::Psk(PskBundle {

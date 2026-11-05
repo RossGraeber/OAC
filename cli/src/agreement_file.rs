@@ -52,7 +52,7 @@ use oac_core::keys::KeyStoreError;
 use oac_core::sealing::{AgreementKeyState, AgreementKeyStore};
 
 use crate::daemon::AgreementStoreSource;
-use crate::trust_store::{OsSteps, WriteSteps, default_directories};
+use crate::trust_store::{OsSteps, WriteSteps, create_private_exclusive, default_directories};
 
 /// What the file's directory is called in a refusal.
 const DIRECTORY: &str = "agreement-key directory";
@@ -62,6 +62,32 @@ const FILE: &str = "agreement-key file";
 
 /// How many temporary names a save tries before it gives up.
 const TEMP_NAME_ATTEMPTS: usize = 16;
+
+/// The steps of a save: [`OsSteps`], except that a refusal to make the temporary file private
+/// names the agreement-key file, not the trust file.
+struct AgreementSteps;
+
+impl WriteSteps for AgreementSteps {
+    fn create(&self, path: &Path) -> io::Result<File> {
+        create_private_exclusive(path, FILE)
+    }
+
+    fn write(&self, file: &mut File, bytes: &[u8]) -> io::Result<()> {
+        OsSteps.write(file, bytes)
+    }
+
+    fn sync(&self, file: &File) -> io::Result<()> {
+        OsSteps.sync(file)
+    }
+
+    fn rename(&self, from: &Path, to: &Path) -> io::Result<()> {
+        OsSteps.rename(from, to)
+    }
+
+    fn sync_directory(&self, directory: &Path) -> io::Result<()> {
+        OsSteps.sync_directory(directory)
+    }
+}
 
 /// The agreement-key store of one device, in one directory. See the module documentation.
 pub struct AgreementFileStore {
@@ -96,7 +122,7 @@ impl AgreementFileStore {
             directory,
             top,
             at_rest,
-            steps: Arc::new(OsSteps),
+            steps: Arc::new(AgreementSteps),
             warn,
             busy: Mutex::new(()),
         }
@@ -424,7 +450,7 @@ mod tests {
 
     impl WriteSteps for Failing {
         fn create(&self, path: &Path) -> io::Result<File> {
-            OsSteps.create(path)
+            AgreementSteps.create(path)
         }
         fn write(&self, file: &mut File, bytes: &[u8]) -> io::Result<()> {
             self.check(Step::Write)?;
@@ -599,7 +625,7 @@ mod tests {
     }
 
     #[test]
-    fn a_regenerated_key_starts_its_own_file_and_leaves_the_old_file() {
+    fn a_second_device_key_id_gets_its_own_file_unit() {
         let temp = Temp::new("regenerated");
         let dir = temp.store_dir();
         let (old, new) = (identity(1), identity(2));
@@ -696,21 +722,33 @@ mod tests {
 
     #[test]
     fn the_source_holds_no_seed_and_no_plaintext_key() {
-        // A source check: this module and the daemon's seam handle ciphertext and the opaque
-        // handle only. No seed type, no accessor that exposes a private key, no key id argument.
-        let source: String = include_str!("agreement_file.rs")
-            .split("mod tests {")
-            .next()
-            .unwrap()
-            .lines()
-            .filter(|l| !l.trim_start().starts_with("//"))
-            .collect::<Vec<_>>()
-            .join(" ");
-        for forbidden in ["SecretSeed", "expose", "AgreementPrivateKey", "DeviceKey"] {
-            assert!(
-                !source.contains(forbidden),
-                "{forbidden} in agreement_file.rs"
-            );
+        // A source check over the whole binary side of the store: this module, the daemon's seam
+        // (`daemon.rs`) and the place `oac start` wires it (`commands.rs`), production code
+        // only (comments and everything from `mod tests` on are left out). They handle
+        // ciphertext and the opaque `AtRest` handle only: no seed type, no accessor that
+        // exposes a private key, no key type. The device-key stores in `keystore.rs` take a
+        // `SecretSeed` by design and are not in scope.
+        let production = |text: &str| -> String {
+            text.split("mod tests {")
+                .next()
+                .unwrap()
+                .lines()
+                .filter(|l| !l.trim_start().starts_with("//"))
+                .collect::<Vec<_>>()
+                .join(" ")
+        };
+        for (name, source) in [
+            ("agreement_file.rs", include_str!("agreement_file.rs")),
+            ("daemon.rs", include_str!("daemon.rs")),
+            ("commands.rs", include_str!("commands.rs")),
+        ] {
+            let source = production(source);
+            for forbidden in ["SecretSeed", "expose(", "AgreementPrivateKey"] {
+                assert!(!source.contains(forbidden), "{forbidden} in {name}");
+            }
         }
+        // `DeviceKey` is how the daemon reads the key (once, `DeviceKey::load_or_generate`);
+        // the agreement store itself never names it.
+        assert!(!production(include_str!("agreement_file.rs")).contains("DeviceKey"));
     }
 }
