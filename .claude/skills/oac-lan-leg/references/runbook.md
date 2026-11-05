@@ -73,7 +73,7 @@ OAC_TEST_LAN=1 node tools/lan-leg/lan-leg.mjs run --dir <DIR> --label step2-issu
 ```
 
 ```json
-{"event":"issue","role":"a","ip_a":"127.0.0.1","ip_b":"127.0.0.1","cn_a":"lan-a-3708db00","cn_b":"lan-b-12e19e69","cn_c":"lan-c-1ad89b26","authority_private_key_persisted":false,"allow_on_a":["lan-b-12e19e69","lan-c-1ad89b26"],"allow_on_b":["lan-a-3708db00","lan-c-1ad89b26"],"carry_to_host_b":"<DIR>/for-host-b","keep_on_host_a":"<DIR>/host-a"}
+{"event":"issue","role":"a","ip_a":"127.0.0.1","ip_b":"127.0.0.1","cn_a":"lan-a-37b52b49","cn_b":"lan-b-2ac6d35a","cn_c":"lan-c-32031966","authority_private_key_persisted":false,"allow_on_a":["lan-b-2ac6d35a","lan-c-32031966"],"allow_on_b":["lan-a-37b52b49","lan-c-32031966"],"carry_to_host_b":"<DIR>/for-host-b","keep_on_host_a":"<DIR>/host-a"}
 ```
 
 Loopback dry-run output, trimmed to the fields that matter; values differ per run.
@@ -112,12 +112,12 @@ OAC_TEST_LAN=1 node tools/lan-leg/lan-leg.mjs run --dir <DIR> --label step3-b --
 ```
 
 ```json
-A: {"event":"start","role":"a","ok":true,"scouting":"off","connect":null,"listen":"127.0.0.1:41600"}
-A: {"event":"link","role":"a","up":true,"waited_ms":4295}
-A: {"event":"frame","role":"a","verdict":"accepted","tag":"ping","from":"b","seq":1,"late_by_ms":-9941}
-B: {"event":"start","role":"b","ok":true,"scouting":"off","connect":"127.0.0.1:41600","listen":"127.0.0.1:41601"}
+A: {"event":"start","role":"a","ok":true,"scouting":"off","connect":null,"listen":"127.0.0.1:41800"}
+A: {"event":"link","role":"a","up":true,"waited_ms":3544}
+A: {"event":"frame","role":"a","verdict":"accepted","tag":"ping","from":"b","seq":1,"late_by_ms":-9963}
+B: {"event":"start","role":"b","ok":true,"scouting":"off","connect":"127.0.0.1:41800","listen":"127.0.0.1:41801"}
 B: {"event":"frame","role":"b","verdict":"accepted","tag":"pong","from":"a","seq":1}
-B: {"event":"skew","role":"b","local":"b","remote":"a","phase":"before","pings":6,"samples":6,"best_offset_us":281,"best_delay_us":37434,"abs_skew_ms":0.281,"limit_ms":5000,"pass":true}
+B: {"event":"skew","role":"b","local":"b","remote":"a","phase":"before","pings":6,"samples":6,"best_offset_us":484,"best_delay_us":37190,"abs_skew_ms":0.484,"limit_ms":5000,"pass":true}
 ```
 
 Loopback dry-run output, trimmed to the fields that matter; values differ per run.
@@ -208,10 +208,10 @@ OAC_TEST_LAN=1 node tools/lan-leg/lan-leg.mjs run --dir <DIR> --label step6-b --
 ```
 
 ```json
-A: {"event":"frame","role":"a","verdict":"accepted","tag":"ontime","from":"b","late_by_ms":-1961}
+A: {"event":"frame","role":"a","verdict":"accepted","tag":"ontime","from":"b","late_by_ms":-1938}
 A: {"event":"frame","role":"a","verdict":"discard-expired","tag":"late","from":"b","late_by_ms":1538}
-B: {"event":"skew","role":"b","phase":"before","best_offset_us":-372,"best_delay_us":37094,"abs_skew_ms":0.372,"pass":true}
-B: {"event":"skew","role":"b","phase":"after","best_offset_us":-68,"best_delay_us":35903,"abs_skew_ms":0.068,"pass":true}
+B: {"event":"skew","role":"b","phase":"before","best_offset_us":-234,"best_delay_us":36021,"abs_skew_ms":0.234,"pass":true}
+B: {"event":"skew","role":"b","phase":"after","best_offset_us":726,"best_delay_us":37292,"abs_skew_ms":0.726,"pass":true}
 ```
 
 Loopback dry-run output, trimmed to the fields that matter; values differ per run.
@@ -239,11 +239,11 @@ this commit (no daemon); holder gaps and fixed-port denial of service stay resid
    ```
 
    ```json
-C: {"event":"start","role":"c","ok":true,"connect":"127.0.0.1:41600,127.0.0.1:41601","listen":"127.0.0.1:41602"}
-C: {"event":"presence","role":"c","kind":"appeared","n":1,"handle_index":0,"since_start_ms":1078}
+C: {"event":"start","role":"c","ok":true,"connect":"127.0.0.1:41800,127.0.0.1:41801","listen":"127.0.0.1:41802"}
+C: {"event":"presence","role":"c","kind":"appeared","n":1,"handle_index":0,"since_start_ms":959}
 C: {"event":"probe","role":"c","pongs_from_a":3,"pongs_from_b":3,"linked_to_both":true}
-C: {"event":"action","role":"c","label":"end-clean","utc":"2026-11-05T02:47:51.837869Z"}
-A: {"event":"presence","role":"a","kind":"loss","handle_index":0,"utc":"2026-11-05T02:47:51.839054Z"}
+C: {"event":"action","role":"c","label":"end-clean","utc":"2026-11-05T03:00:41.349259Z"}
+A: {"event":"presence","role":"a","kind":"loss","handle_index":0,"utc":"2026-11-05T03:00:41.351208Z"}
 ```
 
 Loopback dry-run output, trimmed to the fields that matter; values differ per run.
@@ -279,20 +279,20 @@ OAC_TEST_LAN=1 node tools/lan-leg/lan-leg.mjs assemble --dir <DIR> --b-dir <DIR>
 ```
 
 ```text
-{"schema":"oac-lan-leg/1","event":"assembled","verdict":"FAIL","pass":12,"fail":1,"not_run":12}
-PASS    2/2.issue  authority key persisted=false; CNs lan-a-3708db00, lan-b-12e19e69, lan-c-1ad89b26; hardened on B: b, c, neg-unlisted, neg-wrong-ca, neg-wrong-key
+{"schema":"oac-lan-leg/1","event":"assembled","verdict":"NOT RUN","pass":13,"fail":0,"not_run":12}
+PASS    2/2.issue  authority key persisted=false; CNs lan-a-37b52b49, lan-b-2ac6d35a, lan-c-32031966; hardened on B: b, c, neg-unlisted, neg-wrong-ca, neg-wrong-key
 PASS    3/3.explicit  starts ok=true; A accepted 6 frame(s) from B; B accepted 6 from A; scouting off/off
 PASS    5/5.wrong-ca  start_ok=false; listener_reachable=true; native_open_failed=true; control linked=true on the same listen/connect=true; A served wrong-SAN credential=true; invalid transport configuration: the peer session ...
 NOT RUN 5/5.wrong-key  cannot be shown with this API (one file set serves both the local listener and the connection, so the local native stack can refuse the mismatch first); observed start_ok=false: invalid transport configur...
-PASS    6/6.expiry  ontime accepted; late discard-expired (opened 1538 ms past its deadline, native arrival 2026-11-05T02:45:45.787Z). The discard is the driver's own check, not the core pipeline.
-PASS    8/8.late-join  clean: 1 appearance event(s) on C (first after 1078 ms) before any frame; pongs from A=3, from B=3; abort: 1 appearance event(s) on C (first after 1005 ms) before any frame; pongs from A=3, from B=3. The ...
-PASS    8/8.loss-clean  action 2026-11-05T02:47:51.837Z on B; first loss on A 2026-11-05T02:47:51.839Z; raw 1.185 ms, skew-corrected 1.813 ms (+-18.4345 ms: half the batch's best round trip); offset A-B -0.628 ms; 2 loss event(...
-PASS    8/8.loss-abort  action 2026-11-05T02:48:01.086Z on B; first loss on A 2026-11-05T02:48:01.559Z; raw 473.172 ms, skew-corrected 473.8 ms (+-18.4345 ms: half the batch's best round trip); offset A-B -0.628 ms; 1 loss even...
+PASS    6/6.expiry  ontime accepted; late discard-expired (opened 1538 ms past its deadline, native arrival 2026-11-05T02:58:36.138Z). The discard is the driver's own check, not the core pipeline.
+PASS    8/8.late-join  clean: 2 appearance event(s) on C (first after 959 ms) before any frame; pongs from A=3, from B=3; abort: 1 appearance event(s) on C (first after 2711 ms) before any frame; pongs from A=3, from B=3. The t...
+PASS    8/8.loss-clean  action 2026-11-05T03:00:41.349Z on B; first loss on A 2026-11-05T03:00:41.351Z; raw 1.949 ms, skew-corrected 2.886 ms (+-19.152 ms: half the batch's best round trip); offset A-B -0.937 ms; 2 loss event(s...
+PASS    8/8.loss-abort  action 2026-11-05T03:00:52.620Z on B; first loss on A 2026-11-05T03:00:53.136Z; raw 516.352 ms, skew-corrected 517.289 ms (+-19.152 ms: half the batch's best round trip); offset A-B -0.937 ms; 1 loss eve...
 NOT RUN 8/8.loss-silent  no action instant, no observer evidence or no step-8 skew batch
 NOT RUN 7/7.relay-replace  needs the CLI daemon (not built at this commit)
 ```
 
-That run was one machine, both roles on 127.0.0.1 (tree dirty: `1/1.versions` FAIL for that reason only). The verdict is `FAIL`; 12 criteria were not run or cannot be shown there (step 4, the silent loss, step 7, and the ones the driver cannot show). On real hosts steps 4 and the silent loss are added and the verdict is still `NOT RUN` at best (evidence.md).
+That run was one machine, both roles on 127.0.0.1, clean tree. The verdict is `NOT RUN`; 12 criteria were not run or cannot be shown there (step 4, the silent loss, step 7, and the ones the driver cannot show). On real hosts steps 4 and the silent loss are added and the verdict is still `NOT RUN` at best (evidence.md).
 
 ## Operator commands (Claude prints, the operator runs)
 

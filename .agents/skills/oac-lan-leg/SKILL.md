@@ -23,7 +23,7 @@ other: the operator relays the values in the table below.
 2. Claude never signs in, never reads `auth.json`, keyrings, `*.sqlite`, rollout files or
    any harness configuration, never touches the operator's real OAC keys or data directories
    (`OAC/relay-tls`, the real state dir), and never runs Claude Code or Codex for this leg.
-   State goes only under the work directory `DIR` below, which is new and outside the repo.
+   State goes only under the work directory `DIR` (a new full path outside the repo; runbook).
 3. `OAC_TEST_LAN=1` is the opt-in for listening on a LAN address. At the start, tell the
    operator which `IP:PORT` TLS listeners the session will open (and, for step 4 only, the
    UDP 7446 scouting socket, rule 4), and set it only after they agree. The driver refuses to
