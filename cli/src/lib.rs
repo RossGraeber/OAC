@@ -43,6 +43,7 @@ pub mod logfile;
 pub mod peer;
 mod private_file;
 pub mod relay;
+pub mod seq_floor;
 pub mod shim;
 pub mod status;
 pub mod trust_store;

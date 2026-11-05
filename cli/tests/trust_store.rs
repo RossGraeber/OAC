@@ -299,7 +299,10 @@ fn an_oversize_file_is_refused() {
     let message = assert_corrupt(temp.store().load());
     assert!(!message.contains("1 MiB"), "{message}");
 
-    // A snapshot that would not fit is not written, and the previous file stays.
+    // A snapshot that would not fit is not written, and the previous file stays. (A save
+    // carries the file's floor through, so it reads the file first and a file that does not
+    // parse stops it: the one at the limit is moved aside by hand, as the message says.)
+    fs::remove_file(temp.file()).unwrap();
     let small = PairingSnapshot {
         relay_enabled: vec![sid(1)],
         ..PairingSnapshot::default()
@@ -1204,7 +1207,15 @@ async fn the_daemon_keeps_the_store_it_was_started_with() {
     let temp = Temp::new("keeps");
     let keys = Arc::new(MemoryKeyStore::new());
     let running = start(temp.store(), &keys).await.unwrap();
-    assert!(!temp.file().exists(), "a start saves nothing");
+    // A start saves no snapshot; it records the agreement seq floor (#437 S1c), the only thing
+    // the file holds yet.
+    let at_start = running.daemon.pairing_store().load().unwrap();
+    assert_eq!(at_start, PairingSnapshot::default());
+    assert!(
+        fs::read_to_string(temp.file())
+            .unwrap()
+            .starts_with(r#"{"agreement_seq_floor":"#)
+    );
     let granted = identity("granted");
     running.pair(&granted, None);
     assert!(temp.file().exists());

@@ -69,6 +69,7 @@ use crate::ipc::{
 use crate::logfile::LogFile;
 use crate::peer::{self, ProcessTable};
 use crate::relay;
+use crate::seq_floor::FlooredAgreementStore;
 use crate::status::DaemonStatus;
 
 /// The longest the timer task sleeps.
@@ -514,8 +515,23 @@ impl Daemon {
                 engine.own_key_id()
             ));
         }
-        let agreement = AgreementKeys::load_or_generate(&*agreement_store, &identity, &clock.now())
+        // The count is also kept as a floor in the trust store (#437 S1c), written before any
+        // statement exists, so an older valid agreement-key file cannot lower it.
+        let agreement_store = FlooredAgreementStore::new(
+            agreement_store,
+            pairing_store.clone(),
+            engine.own_key_id().clone(),
+        );
+        let agreement = AgreementKeys::load_or_generate(&agreement_store, &identity, &clock.now())
             .map_err(StartError::Agreement)?;
+        // A count kept before the floor existed has none yet: record it now. The daemon runs
+        // without it, as before S1c, if the trust store cannot be written.
+        if let Err(e) = agreement_store.ensure_floor(agreement.highest_seq()) {
+            log.line(&format!(
+                "warning: the agreement seq floor could not be recorded in the trust store, so a rolled-back agreement-key file would not be noticed until the next statement is issued: {e}"
+            ));
+        }
+        let agreement_store: Box<dyn AgreementKeyStore + Send> = Box::new(agreement_store);
 
         // 3. The core, over the transport.
         let pipelines = Arc::new(Pipelines::new(

@@ -25,8 +25,17 @@
 //! Parsing is strict: an unknown member, an unknown `oac_trust_store` version, a `key_id` that
 //! is not the SHA-256 of its `public_key`, or a key that fails [SEC-KEY-034] refuses the file.
 //! The reader keeps one place per object that names its members ([`ROOT_MEMBERS`] and the
-//! `exact` calls), so a later member (S1c's `agreement_seq_floor`) is one more entry there, not
+//! `exact` calls), so a later member (S1c added `agreement_seq_floor`) is one more entry there, not
 //! a change of the format's version.
+//!
+//! `agreement_seq_floor` (optional; #437 S1c) is `{"key_id":..,"seq":..}`: the highest agreement
+//! `seq` the device key `key_id` has issued, written **before** the statement with that `seq`
+//! exists (G-437 §7). `trust.json` is not bound to the device key, so the floor names the key id
+//! it belongs to and is ignored by every other ([`PairingStore::agreement_seq_floor`]). A
+//! save of the snapshot carries the floor through unchanged; only
+//! [`PairingStore::record_agreement_seq_floor`] changes it. It is read strictly like every other
+//! member: both members are required, `key_id` is a key id and `seq` an integer in the range of
+//! a statement's `seq`.
 //!
 //! `device_key_id` is the key id of the device key that wrote the file, in plain text, **for
 //! diagnosis only** (lead decision L6, L7). It is not checked for integrity and binds the file
@@ -56,7 +65,7 @@
 //! 1 MiB or has an unknown version is [`PairingStoreError::Corrupt`], and a file that cannot
 //! be read or is not private is [`PairingStoreError::Failed`]; either stops `Daemon::start`
 //! with an error naming the file. **The file is never reset, repaired or renamed away**: the
-//! operator moves it aside by hand. The store creates nothing until the first save.
+//! operator moves it aside by hand. The store creates nothing until the first save or the first recorded floor.
 //!
 //! # Written atomically
 //!
@@ -107,7 +116,8 @@ const DIRECTORY: &str = "trust store directory";
 const FORMAT_VERSION: u64 = 1;
 const VERSION_MEMBER: &str = "oac_trust_store";
 /// Every member the root object may have, and which of them must be there.
-const ROOT_MEMBERS: [&str; 6] = [
+const ROOT_MEMBERS: [&str; 7] = [
+    "agreement_seq_floor",
     "device_key_id",
     "grants",
     "oac_trust_store",
@@ -235,6 +245,18 @@ struct State {
     device_key_id: Option<KeyId>,
     /// The `device_key_id` the last load found in the file.
     recorded: Option<KeyId>,
+    /// The `agreement_seq_floor` the file holds: `None` while no read has told, then
+    /// `Some(None)` or `Some(floor)`. Every save writes it back, so a save of the snapshot
+    /// never loses it.
+    floor: Option<Option<SeqFloor>>,
+}
+
+/// The `agreement_seq_floor` member: the highest agreement `seq` issued by the device key
+/// `key_id` (#437 S1c; G-437 §7).
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct SeqFloor {
+    key_id: KeyId,
+    seq: u64,
 }
 
 /// The `PairingStore` that keeps `trust.json` (see the module documentation).
@@ -421,13 +443,98 @@ impl PairingStore for FileTrustStore {
             .state
             .lock()
             .map_err(|_| PairingStoreError::Failed("lock poisoned".into()))?;
-        let path = self.path();
-        match self.existing_file_is_private(&path)? {
+        match self.read_file()? {
             // A missing file is the empty store: default deny.
             None => {
                 state.recorded = None;
-                return Ok(PairingSnapshot::default());
+                state.floor = Some(None);
+                Ok(PairingSnapshot::default())
             }
+            Some(file) => {
+                state.recorded = file.device_key_id;
+                state.floor = Some(file.agreement_seq_floor);
+                Ok(file.snapshot)
+            }
+        }
+    }
+
+    fn save(&self, snapshot: &PairingSnapshot) -> Result<(), PairingStoreError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| PairingStoreError::Failed("lock poisoned".into()))?;
+        // The floor the file holds is carried through: a save of the snapshot must not lose it.
+        let floor = self.known_floor(&mut state)?;
+        self.write_file(&TrustFile {
+            device_key_id: state.device_key_id.clone(),
+            snapshot: snapshot.clone(),
+            agreement_seq_floor: floor,
+        })
+    }
+
+    fn note_device_key(&self, key_id: &KeyId) -> Option<KeyId> {
+        // The state is plain values, each set whole, so a lock poisoned by a panic
+        // elsewhere holds nothing half-written: its contents are used as they are.
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        state.device_key_id = Some(key_id.clone());
+        state.recorded.clone().filter(|recorded| recorded != key_id)
+    }
+
+    fn agreement_seq_floor(&self, key_id: &KeyId) -> Result<Option<u64>, PairingStoreError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| PairingStoreError::Failed("lock poisoned".into()))?;
+        // A floor that names another key id is not this key's: ignored (L7).
+        Ok(self
+            .known_floor(&mut state)?
+            .filter(|f| &f.key_id == key_id)
+            .map(|f| f.seq))
+    }
+
+    fn record_agreement_seq_floor(
+        &self,
+        key_id: &KeyId,
+        seq: u64,
+    ) -> Result<(), PairingStoreError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| PairingStoreError::Failed("lock poisoned".into()))?;
+        // The file is rewritten whole with the snapshot it holds now (the engine's own save
+        // writes the snapshot); a missing file is the empty snapshot.
+        let (snapshot, held_device_key_id) = match self.read_file()? {
+            Some(file) => (file.snapshot, file.device_key_id),
+            None => (PairingSnapshot::default(), None),
+        };
+        let floor = SeqFloor {
+            key_id: key_id.clone(),
+            seq,
+        };
+        self.write_file(&TrustFile {
+            device_key_id: state.device_key_id.clone().or(held_device_key_id),
+            snapshot,
+            agreement_seq_floor: Some(floor.clone()),
+        })?;
+        state.floor = Some(Some(floor));
+        Ok(())
+    }
+}
+
+impl FileTrustStore {
+    /// The floor the file holds: the one the last read or write found, else read now.
+    fn known_floor(&self, state: &mut State) -> Result<Option<SeqFloor>, PairingStoreError> {
+        if state.floor.is_none() {
+            state.floor = Some(self.read_file()?.and_then(|f| f.agreement_seq_floor));
+        }
+        Ok(state.floor.clone().flatten())
+    }
+
+    /// The file, checked and parsed; `None` when it is not there.
+    fn read_file(&self) -> Result<Option<TrustFile>, PairingStoreError> {
+        let path = self.path();
+        match self.existing_file_is_private(&path)? {
+            None => return Ok(None),
             Some(false) => return Err(self.not_private("trust file")),
             Some(true) => {}
         }
@@ -440,21 +547,12 @@ impl PairingStore for FileTrustStore {
             return Err(self.corrupt("larger than 1 MiB"));
         }
         let octets = self.read()?;
-        let file = decode(&octets).map_err(|why| self.corrupt(why))?;
-        state.recorded = file.device_key_id;
-        Ok(file.snapshot)
+        decode(&octets).map(Some).map_err(|why| self.corrupt(why))
     }
 
-    fn save(&self, snapshot: &PairingSnapshot) -> Result<(), PairingStoreError> {
-        let state = self
-            .state
-            .lock()
-            .map_err(|_| PairingStoreError::Failed("lock poisoned".into()))?;
-        let text = encode(&TrustFile {
-            device_key_id: state.device_key_id.clone(),
-            snapshot: snapshot.clone(),
-        })
-        .map_err(|why| self.failed("encoding the snapshot", why))?;
+    /// Writes `file` atomically (see the module documentation).
+    fn write_file(&self, contents: &TrustFile) -> Result<(), PairingStoreError> {
+        let text = encode(contents).map_err(|why| self.failed("encoding the snapshot", why))?;
         if text.len() as u64 > MAX_TRUST_FILE_BYTES {
             return Err(self.failed(
                 "encoding the snapshot",
@@ -505,14 +603,6 @@ impl PairingStore for FileTrustStore {
             }
         }
         Ok(())
-    }
-
-    fn note_device_key(&self, key_id: &KeyId) -> Option<KeyId> {
-        // The state is two plain values, each set whole, so a lock poisoned by a panic
-        // elsewhere holds nothing half-written: its contents are used as they are.
-        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
-        state.device_key_id = Some(key_id.clone());
-        state.recorded.clone().filter(|recorded| recorded != key_id)
     }
 }
 
@@ -580,6 +670,7 @@ pub(crate) fn default_directories(namespace: Option<&str>) -> io::Result<(PathBu
 struct TrustFile {
     device_key_id: Option<KeyId>,
     snapshot: PairingSnapshot,
+    agreement_seq_floor: Option<SeqFloor>,
 }
 
 /// A JSON object under construction: members are written sorted by name (RFC 8785).
@@ -697,6 +788,12 @@ fn encode_statement(held: &HeldStatement) -> Result<String, String> {
 fn encode(file: &TrustFile) -> Result<String, String> {
     let snapshot = &file.snapshot;
     let mut root = Members::default();
+    if let Some(floor) = &file.agreement_seq_floor {
+        let mut o = Members::default();
+        o.string("key_id", floor.key_id.as_str())?;
+        o.put("seq", floor.seq.to_string());
+        root.put("agreement_seq_floor", o.finish());
+    }
     if let Some(id) = &file.device_key_id {
         root.string("device_key_id", id.as_str())?;
     }
@@ -957,6 +1054,18 @@ fn decode(octets: &[u8]) -> Result<TrustFile, String> {
         true => Some(key_id(root, "device_key_id", WHAT)?),
         false => None,
     };
+    let agreement_seq_floor = match root.get("agreement_seq_floor") {
+        None => None,
+        Some(value) => {
+            const FLOOR: &str = "the agreement seq floor";
+            let f = element(value, FLOOR)?;
+            exact(f, &["key_id", "seq"], &[], FLOOR)?;
+            Some(SeqFloor {
+                key_id: key_id(f, "key_id", FLOOR)?,
+                seq: seq(f, FLOOR)?,
+            })
+        }
+    };
     let snapshot = PairingSnapshot {
         paired: decode_all(list(root, "paired", WHAT)?, "paired", decode_record)?,
         grants: decode_all(list(root, "grants", WHAT)?, "grants", decode_grant)?,
@@ -977,6 +1086,7 @@ fn decode(octets: &[u8]) -> Result<TrustFile, String> {
     Ok(TrustFile {
         device_key_id,
         snapshot,
+        agreement_seq_floor,
     })
 }
 
@@ -992,6 +1102,7 @@ mod tests {
         let text = encode(&TrustFile {
             device_key_id: None,
             snapshot: PairingSnapshot::default(),
+            agreement_seq_floor: None,
         })
         .unwrap();
         assert_eq!(text, EMPTY);
@@ -999,6 +1110,34 @@ mod tests {
             canonical(&json::parse(text.as_bytes()).unwrap()).unwrap(),
             text
         );
+    }
+
+    #[test]
+    fn the_floor_is_a_canonical_sorted_member_that_round_trips() {
+        let key = oac_core::keys::DeviceKey::generate().public_key().key_id();
+        let file = TrustFile {
+            device_key_id: Some(key.clone()),
+            snapshot: PairingSnapshot::default(),
+            agreement_seq_floor: Some(SeqFloor {
+                key_id: key.clone(),
+                seq: 7,
+            }),
+        };
+        let text = encode(&file).unwrap();
+        assert_eq!(
+            text,
+            format!(
+                r#"{{"agreement_seq_floor":{{"key_id":"{key}","seq":7}},"device_key_id":"{key}","grants":[],"oac_trust_store":1,"paired":[],"relay_enabled":[],"statements":[]}}"#
+            )
+        );
+        assert_eq!(
+            canonical(&json::parse(text.as_bytes()).unwrap()).unwrap(),
+            text
+        );
+        let back = decode(text.as_bytes()).unwrap();
+        assert_eq!(back.agreement_seq_floor, file.agreement_seq_floor);
+        // Without a floor the member is absent, so an S1 file is read and written unchanged.
+        assert_eq!(decode(EMPTY.as_bytes()).unwrap().agreement_seq_floor, None);
     }
 
     #[test]
