@@ -135,11 +135,12 @@ export function assemble(A, B) {
   const add = (id, step, text, result, detail) => crit.push({ id, step, text, result, detail });
   const all = (m) => [...m.values()].flat();
   const status = (ok) => (ok ? 'PASS' : 'FAIL');
+  const NOT_RUN = 'NOT RUN';
 
   // Step 1: versions, hosts, clock.
   const envA = of(all(A), 'env')[0], envB = of(all(B), 'env')[0];
   const hostA = get(A, 'host-a')[0], hostB = get(B, 'host-b')[0] ?? get(A, 'host-b')[0];
-  if (!envA || !envB) add('1.versions', 1, 'same OAC commit and Zenoh version on both hosts', 'NOT RUN', 'no env line from one host');
+  if (!envA || !envB) add('1.versions', 1, 'same OAC commit and Zenoh version on both hosts', NOT_RUN, 'no env line from one host');
   else {
     const shaA = envA.oac_commit?.sha, shaB = envB.oac_commit?.sha;
     const same = shaA && shaA === shaB && envA.zenoh_version === envB.zenoh_version;
@@ -147,23 +148,27 @@ export function assemble(A, B) {
     add('1.versions', 1, 'same OAC commit and Zenoh version on both hosts, clean trees', status(same && !dirty),
       `A ${envA.os} ${shaA} ${envA.zenoh_version} dirty=${envA.oac_commit?.tree_dirty}; B ${envB.os} ${shaB} ${envB.zenoh_version} dirty=${envB.oac_commit?.tree_dirty}`);
   }
-  add('1.hosts', 1, 'OS, IPs, firewall policy and UTC offset recorded for both hosts', hostA && hostB ? 'PASS' : 'NOT RUN',
+  add('1.hosts', 1, 'OS, IPs, firewall policy and UTC offset recorded for both hosts', hostA && hostB ? 'PASS' : NOT_RUN,
     hostA && hostB ? `A offset ${hostA.utc_offset_minutes} min, fw "${hostA.firewall_policy_stated_by_operator}"; B offset ${hostB.utc_offset_minutes} min, fw "${hostB.firewall_policy_stated_by_operator}"` : 'run the host command on each host');
-  const skews = [...all(A), ...all(B)].filter((e) => e.event === 'skew' && e.best_offset_us != null);
-  const worst = skews.length ? Math.max(...skews.map((s) => s.abs_skew_ms)) : null;
-  add('1.clock', 1, `measured wall-clock skew at most ${SKEW_LIMIT_MS} ms`, skews.length ? status(worst <= SKEW_LIMIT_MS) : 'NOT RUN',
-    skews.length ? `${skews.length} measurement(s), worst ${worst} ms (min-delay sample of each batch, NTP-style over the carrier)` : 'no skew measurement');
+  // Every skew batch counts: a batch with no sample is a failure, not a dropped row.
+  const batches = [...all(A), ...all(B)].filter((e) => e.event === 'skew');
+  const okBatch = (s) => s.samples > 0 && s.best_offset_us != null && Math.abs(s.best_offset_us) <= SKEW_LIMIT_MS * 1000;
+  const worstMs = Math.max(0, ...batches.filter((s) => s.best_offset_us != null).map((s) => Math.abs(s.best_offset_us) / 1000));
+  add('1.clock', 1, `measured wall-clock skew at most ${SKEW_LIMIT_MS} ms in every batch`, batches.length ? status(batches.every(okBatch)) : NOT_RUN,
+    batches.length ? `${batches.length} batch(es), ${batches.filter((s) => !(s.samples > 0)).length} without a sample (fail); worst ${worstMs} ms (min-delay sample of each batch, NTP-style over the carrier)` : 'no skew measurement');
 
   // Step 2: pairing.
   const iss = of(get(A, 'step2-issue-a'), 'issue')[0], imp = of(get(B, 'step2-import-b'), 'import')[0];
-  add('2.pairing', 2, 'authority issued per-host credentials without persisting its key; the bundle for B imported owner-only',
-    iss && imp ? status(iss.authority_private_key_persisted === false && imp.hardened.length >= 5) : 'NOT RUN',
+  add('2.issue', 2, 'authority issued per-host credentials without persisting its key; the bundle for B imported owner-only',
+    iss && imp ? status(iss.authority_private_key_persisted === false && imp.hardened.length >= 5) : NOT_RUN,
     iss && imp ? `authority key persisted=${iss.authority_private_key_persisted}; CNs ${iss.cn_a}, ${iss.cn_b}, ${iss.cn_c}; hardened on B: ${imp.hardened.join(', ')}` : 'no issue/import evidence');
+  add('2.no-host-key-distribution', 2, 'never distribute a host key to other peers (README step 2)', NOT_RUN,
+    "deviation, test-only: the API has no CSR form, so B's and C's private keys are generated on A and carried by the operator out of band");
 
   // Steps 3 and 4: frames both ways.
   const twoWay = (id, step, text, la, lb, extra) => {
     const a = get(A, la), b = get(B, lb);
-    if (!a.length || !b.length) return add(id, step, text, 'NOT RUN', `missing evidence ${la} / ${lb}`);
+    if (!a.length || !b.length) return add(id, step, text, NOT_RUN, `missing evidence ${la} / ${lb}`);
     const okStart = of(a, 'start')[0]?.ok === true && of(b, 'start')[0]?.ok === true;
     const aGot = of(a, 'frame').filter((f) => f.verdict === 'accepted' && f.from === 'b').length;
     const bGot = of(b, 'frame').filter((f) => f.verdict === 'accepted' && f.from === 'a').length;
@@ -172,69 +177,105 @@ export function assemble(A, B) {
   };
   twoWay('3.explicit', 3, 'explicit endpoints, scouting off: sealed frames carried both ways', 'step3-a', 'step3-b',
     (a, b) => { const s = of(a, 'start')[0], t = of(b, 'start')[0]; return { ok: s.scouting === 'off' && t.scouting === 'off', note: `; scouting ${s.scouting}/${t.scouting}` }; });
+  add('3.core-signed', 3, 'core-signed HPKE frames in both directions', NOT_RUN, 'synthetic frames sealed with the RFC 7748 test keys through oac_core::sealing, not core-signed');
+  add('3.contract', 3, 'unchanged transport-contract checks through a two-host binding harness', NOT_RUN, 'the shared suite needs an in-process Medium; no two-host harness at this commit');
   twoWay('4.multicast', 4, 'multicast scouting, no explicit remote endpoints: discovery and frames both ways', 'step4-mc-a', 'step4-mc-b',
     (a, b) => { const s = of(a, 'start')[0], t = of(b, 'start')[0]; const disc = of(a, 'presence').some((p) => p.kind === 'appeared') && of(b, 'presence').some((p) => p.kind === 'appeared');
       return { ok: s.scouting === 'multicast' && t.scouting === 'multicast' && !s.connect && !t.connect && disc, note: `; scouting ${s.scouting}/${t.scouting}, remote endpoints ${s.connect ?? 'none'}/${t.connect ?? 'none'}, discovery event on both=${disc}` }; });
-  twoWay('4.fallback', 4, 'multicast disabled at the network, step 3 repeated (G3 fallback)', 'step4-fb-a', 'step4-fb-b');
-  add('4.tls-only', 4, 'TLS-only links', 'PASS', 'by configuration only (native protocol allowlist is tls); the plaintext-locator control is 5.plaintext');
+  // The fallback only means something if multicast is shown to be blocked: the same
+  // multicast peers, no explicit endpoints, must not link while the operator's block is in place.
+  const ca = get(A, 'step4-fb-check-a'), cb = get(B, 'step4-fb-check-b');
+  const blocked = ca.length && cb.length
+    ? of(ca, 'start')[0]?.scouting === 'multicast' && of(cb, 'start')[0]?.scouting === 'multicast' && !of(ca, 'start')[0]?.connect && !of(cb, 'start')[0]?.connect
+      && of(ca, 'link')[0]?.up === false && of(cb, 'link')[0]?.up === false && !of(ca, 'presence').some((p) => p.kind === 'appeared') && !of(cb, 'presence').some((p) => p.kind === 'appeared')
+    : null;
+  if (blocked === null) add('4.fallback', 4, 'multicast blocked at the network (shown), step 3 repeated (G3 fallback)', NOT_RUN, 'no step4-fb-check evidence: the block is operator-stated, unverified');
+  else if (!blocked) add('4.fallback', 4, 'multicast blocked at the network (shown), step 3 repeated (G3 fallback)', 'FAIL', 'the multicast check peers linked (or did not start) while the block should be in place: the condition is not established');
+  else twoWay('4.fallback', 4, 'multicast blocked at the network (shown: multicast peers did not link), step 3 repeated (G3 fallback)', 'step4-fb-a', 'step4-fb-b');
+  add('4.tls-only', 4, 'TLS-only links', NOT_RUN, 'configuration only (native protocol allowlist is tls); links not inspected');
 
-  // Step 5: negative controls.
-  for (const c of ['wrong-ca', 'wrong-key', 'wrong-san']) {
+  // Step 5: negative controls. A refusal counts only beside a passing positive control on
+  // the same --listen and --connect, with host A's port answering.
+  const ctl = of(get(B, 'step5-control-b'), 'negative').find((n) => n.case === 'control');
+  const ctlFor = (n) => !!ctl && ctl.pass === true && ctl.listen === n.listen && ctl.connect === n.connect;
+  for (const c of ['wrong-ca', 'wrong-san']) {
     const n = of(get(B, `step5-${c}-b`), 'negative')[0];
     const served = c !== 'wrong-san' || of(get(A, 'step5-wrong-san-a'), 'start')[0]?.ok === true; // A must serve its wrong-SAN credential
-    add(`5.${c}`, 5, `${c}: native authentication refuses`, n ? status(n.pass === true && served) : 'NOT RUN', n ? `start_ok=${n.start_ok}; listener_reachable=${n.listener_reachable}; native_refusal=${n.native_refusal}; setup_fault=${n.setup_fault}; A served wrong-SAN credential=${served}; ${n.error ?? ''}` : 'no evidence');
+    add(`5.${c}`, 5, `${c}: refused by the peer's native authentication`, n && ctl ? status(n.pass === true && ctlFor(n) && served) : NOT_RUN,
+      n ? `start_ok=${n.start_ok}; listener_reachable=${n.listener_reachable}; native_open_failed=${n.native_open_failed}; control linked=${ctl?.linked ?? 'missing'} on the same listen/connect=${ctl ? ctlFor(n) || ctl.pass === false : false}; A served wrong-SAN credential=${served}; ${n.error ?? ''}` : 'no evidence');
   }
+  const wk = of(get(B, 'step5-wrong-key-b'), 'negative')[0];
+  add('5.wrong-key', 5, "wrong key refused by the peer's native authentication", NOT_RUN,
+    `cannot be shown with this API (one file set serves both the local listener and the connection, so the local native stack can refuse the mismatch first)${wk ? `; observed start_ok=${wk.start_ok}: ${wk.error ?? ''}; recorded, not counted` : ''}`);
   const un = of(get(B, 'step5-unlisted-b'), 'negative')[0];
   const leaked = of(get(A, 'step5-a'), 'frame').filter((f) => f.tag === 'neg-probe' && f.verdict === 'accepted').length;
-  add('5.unlisted-cn', 5, 'CA-valid unlisted CN: no frame carried through the ACL', un && get(A, 'step5-a').length ? status(leaked === 0 && ((un.start_ok && un.probes_sent > 0) || (!un.start_ok && un.native_refusal && un.listener_reachable))) : 'NOT RUN',
+  const unOk = un && ((un.start_ok && un.probes_sent > 0) || (!un.start_ok && un.native_open_failed && un.listener_reachable && ctlFor(un)));
+  add('5.unlisted-cn', 5, 'CA-valid unlisted CN: no frame carried through the ACL', un && get(A, 'step5-a').length ? status(leaked === 0 && unOk) : NOT_RUN,
     un ? `link opened=${un.start_ok}; probes sent ${un.probes_sent}; accepted on A ${leaked}` : 'no evidence');
-  add('5.absent-client-cert', 5, 'absent client certificate refused', 'NOT RUN', 'no public API starts a peer without a client certificate at this commit; loopback control only');
-  add('5.plaintext', 5, 'plaintext discovered locator refused', 'NOT RUN', 'needs a raw native plaintext peer; not driven at this commit');
+  add('5.absent-client-cert', 5, 'absent client certificate refused', NOT_RUN, 'no public API starts a peer without a client certificate at this commit; loopback control only');
+  add('5.plaintext', 5, 'plaintext discovered locator refused', NOT_RUN, 'needs a raw native plaintext peer; not driven at this commit');
 
   // Step 6: delayed receipt beyond the encrypted deadline.
   const s6a = get(A, 'step6-a');
-  if (!s6a.length) add('6.expiry', 6, 'delay beyond the encrypted deadline is discarded on receipt; native arrival recorded', 'NOT RUN', 'no step6-a evidence');
+  const t6 = '(driver stand-in for SEC-SEL-036) a frame delayed beyond its encrypted deadline is discarded on receipt; native arrival recorded';
+  if (!s6a.length) add('6.expiry', 6, t6, NOT_RUN, 'no step6-a evidence');
   else {
     const fr = of(s6a, 'frame');
     const ontime = fr.find((f) => f.tag === 'ontime'), late = fr.find((f) => f.tag === 'late');
     const ok = ontime?.verdict === 'accepted' && late?.verdict === 'discard-expired' && late.native_utc_us != null;
-    add('6.expiry', 6, 'delay beyond the encrypted deadline is discarded on receipt; native arrival recorded', status(!!ok),
-      `ontime ${ontime?.verdict ?? 'missing'}; late ${late?.verdict ?? 'missing'} (opened ${late?.late_by_ms ?? '?'} ms past its deadline, native arrival ${late ? iso(late.native_utc_us) : '?'}). Expiry judged by the driver's stand-in for SEC-SEL-036, not the core pipeline.`);
+    add('6.expiry', 6, t6, status(!!ok),
+      `ontime ${ontime?.verdict ?? 'missing'}; late ${late?.verdict ?? 'missing'} (opened ${late?.late_by_ms ?? '?'} ms past its deadline, native arrival ${late ? iso(late.native_utc_us) : '?'}). The discard is the driver's own check, not the core pipeline.`);
   }
+  add('6.core-discard', 6, 'receiving-core discard (SEC-SEL-036) of the delayed frame', NOT_RUN, 'the core receive pipeline is not run by the driver; see 6.expiry for the stand-in');
   const s6b = [...get(B, 'step6-b')].filter((e) => e.event === 'skew');
   add('6.skew-before-after', 6, 'skew recorded before and after the short-deadline exchange, against the 5 s limit',
-    s6b.length >= 2 && s6b.some((s) => s.phase === 'before') && s6b.some((s) => s.phase === 'after') ? status(s6b.every((s) => s.pass === true)) : 'NOT RUN',
-    s6b.map((s) => `${s.phase}: ${s.abs_skew_ms} ms`).join('; ') || 'no evidence');
-  add('3.contract', 3, 'unchanged transport-contract checks through a two-host binding harness', 'NOT RUN', 'the shared suite needs an in-process Medium; no two-host harness at this commit');
-  add('7.relay-replace', 7, 'replace the local relay with another same-user process; reconnect; refuse plain holder', 'NOT RUN', 'needs the CLI daemon (not built at this commit)');
+    s6b.some((s) => s.phase === 'before') && s6b.some((s) => s.phase === 'after') ? status(s6b.every(okBatch)) : NOT_RUN,
+    s6b.map((s) => `${s.phase}: ${s.samples > 0 ? s.abs_skew_ms + ' ms' : 'no sample'}`).join('; ') || 'no evidence');
+  add('7.relay-replace', 7, 'replace the local relay with another same-user process; reconnect; refuse plain holder', NOT_RUN, 'needs the CLI daemon (not built at this commit)');
 
-  // Step 8: presence and carrier loss.
-  const offsetUs = (() => { // A clock minus B clock, from B pinging A
-    const s = skews.filter((x) => x.local === 'b' && x.phase === 'before').map((x) => x.best_offset_us).sort((p, q) => p - q);
-    return s.length ? s[Math.floor(s.length / 2)] : null;
-  })();
+  // Step 8: presence and carrier loss. Offset (A clock minus B clock) and its error come
+  // from the step-8 skew batch that B ran on its own link to A.
   const aEv = get(A, 'step8-a'), bEv = get(B, 'step8-b');
+  const s8 = of(bEv, 'skew').find((s) => s.local === 'b' && s.phase === 'before' && s.samples > 0);
+  const offsetUs = s8 ? s8.best_offset_us : null;
+  const errMs = s8 ? s8.best_delay_us / 2000 : null;
+  const pm = (v) => `${v} ms (+-${errMs} ms: half the batch's best round trip)`;
   const cRuns = [['clean', 'step8-c-clean-b'], ['abort', 'step8-c-abort-b'], ['silent', 'step8-c-silent-b']];
   const joined = cRuns.map(([k, l]) => ({ k, evs: get(B, l) })).filter((r) => r.evs.length);
-  add('8.late-join', 8, 'a third transport started late learns the first two from native liveliness history', joined.length ? status(joined.every((r) => {
-    const st = of(r.evs, 'start')[0], ap = of(r.evs, 'presence').find((p) => p.kind === 'appeared');
-    const aSaw = of(aEv, 'presence').some((p) => p.kind === 'appeared' && p.utc_us >= st.utc_us + (offsetUs ?? 0) - 1_000_000);
-    return st?.ok && ap && of(r.evs, 'frame').length === 0 && aSaw;
-  })) : 'NOT RUN', joined.map((r) => `${r.k}: appearance on C after ${of(r.evs, 'presence').find((p) => p.kind === 'appeared')?.since_start_ms ?? '?'} ms with no frame received`).join('; ') || 'no third-transport evidence');
+  add('8.late-join', 8, 'a third transport started late learns of the first two from native liveliness history',
+    joined.length && offsetUs != null ? status(joined.every((r) => {
+      const st = of(r.evs, 'start')[0];
+      const firstAp = of(r.evs, 'presence').find((p) => p.kind === 'appeared');
+      const firstSend = of(r.evs, 'send')[0];
+      const history = st?.ok && firstAp && (!firstSend || firstAp.utc_us < firstSend.utc_us) && !of(r.evs, 'frame').some((f) => f.utc_us < firstAp.utc_us);
+      const seenA = of(aEv, 'presence').some((p) => p.kind === 'appeared' && p.utc_us >= st.utc_us + offsetUs - errMs * 1000);
+      const seenB = of(bEv, 'presence').some((p) => p.kind === 'appeared' && p.utc_us >= st.utc_us);
+      return history && of(r.evs, 'probe').some((p) => p.linked_to_both) && seenA && seenB;
+    })) : NOT_RUN,
+    (joined.length ? joined.map((r) => `${r.k}: ${of(r.evs, 'presence').filter((p) => p.kind === 'appeared').length} appearance event(s) on C (first after ${of(r.evs, 'presence').find((p) => p.kind === 'appeared')?.since_start_ms ?? '?'} ms) before any frame; pongs from A=${of(r.evs, 'probe')[0]?.pongs_from_a ?? '?'}, from B=${of(r.evs, 'probe')[0]?.pongs_from_b ?? '?'}`).join('; ') : 'no third-transport evidence') +
+    '. The transport coalesces appearances into one event per carrier handle, so two distinct appearances cannot be required; "the first two" is shown by the pongs from both.');
   const marksB = get(B, 'step8-marks-b');
+  const BOUND = LEASE_MS + SILENT_SLACK_MS;
   for (const [k, l] of cRuns) {
     const evs = get(B, l);
-    const act = k === 'silent' ? of(marksB, 'action').find((x) => x.label === 'silent-loss') : of(evs, 'action').find((x) => x.label === `end-${k}`);
+    const pre = k === 'silent' ? of(marksB, 'action').find((x) => x.label === 'silent-loss-pre') : of(evs, 'action').find((x) => x.label === `end-${k}`);
+    const post = k === 'silent' ? of(marksB, 'action').find((x) => x.label === 'silent-loss-post') : null;
     const id = `8.loss-${k}`;
-    const text = `${k} loss: carrier-loss reported on the other host within the lease plus scheduling (${LEASE_MS + SILENT_SLACK_MS} ms)`;
-    if (!act || !aEv.length) { add(id, 8, text, 'NOT RUN', 'no action instant or no observer evidence'); continue; }
-    const base = act.utc_us + (offsetUs ?? 0);
-    const lossA = of(aEv, 'presence').find((p) => p.kind === 'loss' && p.utc_us >= base - 1_000_000);
-    const lossBlocal = of(bEv, 'presence').find((p) => p.kind === 'loss' && p.utc_us >= act.utc_us - 1_000_000);
-    const rawA = lossA ? (lossA.utc_us - act.utc_us) / 1000 : null;
-    const corrA = lossA && offsetUs != null ? (lossA.utc_us - base) / 1000 : null;
-    const ok = corrA != null && corrA >= -500 && corrA <= LEASE_MS + SILENT_SLACK_MS;
-    add(id, 8, text, status(ok), `action ${iso(act.utc_us)} on B; first loss on A ${lossA ? iso(lossA.utc_us) : 'none seen'}; raw ${rawA} ms, skew-corrected ${corrA} ms (offset A-B ${offsetUs == null ? 'unmeasured' : offsetUs / 1000} ms)${k === 'silent' ? '' : '; within lease=' + (corrA != null && corrA < LEASE_MS)}${lossBlocal ? `; same-host observer on B ${(lossBlocal.utc_us - act.utc_us) / 1000} ms` : ''}`);
+    const text = k === 'silent'
+      ? `silent loss: carrier-loss reported on the other host within the lease plus scheduling (${BOUND} ms; README step 8)`
+      : `${k} stop: carrier-loss reported on the other host within ${BOUND} ms (the assembler's own bound, not the README's; it states one for the silent loss only)`;
+    if (!pre || !aEv.length || offsetUs == null) { add(id, 8, text, NOT_RUN, 'no action instant, no observer evidence or no step-8 skew batch'); continue; }
+    const base = pre.utc_us + offsetUs; // the action, on A's clock
+    const losses = of(aEv, 'presence').filter((p) => p.kind === 'loss' && p.utc_us >= base - errMs * 1000);
+    const lossA = losses[0];
+    const rawA = lossA ? (lossA.utc_us - pre.utc_us) / 1000 : null;
+    const corrA = lossA ? (lossA.utc_us - base) / 1000 : null;
+    const ok = corrA != null && corrA >= -errMs && corrA <= BOUND;
+    const inWindow = losses.filter((p) => p.utc_us <= base + BOUND * 1000);
+    const lossB = of(bEv, 'presence').find((p) => p.kind === 'loss' && p.utc_us >= pre.utc_us);
+    const fromPost = post && lossA ? ` (from the post-drop mark: ${(lossA.utc_us - (post.utc_us + offsetUs)) / 1000} ms)` : '';
+    add(id, 8, text, status(ok),
+      `action ${iso(pre.utc_us)} on B${k === 'silent' ? ' (pre-drop mark; bound checked from it)' : ''}; first loss on A ${lossA ? iso(lossA.utc_us) : 'none seen'}; raw ${rawA} ms, skew-corrected ${corrA == null ? 'n/a' : pm(corrA)}${fromPost}; offset A-B ${offsetUs / 1000} ms; ${inWindow.length} loss event(s) on A in the window (handle index ${lossA?.handle_index ?? '?'}: one handle for all transports, so attribution is by time)${k === 'silent' ? '' : `; under the lease=${corrA != null && corrA < LEASE_MS}`}${lossB ? `; same-host observer on B ${(lossB.utc_us - pre.utc_us) / 1000} ms` : ''}`);
   }
   return crit;
 }
@@ -244,6 +285,7 @@ function render(crit, A, B) {
   const pass = crit.filter((c) => c.result === 'PASS').length, fail = crit.filter((c) => c.result === 'FAIL').length, nr = crit.filter((c) => c.result === 'NOT RUN').length;
   const verdict = fail ? 'FAIL' : nr ? 'NOT RUN' : 'PASS';
   const first = Math.min(...[...A.values(), ...B.values()].flat().map((e) => e.utc_us).filter(Boolean));
+  const box = { PASS: '[x]', FAIL: '[f]', 'NOT RUN': '[ ]' };
   const md = [
     '### G3 two-host LAN leg (#64 steps 1-7, #63 step 8)', '',
     '- **Gate id:** G3',
@@ -252,9 +294,9 @@ function render(crit, A, B) {
     '- **Timebox:** FILL: the box set / elapsed',
     '- **Command transcript summary:** driver evidence lines per step (JSON, tools/lan-leg); see the table below',
     '- **Pass criteria evaluated:**',
-    ...crit.map((c) => `  - [${c.result === 'PASS' ? 'x' : 'f'}] ${c.step}/${c.id}: ${c.text} (${c.result}) -- ${c.detail}`),
+    ...crit.map((c) => `  - ${box[c.result]} ${c.step}/${c.id}: ${c.text} -- ${c.result}: ${c.detail}`),
     `- **Verdict:** ${verdict === 'NOT RUN' ? 'NOT RUN (' + nr + ' criteria not run; ' + pass + ' passed)' : verdict}`,
-    '- **Fallback taken:** FILL: none, or the multicast-disabled fallback (4.fallback)',
+    '- **Fallback taken:** FILL: none, or the multicast-blocked fallback (4.fallback)',
     '- **UNVERIFIED items:** FILL: still open unless closed by the rows above',
     '- **Fixtures captured:** none committed; evidence files held by the operator',
     '- **Human actions:** FILL: firewall rules added/removed, cable or packet-drop action, bundle carried (who)',
@@ -325,6 +367,7 @@ function selftest(a) {
     console.log('selftest: step 5');
     pA = peerA('step5-a', 42);
     await sleep(2500);
+    await wrap(dirB, 'step5-control-b', ['negative', '--dir', dirB, '--case', 'control', '--role', 'b', '--listen', pb, '--connect', pa, '--allow', iss.cn_a]);
     for (const c of ['wrong-ca', 'wrong-key']) await wrap(dirB, `step5-${c}-b`, ['negative', '--dir', dirB, '--case', c, '--role', 'b', '--listen', pb, '--connect', pa, '--allow', iss.cn_a]);
     await wrap(dirB, 'step5-unlisted-b', ['negative', '--dir', dirB, '--case', 'unlisted-cn', '--role', 'b', '--listen', pb, '--connect', pa, '--allow', iss.cn_a, '--probes', '4']);
     await pA;
@@ -339,11 +382,11 @@ function selftest(a) {
     const pB = peerB('step8-b', 50, ['--skew-pings', '6']);
     await sleep(6000);
     for (const end of ['clean', 'abort']) {
-      await wrap(dirB, `step8-c-${end}-b`, ['peer', '--dir', dirB, '--cred', 'c', '--role', 'c', '--listen', pc, '--connect', `${pa},${pb}`, '--allow', `${iss.cn_a},${iss.cn_b}`, '--run-secs', '4', '--end', end]);
+      await wrap(dirB, `step8-c-${end}-b`, ['peer', '--dir', dirB, '--cred', 'c', '--role', 'c', '--listen', pc, '--connect', `${pa},${pb}`, '--allow', `${iss.cn_a},${iss.cn_b}`, '--probe-peers', '--run-secs', '4', '--end', end]);
       await sleep(3000);
     }
     await pB; await pA;
-    console.log('selftest: assembling (steps 4 fallback/multicast, 5 absent-cert/plaintext, 7, silent loss are NOT RUN on loopback)');
+    console.log('selftest: assembling (step 4, silent loss, step 7 and the criteria the driver cannot show are NOT RUN on loopback)');
     const r = assembleCmd({ dir: dirA, 'b-dir': dirB });
     if (!a.dir) rmSync(root, { recursive: true, force: true });
     process.exit(r.fail ? 1 : 0);

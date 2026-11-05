@@ -25,11 +25,17 @@ other: the operator relays the values in the table below.
    (`OAC/relay-tls`, the real state dir), and never runs Claude Code or Codex for this leg.
    State goes only under the work directory `DIR` below, which is new and outside the repo.
 3. `OAC_TEST_LAN=1` is the opt-in for listening on a LAN address. At the start, tell the
-   operator which `IP:PORT` listeners the session will open and that nothing else is opened,
-   and set it in this session's shell only after they agree. The driver refuses to run
-   without it, before any listener.
-4. The driver listens only on the `IP:PORT` named in the command, never the unspecified
-   address. Use the LAN address of the host, never a wildcard.
+   operator which `IP:PORT` TLS listeners the session will open (and, for step 4 only, the
+   UDP 7446 scouting socket, rule 4), and set it only after they agree. The driver refuses to
+   run without it, before any listener. Shell state does not persist between Claude tool
+   calls: prefix every command with it (`OAC_TEST_LAN=1 ...`; PowerShell
+   `$env:OAC_TEST_LAN='1'; ...`) and use full paths, never a `DIR` variable set earlier.
+4. The TLS listener is opened only on the `IP:PORT` named in the command, never the
+   unspecified address. `--multicast` (step 4 only) also makes the transport join the
+   scouting group on UDP 7446 (zenoh 1.10.1 `DEFAULT_CONFIG.json5` `scouting.multicast`:
+   `address`, `listen`); that socket's local bind address is not the `--listen` address and
+   is UNVERIFIED here (the pin notes say Windows binds the unspecified address). Say so to
+   the operator before step 4 and open it only on their yes.
 5. On any unexpected output (an `error` line, a nonzero exit, a `start` with `ok:false`
    outside a negative control, a clock failure, a missing line): stop, copy the evidence
    lines, say what was expected, and ask. No retry loop, no changed flags, no second
@@ -101,13 +107,16 @@ Status is at this commit. Commands, expected output and per-step stop rules:
 | README step | What runs | Status |
 |---|---|---|
 | 1 record environment, clock | `host` + `env` lines; NTP-style skew over the carrier | automated |
-| 2 pairing | `issue` on A, carry, `import` on B | automated; B's key carried (above) |
-| 3 explicit endpoints, scouting off | `peer` on both; sealed frames both ways | automated, partial: HPKE frames sealed with `oac_core::sealing` and RFC 7748 test keys, not core-signed; the shared contract suite over two hosts: NOT RUN |
-| 4 multicast, then fallback | `peer --multicast`; then step 3 again with multicast off | multicast and fallback automated; operator disables multicast at the network |
-| 5 negative controls | `negative` wrong-ca, wrong-key, wrong-san, unlisted-cn | four automated; absent client certificate and plaintext locator: NOT RUN (no public API) |
-| 6 expiry and skew | `peer --timed-test` with skew before and after | automated with a stand-in for the core's SEC-SEL-036 check, not the core pipeline |
+| 2 pairing | `issue` on A, carry, `import` on B | issuing automated; "never distribute a host key" NOT RUN: B's and C's keys are generated on A and carried (above) |
+| 3 explicit endpoints, scouting off | `peer` on both; sealed frames both ways | frames automated; core-signed frames NOT RUN (synthetic frames, RFC 7748 test keys); the shared contract suite over two hosts NOT RUN |
+| 4 multicast, then fallback | `peer --multicast`; then a multicast check that must not link, then step 3 again | automated; the operator blocks multicast at the network; TLS-only links NOT RUN (configuration only) |
+| 5 negative controls | `negative` control, wrong-ca, wrong-san, unlisted-cn (wrong-key recorded) | wrong CA, wrong IP SAN and unlisted CN automated beside a positive control; wrong key NOT counted (refused locally); absent client certificate and plaintext locator NOT RUN |
+| 6 expiry and skew | `peer --timed-test` with skew before and after | expiry judged by a driver stand-in for SEC-SEL-036; receiving-core discard NOT RUN |
 | 7 replace the local relay | needs the CLI daemon | NOT RUN at this commit; record it so |
-| 8 presence and carrier loss | late-joining third transport; clean, killed, silent stops | clean and killed automated; silent: operator-guided drop with `mark` |
+| 8 presence and carrier loss | late-joining third transport; clean, killed, silent stops | clean and killed automated; silent: operator-guided drop with a `mark` before and after |
+
+Under Claude tools the default command timeout is 120 s: start every long-running peer
+(host A's, host B's step-8 peers) with `run_in_background` and read its evidence file.
 
 ## Evidence, posting
 

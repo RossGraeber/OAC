@@ -5,9 +5,13 @@
 //!
 //!     OAC_TEST_LAN=1 cargo run -p oac-transport-zenoh --example lan_leg -- help
 //!
-//! It refuses every command unless `OAC_TEST_LAN=1`, before any listener is opened. A
+//! It refuses every command unless `OAC_TEST_LAN=1`, before any listener is opened. The TLS
 //! listener is opened only on the `--listen IP:PORT` the operator passes (never the
-//! unspecified address, never a default). State is written only under `--dir`.
+//! unspecified address, never a default). With `--multicast` the transport also joins the
+//! scouting group on UDP 7446 (zenoh 1.10.1 `DEFAULT_CONFIG.json5`, `scouting.multicast`:
+//! `address` and `listen`); that socket's local bind address is not `--listen`'s and the pin
+//! notes record the unspecified address on Windows (PLANNING-PROMPT.md section 3.4), which
+//! is UNVERIFIED here. State is written only under `--dir`.
 //!
 //! Scope, stated plainly. It drives the transport's public surface (`PairingAuthority`,
 //! `PeerConfiguration::lan`, `PeerTransport`) and `oac_core::sealing` seal and open. It does
@@ -51,8 +55,8 @@ lan_leg: two-host LAN leg driver. Every command needs OAC_TEST_LAN=1.
   peer   --dir D --cred NAME --role a|b|c --listen IP:PORT --allow CN[,CN]
          [--connect IP:PORT[,..]] [--multicast] [--partition P] [--to a|b|c]
          [--skew-pings N] [--timed-test] [--window-ms N] [--hold-ms N] [--skew-pings-after N]
-         [--link-timeout-secs N] [--run-secs N] [--end clean|abort]
-  negative --dir D --case wrong-ca|wrong-key|wrong-san|unlisted-cn --role b --listen IP:PORT
+         [--probe-peers] [--link-timeout-secs N] [--run-secs N] [--end clean|abort]
+  negative --dir D --case control|wrong-ca|wrong-key|wrong-san|unlisted-cn --role b --listen IP:PORT
          --connect IP:PORT --allow CN [--partition P] [--to a] [--probes N]
 ";
 
@@ -110,7 +114,7 @@ struct Args(HashMap<String, String>);
 
 impl Args {
     fn parse(items: &[String]) -> Args {
-        const FLAGS: [&str; 2] = ["multicast", "timed-test"];
+        const FLAGS: [&str; 3] = ["multicast", "timed-test", "probe-peers"];
         let mut map = HashMap::new();
         let mut it = items.iter();
         while let Some(k) = it.next() {
@@ -187,10 +191,7 @@ fn run_text(program: &str, args: &[&str]) -> Option<String> {
         .then(|| String::from_utf8_lossy(&out.stdout).trim().to_owned())
 }
 
-fn commit_sha(args: &Args) -> Value {
-    if let Some(c) = args.get("commit") {
-        return json!(c);
-    }
+fn commit_sha() -> Value {
     match run_text("git", &["rev-parse", "HEAD"]) {
         Some(sha) => {
             let dirty = run_text("git", &["status", "--porcelain"]).is_some_and(|s| !s.is_empty());
@@ -200,7 +201,7 @@ fn commit_sha(args: &Args) -> Value {
     }
 }
 
-fn env_evidence(role: &str, args: &Args) {
+fn env_evidence(role: &str) {
     let os_version = if cfg!(windows) {
         run_text("cmd", &["/c", "ver"])
     } else {
@@ -212,7 +213,7 @@ fn env_evidence(role: &str, args: &Args) {
         json!({
             "os": std::env::consts::OS, "arch": std::env::consts::ARCH,
             "os_version": os_version,
-            "oac_commit": commit_sha(args),
+            "oac_commit": commit_sha(),
             "zenoh_version": zenoh::GIT_VERSION,
             "link_lease_ms": LINK_LEASE_MILLIS,
             "skew_limit_ms": SKEW_LIMIT_MS,
@@ -476,6 +477,7 @@ impl Peer {
 }
 
 struct Pong {
+    from: char,
     t1: i64,
     t2: i64,
     t3: i64,
@@ -543,18 +545,32 @@ fn peer(args: &Args) {
     // Native presence: appearances and losses, stamped when the handler runs.
     let appeared = Arc::new(AtomicU64::new(0));
     let (ap, rp, t0) = (appeared.clone(), rs.clone(), me.t0);
+    // A local index per distinct carrier handle, in order of first sight. The transport
+    // reports one handle for the whole frame stream (lib.rs "Carrier handles"), so every
+    // loss on this host shares it: the index shows that, it does not attribute a loss.
+    let handles: Mutex<Vec<oac_core::transport::CarrierHandle>> = Mutex::new(Vec::new());
     let watch = me.transport.watch_presence(Arc::new(move |e| {
-        let (kind, n) = match e {
-            PresenceEvent::CarrierAppeared { .. } => {
-                ("appeared", ap.fetch_add(1, Ordering::SeqCst) + 1)
-            }
-            PresenceEvent::CarrierLoss { .. } => ("loss", 0),
-            PresenceEvent::Record { .. } => ("record", 0),
+        let (kind, n, handle) = match e {
+            PresenceEvent::CarrierAppeared { carrier } => (
+                "appeared",
+                ap.fetch_add(1, Ordering::SeqCst) + 1,
+                Some(carrier),
+            ),
+            PresenceEvent::CarrierLoss { carrier } => ("loss", 0, Some(carrier)),
+            PresenceEvent::Record { .. } => ("record", 0, None),
         };
+        let index = handle.map(|h| {
+            let mut seen = handles.lock().unwrap();
+            seen.iter().position(|s| *s == h).unwrap_or_else(|| {
+                seen.push(h);
+                seen.len() - 1
+            })
+        });
         emit(
             &rp,
             "presence",
-            json!({"kind": kind, "n": n, "since_start_ms": t0.elapsed().as_millis() as u64}),
+            json!({"kind": kind, "n": n, "handle_index": index,
+                "since_start_ms": t0.elapsed().as_millis() as u64}),
         );
     }));
     if let Err(e) = watch {
@@ -611,6 +627,27 @@ fn peer(args: &Args) {
         }
         if args.num("skew-pings-after", 0) > 0 {
             skew(&me, &pongs, to, args.num("skew-pings-after", 0), "after");
+        }
+        if args.flag("probe-peers") {
+            // A late joiner shows it is linked to both earlier transports: a pong from each.
+            pongs.lock().unwrap().clear();
+            for _ in 0..3 {
+                me.send('a', "ping", 10_000, Duration::ZERO, [0, 0]);
+                me.send('b', "ping", 10_000, Duration::ZERO, [0, 0]);
+                thread::sleep(Duration::from_millis(250));
+            }
+            wait_for(Duration::from_secs(5), || {
+                let p = pongs.lock().unwrap();
+                p.iter().any(|x| x.from == 'a') && p.iter().any(|x| x.from == 'b')
+            });
+            let p = pongs.lock().unwrap();
+            let count = |r: char| p.iter().filter(|x| x.from == r).count();
+            emit(
+                &rs,
+                "probe",
+                json!({"pongs_from_a": count('a'), "pongs_from_b": count('b'),
+                    "linked_to_both": count('a') > 0 && count('b') > 0}),
+            );
         }
     }
 
@@ -704,6 +741,7 @@ fn worker_frame(
             );
         }
         "pong" => pongs.lock().unwrap().push(Pong {
+            from: inner.from,
             t1: inner.aux[0] as i64,
             t2: inner.aux[1] as i64,
             t3: inner.sent_us as i64,
@@ -721,13 +759,20 @@ fn skew(me: &Peer, pongs: &Mutex<Vec<Pong>>, to: char, n: u64, phase: &str) {
         thread::sleep(Duration::from_millis(250));
     }
     wait_for(Duration::from_secs(5), || {
-        pongs.lock().unwrap().len() as u64 >= n
+        pongs
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|p| p.from == to)
+            .count() as u64
+            >= n
     });
     let rs = me.role.to_string();
     let samples: Vec<(i64, i64)> = pongs
         .lock()
         .unwrap()
         .iter()
+        .filter(|p| p.from == to)
         .map(|p| {
             (
                 ((p.t2 - p.t1) + (p.t3 - p.t4)) / 2,
@@ -743,15 +788,17 @@ fn skew(me: &Peer, pongs: &Mutex<Vec<Pong>>, to: char, n: u64, phase: &str) {
         );
     }
     let best = samples.iter().min_by_key(|s| s.1);
-    let abs_ms = best.map(|(o, _)| o.abs() / 1000);
+    // Exact microseconds against the limit (5000.9 ms fails); no samples is a failure.
+    let abs_us = best.map(|(o, _)| o.abs());
     emit(
         &rs,
         "skew",
         json!({"phase": phase, "local": rs, "remote": to.to_string(), "pings": n,
             "samples": samples.len(), "best_offset_us": best.map(|s| s.0),
-            "best_delay_us": best.map(|s| s.1), "abs_skew_ms": abs_ms,
+            "best_delay_us": best.map(|s| s.1),
+            "abs_skew_ms": abs_us.map(|a| a as f64 / 1000.0),
             "limit_ms": SKEW_LIMIT_MS,
-            "pass": abs_ms.map(|a| a <= SKEW_LIMIT_MS),
+            "pass": abs_us.is_some_and(|a| a <= SKEW_LIMIT_MS * 1000),
             "meaning": "offset = remote clock minus local clock"}),
     );
 }
@@ -765,12 +812,19 @@ fn negative(args: &Args) {
     let real = creds(args, "b");
     let rogue = |n: &str| creds(args, n);
     let files = match case {
+        // Positive control: the real credentials, against the same listener, from the same
+        // --listen. It must link; without it no refusal below says anything.
+        "control" => real,
         // CA-valid chain from a different authority: the listener refuses the client.
         "wrong-ca" => CertificateFiles {
             trusted_roots: real.trusted_roots.clone(),
             ..rogue("neg-wrong-ca")
         },
-        // The right certificate with a private key that does not belong to it.
+        // The right certificate with a private key that does not belong to it. The API
+        // gives one file set to both the local listener and the outgoing connection, so
+        // the local native stack (rustls `with_single_cert` / `with_client_auth_cert`,
+        // zenoh-link-tls 1.10.1 utils.rs:246, :410) can refuse the mismatch before any
+        // peer is asked: this case cannot show the peer refusing, and does not count.
         "wrong-key" => CertificateFiles {
             certificate: real.certificate.clone(),
             trusted_roots: real.trusted_roots.clone(),
@@ -791,23 +845,39 @@ fn negative(args: &Args) {
         seq: AtomicU64::new(1),
         t0: Instant::now(),
     };
-    // Is the listener there at all? A refusal only counts as native authentication when it
-    // is: the host answered on TCP, and the failure is the native open (not a setup fault).
+    // Does host A's port answer at all?
     let reachable = args
         .addrs("connect")
         .first()
         .is_some_and(|a| std::net::TcpStream::connect_timeout(a, Duration::from_secs(3)).is_ok());
+    let appeared = Arc::new(AtomicU64::new(0));
     let started = me
         .transport
         .start(&device(role), configuration(args, files).wrap());
     let started_ok = started.is_ok();
     let error = started.as_ref().err().map(ToString::to_string);
-    // The transport's own message for a native open that failed; anything else (storage,
-    // configuration) is a setup fault and proves nothing about authentication.
-    let native_refusal = error
+    // The transport reports this one message for any failed native open: TLS refusal by the
+    // peer, a port in use, a `--listen` address this host lacks, a local TLS setup error.
+    // The message alone proves none of them; the control below is what rules out the
+    // local ones for a case that is not wrong-key.
+    let native_open_failed = error
         .as_deref()
         .is_some_and(|e| e.ends_with(NATIVE_OPEN_FAILED));
     let mut probes = 0u64;
+    let mut linked = false;
+    if started_ok {
+        let ap = appeared.clone();
+        let _ = me.transport.watch_presence(Arc::new(move |e| {
+            if matches!(e, PresenceEvent::CarrierAppeared { .. }) {
+                ap.fetch_add(1, Ordering::SeqCst);
+            }
+        }));
+    }
+    if started_ok && case == "control" {
+        linked = wait_for(Duration::from_secs(15), || {
+            appeared.load(Ordering::SeqCst) > 0
+        });
+    }
     if started_ok && case == "unlisted-cn" {
         let to = args
             .get("to")
@@ -822,22 +892,31 @@ fn negative(args: &Args) {
     if started_ok {
         me.transport.shutdown();
     }
-    // The first three must fail native authentication (start refused by the native open,
-    // with the listener reachable). The unlisted CN may link, but host A's evidence must
-    // then show no accepted frame tagged neg-probe; a setup fault is never a pass.
-    let pass = if case == "unlisted-cn" {
-        Value::Null
-    } else {
-        json!(!started_ok && reachable && native_refusal)
+    // wrong-ca and wrong-san must be refused with host A's port answering; they only count
+    // together with a passing control on the same --listen and --connect (the assembler
+    // checks). unlisted-cn needs host A's evidence. wrong-key never counts.
+    let (pass, counts) = match case {
+        "control" => (json!(linked), false),
+        "unlisted-cn" => (Value::Null, true),
+        "wrong-key" => (Value::Null, false),
+        _ => (json!(!started_ok && reachable && native_open_failed), true),
+    };
+    let expected = match case {
+        "control" => "real credentials link to host A",
+        "unlisted-cn" => "link may open; no frame carried",
+        "wrong-key" => "refused locally (key mismatch); not evidence of peer refusal",
+        _ => "start refused: the native open failed with host A's port answering",
     };
     emit(
         &rs,
         "negative",
         json!({"case": case, "start_ok": started_ok, "error": error, "probes_sent": probes,
-            "listener_reachable": reachable, "native_refusal": native_refusal,
-            "setup_fault": !started_ok && !native_refusal,
-            "expected": if case == "unlisted-cn" { "link may open; no frame carried" } else { "start refused by native authentication" },
-            "pass": pass, "needs_peer_evidence": case == "unlisted-cn"}),
+            "listen": args.get("listen"), "connect": args.get("connect"),
+            "linked": linked, "listener_reachable": reachable,
+            "native_open_failed": native_open_failed,
+            "expected": expected, "pass": pass, "counts_toward_readme": counts,
+            "needs_peer_evidence": case == "unlisted-cn",
+            "needs_control": matches!(case, "wrong-ca" | "wrong-san")}),
     );
 }
 
@@ -859,21 +938,21 @@ fn main() {
     }
     let args = Args::parse(&argv[1..]);
     match cmd {
-        "env" => env_evidence(args.get("role").unwrap_or("-"), &args),
+        "env" => env_evidence(args.get("role").unwrap_or("-")),
         "issue" => {
-            env_evidence("a", &args);
+            env_evidence("a");
             issue(&args);
         }
         "import" => {
-            env_evidence("b", &args);
+            env_evidence("b");
             import(&args);
         }
         "peer" => {
-            env_evidence(&args.role("role").to_string(), &args);
+            env_evidence(&args.role("role").to_string());
             peer(&args);
         }
         "negative" => {
-            env_evidence(&args.role("role").to_string(), &args);
+            env_evidence(&args.role("role").to_string());
             negative(&args);
         }
         other => fail("-", &format!("unknown command {other}; try help")),

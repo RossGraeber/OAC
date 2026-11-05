@@ -3,57 +3,63 @@
 Host A = authority + first peer. Host B = second peer, negative-control client, third
 transport "C" and the side that performs the step-8 stops. Every `node tools/lan-leg/lan-leg.mjs`
 command runs from the repo root and prints its evidence lines; they are also appended to
-`DIR/evidence/<label>.jsonl`. `...` below means `node tools/lan-leg/lan-leg.mjs`.
+`<DIR>/evidence/<label>.jsonl`.
 
-Placeholders: `A_IP`, `B_IP` (host LAN addresses), `PA`, `PB`, `PC` (TCP ports),
-`CN_A`, `CN_B`, `CN_C` (printed by `issue`), `DIR` (work directory).
+Placeholders: `A_IP`, `B_IP` (host LAN addresses), `PA`, `PB`, `PC` (TCP ports), `CN_A`,
+`CN_B`, `CN_C` (printed by `issue`), `<DIR>` (the full path of a new work directory outside the
+repo, for example `C:\Users\you\AppData\Local\Temp\oac-lan-leg` or `/tmp/oac-lan-leg`).
 
-Each step: the session that is to go second waits for the first one's "READY". A step is done
-when its commands exited 0 and the expected lines appeared. Anything else: stop (SKILL.md
-rule 5).
+**Claude tool environment.** Shell state does not persist between tool calls, so every
+command below carries its own prefix and full paths: bash `OAC_TEST_LAN=1 node ...`, PowerShell
+`$env:OAC_TEST_LAN='1'; node ...`. The blocks show the bash form; use the PowerShell prefix
+there. The default tool timeout is 120 s: start every peer that runs longer (all host A peers,
+host B's step-8 peers) with `run_in_background` and read its evidence file; A's `--run-secs`
+below are generous (300 s or more) because the operator relays "A READY" by hand. A peer that
+outlives its step is stopped by the operator or by Claude (its own process) before the next one.
 
-## 0. Both hosts: setup (run by Claude, after the operator confirms the opt-in)
+Each step: the session that goes second waits for the first one's "READY" (A's `start` line with
+`"ok":true`). A step is done when its commands exited 0 and the expected lines appeared.
+Anything else: stop (SKILL.md rule 5).
 
-State to the operator once: "This opens TLS listeners on <IP>:<ports> on this host for the
-LAN leg and nothing else." Then:
+## 0. Both hosts: setup (after the operator confirms the opt-in)
+
+Tell the operator once: "This opens TLS listeners on <IP>:<ports> on this host for the LAN leg
+and nothing else (step 4 also joins the UDP 7446 scouting group)." Then:
+
+```sh
+git rev-parse HEAD ; git status --porcelain      # SHA equal on both hosts; the second prints nothing
+OAC_TEST_LAN=1 node tools/lan-leg/lan-leg.mjs build
+```
+
+Expected: the same 40-hex SHA on both hosts and cargo's `Finished`. Refusal check (no listener is
+opened; exit code 3). Bash:
+
+```sh
+OAC_TEST_LAN= target/debug/examples/lan_leg peer --dir x     # exit 3
+```
+
+PowerShell, restoring the variable:
 
 ```powershell
-# PowerShell (Windows)
-$env:OAC_TEST_LAN = '1'
-$DIR = Join-Path $env:TEMP 'oac-lan-leg'
-git rev-parse HEAD ; git status --porcelain      # SHA equal on both hosts; second command prints nothing
-node tools/lan-leg/lan-leg.mjs build
+$old = $env:OAC_TEST_LAN; Remove-Item Env:OAC_TEST_LAN -ErrorAction SilentlyContinue; target\debug\examples\lan_leg.exe peer --dir x; "exit=$LASTEXITCODE"; if ($old) { $env:OAC_TEST_LAN = $old }
 ```
+
+Expected stderr: `lan_leg: refused: this driver listens on a LAN address on purpose; set OAC_TEST_LAN=1 to opt in`.
+
+## 1. Record the host (both)
 
 ```sh
-# bash (Linux, macOS)
-export OAC_TEST_LAN=1
-DIR="${TMPDIR:-/tmp}/oac-lan-leg"
-git rev-parse HEAD ; git status --porcelain
-node tools/lan-leg/lan-leg.mjs build
+OAC_TEST_LAN=1 node tools/lan-leg/lan-leg.mjs host --dir <DIR> --role a --firewall "<policy the operator states>"   # --role b on B
 ```
 
-Expected: the same 40-hex SHA on both hosts and `Finished` from cargo. Refusal check (no
-listener is opened; exit code 3):
-
-```sh
-OAC_TEST_LAN= target/debug/examples/lan_leg peer --dir x     # PowerShell: Remove-Item Env:OAC_TEST_LAN first
-# lan_leg: refused: this driver listens on a LAN address on purpose; set OAC_TEST_LAN=1 to opt in
-```
-
-### Step 1: record the host (both)
-
-```sh
-node tools/lan-leg/lan-leg.mjs host --dir "$DIR" --role a --firewall "<policy the operator states>"   # --role b on B
-```
-
-Expected: one `"event":"host"` line with `ipv4` (the addresses), `utc_offset_minutes`, and on
-Windows `firewall_profiles` and `network_category`. Report the address to use. B sends
-`B_IP` to A.
+Expected: one `"event":"host"` line with `ipv4`, `utc_offset_minutes`, and on Windows
+`firewall_profiles` and `network_category`. Report the address to use; B sends `B_IP` to A.
 
 ```json
 {"event":"host","role":"a","platform":"win32","utc_offset_minutes":-360,"ipv4":[{"interface":"Wi-Fi 2","address":"..."}],"firewall_policy_stated_by_operator":"dry run","firewall_profiles":[{"Name":"Domain","Enabled":1,"DefaultInboundAction":0},{"Name":"Private","Enabled":1,"DefaultInboundAction":0},{"Name":"Public","Enabled":1,"DefaultInboundAction":0}],"network_category":{"InterfaceAlias":"Wi-Fi 2","NetworkCategory":0}}
 ```
+
+Real `host` output from a Windows machine (address elided).
 
 (`NetworkCategory` 0 is Public, 1 Private. The list may include virtual adapters, for example
 `vEthernet (WSL ...)`: the operator names the address on the real LAN segment.)
@@ -63,204 +69,230 @@ Windows `firewall_profiles` and `network_category`. Report the address to use. B
 Host A:
 
 ```sh
-node tools/lan-leg/lan-leg.mjs run --dir "$DIR" --label step2-issue-a -- issue --dir "$DIR" --ip-a <A_IP> --ip-b <B_IP>
+OAC_TEST_LAN=1 node tools/lan-leg/lan-leg.mjs run --dir <DIR> --label step2-issue-a -- issue --dir <DIR> --ip-a <A_IP> --ip-b <B_IP>
 ```
 
 ```json
-{"event":"issue","role":"a","ip_a":"127.0.0.1","ip_b":"127.0.0.1","cn_a":"lan-a-ede93553","cn_b":"lan-b-f45d6585","cn_c":"lan-c-4e7d1623","authority_private_key_persisted":false,"allow_on_a":["lan-b-f45d6585","lan-c-4e7d1623"],"allow_on_b":["lan-a-ede93553","lan-c-4e7d1623"],"carry_to_host_b":"<DIR>/for-host-b","keep_on_host_a":"<DIR>/host-a"}
+{"event":"issue","role":"a","ip_a":"127.0.0.1","ip_b":"127.0.0.1","cn_a":"lan-a-3708db00","cn_b":"lan-b-12e19e69","cn_c":"lan-c-1ad89b26","authority_private_key_persisted":false,"allow_on_a":["lan-b-12e19e69","lan-c-1ad89b26"],"allow_on_b":["lan-a-3708db00","lan-c-1ad89b26"],"carry_to_host_b":"<DIR>/for-host-b","keep_on_host_a":"<DIR>/host-a"}
 ```
 
 Loopback dry-run output, trimmed to the fields that matter; values differ per run.
 
-Print for the operator: `CN_A`, `CN_B`, `CN_C`, and "carry the directory `DIR/for-host-b`
-(it holds host B's private key, test-only) to host B by hand into B's `DIR`". Claude on A
-does not copy it anywhere itself.
+Print for the operator: `CN_A`, `CN_B`, `CN_C`, and "carry the directory `<DIR>/for-host-b`
+(it holds host B's private key, test-only) to host B by hand into B's `<DIR>`". Claude on A does
+not copy it anywhere itself.
 
-Host B, after the operator has placed it at `DIR/for-host-b`:
+Host B, after the operator has placed it at `<DIR>/for-host-b`:
 
 ```sh
-node tools/lan-leg/lan-leg.mjs run --dir "$DIR" --label step2-import-b -- import --dir "$DIR"
+OAC_TEST_LAN=1 node tools/lan-leg/lan-leg.mjs run --dir <DIR> --label step2-import-b -- import --dir <DIR>
 ```
 
 ```json
-{"event":"import","hardened":["b","c","neg-unlisted","neg-wrong-ca","neg-wrong-key"],"role":"b"}
+{"event":"import","role":"b","hardened":["b","c","neg-unlisted","neg-wrong-ca","neg-wrong-key"]}
 ```
 
 Loopback dry-run output, trimmed to the fields that matter; values differ per run.
 
-`import` tightens only the directories under `DIR/for-host-b` (mode 0700/0600 on Unix, an
+`import` tightens only the directories under `<DIR>/for-host-b` (mode 0700/0600 on Unix, an
 owner-only ACL through `icacls` on Windows). If it fails, stop (troubleshooting).
 
-## 1 and 3. Clock and explicit endpoints, scouting off
+## 3. Clock (step 1) and explicit endpoints, scouting off
 
-A first (it waits `--run-secs`, then ends cleanly; B must connect inside it):
+A first (background; B must connect inside `--run-secs`):
 
 ```sh
-node tools/lan-leg/lan-leg.mjs run --dir "$DIR" --label step3-a -- peer --dir "$DIR" --cred a --role a --listen <A_IP>:<PA> --allow <CN_B>,<CN_C> --run-secs 60
+OAC_TEST_LAN=1 node tools/lan-leg/lan-leg.mjs run --dir <DIR> --label step3-a -- peer --dir <DIR> --cred a --role a --listen <A_IP>:<PA> --allow <CN_B>,<CN_C> --run-secs 300
 ```
 
 Wait for the `start` line with `"ok":true` and `"scouting":"off"`; say "A READY". Then B:
 
 ```sh
-node tools/lan-leg/lan-leg.mjs run --dir "$DIR" --label step3-b -- peer --dir "$DIR" --cred b --role b --listen <B_IP>:<PB> --connect <A_IP>:<PA> --allow <CN_A>,<CN_C> --skew-pings 8 --run-secs 5
+OAC_TEST_LAN=1 node tools/lan-leg/lan-leg.mjs run --dir <DIR> --label step3-b -- peer --dir <DIR> --cred b --role b --listen <B_IP>:<PB> --connect <A_IP>:<PA> --allow <CN_A>,<CN_C> --skew-pings 8 --run-secs 5
 ```
 
 ```json
-A: {"event":"start","role":"a","ok":true,"scouting":"off","connect":null,"listen":"127.0.0.1:41400","cred":"a"}
-A: {"event":"link","role":"a","up":true,"waited_ms":3644}
-A: {"event":"frame","role":"a","verdict":"accepted","tag":"ping","from":"b","seq":1,"late_by_ms":-9955}
-B: {"event":"start","role":"b","ok":true,"scouting":"off","connect":"127.0.0.1:41400","listen":"127.0.0.1:41401"}
-B: {"event":"link","role":"b","up":true,"waited_ms":1142}
+A: {"event":"start","role":"a","ok":true,"scouting":"off","connect":null,"listen":"127.0.0.1:41600"}
+A: {"event":"link","role":"a","up":true,"waited_ms":4295}
+A: {"event":"frame","role":"a","verdict":"accepted","tag":"ping","from":"b","seq":1,"late_by_ms":-9941}
+B: {"event":"start","role":"b","ok":true,"scouting":"off","connect":"127.0.0.1:41600","listen":"127.0.0.1:41601"}
 B: {"event":"frame","role":"b","verdict":"accepted","tag":"pong","from":"a","seq":1}
-B: {"event":"skew","local":"b","remote":"a","phase":"before","pings":6,"samples":6,"best_offset_us":-169,"best_delay_us":38989,"abs_skew_ms":0,"limit_ms":5000,"pass":true}
+B: {"event":"skew","role":"b","local":"b","remote":"a","phase":"before","pings":6,"samples":6,"best_offset_us":281,"best_delay_us":37434,"abs_skew_ms":0.281,"limit_ms":5000,"pass":true}
 ```
 
 Loopback dry-run output, trimmed to the fields that matter; values differ per run.
 
-Pass: both `start` ok; `link` `up:true`; A has `frame` lines with `verdict:accepted`,
-`from:b` (pings) and B has `from:a` (pongs), so sealed frames crossed both ways; the `skew`
-line has `"pass":true` (`abs_skew_ms` at most 5000). `skew` is B's clock offset to A over the
-carrier (NTP-style, four timestamps); `best_delay_us` bounds its error. If `pass` is false:
-clock condition fails, stop.
+Pass: both `start` ok; `link` `up:true`; A has `frame` lines with `verdict:accepted`, `from:b`
+(pings) and B has `from:a` (pongs), so sealed frames crossed both ways; the `skew` line has
+`"pass":true` (|offset| at most 5000 ms, compared exactly). `skew` is B's clock offset to A over
+the carrier (NTP-style, four timestamps); `best_delay_us` bounds its error. A batch with
+`samples:0` fails. If `pass` is false: clock condition fails, stop. The frames are synthetic,
+sealed with RFC 7748 test keys, not core-signed (`3.core-signed` is NOT RUN).
 
 ## 4. Multicast scouting, then the fallback
 
-Same commands, no `--connect`, plus `--multicast`, labels `step4-mc-a` / `step4-mc-b`
-(`--skew-pings 4`, `--link-timeout-secs 40`). Expected: `start.scouting` is `multicast`,
-`start.connect` is `null`, both sides print `presence` `appeared`, frames cross both ways.
-Native links stay TLS-only because the configuration allows only `tls`; this step does not
-inspect link protocols.
+Disclosure first: `--multicast` also joins the UDP 7446 scouting group; its local bind address
+is not `--listen`'s (UNVERIFIED, SKILL.md rule 4). Proceed on the operator's yes.
 
-Fallback: the operator disables multicast at the network (for example switches the segment or
-the hosts' multicast filter; Claude prints the instruction it was given by the operator's
-setup, it does not choose one), then repeat step 3 under the labels `step4-fb-a` /
-`step4-fb-b`. Never accept a plaintext link.
+Same commands, no `--connect`, plus `--multicast`, labels `step4-mc-a` (A, `--run-secs 300
+--link-timeout-secs 60`) and `step4-mc-b` (B, `--skew-pings 4 --run-secs 5 --link-timeout-secs 40`).
+Expected: `start.scouting` is `multicast`, `start.connect` is `null`, both sides print `presence`
+`appeared`, frames cross both ways. Links stay TLS-only only because the configuration allows
+`tls`; links are not inspected (`4.tls-only` is NOT RUN).
+
+Fallback. The operator blocks multicast at the network or host (print the "Block multicast"
+commands under Operator commands, after removing the 7446 allow rule). Then prove the block:
+the same multicast peers, no `--connect`, must NOT link.
+
+```sh
+OAC_TEST_LAN=1 node tools/lan-leg/lan-leg.mjs run --dir <DIR> --label step4-fb-check-a -- peer --dir <DIR> --cred a --role a --listen <A_IP>:<PA> --allow <CN_B>,<CN_C> --multicast --link-timeout-secs 15 --run-secs 20
+OAC_TEST_LAN=1 node tools/lan-leg/lan-leg.mjs run --dir <DIR> --label step4-fb-check-b -- peer --dir <DIR> --cred b --role b --listen <B_IP>:<PB> --allow <CN_A>,<CN_C> --multicast --link-timeout-secs 15 --run-secs 20
+```
+
+Start both within a few seconds of each other (A's, then B's on "A READY"). Expected on both:
+`"link":{"up":false}` and no `appeared`. If either links, the block is not in place: stop; the
+assembler marks `4.fallback` FAIL. Then repeat step 3 under the labels `step4-fb-a` /
+`step4-fb-b` (explicit endpoints). Never accept a plaintext link.
 
 ## 5. Negative controls
 
-A runs one long peer; B runs the four controls against it.
+A runs one long peer; B runs a positive control and then the cases against it.
 
 ```sh
-node tools/lan-leg/lan-leg.mjs run --dir "$DIR" --label step5-a -- peer --dir "$DIR" --cred a --role a --listen <A_IP>:<PA> --allow <CN_B>,<CN_C> --run-secs 150
+OAC_TEST_LAN=1 node tools/lan-leg/lan-leg.mjs run --dir <DIR> --label step5-a -- peer --dir <DIR> --cred a --role a --listen <A_IP>:<PA> --allow <CN_B>,<CN_C> --run-secs 600
 ```
 
-B, one per case (`wrong-ca`, `wrong-key`, `unlisted-cn`), label `step5-<case>-b`:
+B, label `step5-<case>-b`, cases in this order: `control`, `wrong-ca`, `wrong-key`,
+`unlisted-cn` (and `wrong-san`, below). Each uses the same `--listen`, `--connect` and `--allow`:
 
 ```sh
-node tools/lan-leg/lan-leg.mjs run --dir "$DIR" --label step5-wrong-ca-b -- negative --dir "$DIR" --case wrong-ca --role b --listen <B_IP>:<PB> --connect <A_IP>:<PA> --allow <CN_A>
+OAC_TEST_LAN=1 node tools/lan-leg/lan-leg.mjs run --dir <DIR> --label step5-control-b -- negative --dir <DIR> --case control --role b --listen <B_IP>:<PB> --connect <A_IP>:<PA> --allow <CN_A>
 ```
 
 ```json
-{"event":"negative","role":"b","case":"wrong-ca","start_ok":false,"listener_reachable":true,"native_refusal":true,"setup_fault":false,"pass":true,"error":"invalid transport configuration: the peer session did not open"}
-{"event":"negative","role":"b","case":"unlisted-cn","start_ok":true,"probes_sent":4,"pass":null,"needs_peer_evidence":true}
+{"event":"negative","role":"b","case":"control","start_ok":true,"linked":true,"listener_reachable":true,"native_open_failed":false,"probes_sent":0,"pass":true,"counts_toward_readme":false}
+{"event":"negative","role":"b","case":"wrong-ca","start_ok":false,"linked":false,"listener_reachable":true,"native_open_failed":true,"probes_sent":0,"pass":true,"counts_toward_readme":true}
+{"event":"negative","role":"b","case":"wrong-key","start_ok":false,"linked":false,"listener_reachable":true,"native_open_failed":true,"probes_sent":0,"pass":null,"counts_toward_readme":false}
+{"event":"negative","role":"b","case":"unlisted-cn","start_ok":true,"linked":false,"listener_reachable":true,"native_open_failed":false,"probes_sent":4,"pass":null,"counts_toward_readme":true}
 ```
 
 Loopback dry-run output, trimmed to the fields that matter; values differ per run.
 
-`wrong-ca` (certificate and key from a different authority) and `wrong-key` (right
-certificate, someone else's key) must show `"start_ok":false`: native authentication
-refused. `unlisted-cn` (valid chain, CN not on A's list) may link; it then sends probes tagged
-`neg-probe` that A must not accept: the assembler checks A's `step5-a` has no accepted
-`neg-probe` frame.
+The transport returns one message for any failed native open (TLS refusal by the peer, a port
+in use, a `--listen` address the host lacks, a local TLS setup error). So:
+
+- `control` (real credentials) must link: it shows `--listen` is usable and A accepts the real
+  credentials. Without a passing control no refusal counts.
+- `wrong-ca` (certificate and key from another authority) and `wrong-san` must show
+  `"start_ok":false`, `listener_reachable:true`, `native_open_failed:true`, beside a passing control.
+- `wrong-key` (right certificate, someone else's key) is recorded and NOT counted: the API gives one
+  file set to both the local listener and the connection, so the local native stack can refuse the
+  mismatch before any peer is asked.
+- `unlisted-cn` (valid chain, CN not on A's list) may link; it then sends probes tagged
+  `neg-probe` that A must not accept (the assembler checks A's `step5-a`).
 
 Wrong IP SAN needs A's credential, not B's: after `step5-a` ends, A runs
-`peer --cred neg-wrong-san` (label `step5-wrong-san-a`, `--run-secs 40`, certificate issued for a
-documentation address `192.0.2.1` it does not own) and B runs `negative --case wrong-san`
-(label `step5-wrong-san-b`); B's start must be refused.
+`peer --cred neg-wrong-san` (label `step5-wrong-san-a`, `--run-secs 120`; certificate issued for the
+documentation address `192.0.2.1`) and B runs `negative --case wrong-san` (label
+`step5-wrong-san-b`). The control must have been run against the same `--listen`/`--connect`.
 
-Not driven: absent client certificate and plaintext discovered locator. Both are `NOT RUN`
-in the assembled table with their reason; do not improvise them.
+Not driven: absent client certificate and plaintext discovered locator. Both are `NOT RUN` in the
+assembled table with their reason; do not improvise them.
 
 ## 6. Delayed receipt beyond the encrypted deadline, with skew before and after
 
-A: `step6-a` as in step 3 (`--run-secs 60`). B:
+A: `step6-a` as in step 3 (`--run-secs 300`). B:
 
 ```sh
-node tools/lan-leg/lan-leg.mjs run --dir "$DIR" --label step6-b -- peer --dir "$DIR" --cred b --role b --listen <B_IP>:<PB> --connect <A_IP>:<PA> --allow <CN_A>,<CN_C> --skew-pings 8 --timed-test --skew-pings-after 8 --run-secs 5
+OAC_TEST_LAN=1 node tools/lan-leg/lan-leg.mjs run --dir <DIR> --label step6-b -- peer --dir <DIR> --cred b --role b --listen <B_IP>:<PB> --connect <A_IP>:<PA> --allow <CN_A>,<CN_C> --skew-pings 8 --timed-test --skew-pings-after 8 --run-secs 5
 ```
 
 ```json
-A: {"event":"frame","role":"a","verdict":"accepted","tag":"ontime","from":"b","late_by_ms":-1933}
-A: {"event":"frame","role":"a","verdict":"discard-expired","tag":"late","from":"b","late_by_ms":1547,"native_utc_us":1793844571489506}
-B: {"event":"skew","phase":"before","best_offset_us":-289,"best_delay_us":50135,"abs_skew_ms":0,"pass":true}
-B: {"event":"skew","phase":"after","best_offset_us":996,"best_delay_us":39591,"abs_skew_ms":0,"pass":true}
+A: {"event":"frame","role":"a","verdict":"accepted","tag":"ontime","from":"b","late_by_ms":-1961}
+A: {"event":"frame","role":"a","verdict":"discard-expired","tag":"late","from":"b","late_by_ms":1538}
+B: {"event":"skew","role":"b","phase":"before","best_offset_us":-372,"best_delay_us":37094,"abs_skew_ms":0.372,"pass":true}
+B: {"event":"skew","role":"b","phase":"after","best_offset_us":-68,"best_delay_us":35903,"abs_skew_ms":0.068,"pass":true}
 ```
 
 Loopback dry-run output, trimmed to the fields that matter; values differ per run.
 
-Pass: `skew` `before` and `after` both at most 5000 ms; A's `ontime` frame `accepted`; A's
-`late` frame `discard-expired` with its `native_utc_us` (arrival) recorded. The `late` frame
-is sealed with a 2000 ms encrypted deadline and held 3500 ms by the sender before
-publication, so it arrives after the deadline; a slow receiver clock would extend validity by
-up to the skew and a fast one reject early (README step 6): report the skew with the result.
-The expiry check is the driver's stand-in for SEC-SEL-036, not the core pipeline; say so.
+Pass: `skew` `before` and `after` both at most 5000 ms; A's `ontime` frame `accepted`; A's `late`
+frame `discard-expired` with its `native_utc_us` (arrival) recorded. The `late` frame is sealed with
+a 2000 ms encrypted deadline and held 3500 ms by the sender before publication, so it arrives after
+the deadline; a slow receiver clock would extend validity by up to the skew and a fast one reject
+early (README step 6): report the skew with the result. The expiry check is the driver's own
+stand-in for SEC-SEL-036 (`6.expiry`), not the core pipeline (`6.core-discard` is NOT RUN).
 
 ## 7. Replace the local relay: NOT RUN
 
-Needs the CLI daemon, which is not built at this commit. Record in the result: "step 7: NOT
-RUN at this commit (no daemon); holder gaps and fixed-port denial of service stay residuals".
+Needs the CLI daemon, which is not built at this commit. Record in the result: "step 7: NOT RUN at
+this commit (no daemon); holder gaps and fixed-port denial of service stay residuals".
 
 ## 8. Presence and carrier loss (#63)
 
-Needed at the start of this step (it measures cross-host timing): the `skew` from step 3/6
-stands for the offset; `step8-b` re-measures it.
-
-1. A: `peer ... --cred a --role a --listen <A_IP>:<PA> --allow <CN_B>,<CN_C> --run-secs 400`, label `step8-a`.
-2. B (transport "B"): `peer ... --cred b --role b --listen <B_IP>:<PB> --connect <A_IP>:<PA> --allow <CN_A>,<CN_C> --skew-pings 6 --run-secs 380`, label `step8-b`. Wait for its `link` `up:true` and `skew` line.
+1. A (background): `peer ... --cred a --role a --listen <A_IP>:<PA> --allow <CN_B>,<CN_C> --run-secs 900`, label `step8-a`.
+2. B (transport "B", background): `peer ... --cred b --role b --listen <B_IP>:<PB> --connect <A_IP>:<PA> --allow <CN_A>,<CN_C> --skew-pings 6 --run-secs 800`, label `step8-b`. Wait for its `link` `up:true` and `skew` line: the assembler uses this batch's offset, and its half round trip as the error, to correct cross-host timings.
 3. B, late join and clean stop (the third transport "C" joins last and links to both):
 
    ```sh
-   node tools/lan-leg/lan-leg.mjs run --dir "$DIR" --label step8-c-clean-b -- peer --dir "$DIR" --cred c --role c --listen <B_IP>:<PC> --connect <A_IP>:<PA>,<B_IP>:<PB> --allow <CN_A>,<CN_B> --run-secs 15 --end clean
+   OAC_TEST_LAN=1 node tools/lan-leg/lan-leg.mjs run --dir <DIR> --label step8-c-clean-b -- peer --dir <DIR> --cred c --role c --listen <B_IP>:<PC> --connect <A_IP>:<PA>,<B_IP>:<PB> --allow <CN_A>,<CN_B> --probe-peers --run-secs 15 --end clean
    ```
 
    ```json
-C: {"event":"start","role":"c","ok":true,"connect":"127.0.0.1:41400,127.0.0.1:41401","listen":"127.0.0.1:41402"}
-C: {"event":"presence","role":"c","kind":"appeared","n":1,"since_start_ms":2849}
-A: {"event":"presence","role":"a","kind":"appeared","n":2,"utc":"2026-11-05T02:12:02.141122Z"}
-C: {"event":"action","role":"c","label":"end-clean","utc":"2026-11-05T02:12:06.195912Z"}
-A: {"event":"presence","role":"a","kind":"loss","utc":"2026-11-05T02:12:06.198899Z"}
+C: {"event":"start","role":"c","ok":true,"connect":"127.0.0.1:41600,127.0.0.1:41601","listen":"127.0.0.1:41602"}
+C: {"event":"presence","role":"c","kind":"appeared","n":1,"handle_index":0,"since_start_ms":1078}
+C: {"event":"probe","role":"c","pongs_from_a":3,"pongs_from_b":3,"linked_to_both":true}
+C: {"event":"action","role":"c","label":"end-clean","utc":"2026-11-05T02:47:51.837869Z"}
+A: {"event":"presence","role":"a","kind":"loss","handle_index":0,"utc":"2026-11-05T02:47:51.839054Z"}
 ```
 
 Loopback dry-run output, trimmed to the fields that matter; values differ per run.
 
-   "C learns of the first two" is C's `presence` `appeared` before any frame (it sends and
-   receives none): native liveliness history. Each of A and B prints `appeared` at C's
-   start. At the end C prints `action` `end-clean` at the instant it calls shutdown; A prints
-   `presence` `loss`. The assembler subtracts, correcting by the measured clock offset.
-4. B, killed: same command, label `step8-c-abort-b`, `--end abort` (C prints `action
-   end-abort`, then aborts the process: the OS closes its sockets, as for a killed process).
-5. B, silent loss: label `step8-c-silent-b`, `--run-secs 120`, no `--end`. When `link` is
-   up, the operator runs the drop on B and the mark in one command line (Operator commands
-   below), so the action instant is the instant the drop returned. Observe A until a `loss`
-   line or 25 s; then the operator removes the drop; then C ends on its own.
+   "C learns of the first two": C prints `presence` `appeared` before it has sent or received
+   any frame (native liveliness history); then `probe` shows pongs from both A and B (`linked_to_both`).
+   The transport reports one appearance event per carrier handle and coalesces appearances that
+   fall together, so two distinct appearances on C cannot be required. A and B each print `appeared`
+   at C's start. At the end C prints `action` `end-clean` at the instant it calls shutdown; A prints
+   `presence` `loss`. The assembler subtracts, correcting by the clock offset and printing its error.
+4. B, killed: same command, label `step8-c-abort-b`, `--end abort` (C prints `action end-abort`, then
+   aborts the process: the OS closes its sockets, as for a killed process).
+5. B, silent loss: label `step8-c-silent-b`, `--run-secs 120`, no `--end`, `--probe-peers`. When `link`
+   is up, the operator runs the drop on B bracketed by two marks in one command line (Operator commands
+   below): a mark before and one after the drop commands. The bound is checked from the earlier mark.
+   Observe A until a `loss` line or 25 s; then the operator removes the drop; then C ends on its own.
+   If nothing is lost (see troubleshooting: an established flow may survive a new block), the step is
+   recorded as it is.
 
-Pass (README step 8): late join seen; each loss reported on A; the silent loss at most
-lease (10 s) plus 5 s after the action. Clean and killed are expected within a second or
-two; the assembler also states whether each was under the lease. Record every value; where it
-differs from the loopback measurement (clean/killed under 0.2 s; silent 9.5 to 9.7 s), record it
-as a residual, not a new bound.
+Pass (README step 8): late join seen; each loss reported on A; the silent loss at most the lease (10 s)
+plus 5 s after the action. The 15 s limit the assembler also applies to the clean and killed stops is its
+own, not the README's (the README states a bound for the silent loss only); those are expected within a
+second or two. Record every value; where it differs from the loopback measurement (clean/killed under
+0.5 s; silent 9.5 to 9.7 s), record it as a residual, not a new bound.
 
 ## Assemble (host A, after B's evidence is brought back)
 
-The operator copies B's `DIR/evidence/*.jsonl` (no key material) into `DIR/b-side/evidence/`
-on A. Then:
+The operator copies B's `<DIR>/evidence/*.jsonl` (no key material) into `<DIR>/b-side/evidence/` on A.
+Then:
 
 ```sh
-node tools/lan-leg/lan-leg.mjs assemble --dir "$DIR" --b-dir "$DIR/b-side"
+OAC_TEST_LAN=1 node tools/lan-leg/lan-leg.mjs assemble --dir <DIR> --b-dir <DIR>/b-side
 ```
 
 ```text
-{"schema":"oac-lan-leg/1","event":"assembled","verdict":"NOT RUN","pass":15,"fail":0,"not_run":7}
+{"schema":"oac-lan-leg/1","event":"assembled","verdict":"FAIL","pass":12,"fail":1,"not_run":12}
+PASS    2/2.issue  authority key persisted=false; CNs lan-a-3708db00, lan-b-12e19e69, lan-c-1ad89b26; hardened on B: b, c, neg-unlisted, neg-wrong-ca, neg-wrong-key
 PASS    3/3.explicit  starts ok=true; A accepted 6 frame(s) from B; B accepted 6 from A; scouting off/off
-PASS    5/5.wrong-ca  start_ok=false; listener_reachable=true; native_refusal=true; setup_fault=false; ...
-PASS    6/6.expiry  ontime accepted; late discard-expired (opened 1545 ms past its deadline, ...)
-PASS    8/8.loss-clean  ... raw 3.847 ms, skew-corrected 4.115 ms (offset A-B -0.268 ms); within lease=true
-PASS    8/8.loss-abort  ... raw 297.268 ms, skew-corrected 297.536 ms ...; within lease=true
-NOT RUN 8/8.loss-silent  no action instant or no observer evidence
+PASS    5/5.wrong-ca  start_ok=false; listener_reachable=true; native_open_failed=true; control linked=true on the same listen/connect=true; A served wrong-SAN credential=true; invalid transport configuration: the peer session ...
+NOT RUN 5/5.wrong-key  cannot be shown with this API (one file set serves both the local listener and the connection, so the local native stack can refuse the mismatch first); observed start_ok=false: invalid transport configur...
+PASS    6/6.expiry  ontime accepted; late discard-expired (opened 1538 ms past its deadline, native arrival 2026-11-05T02:45:45.787Z). The discard is the driver's own check, not the core pipeline.
+PASS    8/8.late-join  clean: 1 appearance event(s) on C (first after 1078 ms) before any frame; pongs from A=3, from B=3; abort: 1 appearance event(s) on C (first after 1005 ms) before any frame; pongs from A=3, from B=3. The ...
+PASS    8/8.loss-clean  action 2026-11-05T02:47:51.837Z on B; first loss on A 2026-11-05T02:47:51.839Z; raw 1.185 ms, skew-corrected 1.813 ms (+-18.4345 ms: half the batch's best round trip); offset A-B -0.628 ms; 2 loss event(...
+PASS    8/8.loss-abort  action 2026-11-05T02:48:01.086Z on B; first loss on A 2026-11-05T02:48:01.559Z; raw 473.172 ms, skew-corrected 473.8 ms (+-18.4345 ms: half the batch's best round trip); offset A-B -0.628 ms; 1 loss even...
+NOT RUN 8/8.loss-silent  no action instant, no observer evidence or no step-8 skew batch
 NOT RUN 7/7.relay-replace  needs the CLI daemon (not built at this commit)
 ```
 
-That run was one machine, both roles on 127.0.0.1, clean tree. The verdict is `NOT RUN` because 7 criteria cannot be driven or were not run there; on real hosts steps 4 and the silent loss are added and the verdict is still `NOT RUN` at best (evidence.md).
+That run was one machine, both roles on 127.0.0.1 (tree dirty: `1/1.versions` FAIL for that reason only). The verdict is `FAIL`; 12 criteria were not run or cannot be shown there (step 4, the silent loss, step 7, and the ones the driver cannot show). On real hosts steps 4 and the silent loss are added and the verdict is still `NOT RUN` at best (evidence.md).
 
 ## Operator commands (Claude prints, the operator runs)
 
@@ -279,41 +311,54 @@ sudo ufw allow from <B_IP> to any port 7446 proto udp comment oac-lan-leg     # 
 # macOS: the application firewall prompts per executable; the operator answers it, or runs with the firewall off for the test
 ```
 
-Silent loss on B: drop both directions to A, and mark in the same command line.
+Block multicast (step 4 fallback), on both hosts, after removing the 7446 allow rule:
+
+```powershell
+New-NetFirewallRule -DisplayName 'oac-lan-leg-mc-block-in' -Direction Inbound -Protocol UDP -LocalPort 7446 -Action Block ; New-NetFirewallRule -DisplayName 'oac-lan-leg-mc-block-out' -Direction Outbound -Protocol UDP -RemotePort 7446 -Action Block
+```
+
+```sh
+sudo iptables -I INPUT -p udp --dport 7446 -j DROP ; sudo iptables -I OUTPUT -p udp --dport 7446 -j DROP
+```
+
+Silent loss on B: drop both directions to A, with a mark before and after, in one command line.
+A new block rule may not cut a connection that is already established; if the link stays up
+(troubleshooting), unplug the cable or disable the adapter instead and run the same two marks around it.
 
 ```powershell
 # Windows, elevated, on B
-New-NetFirewallRule -DisplayName 'oac-lan-leg-drop-out' -Direction Outbound -RemoteAddress <A_IP> -Action Block ; New-NetFirewallRule -DisplayName 'oac-lan-leg-drop-in' -Direction Inbound -RemoteAddress <A_IP> -Action Block ; node tools/lan-leg/lan-leg.mjs mark --dir "$DIR" --label step8-marks-b --action silent-loss
+$env:OAC_TEST_LAN='1'; & node tools/lan-leg/lan-leg.mjs mark --dir <DIR> --label step8-marks-b --action silent-loss-pre ; New-NetFirewallRule -DisplayName 'oac-lan-leg-drop-out' -Direction Outbound -RemoteAddress <A_IP> -Action Block ; New-NetFirewallRule -DisplayName 'oac-lan-leg-drop-in' -Direction Inbound -RemoteAddress <A_IP> -Action Block ; & node tools/lan-leg/lan-leg.mjs mark --dir <DIR> --label step8-marks-b --action silent-loss-post
 ```
 
 ```sh
 # Linux, on B
-sudo iptables -I OUTPUT -d <A_IP> -j DROP ; sudo iptables -I INPUT -s <A_IP> -j DROP ; node tools/lan-leg/lan-leg.mjs mark --dir "$DIR" --label step8-marks-b --action silent-loss
-# macOS: unplug the cable (or switch the interface off) instead, running the mark command immediately after
+export OAC_TEST_LAN=1 ; node tools/lan-leg/lan-leg.mjs mark --dir <DIR> --label step8-marks-b --action silent-loss-pre ; sudo iptables -I OUTPUT -d <A_IP> -j DROP ; sudo iptables -I INPUT -s <A_IP> -j DROP ; node tools/lan-leg/lan-leg.mjs mark --dir <DIR> --label step8-marks-b --action silent-loss-post
+# macOS: unplug the cable (or switch the interface off) between two mark commands instead
 ```
 
 Remove (always, also after a failure):
 
 ```powershell
-Remove-NetFirewallRule -DisplayName 'oac-lan-leg-drop-out','oac-lan-leg-drop-in','oac-lan-leg-in','oac-lan-leg-mc' -ErrorAction SilentlyContinue
+Remove-NetFirewallRule -DisplayName 'oac-lan-leg-drop-out','oac-lan-leg-drop-in','oac-lan-leg-in','oac-lan-leg-mc','oac-lan-leg-mc-block-in','oac-lan-leg-mc-block-out' -ErrorAction SilentlyContinue
 ```
 
 ```sh
 sudo iptables -D OUTPUT -d <A_IP> -j DROP ; sudo iptables -D INPUT -s <A_IP> -j DROP
+sudo iptables -D INPUT -p udp --dport 7446 -j DROP ; sudo iptables -D OUTPUT -p udp --dport 7446 -j DROP
 sudo ufw delete allow from <B_IP> to any port <PA> proto tcp     # repeat for each rule added
 ```
 
-Read-only verification after removal: `Get-NetFirewallRule -DisplayName 'oac-lan-leg*'`
-(prints nothing) / `sudo iptables -S | grep <A_IP>` and `sudo ufw status`.
+Read-only verification after removal: `Get-NetFirewallRule -DisplayName 'oac-lan-leg*'` (prints
+nothing) / `sudo iptables -S | grep -e <A_IP> -e 7446` and `sudo ufw status`.
 
-## Cleanup commands (Claude may run these on its own `DIR` after copying evidence out)
+## Cleanup commands (Claude may run these on its own `<DIR>` after copying evidence out)
 
 ```powershell
 Get-Process lan_leg -ErrorAction SilentlyContinue          # none should remain; stop only ones this session started
-Remove-Item -Recurse -Force (Join-Path $DIR 'host-a'), (Join-Path $DIR 'for-host-b')
+Remove-Item -Recurse -Force '<DIR>\host-a', '<DIR>\for-host-b'
 ```
 
 ```sh
 pgrep -x lan_leg            # none should remain
-rm -rf "$DIR/host-a" "$DIR/for-host-b"
+rm -rf <DIR>/host-a <DIR>/for-host-b
 ```
