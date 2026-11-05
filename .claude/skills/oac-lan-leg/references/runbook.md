@@ -250,17 +250,17 @@ node tools/lan-leg/lan-leg.mjs assemble --dir "$DIR" --b-dir "$DIR/b-side"
 ```
 
 ```text
-{"schema":"oac-lan-leg/1","event":"assembled","verdict":"FAIL","pass":13,"fail":1,"not_run":7}
+{"schema":"oac-lan-leg/1","event":"assembled","verdict":"NOT RUN","pass":15,"fail":0,"not_run":7}
 PASS    3/3.explicit  starts ok=true; A accepted 6 frame(s) from B; B accepted 6 from A; scouting off/off
 PASS    5/5.wrong-ca  start_ok=false; listener_reachable=true; native_refusal=true; setup_fault=false; ...
-PASS    6/6.expiry  ontime accepted; late discard-expired (opened 1547 ms past its deadline, ...)
-PASS    8/8.loss-clean  ... raw 2.987 ms, skew-corrected 3.156 ms (offset A-B -0.169 ms); within lease=true
-PASS    8/8.loss-abort  ... raw 430.525 ms, skew-corrected 430.694 ms ...; within lease=true
+PASS    6/6.expiry  ontime accepted; late discard-expired (opened 1545 ms past its deadline, ...)
+PASS    8/8.loss-clean  ... raw 3.847 ms, skew-corrected 4.115 ms (offset A-B -0.268 ms); within lease=true
+PASS    8/8.loss-abort  ... raw 297.268 ms, skew-corrected 297.536 ms ...; within lease=true
 NOT RUN 8/8.loss-silent  no action instant or no observer evidence
 NOT RUN 7/7.relay-replace  needs the CLI daemon (not built at this commit)
 ```
 
-That run was on one machine over 127.0.0.1 with a dirty tree (`1/1.versions` FAIL for that reason only). A real run's verdict is `NOT RUN` at best: see evidence.md.
+That run was one machine, both roles on 127.0.0.1, clean tree. The verdict is `NOT RUN` because 7 criteria cannot be driven or were not run there; on real hosts steps 4 and the silent loss are added and the verdict is still `NOT RUN` at best (evidence.md).
 
 ## Operator commands (Claude prints, the operator runs)
 
