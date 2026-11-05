@@ -142,14 +142,16 @@ Expected: `start.scouting` is `multicast`, `start.connect` is `null`, both sides
 
 Fallback. The operator blocks multicast at the network or host (print the "Block multicast"
 commands under Operator commands, after removing the 7446 allow rule). Then prove the block:
-the same multicast peers, no `--connect`, must NOT link.
+the same multicast peers, no `--connect`, must NOT link. A's check peer starts first, in the
+background, with a long `--run-secs`, and B's runs inside it: the assembler requires the two run
+windows to overlap (by 10 s beyond the clock error), else `4.fallback` is NOT RUN.
 
 ```sh
-OAC_TEST_LAN=1 node tools/lan-leg/lan-leg.mjs run --dir <DIR> --label step4-fb-check-a -- peer --dir <DIR> --cred a --role a --listen <A_IP>:<PA> --allow <CN_B>,<CN_C> --multicast --link-timeout-secs 15 --run-secs 20
+OAC_TEST_LAN=1 node tools/lan-leg/lan-leg.mjs run --dir <DIR> --label step4-fb-check-a -- peer --dir <DIR> --cred a --role a --listen <A_IP>:<PA> --allow <CN_B>,<CN_C> --multicast --link-timeout-secs 15 --run-secs 120
 OAC_TEST_LAN=1 node tools/lan-leg/lan-leg.mjs run --dir <DIR> --label step4-fb-check-b -- peer --dir <DIR> --cred b --role b --listen <B_IP>:<PB> --allow <CN_A>,<CN_C> --multicast --link-timeout-secs 15 --run-secs 20
 ```
 
-Start both within a few seconds of each other (A's, then B's on "A READY"). Expected on both:
+Start A's (background), then B's on "A READY"; B's must start while A's is still waiting. Expected on both:
 `"link":{"up":false}` and no `appeared`. If either links, the block is not in place: stop; the
 assembler marks `4.fallback` FAIL. Then repeat step 3 under the labels `step4-fb-a` /
 `step4-fb-b` (explicit endpoints). Never accept a plaintext link.
@@ -162,8 +164,9 @@ A runs one long peer; B runs a positive control and then the cases against it.
 OAC_TEST_LAN=1 node tools/lan-leg/lan-leg.mjs run --dir <DIR> --label step5-a -- peer --dir <DIR> --cred a --role a --listen <A_IP>:<PA> --allow <CN_B>,<CN_C> --run-secs 600
 ```
 
-B, label `step5-<case>-b`, cases in this order: `control`, `wrong-ca`, `wrong-key`,
-`unlisted-cn` (and `wrong-san`, below). Each uses the same `--listen`, `--connect` and `--allow`:
+B, label `step5-<case>-b`. Run `control` straight before EACH case (`wrong-ca`, `wrong-key`,
+`unlisted-cn`, and once more before `wrong-san`, below); the assembler pairs a case with the latest
+control before it. Every run uses the same `--listen`, `--connect` and `--allow`:
 
 ```sh
 OAC_TEST_LAN=1 node tools/lan-leg/lan-leg.mjs run --dir <DIR> --label step5-control-b -- negative --dir <DIR> --case control --role b --listen <B_IP>:<PB> --connect <A_IP>:<PA> --allow <CN_A>
@@ -182,7 +185,9 @@ The transport returns one message for any failed native open (TLS refusal by the
 in use, a `--listen` address the host lacks, a local TLS setup error). So:
 
 - `control` (real credentials) must link: it shows `--listen` is usable and A accepts the real
-  credentials. Without a passing control no refusal counts.
+  credentials. Without a passing control no refusal counts. The driver does not bind-test `--listen`
+  itself (the loopback-listener lint forbids it), so a port taken between a control and its case
+  would read as a refusal: that is why the control goes straight before each case.
 - `wrong-ca` (certificate and key from another authority) and `wrong-san` must show
   `"start_ok":false`, `listener_reachable:true`, `native_open_failed:true`, beside a passing control.
 - `wrong-key` (right certificate, someone else's key) is recorded and NOT counted: the API gives one
@@ -248,10 +253,12 @@ A: {"event":"presence","role":"a","kind":"loss","handle_index":0,"utc":"2026-11-
 
 Loopback dry-run output, trimmed to the fields that matter; values differ per run.
 
-   "C learns of the first two": C prints `presence` `appeared` before it has sent or received
-   any frame (native liveliness history); then `probe` shows pongs from both A and B (`linked_to_both`).
-   The transport reports one appearance event per carrier handle and coalesces appearances that
-   fall together, so two distinct appearances on C cannot be required. A and B each print `appeared`
+   What this shows (`8.late-join`): C prints `presence` `appeared`, from the transport's liveliness
+   history, and `probe` shows pongs from both A and B (`linked_to_both`). "Appearance before the
+   first send" holds by construction (the peer waits for it before sending), so it is not independent
+   evidence. The transport reports one appearance event per carrier handle and coalesces appearances
+   that fall together, so learning each of the first two tokens cannot be shown through the public API:
+   `8.late-join-both-tokens` is NOT RUN. A and B each print `appeared`
    at C's start. At the end C prints `action` `end-clean` at the instant it calls shutdown; A prints
    `presence` `loss`. The assembler subtracts, correcting by the clock offset and printing its error.
 4. B, killed: same command, label `step8-c-abort-b`, `--end abort` (C prints `action end-abort`, then

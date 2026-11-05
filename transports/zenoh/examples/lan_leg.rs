@@ -850,6 +850,11 @@ fn negative(args: &Args) {
         .addrs("connect")
         .first()
         .is_some_and(|a| std::net::TcpStream::connect_timeout(a, Duration::from_secs(3)).is_ok());
+    // No bind precheck of --listen here: scripts/check-test-listeners.mjs flags a bind of an
+    // operator-supplied address and its allowlist (OPT_IN, REVIEWED) is for tests and
+    // loopback binds. The residual (a port taken between the control and this case reads
+    // as a refusal) is named in the oac-lan-leg skill's evidence.md; run the control
+    // directly before each case.
     let appeared = Arc::new(AtomicU64::new(0));
     let started = me
         .transport

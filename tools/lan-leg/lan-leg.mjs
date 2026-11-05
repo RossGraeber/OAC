@@ -187,24 +187,40 @@ export function assemble(A, B) {
   // The fallback only means something if multicast is shown to be blocked: the same
   // multicast peers, no explicit endpoints, must not link while the operator's block is in place.
   const ca = get(A, 'step4-fb-check-a'), cb = get(B, 'step4-fb-check-b');
-  const blocked = ca.length && cb.length
+  // Run window of a peer: its start to its end action (or its last line). B's window is put on
+  // A's clock with the offset of B's skew batches (A minus B). The windows must overlap by at
+  // least OVERLAP_MIN_MS (an assembler choice: a scouting attempt needs time) beyond the clock error.
+  const win = (evs) => { const st = of(evs, 'start')[0]?.utc_us; const en = (of(evs, 'action').pop() ?? evs[evs.length - 1])?.utc_us; return st && en ? [st, en] : null; };
+  const offs = batches.filter((x) => x.local === 'b' && x.samples > 0);
+  const offAny = offs.length ? offs.map((x) => x.best_offset_us).sort((p, q) => p - q)[Math.floor(offs.length / 2)] : null;
+  const errAnyUs = offs.length ? Math.max(...offs.map((x) => x.best_delay_us / 2)) : null;
+  const OVERLAP_MIN_MS = 10_000;
+  const wa = win(ca), wb = win(cb);
+  const overlapMs = wa && wb && offAny != null ? (Math.min(wa[1], wb[1] + offAny) - Math.max(wa[0], wb[0] + offAny) - errAnyUs) / 1000 : null;
+  const together = overlapMs != null && overlapMs >= OVERLAP_MIN_MS;
+  const blocked = ca.length && cb.length && together
     ? of(ca, 'start')[0]?.scouting === 'multicast' && of(cb, 'start')[0]?.scouting === 'multicast' && !of(ca, 'start')[0]?.connect && !of(cb, 'start')[0]?.connect
       && of(ca, 'link')[0]?.up === false && of(cb, 'link')[0]?.up === false && !of(ca, 'presence').some((p) => p.kind === 'appeared') && !of(cb, 'presence').some((p) => p.kind === 'appeared')
     : null;
-  if (blocked === null) add('4.fallback', 4, 'multicast blocked at the network (shown), step 3 repeated (G3 fallback)', NOT_RUN, 'no step4-fb-check evidence: the block is operator-stated, unverified');
+  if (!(ca.length && cb.length)) add('4.fallback', 4, 'multicast blocked at the network (shown), step 3 repeated (G3 fallback)', NOT_RUN, 'no step4-fb-check evidence: the block is operator-stated, unverified');
+  else if (!together) add('4.fallback', 4, 'multicast blocked at the network (shown), step 3 repeated (G3 fallback)', NOT_RUN, `the two check peers did not run together (overlap ${overlapMs == null ? 'unmeasured: no run window or no skew batch' : overlapMs + ' ms'}, need ${OVERLAP_MIN_MS} ms beyond the clock error): the block is not shown`);
   else if (!blocked) add('4.fallback', 4, 'multicast blocked at the network (shown), step 3 repeated (G3 fallback)', 'FAIL', 'the multicast check peers linked (or did not start) while the block should be in place: the condition is not established');
   else twoWay('4.fallback', 4, 'multicast blocked at the network (shown: multicast peers did not link), step 3 repeated (G3 fallback)', 'step4-fb-a', 'step4-fb-b');
   add('4.tls-only', 4, 'TLS-only links', NOT_RUN, 'configuration only (native protocol allowlist is tls); links not inspected');
 
   // Step 5: negative controls. A refusal counts only beside a passing positive control on
   // the same --listen and --connect, with host A's port answering.
-  const ctl = of(get(B, 'step5-control-b'), 'negative').find((n) => n.case === 'control');
-  const ctlFor = (n) => !!ctl && ctl.pass === true && ctl.listen === n.listen && ctl.connect === n.connect;
+  const ctls = of(get(B, 'step5-control-b'), 'negative').filter((n) => n.case === 'control');
+  // The latest control before the case: a port taken between a control and a later case
+  // would read as a refusal, so the runbook runs the control straight before each case.
+  const ctlOf = (n) => ctls.filter((c) => c.utc_us < n.utc_us).pop();
+  const ctlFor = (n) => { const c = ctlOf(n); return !!c && c.pass === true && c.listen === n.listen && c.connect === n.connect; };
   for (const c of ['wrong-ca', 'wrong-san']) {
     const n = of(get(B, `step5-${c}-b`), 'negative')[0];
     const served = c !== 'wrong-san' || of(get(A, 'step5-wrong-san-a'), 'start')[0]?.ok === true; // A must serve its wrong-SAN credential
+    const ctl = n ? ctlOf(n) : undefined;
     add(`5.${c}`, 5, `${c}: refused by the peer's native authentication`, n && ctl ? status(n.pass === true && ctlFor(n) && served) : NOT_RUN,
-      n ? `start_ok=${n.start_ok}; listener_reachable=${n.listener_reachable}; native_open_failed=${n.native_open_failed}; control linked=${ctl?.linked ?? 'missing'} on the same listen/connect=${ctl ? ctlFor(n) || ctl.pass === false : false}; A served wrong-SAN credential=${served}; ${n.error ?? ''}` : 'no evidence');
+      n ? `start_ok=${n.start_ok}; listener_reachable=${n.listener_reachable}; native_open_failed=${n.native_open_failed}; control linked=${ctl?.linked ?? 'missing'}, same listen/connect=${ctl ? ctl.listen === n.listen && ctl.connect === n.connect : false}; A served wrong-SAN credential=${served}; ${n.error ?? ''}` : 'no evidence');
   }
   const wk = of(get(B, 'step5-wrong-key-b'), 'negative')[0];
   add('5.wrong-key', 5, "wrong key refused by the peer's native authentication", NOT_RUN,
@@ -244,7 +260,7 @@ export function assemble(A, B) {
   const pm = (v) => `${v} ms (+-${errMs} ms: half the batch's best round trip)`;
   const cRuns = [['clean', 'step8-c-clean-b'], ['abort', 'step8-c-abort-b'], ['silent', 'step8-c-silent-b']];
   const joined = cRuns.map(([k, l]) => ({ k, evs: get(B, l) })).filter((r) => r.evs.length);
-  add('8.late-join', 8, 'a third transport started late learns of the first two from native liveliness history',
+  add('8.late-join', 8, 'a late-started transport reports an appearance from liveliness history before any frame, and is linked to both earlier transports (pongs)',
     joined.length && offsetUs != null ? status(joined.every((r) => {
       const st = of(r.evs, 'start')[0];
       const firstAp = of(r.evs, 'presence').find((p) => p.kind === 'appeared');
@@ -255,7 +271,8 @@ export function assemble(A, B) {
       return history && of(r.evs, 'probe').some((p) => p.linked_to_both) && seenA && seenB;
     })) : NOT_RUN,
     (joined.length ? joined.map((r) => `${r.k}: ${of(r.evs, 'presence').filter((p) => p.kind === 'appeared').length} appearance event(s) on C (first after ${of(r.evs, 'presence').find((p) => p.kind === 'appeared')?.since_start_ms ?? '?'} ms) before any frame; pongs from A=${of(r.evs, 'probe')[0]?.pongs_from_a ?? '?'}, from B=${of(r.evs, 'probe')[0]?.pongs_from_b ?? '?'}`).join('; ') : 'no third-transport evidence') +
-    '. The transport coalesces appearances into one event per carrier handle, so two distinct appearances cannot be required; "the first two" is shown by the pongs from both.');
+    '. "Appearance before the first send" holds by construction (peer() waits for the appearance before it sends: lan_leg.rs link wait), so it is not independent evidence; what is independent is that the appearance event came from the transport, and the pongs from both A and B.');
+  add('8.late-join-both-tokens', 8, 'the late-started transport learns of each of the first two transports from history', NOT_RUN, 'per-token appearance is not observable through the public API: appearances coalesce per carrier handle (transports/zenoh/src/lib.rs, "Presence and carrier loss", carrier appearance bullet)');
   const marksB = get(B, 'step8-marks-b');
   const BOUND = LEASE_MS + SILENT_SLACK_MS;
   for (const [k, l] of cRuns) {
@@ -367,11 +384,18 @@ function selftest(a) {
     await pA;
     // Step 5.
     console.log('selftest: step 5');
-    pA = peerA('step5-a', 42);
+    pA = peerA('step5-a', 70);
     await sleep(2500);
-    await wrap(dirB, 'step5-control-b', ['negative', '--dir', dirB, '--case', 'control', '--role', 'b', '--listen', pb, '--connect', pa, '--allow', iss.cn_a]);
-    for (const c of ['wrong-ca', 'wrong-key']) await wrap(dirB, `step5-${c}-b`, ['negative', '--dir', dirB, '--case', c, '--role', 'b', '--listen', pb, '--connect', pa, '--allow', iss.cn_a]);
-    await wrap(dirB, 'step5-unlisted-b', ['negative', '--dir', dirB, '--case', 'unlisted-cn', '--role', 'b', '--listen', pb, '--connect', pa, '--allow', iss.cn_a, '--probes', '4']);
+    // A positive control straight before every case (a port taken in between would read as a
+    // refusal); the wrong-SAN case, which needs A restarted, uses the last one.
+    const control = () => wrap(dirB, 'step5-control-b', [...['negative', '--dir', dirB, '--role', 'b', '--listen', pb, '--connect', pa, '--allow', iss.cn_a], '--case', 'control']);
+    for (const c of ['wrong-ca', 'wrong-key']) {
+      await control();
+      await wrap(dirB, `step5-${c}-b`, [...['negative', '--dir', dirB, '--role', 'b', '--listen', pb, '--connect', pa, '--allow', iss.cn_a], '--case', c]);
+    }
+    await control();
+    await wrap(dirB, 'step5-unlisted-b', [...['negative', '--dir', dirB, '--role', 'b', '--listen', pb, '--connect', pa, '--allow', iss.cn_a], '--case', 'unlisted-cn', '--probes', '4']);
+    await control();
     await pA;
     const wsA = wrap(dirA, 'step5-wrong-san-a', ['peer', '--dir', dirA, '--cred', 'neg-wrong-san', '--role', 'a', '--listen', pa, '--allow', allowA, '--run-secs', '14']);
     await sleep(2500);
