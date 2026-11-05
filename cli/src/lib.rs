@@ -45,4 +45,5 @@ mod private_file;
 pub mod relay;
 pub mod shim;
 pub mod status;
+pub mod trust_store;
 pub mod verbs;

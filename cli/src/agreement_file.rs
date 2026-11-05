@@ -41,7 +41,7 @@
 //! The operator moves it aside by hand.
 
 use std::fs::{self, File, OpenOptions};
-use std::io::{self, Read, Write};
+use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -52,6 +52,7 @@ use oac_core::keys::KeyStoreError;
 use oac_core::sealing::{AgreementKeyState, AgreementKeyStore};
 
 use crate::daemon::AgreementStoreSource;
+use crate::trust_store::{OsSteps, WriteSteps, default_directories};
 
 /// What the file's directory is called in a refusal.
 const DIRECTORY: &str = "agreement-key directory";
@@ -62,51 +63,12 @@ const FILE: &str = "agreement-key file";
 /// How many temporary names a save tries before it gives up.
 const TEMP_NAME_ATTEMPTS: usize = 16;
 
-/// The file operations of a save. [`RealSteps`] does them; a test substitutes one that fails.
-pub(crate) trait Steps: Send + Sync {
-    fn write(&self, file: &mut File, bytes: &[u8]) -> io::Result<()>;
-    fn sync(&self, file: &File) -> io::Result<()>;
-    fn rename(&self, from: &Path, to: &Path) -> io::Result<()>;
-    fn sync_directory(&self, directory: &Path) -> io::Result<()>;
-}
-
-struct RealSteps;
-
-impl Steps for RealSteps {
-    fn write(&self, file: &mut File, bytes: &[u8]) -> io::Result<()> {
-        file.write_all(bytes)
-    }
-
-    fn sync(&self, file: &File) -> io::Result<()> {
-        file.sync_all()
-    }
-
-    fn rename(&self, from: &Path, to: &Path) -> io::Result<()> {
-        // `std::fs::rename` replaces an existing target on both systems.
-        fs::rename(from, to)
-    }
-
-    fn sync_directory(&self, directory: &Path) -> io::Result<()> {
-        #[cfg(unix)]
-        {
-            File::open(directory).and_then(|d| d.sync_all())
-        }
-        #[cfg(not(unix))]
-        {
-            // Windows has no directory flush to call; the durability of a completed rename
-            // there is an open question recorded in the design note (§5.3).
-            let _ = directory;
-            Ok(())
-        }
-    }
-}
-
 /// The agreement-key store of one device, in one directory. See the module documentation.
 pub struct AgreementFileStore {
     directory: PathBuf,
     top: PathBuf,
     at_rest: AtRest,
-    steps: Arc<dyn Steps>,
+    steps: Arc<dyn WriteSteps>,
     warn: Arc<dyn Fn(&str) + Send + Sync>,
     /// One load or save at a time: the stale-temporary sweep is sound only with one writer.
     busy: Mutex<()>,
@@ -134,7 +96,7 @@ impl AgreementFileStore {
             directory,
             top,
             at_rest,
-            steps: Arc::new(RealSteps),
+            steps: Arc::new(OsSteps),
             warn,
             busy: Mutex::new(()),
         }
@@ -142,7 +104,7 @@ impl AgreementFileStore {
 
     /// [`AgreementFileStore::new`] with the file operations of `steps`.
     #[cfg(test)]
-    pub(crate) fn with_steps(mut self, steps: Arc<dyn Steps>) -> AgreementFileStore {
+    pub(crate) fn with_steps(mut self, steps: Arc<dyn WriteSteps>) -> AgreementFileStore {
         self.steps = steps;
         self
     }
@@ -226,27 +188,12 @@ impl AgreementFileStore {
     fn create_temp(&self) -> Result<(PathBuf, File), KeyStoreError> {
         for _ in 0..TEMP_NAME_ATTEMPTS {
             let path = self.directory.join(temp_name(&self.at_rest.file_name()));
-            let mut options = OpenOptions::new();
-            options.write(true).create_new(true);
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::OpenOptionsExt;
-                options.mode(0o600);
-            }
-            match options.open(&path) {
-                Ok(file) => {
-                    // The protected user-only DACL goes on the temporary file before any
-                    // octet is written to it, and travels with it through the rename: the
-                    // final file never carries an inherited ACE (Windows `is_private`
-                    // accepts a single inherited user ACE, which the directory's would be).
-                    #[cfg(windows)]
-                    if let Err(e) = crate::private_file::open_private_file(&path, false, FILE) {
-                        drop(file);
-                        let _ = fs::remove_file(&path);
-                        return Err(self.failed("making the temporary file private", e));
-                    }
-                    return Ok((path, file));
-                }
+            // Exclusive and private; on Windows the protected user-only DACL goes on the
+            // temporary file before any octet is written to it and travels with it through the
+            // rename, so the final file never carries an inherited ACE.
+            match self.steps.create(&path) {
+                Ok(file) => return Ok((path, file)),
+                // A name that is taken is never reused and its file never touched.
                 Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {}
                 Err(e) => return Err(self.failed("creating the temporary file", e)),
             }
@@ -371,7 +318,7 @@ impl AgreementFileSource {
         namespace: Option<&str>,
         warn: impl Fn(&str) + Send + Sync + 'static,
     ) -> io::Result<AgreementFileSource> {
-        let (directory, top) = data_directories(namespace)?;
+        let (directory, top) = default_directories(namespace)?;
         Ok(AgreementFileSource::new(directory, top, warn))
     }
 }
@@ -384,43 +331,6 @@ impl AgreementStoreSource for AgreementFileSource {
             at_rest,
             self.warn,
         ))
-    }
-}
-
-/// The data directory of the user (the directory the device key's file lives in), and the one
-/// of OAC's own that is the first made private.
-fn data_directories(namespace: Option<&str>) -> io::Result<(PathBuf, PathBuf)> {
-    let top = {
-        #[cfg(windows)]
-        {
-            std::env::var_os("LOCALAPPDATA")
-                .filter(|v| !v.is_empty())
-                .map(|base| PathBuf::from(base).join("OAC"))
-        }
-        #[cfg(not(windows))]
-        {
-            // As the age key file (`FileKeyStore::default_path`).
-            match std::env::var_os("XDG_DATA_HOME").filter(|v| !v.is_empty()) {
-                Some(d) => Some(PathBuf::from(d).join("oac")),
-                None => std::env::var_os("HOME")
-                    .filter(|v| !v.is_empty())
-                    .map(|h| PathBuf::from(h).join(".oac")),
-            }
-        }
-    }
-    .ok_or_else(|| {
-        io::Error::new(
-            io::ErrorKind::NotFound,
-            "no per-user data directory (LOCALAPPDATA, XDG_DATA_HOME or HOME is not set)",
-        )
-    })?;
-    match namespace {
-        None => Ok((top.clone(), top)),
-        Some(n) if crate::ipc::scope_name_is_valid(n) => Ok((top.join(format!("ns-{n}")), top)),
-        Some(_) => Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "a scope name is 1 to 24 lower-case letters and digits",
-        )),
     }
 }
 
@@ -512,22 +422,25 @@ mod tests {
     /// Makes one step fail, with an error.
     struct Failing(Step, AtomicBool);
 
-    impl Steps for Failing {
+    impl WriteSteps for Failing {
+        fn create(&self, path: &Path) -> io::Result<File> {
+            OsSteps.create(path)
+        }
         fn write(&self, file: &mut File, bytes: &[u8]) -> io::Result<()> {
             self.check(Step::Write)?;
-            RealSteps.write(file, bytes)
+            OsSteps.write(file, bytes)
         }
         fn sync(&self, file: &File) -> io::Result<()> {
             self.check(Step::Sync)?;
-            RealSteps.sync(file)
+            OsSteps.sync(file)
         }
         fn rename(&self, from: &Path, to: &Path) -> io::Result<()> {
             self.check(Step::Rename)?;
-            RealSteps.rename(from, to)
+            OsSteps.rename(from, to)
         }
         fn sync_directory(&self, directory: &Path) -> io::Result<()> {
             self.check(Step::SyncDirectory)?;
-            RealSteps.sync_directory(directory)
+            OsSteps.sync_directory(directory)
         }
     }
 
@@ -773,12 +686,12 @@ mod tests {
 
     #[test]
     fn a_namespace_has_its_own_directory_inside_the_data_directory() {
-        let (plain, top) = data_directories(None).unwrap();
+        let (plain, top) = default_directories(None).unwrap();
         assert_eq!(plain, top);
-        let (ns, top2) = data_directories(Some("abc1")).unwrap();
+        let (ns, top2) = default_directories(Some("abc1")).unwrap();
         assert_eq!(top, top2);
         assert_eq!(ns, top.join("ns-abc1"));
-        assert!(data_directories(Some("NOT valid")).is_err());
+        assert!(default_directories(Some("NOT valid")).is_err());
     }
 
     #[test]

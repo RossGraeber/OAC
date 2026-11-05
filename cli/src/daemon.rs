@@ -49,7 +49,7 @@ use oac_core::adapter::{ConnectionHandle, ProviderAdapter};
 use oac_core::at_rest::AtRest;
 use oac_core::authorization::{AuthorizationEngine, DecisionLog, LogEntry, RestoreError};
 use oac_core::clock::Clock;
-use oac_core::ids::Token;
+use oac_core::ids::{KeyId, Token};
 use oac_core::keys::{DeviceIdentity, DeviceKey, KeyStore, KeyStoreError};
 use oac_core::pairing::PairingStore;
 use oac_core::pipeline::{AdapterId, MonotonicClock, PipelineConfig, PipelineError, Pipelines};
@@ -332,7 +332,7 @@ pub struct Parts {
     /// Where the device key lives.
     pub key_store: Box<dyn KeyStore + Send>,
     /// Where pairings, grants and relay settings live; empty means default deny.
-    pub pairing_store: Box<dyn PairingStore + Send>,
+    pub pairing_store: Box<dyn PairingStore + Send + Sync>,
     /// Where the agreement keys of a sealing transport live: an [`AgreementKeyStore`] as it is
     /// (the in-memory double of the tests), or a source that builds the store once the daemon
     /// has the device identity (`crate::agreement_file::AgreementFileSource`).
@@ -437,6 +437,11 @@ pub struct Daemon {
     /// (`AgreementKeys::replace` and `erase_replaced` take it; #437 S1b).
     agreement_store: Box<dyn AgreementKeyStore + Send>,
     lock: DaemonLock,
+    /// The store the daemon was started with, kept for every later save (#437, S1).
+    pairing_store: Arc<dyn PairingStore + Send + Sync>,
+    /// The key id a store written under another device key recorded, when it differs from
+    /// this daemon's.
+    trust_store_foreign_key: Option<KeyId>,
 }
 
 impl Daemon {
@@ -498,6 +503,17 @@ impl Daemon {
             Box::new(log.clone()),
         )
         .map_err(StartError::Pairing)?;
+        // The daemon keeps the store for its lifetime: every later change of trust is saved
+        // through it (#437). A file written under another device key is reported, not
+        // refused: the peers in it stay trusted (lead decisions L6, L7).
+        let pairing_store: Arc<dyn PairingStore + Send + Sync> = Arc::from(pairing_store);
+        let trust_store_foreign_key = pairing_store.note_device_key(engine.own_key_id());
+        if let Some(foreign) = &trust_store_foreign_key {
+            log.line(&format!(
+                "warning: the trust store was written under device key {foreign}, and this daemon runs {}; its peers trust the old key id and must pair with the new one again",
+                engine.own_key_id()
+            ));
+        }
         let agreement = AgreementKeys::load_or_generate(&*agreement_store, &identity, &clock.now())
             .map_err(StartError::Agreement)?;
 
@@ -613,6 +629,8 @@ impl Daemon {
             log,
             agreement_store,
             lock,
+            pairing_store,
+            trust_store_foreign_key,
         })
     }
 
@@ -632,6 +650,20 @@ impl Daemon {
     /// The core, for status and for tests.
     pub fn pipelines(&self) -> &Pipelines {
         &self.pipelines
+    }
+
+    /// The pairing store the daemon keeps: the argument of every engine call that saves
+    /// (`pair`, `remove_key`, `admit_statement`, `add_grant` and the rest).
+    pub fn pairing_store(&self) -> &Arc<dyn PairingStore + Send + Sync> {
+        &self.pairing_store
+    }
+
+    /// The key id recorded in a trust store that was written under another device key, when
+    /// it is not this daemon's: its peers trust a key id this device no longer has, and must
+    /// pair with the new one (#437, L7). `None` when the store was written under this key, or
+    /// records none.
+    pub fn trust_store_foreign_key(&self) -> Option<&KeyId> {
+        self.trust_store_foreign_key.as_ref()
     }
 
     /// The names of the endpoints served (the harness endpoints, then `control`), for a
