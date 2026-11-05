@@ -74,7 +74,7 @@ pub const MAX_REQUEST: usize = 1024;
 /// How long a connection has to deliver its request line.
 pub const READ_DEADLINE: Duration = Duration::from_secs(2);
 /// How long a reply write may take before the connection is dropped.
-const WRITE_DEADLINE: Duration = Duration::from_secs(2);
+pub(crate) const WRITE_DEADLINE: Duration = Duration::from_secs(2);
 /// The most control connections served at once.
 pub const MAX_CONNECTIONS: usize = 4;
 

@@ -31,7 +31,8 @@
 //! - **A disconnect abandons.** The responder is told ([`ResponderPairing::abandon`]), the
 //!   initiator is dropped, and the pairing ends with a line in the log.
 //! - **A second offer ends the responder's pairing; a second response ends the
-//!   initiator's.** The initiator's `Ni` is public once revealed, so a second response could
+//!   initiator's.** (A second reveal, and a reveal before any offer, end it too, under names
+//!   of their own, `second_reveal` and `reveal_without_offer`, not the core's.) The initiator's `Ni` is public once revealed, so a second response could
 //!   be ground offline until its code matched the one the responder will show. The core
 //!   consumes the initiator in `receive` and has no variant for this, so the end is this
 //!   module's own ([`End::SecondResponse`]).
@@ -43,7 +44,9 @@
 //! - **Nothing secret leaves.** A blob is public (a man in the middle who alters one is caught
 //!   by the code, not by the blob), but the log never holds a blob, a nonce, a code or a
 //!   statement: it holds `pairing started`, `pairing ended: <end>`, `paired key <key_id>`
-//!   and `unpaired key <key_id>`. Those lines are the visibility lead decision L5 relies on:
+//!   and `unpaired key <key_id>` (an unpair whose save fails also logs each retry, and a
+//!   pairing the store did not save logs the store's own error text, which is built from
+//!   its I/O error and never from the exchange). Those lines are the visibility lead decision L5 relies on:
 //!   a same-user process can use these ops to add a trusted key with no operator, and the
 //!   typed code does not stop it.
 //! - **A pairing adds trust, nothing more.** The key is trusted and receives nothing until a
@@ -77,7 +80,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::{Notify, OwnedSemaphorePermit, watch};
 use tokio::time::Instant;
 
-use crate::control::{BUSY_REPLY, canonical_text, json_string, write_line};
+use crate::control::{BUSY_REPLY, WRITE_DEADLINE, canonical_text, json_string, write_line};
 use crate::daemon::LogSink;
 use crate::ipc::AsyncStream;
 
@@ -478,6 +481,12 @@ pub enum End {
     SecondOffer,
     /// A second response reached the initiator (this module's own end).
     SecondResponse,
+    /// A second reveal reached the responder after its code was shown (this module's own end;
+    /// the core reports it as a second offer).
+    SecondReveal,
+    /// A reveal reached the responder before any offer was answered (this module's own end;
+    /// the core reports it as abandoned).
+    RevealWithoutOffer,
     /// The connection dropped, or a window ran out waiting for the reveal.
     Abandoned,
     /// The 120 s passed.
@@ -504,6 +513,8 @@ impl End {
         match self {
             End::SecondOffer => "second_offer",
             End::SecondResponse => "second_response",
+            End::SecondReveal => "second_reveal",
+            End::RevealWithoutOffer => "reveal_without_offer",
             End::Abandoned => "abandoned",
             End::Expired => "expired",
             End::OwnKey => "own_key",
@@ -566,6 +577,8 @@ struct Machine {
     session: Option<PairingSession>,
     /// The initiator has taken a response (and revealed its nonce).
     responded: bool,
+    /// The responder has answered an offer.
+    answered: bool,
 }
 
 impl Machine {
@@ -600,6 +613,7 @@ impl Machine {
                 responder,
                 session: None,
                 responded: false,
+                answered: false,
             },
             offer,
         )
@@ -667,10 +681,13 @@ impl Machine {
                     return wrong("bad_blob");
                 };
                 match responder.answer(own, offer, now) {
-                    Ok(response) => Step::Reply(reply(&[
-                        ("pair", json_string("response")),
-                        ("blob", json_string(&encode_response(&response))),
-                    ])),
+                    Ok(response) => {
+                        self.answered = true;
+                        Step::Reply(reply(&[
+                            ("pair", json_string("response")),
+                            ("blob", json_string(&encode_response(&response))),
+                        ]))
+                    }
                     Err(e) => Step::End(end_of(e)),
                 }
             }
@@ -681,6 +698,12 @@ impl Machine {
                 let Ok(Blob::Reveal(reveal)) = decode_blob(&blob) else {
                     return wrong("bad_blob");
                 };
+                if self.session.is_some() {
+                    return Step::End(End::SecondReveal);
+                }
+                if !self.answered {
+                    return Step::End(End::RevealWithoutOffer);
+                }
                 match responder.reveal(reveal, now) {
                     Ok(session) => {
                         let trusted = is_trusted(&session.peer_key_id());
@@ -721,6 +744,10 @@ impl Machine {
                 let Some(session) = self.session.as_mut() else {
                     return wrong("no_code_yet");
                 };
+                // Not six digits: refused with a diagnosis, and not counted as a try.
+                if entered.len() != 6 || !entered.bytes().all(|b| b.is_ascii_digit()) {
+                    return wrong("bad_code");
+                }
                 match session.confirm_entered(&entered, now) {
                     Ok(peer) => Step::Confirmed(Box::new(peer)),
                     Err(ConfirmError::Mismatch { attempts_left: 0 } | ConfirmError::Aborted) => {
@@ -924,6 +951,23 @@ impl DevicePairing {
         }
     }
 
+    /// Whether [`DevicePairing::close`] has run: no pairing, unpair or retry starts any more.
+    pub fn is_closed(&self) -> bool {
+        self.tracking
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .closed
+    }
+
+    /// How many pairing, unpair and save-retry tasks are running. Zero once the daemon's
+    /// shutdown has returned.
+    pub fn running_tasks(&self) -> usize {
+        self.tracking
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .active
+    }
+
     fn expires_ms(deadline: Instant) -> String {
         deadline
             .saturating_duration_since(Instant::now())
@@ -996,7 +1040,7 @@ impl DevicePairing {
                 write_line(&mut *stream, &end.reply()).await;
             }
         }
-        let _ = stream.shutdown().await;
+        let _ = tokio::time::timeout(WRITE_DEADLINE, stream.shutdown()).await;
     }
 
     /// The lines after the first, until the key is paired (its key id) or the pairing ends.

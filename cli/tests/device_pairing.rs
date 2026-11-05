@@ -628,9 +628,11 @@ async fn five_wrong_entries_abort() {
     assert!(!a.trusts(&b.key_id));
     // The right code, typed now, on a new connection, pairs nothing: there is no pairing.
     let mut late = a.client().await;
-    late.send(&op_line("pair_confirm", "entered", &s.code_b))
+    let r = late
+        .ask(&op_line("pair_confirm", "entered", &s.code_b))
         .await;
-    assert!(late.closed().await || !a.trusts(&b.key_id));
+    assert!(r.is_error("unknown_op"), "{}", r.text);
+    assert!(late.closed().await);
     assert!(!a.trusts(&b.key_id));
     assert_eq!(a.log.lines_with("pairing ended: aborted"), 1);
     a.shutdown().await;
@@ -839,6 +841,77 @@ async fn a_wrong_blob_or_op_is_diagnosed_without_a_state_change() {
         .ask(&op_line("pair_offer", "blob", &encode_offer(&offer)))
         .await;
     assert_eq!(r.pair(), "response");
+    b.shutdown().await;
+}
+
+/// An entry that is not six digits is refused with a diagnosis of its own and costs no try.
+#[tokio::test]
+async fn a_code_that_is_not_six_digits_is_refused_without_costing_a_try() {
+    let (mut a, mut b) = (node("alpha").await, node("beta").await);
+    let mut s = exchange(&a, &b).await;
+    for bad in ["abc", "", "12345", "1234567", "12 456", "١٢٣٤٥٦"] {
+        let r = s.a.ask(&op_line("pair_confirm", "entered", bad)).await;
+        assert!(r.is_error("bad_code"), "{bad:?}: {}", r.text);
+    }
+    // Six tries of the wrong kind later, the first real wrong entry still has four left.
+    let r =
+        s.a.ask(&op_line("pair_confirm", "entered", &other_than(&s.code_b)))
+            .await;
+    assert_eq!(r.pair(), "mismatch");
+    assert_eq!(
+        r.object
+            .get("attempts_left")
+            .unwrap()
+            .as_number()
+            .unwrap()
+            .raw(),
+        "4"
+    );
+    let r =
+        s.a.ask(&op_line("pair_confirm", "entered", &s.code_b))
+            .await;
+    assert_eq!(r.pair(), "paired");
+    a.shutdown().await;
+    b.shutdown().await;
+}
+
+/// A second reveal, and a reveal before any offer, end the pairing under names of the
+/// module's own (the core reports them as a second offer and as abandoned).
+#[tokio::test]
+async fn a_second_reveal_and_a_reveal_before_any_offer_end_the_pairing() {
+    let mut b = node("beta").await;
+    let reveal = encode_reveal(&PairingReveal { nonce: [5u8; 32] });
+    let mut c = b.client().await;
+    c.ask(&pair_line("responder")).await;
+    let r = c.ask(&op_line("pair_reveal", "blob", &reveal)).await;
+    assert_eq!(
+        (r.pair().as_str(), r.str("end").as_str()),
+        ("ended", "reveal_without_offer")
+    );
+    assert!(c.closed().await);
+
+    let peer = fake("gamma");
+    let now = b.clock.now();
+    let mut c = b.client().await;
+    c.ask(&pair_line("responder")).await;
+    let (init, offer) = PairingInitiator::start(&peer, now.clone());
+    let response = c
+        .ask(&op_line("pair_offer", "blob", &encode_offer(&offer)))
+        .await;
+    let Ok(Blob::Response(response)) = decode_blob(&response.str("blob")) else {
+        panic!("a response")
+    };
+    let (_session, revealed) = init.receive(response, &now).unwrap();
+    let revealed = encode_reveal(&revealed);
+    let coded = c.ask(&op_line("pair_reveal", "blob", &revealed)).await;
+    assert_eq!(coded.pair(), "code");
+    let r = c.ask(&op_line("pair_reveal", "blob", &revealed)).await;
+    assert_eq!(
+        (r.pair().as_str(), r.str("end").as_str()),
+        ("ended", "second_reveal")
+    );
+    assert!(c.closed().await);
+    assert!(!b.trusts(&peer.key_id().clone()));
     b.shutdown().await;
 }
 
@@ -1079,8 +1152,8 @@ async fn the_two_second_deadline_applies_to_the_first_line_only() {
     let began = tokio::time::Instant::now();
     assert!(idle.closed().await, "closed with no request");
     let elapsed = tokio::time::Instant::now() - began;
-    // The 2 s began at the connection, in real time, a moment before the pause.
-    assert!(elapsed >= Duration::from_secs(1), "{elapsed:?}");
+    // The 2 s began at the connection, in real time, a moment before the pause: no lower
+    // bound on what is left of it.
     assert!(elapsed <= Duration::from_secs(2), "{elapsed:?}");
     // The pairing has been open longer than that and goes on.
     tokio::time::advance(Duration::from_secs(30)).await;
@@ -1244,7 +1317,9 @@ async fn stop_ends_an_open_pairing() {
     assert!(r.flag("stopping"));
     requested.await;
     // The owner's shutdown does not wait on the pairing's 120 s: the pairing ends at once.
-    b.shutdown().await;
+    tokio::time::timeout(Duration::from_secs(10), b.shutdown())
+        .await
+        .expect("the shutdown did not wait for the pairing's deadline");
     let r = pairing.reply().await;
     assert_eq!(
         (r.pair().as_str(), r.str("end").as_str()),
@@ -1254,11 +1329,43 @@ async fn stop_ends_an_open_pairing() {
     assert_eq!(b.log.lines_with("pairing ended: shutdown"), 1);
 }
 
+/// What `DevicePairing::close` adds to the core's own `closed` flag: when the daemon's
+/// shutdown returns, the pairing ops are closed and none of their tasks is left running. With
+/// a save retry armed (the one task here that holds no core lock), the clock then moves past
+/// several retry instants and the store is not touched again.
+#[tokio::test]
+async fn shutdown_closes_the_pairing_ops_and_ends_every_task() {
+    let mut a = node_on_tokio_clock("alpha").await;
+    let key = paired_key(&a, "gamma");
+    a.store.fail(true);
+    tokio::time::pause();
+    let pairing = a.daemon().pairing().clone();
+    assert!(matches!(
+        pairing.unpair(&key).await,
+        UnpairResult::NotDurable(_)
+    ));
+    assert_eq!(pairing.running_tasks(), 1, "the save retry is armed");
+    assert!(!pairing.is_closed());
+    let store = a.store.clone();
+    a.shutdown().await;
+    assert!(pairing.is_closed(), "the shutdown closed the pairing ops");
+    assert_eq!(pairing.running_tasks(), 0, "no task outlives the shutdown");
+    let attempts = store.attempts();
+    // Past several retry instants (1, 2, 4, 8, 16, 32 s ... would all have passed).
+    tokio::time::advance(Duration::from_secs(300)).await;
+    assert_eq!(store.attempts(), attempts, "nothing wrote the store");
+    assert_eq!(pairing.unpair(&key).await, UnpairResult::Closed);
+    assert_eq!(pairing.running_tasks(), 0);
+}
+
 /// A confirmed pairing is writing the store when the stop arrives: the shutdown waits for the
 /// write, which is the last; and a pairing that has not confirmed by then writes nothing.
 #[tokio::test]
 async fn no_store_write_follows_the_shutdown() {
-    // (1) A save in flight when the shutdown begins finishes before the shutdown does.
+    // (1) A save in flight when the shutdown begins finishes before the shutdown does. That
+    // ordering is the core's: its lock is held by the save, and `Pipelines::shutdown` takes
+    // it. What `DevicePairing::close` adds (no task left, none started) is tested by
+    // `shutdown_closes_the_pairing_ops_and_ends_every_task`, which fails without it.
     let a = node("alpha").await;
     let peer = fake("gamma");
     let now = a.clock.now();
@@ -1402,37 +1509,24 @@ async fn no_log_line_holds_a_blob_nonce_code_or_statement() {
         .await;
     s.b.ask(&op_line("pair_confirm", "entered", &s.code_a))
         .await;
-    let wrong = other_than(&s.code_b);
-    let mut secrets: Vec<String> = vec![
-        s.code_a.clone(),
-        s.code_b.clone(),
-        wrong,
-        BLOB_PREFIX.to_owned(),
-        s.response_blob.clone(),
-        s.reveal_blob.clone(),
-    ];
-    // The nonces, the commitment and the statements' values, as the blobs spell them.
-    if let Ok(Blob::Reveal(r)) = decode_blob(&s.reveal_blob) {
-        secrets.push(oac_cli_b64(&r.nonce));
-    }
-    if let Ok(Blob::Response(r)) = decode_blob(&s.response_blob) {
-        secrets.push(oac_cli_b64(&r.nonce));
-        let st = r.agreement_statement.expect("a statement");
-        for (name, v) in st.as_json().iter() {
-            if let Some(text) = v.as_str() {
-                secrets.push(text.to_owned());
-                let _ = name;
-            }
-        }
-    }
-    if let Ok(Blob::Offer(o)) = decode_blob(&Reply::parse(s.offer_reply.clone()).str("blob")) {
-        secrets.push(oac_cli_b64(&o.commitment));
-    }
+    let mut secrets = secrets_of(&s);
+    secrets.push(other_than(&s.code_b));
+    // A pairing the store did not save, between two more devices: the line that carries the
+    // store's error text.
+    let (mut e, mut f) = (node("epsilon").await, node("zeta").await);
+    let mut t = exchange(&e, &f).await;
+    e.store.fail(true);
+    let r =
+        t.a.ask(&op_line("pair_confirm", "entered", &t.code_b))
+            .await;
+    assert_eq!(r.pair(), "not_saved");
+    assert_eq!(e.log.lines_with("the pairing was not saved"), 1);
+    secrets.extend(secrets_of(&t));
     // And a pairing that ends.
     let mut c = b.client().await;
     c.ask(&pair_line("responder")).await;
     c.ask("not json\n").await;
-    for node in [&a, &b] {
+    for node in [&a, &b, &e, &f] {
         for line in node.log.text().lines() {
             // A key id is public, and 64 hexadecimal digits can hold any six decimal ones.
             let line: String = line
@@ -1448,6 +1542,52 @@ async fn no_log_line_holds_a_blob_nonce_code_or_statement() {
     }
     a.shutdown().await;
     b.shutdown().await;
+    e.shutdown().await;
+    f.shutdown().await;
+}
+
+/// What no log line may hold, of one exchange: the codes, the blobs, both nonces, the
+/// commitment, and the values of both devices' statements (the initiator's from its offer, the
+/// responder's from its response).
+fn secrets_of(s: &Shown) -> Vec<String> {
+    let mut secrets = vec![
+        s.code_a.clone(),
+        s.code_b.clone(),
+        BLOB_PREFIX.to_owned(),
+        s.response_blob.clone(),
+        s.reveal_blob.clone(),
+    ];
+    let mut values = |st: &oac_core::sealing::AgreementStatement| {
+        for (_, v) in st.as_json().iter() {
+            if let Some(text) = v.as_str() {
+                secrets.push(text.to_owned());
+            }
+        }
+    };
+    let offer = Reply::parse(s.offer_reply.clone()).str("blob");
+    let Ok(Blob::Offer(offer)) = decode_blob(&offer) else {
+        panic!("an offer")
+    };
+    values(
+        &offer
+            .agreement_statement
+            .expect("the initiator's statement"),
+    );
+    let Ok(Blob::Response(response)) = decode_blob(&s.response_blob) else {
+        panic!("a response")
+    };
+    values(
+        &response
+            .agreement_statement
+            .expect("the responder's statement"),
+    );
+    secrets.push(oac_cli_b64(&offer.commitment));
+    secrets.push(oac_cli_b64(&response.nonce));
+    let Ok(Blob::Reveal(reveal)) = decode_blob(&s.reveal_blob) else {
+        panic!("a reveal")
+    };
+    secrets.push(oac_cli_b64(&reveal.nonce));
+    secrets
 }
 
 // ---- size ---------------------------------------------------------------------------------
