@@ -46,6 +46,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use oac_core::adapter::{ConnectionHandle, ProviderAdapter};
+use oac_core::at_rest::AtRest;
 use oac_core::authorization::{AuthorizationEngine, DecisionLog, LogEntry, RestoreError};
 use oac_core::clock::Clock;
 use oac_core::ids::Token;
@@ -307,6 +308,23 @@ impl DecisionLog for LogSink {
     }
 }
 
+/// Where the daemon's agreement keys come from (#437 S1b). The durable store is sealed under
+/// values derived from the device key, which the daemon reads once, inside `Daemon::start`; so
+/// the store cannot be built before the daemon has the identity, and `Parts` is given this
+/// instead. Every [`AgreementKeyStore`] is one (it ignores the handle), so a test passes
+/// `Box::new(MemoryAgreementKeyStore::new())` as before.
+pub trait AgreementStoreSource: Send {
+    /// The store, given the handle of the device whose keys it keeps. The handle is opaque: it
+    /// seals and opens the store's file and fixes the device key id; it is not the seed.
+    fn open(self: Box<Self>, at_rest: AtRest) -> Box<dyn AgreementKeyStore + Send>;
+}
+
+impl<S: AgreementKeyStore + Send + 'static> AgreementStoreSource for S {
+    fn open(self: Box<Self>, _at_rest: AtRest) -> Box<dyn AgreementKeyStore + Send> {
+        self
+    }
+}
+
 /// What a daemon is made of.
 pub struct Parts {
     /// The user's namespace for the IPC endpoints and the lock.
@@ -315,8 +333,10 @@ pub struct Parts {
     pub key_store: Box<dyn KeyStore + Send>,
     /// Where pairings, grants and relay settings live; empty means default deny.
     pub pairing_store: Box<dyn PairingStore + Send>,
-    /// Where the agreement keys of a sealing transport live.
-    pub agreement_store: Box<dyn AgreementKeyStore + Send>,
+    /// Where the agreement keys of a sealing transport live: an [`AgreementKeyStore`] as it is
+    /// (the in-memory double of the tests), or a source that builds the store once the daemon
+    /// has the device identity (`crate::agreement_file::AgreementFileSource`).
+    pub agreement_store: Box<dyn AgreementStoreSource>,
     /// The device's principal (`spec/security.md` §5): an identifier token.
     pub principal: Token,
     /// The transport.
@@ -413,6 +433,9 @@ pub struct Daemon {
     endpoints: Vec<String>,
     control: Arc<Control>,
     log: LogSink,
+    /// The agreement-key store the daemon was started with, kept for every later save
+    /// (`AgreementKeys::replace` and `erase_replaced` take it; #437 S1b).
+    agreement_store: Box<dyn AgreementKeyStore + Send>,
     lock: DaemonLock,
 }
 
@@ -466,6 +489,8 @@ impl Daemon {
         // 2. Identity and policy: the one place the key is read.
         let key = DeviceKey::load_or_generate(&*key_store).map_err(StartError::Key)?;
         let identity = DeviceIdentity::new(key, principal);
+        // The agreement store is sealed under values derived from this device key (#437 S1b).
+        let agreement_store = agreement_store.open(identity.at_rest());
         let engine = AuthorizationEngine::restore(
             &identity,
             &*pairing_store,
@@ -586,6 +611,7 @@ impl Daemon {
             endpoints,
             control,
             log,
+            agreement_store,
             lock,
         })
     }
@@ -595,6 +621,12 @@ impl Daemon {
     /// [`Daemon::shutdown`], which tells the requester when the stop has happened.
     pub fn stop_requested(&self) -> impl Future<Output = ()> + Send + 'static {
         self.control.stop_requested()
+    }
+
+    /// The agreement-key store the daemon keeps: the argument of every later save of the
+    /// agreement keys (`AgreementKeys::replace`, `erase_replaced`).
+    pub fn agreement_store(&self) -> &(dyn AgreementKeyStore + Send) {
+        &*self.agreement_store
     }
 
     /// The core, for status and for tests.
