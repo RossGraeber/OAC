@@ -1461,31 +1461,52 @@ fn oac_pair_never_builds_a_key_store() {
         );
     }
     // Every reference into the crate, `use` or path, is to the control endpoint, the blob
-    // decoder, the local IPC, the text cleaner or the verbs' shared items; and the core is
-    // reached for JSON and ids only.
-    let modules = |prefix: &str| -> Vec<String> {
+    // decoder, the local IPC, the text cleaner (that one function, not the status module,
+    // which holds the daemon's types) or the verbs' shared items; the core is reached for
+    // JSON and ids only; and no relative path (`super::`, `self::`) or renamed core import
+    // gets round the lists.
+    let segments = |prefix: &str| -> Vec<(String, String)> {
+        let word = |from: usize| -> String {
+            client
+                .get(from..)
+                .unwrap_or_default()
+                .chars()
+                .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+                .collect()
+        };
         client
             .match_indices(prefix)
             .map(|(i, _)| {
-                client[i + prefix.len()..]
-                    .chars()
-                    .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
-                    .collect()
+                let first = word(i + prefix.len());
+                let next = word(i + prefix.len() + first.len() + 2);
+                (first, next)
             })
             .collect()
     };
-    let crate_modules = modules("crate::");
-    assert!(!crate_modules.is_empty());
-    for module in &crate_modules {
+    let crate_paths = segments("crate::");
+    assert!(!crate_paths.is_empty());
+    for (module, next) in &crate_paths {
         assert!(
             ["control", "device_pairing", "ipc", "status", "verbs"].contains(&module.as_str()),
             "a reference outside the client path: crate::{module}"
         );
+        if module == "status" {
+            assert_eq!(
+                next, "clean",
+                "only crate::status::clean, not crate::status::{next}"
+            );
+        }
     }
-    for module in modules("oac_core::") {
+    for (module, _) in segments("oac_core::") {
         assert!(
             ["json", "ids"].contains(&module.as_str()),
             "a reference to the core outside json and ids: oac_core::{module}"
+        );
+    }
+    for relative in ["super::", "self::", "oac_core as", "extern crate"] {
+        assert!(
+            !client.contains(relative),
+            "the client path uses `{relative}`"
         );
     }
     let blob_imports = client

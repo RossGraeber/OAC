@@ -1447,6 +1447,36 @@ mod tests {
         assert_eq!(joined, blob);
     }
 
+    /// `ENDS` is written by hand; this match is exhaustive, so a new `End` variant does not
+    /// compile until it is given a number here, and the test then fails until `ENDS` lists it.
+    #[test]
+    fn every_end_variant_is_listed_in_ends() {
+        fn number(end: End) -> usize {
+            match end {
+                End::SecondOffer => 0,
+                End::SecondResponse => 1,
+                End::SecondReveal => 2,
+                End::RevealWithoutOffer => 3,
+                End::Abandoned => 4,
+                End::Expired => 5,
+                End::OwnKey => 6,
+                End::CommitmentMismatch => 7,
+                End::Aborted => 8,
+                End::AlreadyTrusted => 9,
+                End::NotSaved => 10,
+                End::BadLine => 11,
+                End::Shutdown => 12,
+            }
+        }
+        let mut listed: Vec<usize> = ENDS.iter().map(|e| number(*e)).collect();
+        listed.sort_unstable();
+        assert_eq!(listed, (0..13).collect::<Vec<_>>());
+        // And each one is told apart by its own name, which is what `from_end` looks up.
+        for end in ENDS {
+            assert_eq!(from_end(end.name()).code, end.name());
+        }
+    }
+
     #[test]
     fn arguments_are_parsed_strictly() {
         let a = |s: &[&str]| -> Vec<String> { s.iter().map(|x| (*x).to_owned()).collect() };
