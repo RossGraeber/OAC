@@ -67,6 +67,7 @@ is never Epic A planning-package work).
 | `area:transport-zenoh` | `oac-zenoh` |
 | `stage:6-release` | `oac-release` |
 | `area:agent-skills` | `oac-authoring-skills` |
+| Running the two-host LAN leg (#64 steps 1-7, #63 step 8) on real hosts; no label, the operator asks | `oac-lan-leg`, plus `oac-gates` for the result |
 
 `epic`, `go-no-go`, `risk:high`, and `blocked-external` are modifiers, not routing keys —
 they ride alongside one of the labels above; route on that label instead.

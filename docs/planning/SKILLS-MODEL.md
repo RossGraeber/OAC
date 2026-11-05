@@ -89,6 +89,12 @@ visibly invalidates it rather than quietly misleading the next agent.
 `oac-authoring-skills`: how to write and maintain the skills above — the tier budget, the
 description-writing rules, when to promote content to a reference file.
 
+### Tier 2e — operator runbook (1)
+
+`oac-lan-leg`: the operator-invoked runbook for the two-host LAN leg (#64 steps 1-7, #63
+step 8), with its driver (`transports/zenoh/examples/lan_leg.rs`) and wrapper
+(`tools/lan-leg/`). Loaded when an operator asks for that leg; it carries no label.
+
 ## Routing: labels are the trigger
 
 The backlog labels double as the routing key, so an agent does not have to guess what to

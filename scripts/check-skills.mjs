@@ -22,7 +22,7 @@ const CAPS = {
   bodyLines: 200,
 };
 
-// The fourteen skills of the tree, per SKILLS-MODEL.md "The skill tree".
+// The sixteen skills of the tree, per SKILLS-MODEL.md "The skill tree".
 const EXPECTED = [
   'oac',
   'oac-boundaries',
@@ -39,6 +39,7 @@ const EXPECTED = [
   'oac-mcp',
   'oac-zenoh',
   'oac-authoring-skills',
+  'oac-lan-leg',
 ];
 
 const problems = [];

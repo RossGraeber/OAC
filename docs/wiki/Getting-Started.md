@@ -39,6 +39,11 @@ node scripts/check-skills.mjs
 node scripts/check-herdr-containment.mjs
 ```
 
+The two-host LAN leg (G3 steps on real hosts) is operator-run and opt-in; it is not part
+of `local-ci`. Ask a Claude or Codex session on each host to load the `oac-lan-leg` skill
+([skill](https://github.com/RossGraeber/OAC/blob/main/.claude/skills/oac-lan-leg/SKILL.md)),
+which drives `tools/lan-leg/`.
+
 Gate fixtures also have
 `node scripts/check-fixture-manifest.mjs`; their capture and review procedure lives
 in the [gate guide](https://github.com/RossGraeber/OAC/blob/main/docs/planning/gates/README.md).
