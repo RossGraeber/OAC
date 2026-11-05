@@ -3,13 +3,15 @@
 //! The `oac` verbs that exist so far (G9, #70), and their dispatch.
 //!
 //! Only `hook` is here. `start`, `mcp-shim`, `stop`, `status`, `sessions` and `doctor` run a process of their own
-//! and are dispatched by the binary (`crate::commands`). The dispatch takes its streams and the way
+//! and are dispatched by the binary (`crate::commands`); so are `pair` and `unpair`
+//! (`crate::pair_verbs`). The dispatch takes its streams and the way
 //! to reach the daemon as arguments, so a test drives it with in-memory ones and the binary
 //! passes the process's own.
 
 use std::io::{self, Read, Write};
 
 use crate::hook;
+use crate::ipc::Scope;
 
 /// The exit codes of the `oac` verbs (G10, #71; `docs/planning/v0.1/08-cli-and-deployment.md`
 /// §5): 0 ok, 1 failed or timed out, 2 usage, 3 the daemon is not running (the verbs that
@@ -24,6 +26,25 @@ pub const EXIT_USAGE: i32 = 2;
 pub const EXIT_NOT_RUNNING: i32 = 3;
 /// The daemon is unreachable or incompatible: foreign, busy, or another version.
 pub const EXIT_UNREACHABLE: i32 = 4;
+
+/// The user's scope, with the namespace in use noted on `diagnostics` when it is not the
+/// ordinary one (it is a test-isolation namespace; see `Scope::for_user_in`). Shared by the
+/// verbs that talk to the daemon (`crate::commands`, `crate::pair_verbs`), so that the
+/// client path of `oac pair` needs nothing from `commands`.
+///
+/// # Errors
+///
+/// As [`Scope::for_user`].
+pub fn user_scope(who: &str, diagnostics: &mut dyn Write) -> io::Result<Scope> {
+    let scope = Scope::for_user()?;
+    if let Some(namespace) = scope.namespace() {
+        let _ = writeln!(
+            diagnostics,
+            "oac {who}: using the test namespace {namespace:?}"
+        );
+    }
+    Ok(scope)
+}
 
 /// The streams of one `oac` invocation.
 pub struct Streams<'a> {

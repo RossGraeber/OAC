@@ -3,14 +3,14 @@
 //! The `oac` binary.
 //!
 //! `oac start`, `oac mcp-shim` and `oac hook` (G9, #70) `oac stop`, `oac status`, `oac sessions` and `oac doctor`
-//! (G10, #71). Every verb takes `--json` (G10, slice 7; lead decision 2026-10-20). This crate builds the adapters and the transport and hands them to the daemon,
+//! (G10, #71), `oac pair` and `oac unpair` (#437). Every verb takes `--json` (G10, slice 7; lead decision 2026-10-20). This crate builds the adapters and the transport and hands them to the daemon,
 //! which hands them to the core; it never invokes an adapter or transport contract operation
 //! itself (`docs/planning/v0.1/07-repository-and-dependencies.md` section 3).
 
 use std::io::{self, Write};
 
-use oac_cli::commands;
 use oac_cli::verbs::{Streams, dispatch};
+use oac_cli::{commands, pair_verbs};
 
 fn main() {
     let args: Vec<String> = std::env::args_os()
@@ -26,6 +26,8 @@ fn main() {
         Some("status") => std::process::exit(commands::status(&args[1..])),
         Some("sessions") => std::process::exit(commands::sessions(&args[1..])),
         Some("doctor") => std::process::exit(commands::doctor(&args[1..])),
+        Some("pair") => std::process::exit(pair_verbs::pair(&args[1..])),
+        Some("unpair") => std::process::exit(pair_verbs::unpair(&args[1..])),
         _ => {}
     }
     // `oac hook --json` changes the form of the hook's diagnostics on standard error and

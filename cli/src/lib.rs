@@ -22,6 +22,8 @@
 //!   pairing stores (#437).
 //! - [`device_pairing`]: the control ops that pair two devices and remove a paired key, and the
 //!   daemon's pairing state machine (#437).
+//! - [`pair_verbs`]: `oac pair` and `oac unpair`, the operator's end of those ops; the client
+//!   path, which holds no key (#437).
 //! - [`hook`]: the `oac hook` handler that carries a Claude Code `SessionStart` input to the
 //!   daemon as a native signal (G9, #70; `spec/bindings/mcp.md` §8.1).
 //! - [`verbs`]: the verbs that exist so far and their dispatch.
@@ -43,6 +45,7 @@ pub mod hook;
 pub mod ipc;
 pub mod keystore;
 pub mod logfile;
+pub mod pair_verbs;
 pub mod peer;
 mod private_file;
 pub mod relay;
